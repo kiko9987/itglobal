@@ -835,7 +835,7 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
             lines.append(f'공사 총액: {int(quote_amount):,}원 (VAT 별도)')
     memo = (row.get('memo') or '').strip()
     if memo:
-        lines.append(f"{'구매 요청사항' if row.get('form') == FORM_SUPPLY else '비고'}: {memo}")
+        lines.append(f"{'구매 요청사항' if row.get('form') == FORM_SUPPLY else '비고 (특이사항)'}: {memo}")
     foot = [CARD_SEP, f"요청: {initial(row.get('requester_name'))} {_fmt_when(row.get('created_at'))}",
             f'결재: {step}']
     rv = last_revise(step_rows) if st == REVISE else None
@@ -1409,10 +1409,12 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
         {'type': 'input', 'block_id': 'cost', 'label': {'type': 'plain_text', 'text': '원가 분류'},
          'element': {'type': 'static_select', 'action_id': 'cost', 'options': _opts(COST_CATEGORIES),
                      'placeholder': {'type': 'plain_text', 'text': '원가 분류'}}},
-        {'type': 'input', 'block_id': 'content', 'optional': bool(inv),
+        # 계산서를 골라도 필수(11-09 KiKO) — 최종 승인(JW·YG)이 '왜 나가는 돈인지' 보고 판단한다
+        {'type': 'input', 'block_id': 'content',
          'label': {'type': 'plain_text', 'text': '내용'},
          'element': {'type': 'plain_text_input', 'action_id': 'content', 'max_length': 300,
-                     'placeholder': {'type': 'plain_text', 'text': '예: FCU 교체 부품 구매'}}},
+                     'placeholder': {'type': 'plain_text', 'text': '예: FCU 교체 부품 구매'}},
+         'hint': {'type': 'plain_text', 'text': '무엇을 왜 사는지 적어 주세요. 최종 승인할 때 이 내용을 봐요.'}},
     ]
     if not inv:   # 계산서를 고르면 거래처·금액·G/R 은 그 글 값 — 칸을 숨긴다
         p_el = {'type': 'external_select', 'action_id': A_PARTNER, 'min_query_length': 0,
@@ -1447,7 +1449,7 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
     p = prefill or {}
     blocks += transfer_input_blocks(payee, urgency=p.get('urgency') or '일반', sfx=f'_{pv}' if pv else '')
     blocks.append({'type': 'input', 'block_id': 'memo', 'optional': True,
-                   'label': {'type': 'plain_text', 'text': '비고'},
+                   'label': {'type': 'plain_text', 'text': '비고 (특이사항)'},
                    'element': {'type': 'plain_text_input', 'action_id': 'memo', 'multiline': True,
                                'max_length': 1000}})   # 길면 카드가 잘려 결재 줄이 안 보였다(11-06 검수)
     blocks.append(forms.attach_block('세금계산서·견적서 등'))
@@ -1511,6 +1513,8 @@ def read_new_request(view: dict) -> Dict:
 def complete_new_request(f: Dict) -> Dict[str, str]:
     """새 요청 값 보완(사업자 구분·기억한 계좌) + 오류 {block_id: 문구}. f 를 고친다."""
     errs = {}
+    if not (f.get('content') or '').strip():
+        errs['content'] = '무엇을 왜 사는지 적어 주세요.'
     if not f.get('project_code'):
         errs['project'] = '현장을 골라 주세요.'
     else:
