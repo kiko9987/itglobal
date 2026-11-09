@@ -208,6 +208,13 @@ def reconcile_project_cards() -> dict:
                         code, field_changes, editor_label=sys_label, latest_data=r)
                 except Exception as exc:
                     logger.warning(f'[RECONCILE] 경영지원 금액 DM 오류 ({code}): {exc}')
+            # 현장 주소·유입 구분 시트 직접 변경 → 경영지원(SB) 알림만 (2026-11-09, 이카운트 반영용)
+            try:
+                from dashboard.services.project_slack_notifier import notify_info_edit_to_settlement
+                notify_info_edit_to_settlement(
+                    code, field_changes, editor_label=sys_label, latest_data=r)
+            except Exception as exc:
+                logger.warning(f'[RECONCILE] 경영지원 정보 DM 오류 ({code}): {exc}')
             # notify 성공/실패와 무관하게 스냅샷 갱신 (반복 발송 방지)
             store_field_snapshot(rc, code, r, watch)
 

@@ -1426,6 +1426,15 @@ def update_project(project_code):
                 )
             except Exception as exc:
                 logger.warning(f"[BG/AMOUNT-DM] {final_project_code} 경영지원 알림 오류: {exc}")
+            # 2026-11-09: 현장 주소·유입 구분 변경 → 경영지원(SB) 알림만(승인 없음). 이카운트에 같이 넣는 값.
+            try:
+                from ..services.project_slack_notifier import notify_info_edit_to_settlement
+                notify_info_edit_to_settlement(
+                    final_project_code, field_changes,
+                    editor_email=_editor_email, latest_data=updated_project,
+                )
+            except Exception as exc:
+                logger.warning(f"[BG/INFO-DM] {final_project_code} 경영지원 알림 오류: {exc}")
             logger.info(f"[BG/DONE] {final_project_code} 알림 처리 완료")
 
         _th.Thread(target=_bg_notifications, daemon=True).start()
