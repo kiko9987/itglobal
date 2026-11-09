@@ -132,8 +132,12 @@ def _notify(client, uid: str, text: str) -> None:
 
 def _targets(row: dict) -> list:
     """지금 상태에서 처리할 사람 [(uid, 역할)]."""
-    if row['status'] == ea.PENDING:
-        return [(u, 'approver') for u in ea.approver_ids()]
+    if row['status'] == ea.PENDING:   # KiKO + JW·YG(KiKO 휴가일 수 있어 11-09) — 요청자 본인은 빼고
+        out = [(u, 'approver') for u in ea.approver_ids() if u != row.get('requester_id')]
+        if ea.needs_final(row.get('form')):
+            out += [(u, 'final') for u in ea.final_approver_ids()
+                    if u != row.get('requester_id') and u not in ea.approver_ids()]
+        return out
     if row['status'] == ea.FINAL:   # 최종 승인 — JW·YG 둘 다 받고 한 명만 누르면 된다(11-09)
         return [(u, 'final') for u in ea.final_approver_ids()]
     if row['status'] == ea.APPROVED:
@@ -232,7 +236,8 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '') -> Optional[
     w = ea.step2_word(row)
     if not ea.can_act(action, row, uid):
         return {
-            'approve': '승인은 승인자만 할 수 있어요.',
+            'approve': (f'승인은 {ea.first_names()}만 할 수 있어요.' if uid != row.get('requester_id')
+                        else '본인이 올린 결재는 본인이 승인할 수 없어요.'),
             'final': f'최종 승인은 {ea.final_names()}만 할 수 있어요.',
             'reject': '반려는 승인자만 할 수 있어요.',
             'transfer': f'{w} 완료는 경영지원 담당만 누를 수 있어요.',
@@ -249,17 +254,31 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '') -> Optional[
     ini, ex = ea.initial(name), ea.executor_label(name)   # 화면엔 이니셜, ② 는 '경영지원 (SB)'
     # 승인·반려·수정 요청·취소도 경영지원 명단이 누르면 '경영지원 (KiKO)'로 — 이체 완료 줄과 같은 모양(11-09 KiKO)
     who = ex if (uid in ea.approver_ids() or uid in ea.executor_ids()) else ini
-    if row.get('status') == ea.FINAL and uid in ea.final_approver_ids():   # 최종 승인 단계(JW·YG)는 이니셜만
+    if row.get('status') in (ea.PENDING, ea.FINAL) and uid in ea.final_approver_ids():   # 승인자(JW·YG)로 누른 건 이니셜만
         who = ini
     if action in ('approve', 'final'):
-        _thread_log(new, f'✅ {who} 승인' if action == 'approve' else f'✅ {ini} 최종 승인')
+        if action == 'final':
+            _thread_log(new, f'✅ {ini} 최종 승인')
+        elif any(s['step'] == 'final' and s['result'] == 'auto' and s['actor_id'] == uid for s in ea.steps(aid)):
+            _thread_log(new, f'✅ {who} 승인 (최종 승인 겸)')
+        else:
+            _thread_log(new, f'✅ {who} 승인')
+        if new['status'] == ea.FINAL:
+            # JW·YG 는 ① 때 받은 DM 이 최종 승인 버튼으로 바뀐다 — 새 DM 대신 그 DM 스레드에 한 줄(알림)
+            for r in ea.dm_refs(new):
+                if r['role'] == 'final':
+                    try:
+                        client.chat_postMessage(channel=r['ch'], thread_ts=r['ts'],
+                                                text=f'🔔 {who} 승인 — 이제 최종 승인 차례예요. 위 메시지에서 [최종 승인]이나 [반려]를 눌러 주세요.')
+                    except Exception as exc:
+                        logger.warning(f'{_LOG} 최종 승인 알림 실패 ({t} → {r["user"]}): {exc}')
         if any(s['step'] == 'resubmit' for s in ea.steps(aid)):
             # 수정해서 다시 올린 건 — 예전에 같은 역할 DM 을 받은 사람은 _dm_round 가 건너뛰니 다시 알린다(11-05 점검)
             have = {(r['user'], r['role']) for r in ea.dm_refs(new)}
             link = _card_link(new)
             todo = f'{w}해 주세요.' if new['status'] == ea.APPROVED else '최종 승인해 주세요.'
             for u, role in _targets(new):
-                if (u, role) in have and role != 'notice':
+                if (u, role) in have and role != 'notice' and not (role == 'final' and new['status'] == ea.FINAL):
                     _notify(client, u, f'🔔 수정해서 다시 올라온 {t}이 승인됐어요. {todo}'
                             + (f' <{link}|카드 보기>' if link else ''))
         _dm_round(client, new)

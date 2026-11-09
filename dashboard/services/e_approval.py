@@ -123,13 +123,20 @@ def needs_final(form: str) -> bool:
     return form not in TASK_FORMS and os.getenv('EAPPROVAL_FINAL_ENABLED', 'true').strip().lower() != 'false'
 
 
-def after_first(form: str, requester_id: str) -> Tuple[str, bool]:
-    """① 승인 다음 상태와 최종 승인 자동 통과 여부 — JW·YG 본인 요청이면 최종 승인은 자동(본인이 이유를 안다)."""
+def after_first(form: str, requester_id: str, actor_id: str = '') -> Tuple[str, bool]:
+    """① 승인 다음 상태와 최종 승인 자동 통과 여부 — JW·YG 본인 요청이면 최종 승인은 자동(본인이 이유를 안다).
+    JW·YG 가 ① 을 직접 누르면(KiKO 휴가 등, 11-09) 최종 승인까지 한 번에."""
     if not needs_final(form):
         return APPROVED, False
-    if requester_id in final_approver_ids():
+    if requester_id in final_approver_ids() or actor_id in final_approver_ids():
         return APPROVED, True
     return FINAL, False
+
+
+def first_names() -> str:
+    """① 승인할 수 있는 사람 — KiKO + JW·YG(KiKO 휴가일 수 있어 11-09)."""
+    return '·'.join(['KiKO'] * bool(approver_ids()) + [_N_LABELS.get(u, '최종 승인자') for u in final_approver_ids()
+                                                       if u not in approver_ids()])
 
 
 def executor_dm_ids(row: Optional[dict] = None) -> tuple:
@@ -359,9 +366,10 @@ def create(form: str, requester_id: str, requester_name: str, fields: Dict) -> d
         return _row(conn, aid)
 
 
-def _auto_final_step(conn, aid: int, actor_id: str, actor_name: str, now: str) -> None:
+def _auto_final_step(conn, aid: int, actor_id: str, actor_name: str, now: str,
+                     reason: str = '요청자가 최종 승인자') -> None:
     conn.execute('INSERT INTO approval_steps (approval_id, step, actor_id, actor_name, result, reason, at) '
-                 'VALUES (?,?,?,?,?,?,?)', (aid, 'final', actor_id, actor_name, 'auto', '요청자가 최종 승인자', now))
+                 'VALUES (?,?,?,?,?,?,?)', (aid, 'final', actor_id, actor_name, 'auto', reason, now))
 
 
 _TRANSITIONS = {
@@ -376,15 +384,15 @@ _TRANSITIONS = {
 
 
 def can_act(action: str, row: dict, user_id: str) -> bool:
-    """권한 — 승인=KiKO, 최종 승인=JW·YG, 반려=승인자(최종 승인 대기 중엔 JW·YG, 이체 대기 중엔 이체 담당도),
-    이체=이체 담당, 취소=요청자·승인자."""
+    """권한 — 승인=KiKO·JW·YG(본인 요청은 본인이 못 누름), 최종 승인=JW·YG, 반려=승인자(승인·최종 승인 대기 중엔
+    JW·YG, 이체 대기 중엔 이체 담당도), 이체=이체 담당, 취소=요청자·승인자."""
     if action == 'approve':
-        return user_id in approver_ids()
+        return user_id in approver_ids() or (user_id in final_approver_ids() and user_id != row.get('requester_id'))
     if action == 'final':
         return user_id in final_approver_ids()
     if action == 'reject':
         st = row.get('status')
-        return (user_id in approver_ids() or (st == FINAL and user_id in final_approver_ids())
+        return (user_id in approver_ids() or (st in (PENDING, FINAL) and user_id in final_approver_ids())
                 or (st == APPROVED and user_id in executor_ids()))
     if action == 'transfer':
         return user_id in executor_ids()
@@ -492,7 +500,7 @@ def transition(aid: int, action: str, actor_id: str, actor_name: str, reason: st
             old = _row(conn, aid)
             if not old:
                 return None
-            nxt, auto_final = after_first(old['form'], old['requester_id'])
+            nxt, auto_final = after_first(old['form'], old['requester_id'], actor_id)
         elif action == 'reject':   # 최종 승인 대기 중 반려는 '최종 승인' 칸에 남긴다(① 승인 기록은 그대로)
             old = _row(conn, aid)
             if old and old['status'] == FINAL:
@@ -505,9 +513,10 @@ def transition(aid: int, action: str, actor_id: str, actor_name: str, reason: st
             return None
         conn.execute('INSERT INTO approval_steps (approval_id, step, actor_id, actor_name, result, reason, at) '
                      'VALUES (?,?,?,?,?,?,?)', (aid, step, actor_id, actor_name, result, reason or None, now))
-        if auto_final:
-            old = _row(conn, aid)
+        if auto_final and old['requester_id'] in final_approver_ids():
             _auto_final_step(conn, aid, old['requester_id'], old['requester_name'], now)
+        elif auto_final:   # JW·YG 가 ① 을 눌러 최종 승인까지
+            _auto_final_step(conn, aid, actor_id, actor_name, now, '최종 승인자가 승인')
         conn.commit()
         return _row(conn, aid)
 
@@ -714,18 +723,25 @@ def step_line(row: dict, step_rows: List[dict], approver_name: str = '고광일'
         return '결재: ⏳ 경영지원 처리' if st == APPROVED else '결재: ⏸ 경영지원 처리'
     a = by.get('approve')
     ap = executor_label(approver_name)   # ① 도 '경영지원 (KiKO)' — ② '경영지원 (SB)'와 같은 모양(11-09 KiKO)
+    if needs_final(row.get('form')):   # ① 은 KiKO·JW·YG 누구나(11-09)
+        ap = first_names()
+
+    def _who(s):   # JW·YG 는 경영지원 명단에도 있지만 승인자로 누른 거라 이니셜만
+        return initial(s['actor_name']) if s.get('actor_id') in final_approver_ids() else executor_label(s['actor_name'])
+    f = by.get('final')
     if a and a['result'] == 'auto':
         first = '✅ 승인 (요청자가 승인자)'
     elif a and a['result'] == 'approved':
-        first = f"✅ {executor_label(a['actor_name'])} 승인 {_fmt_when(a['at'])}"
+        first = f"✅ {_who(a)} 승인 {_fmt_when(a['at'])}"
     elif a and a['result'] == 'rejected':
-        first = f"❌ {executor_label(a['actor_name'])} 반려 {_fmt_when(a['at'])}"
+        first = f"❌ {_who(a)} 반려 {_fmt_when(a['at'])}"
     else:
         first = f'⏳ {ap} 승인' if st == PENDING else f'⏸ {ap} 승인'
     # 최종 승인(11-09) — 기능을 켜기 전에 이미 이체 대기·완료로 넘어간 결재는 이 칸 없이 예전 모양
-    f = by.get('final')
     mid = ''
-    if f and f['result'] == 'auto':
+    if f and f['result'] == 'auto' and a and f.get('actor_id') == a.get('actor_id') and a['result'] == 'approved':
+        first += ' (최종 승인 겸)'   # JW·YG 가 ① 을 눌러 한 번에
+    elif f and f['result'] == 'auto':
         mid = '✅ 최종 승인 (요청자 본인)'
     elif f and f['result'] == 'approved':
         mid = f"✅ {initial(f['actor_name'])} 최종 승인 {_fmt_when(f['at'])}"
@@ -896,7 +912,7 @@ def buttons(row: dict, role: str = 'all') -> List[dict]:
     st, aid = row.get('status'), row['id']
     amt = f"{int(row.get('amount') or 0):,}원"
     out = []
-    if st == PENDING and role in ('all', 'approver'):
+    if st == PENDING and role in ('all', 'approver', 'final'):   # JW·YG 도 ① 을 누를 수 있다(11-09)
         out += [_btn('승인', A_APPROVE, aid, 'primary'), _btn('반려', A_REJECT, aid, 'danger')]
     if st == FINAL and role in ('all', 'final'):
         out += [_btn('최종 승인', A_FINAL, aid, 'primary'), _btn('반려', A_REJECT, aid, 'danger')]
@@ -973,6 +989,10 @@ def dm_intro(row: dict, role: str) -> str:
     w = step2_word(row)
     if role == 'approver' and st == PENDING:
         return f"🔔 {initial(row.get('requester_name'))}님이 {title(row)} 승인을 요청했어요. 카드에서 [승인]이나 [반려]를 눌러 주세요."
+    if role == 'final' and st == PENDING:   # KiKO 휴가일 수 있어 JW·YG 도 처음부터 받는다(11-09)
+        return (f"🔔 {initial(row.get('requester_name'))}님이 {title(row)} 승인을 요청했어요. "
+                f"{first_names()} 중 한 분이 [승인]이나 [반려]를 누르면 돼요. "
+                '여기서 승인하면 최종 승인까지 한 번에 끝나요.')
     if role == 'final' and st == FINAL:
         return (f"🔔 {initial(row.get('requester_name'))}님이 올린 {title(row)} — 승인이 끝나 최종 승인 차례예요. "
                 f"내용·이유를 확인하고 카드에서 [최종 승인]이나 [반려]를 눌러 주세요. ({final_names()} 중 한 분만 누르면 돼요)")
