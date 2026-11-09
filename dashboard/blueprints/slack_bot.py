@@ -5154,7 +5154,7 @@ def _open_pinv_modal(client, body) -> None:
     from dashboard.services import purchase_invoice_assign as pinv
     v = json.loads(body['actions'][0]['value'])
     meta = {'ch': v['ch'], 'ts': v['ts'], 'click_ts': body['message']['ts'], **{
-        k: v.get(k) for k in ('d', 'g', 'a', 'p')}}
+        k: v.get(k) for k in ('d', 'g', 'a', 'p', 'c') if k != 'c' or v.get('c')}}
     resp = client.views_open(trigger_id=body['trigger_id'], view={
         'type': 'modal', 'callback_id': pinv.CALLBACK_SUBMIT,
         'title': {'type': 'plain_text', 'text': '현장 지정'},
@@ -5205,9 +5205,33 @@ def _pinv_modal_for(meta: dict, transfer: bool) -> dict:
         if not current:  # 먼저 올린 자금집행의 현장·분류로 미리 채움
             base = {'project_code': candidate['project_code'], 'cost_category': candidate['cost_category'],
                     'memo': ''}
-    init_opt = _pinv_project_option((base or {}).get('project_code', ''))
+    code = (base or {}).get('project_code', '')
+    if not code and parsed.get('code') and _pinv_project_rec(parsed['code']):
+        code = parsed['code']   # 계산서 글에 적힌 공사 코드로 미리 고름(11-09 #6)
+    init_opt = _pinv_project_option(code)
     return pinv.modal_view(parsed, meta, base, init_opt, transfer=transfer, payee=payee,
                            approval=approval, candidate=candidate)
+
+
+def _pinv_code_mismatch_once(view, code: str) -> str:
+    """계산서 글에 적힌 공사 코드와 다른 현장을 고르면 처음 한 번만 막고 알린다(11-09 #6 G4160→G4155).
+    같은 창에서 [지정]을 다시 누르면 통과 — 글의 코드가 틀린 경우도 있어서."""
+    from dashboard.services import purchase_invoice_assign as pinv
+    try:
+        meta = json.loads(view.get('private_metadata') or '{}')
+        want = pinv.parsed_from_value(meta).get('code') or ''
+        if not (want and code) or want == code.upper():
+            return ''
+        from dashboard.utils.redis_client import get_redis_client
+        r = get_redis_client().redis
+        key = f"pinv_code_warn:{view.get('id', '')}:{code}"
+        if r.get(key):
+            return ''
+        r.set(key, '1', ex=3600)
+        return f'계산서 글에는 {want}로 적혀 있어요. 이 현장이 맞으면 [지정]을 한 번 더 눌러 주세요.'
+    except Exception as exc:
+        logger.warning(f'[SLACK/현장지정] 코드 대조 실패(무시): {exc}')
+        return ''
 
 
 def _validate_pinv_submit(view) -> dict:
@@ -5220,6 +5244,9 @@ def _validate_pinv_submit(view) -> dict:
     _ce = pinv.cost_project_error(_cost, _code)
     if _ce:   # 공통비 분류는 공통비 현장에만(11-06)
         return {'cost': _ce}
+    _warn = _pinv_code_mismatch_once(view, _code)
+    if _warn:
+        return {'project': _warn}
     if not pinv.transfer_requested(vals) or 'payee_name' not in vals:
         return {}
 
@@ -5287,6 +5314,8 @@ def _process_pinv_submit(client, body, view) -> None:
             extra = ('⚠️ 현장은 지정됐지만 자금집행 결재는 올라가지 않았어요. '
                      '[✏️ 다시 지정]에서 「이체 필요」를 다시 체크해 주세요.')
 
+    if parsed.get('code') and code and parsed['code'] != code.upper():   # 경영지원이 보고 알 수 있게(11-09)
+        extra = (extra + '\n' if extra else '') + f"⚠️ 계산서 글에는 {parsed['code']}로 적혀 있었어요 — 다른 현장으로 지정"
     _post_pinv_result(client, ch, ts, click_ts, parsed, row, line, code, cost, name, extra)
 
 

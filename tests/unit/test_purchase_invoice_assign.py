@@ -38,6 +38,39 @@ def test_parse_invoice_post_rejects(text):
     assert pinv.parse_invoice_post(text) is None
 
 
+def test_parse_code_in_post():
+    # 글에 공사 코드를 같이 쓰면 거래처에 섞여 들어갔다(11-09 #6 '서울크레인 G4160-JW')
+    p = pinv.parse_invoice_post('11/09 G 1,100,000원 서울크레인 G4160-JW 회신 바랍니다.')
+    assert p['partner'] == '서울크레인' and p['code'] == 'G4160-JW'
+    assert pinv.split_code('r4003-th 대성크레인') == ('대성크레인', 'R4003-TH')
+    assert pinv.split_code('강원포장') == ('강원포장', '') and 'code' not in pinv.parse_invoice_post('10/29 G 533,500원 강원포장')
+    # 버튼 값에 코드 'c' — 예전 버튼(거래처에 코드 섞임)도 떼어 읽는다
+    v = json.loads(pinv.button_value('C1', '1.0', p))
+    assert v['c'] == 'G4160-JW' and pinv.parsed_from_value(v)['code'] == 'G4160-JW'
+    old = pinv.parsed_from_value({'d': '11/09', 'g': 'G', 'a': 1100000, 'p': '서울크레인 G4160-JW'})
+    assert old['partner'] == '서울크레인' and old['code'] == 'G4160-JW'
+    view = pinv.modal_view(p, {})
+    assert 'G4160-JW' in json.dumps(view['blocks'], ensure_ascii=False)
+
+
+def test_code_mismatch_warns_once(monkeypatch):
+    from dashboard.blueprints import slack_bot as sb
+
+    class _R:
+        def __init__(self): self.d = {}
+        def get(self, k): return self.d.get(k)
+        def set(self, k, v, ex=None): self.d[k] = v
+
+    class _C:
+        redis = _R()
+    import dashboard.utils.redis_client as rc
+    monkeypatch.setattr(rc, 'get_redis_client', lambda: _C)
+    view = {'id': 'V1', 'private_metadata': json.dumps({'d': '11/09', 'g': 'G', 'a': 1, 'p': '서울크레인', 'c': 'G4160-JW'})}
+    assert sb._pinv_code_mismatch_once(view, 'G4160-JW') == ''          # 같으면 통과
+    assert 'G4160-JW' in sb._pinv_code_mismatch_once(view, 'G4155-JW')  # 처음 다르면 막음
+    assert sb._pinv_code_mismatch_once(view, 'G4155-JW') == ''          # 한 번 더 누르면 통과
+
+
 def test_post_summary():
     p = pinv.parse_invoice_post('10/29 G 533,500원 강원포장 회신 바랍니다.')
     assert pinv.post_summary(p) == '10/29 G 533,500원 강원포장'
