@@ -398,11 +398,15 @@ def test_final_reject_and_self_requests(se, monkeypatch):
     # KiKO 본인 요청 → ① 자동, 최종 승인 대기
     k = ea.create(ea.FORM_FUND, KIKO, '고광일', dict(FIELDS))
     assert k['status'] == ea.FINAL
-    # JW 본인 요청 → ① KiKO 승인 뒤 최종 승인은 자동(본인이 이유를 앎)
+    # JW 본인 요청 → ① 없이 바로 최종 승인(11-09 KiKO) — 이체 대기
     j = ea.create(ea.FORM_FUND, JW, '박정우', dict(FIELDS))
-    assert j['status'] == ea.PENDING
-    j = ea.transition(j['id'], 'approve', KIKO, '고광일')
-    assert j['status'] == ea.APPROVED and '최종 승인 (요청자 본인)' in ea.step_line(j, ea.steps(j['id']))
+    assert j['status'] == ea.APPROVED
+    line = ea.step_line(j, ea.steps(j['id']))
+    assert '✅ 최종 승인 (JW 본인 요청)' in line and '⏳ 이체' in line and 'KiKO' not in line
+    # 최종 승인을 끄면 JW 본인 요청도 예전처럼 ① 승인 대기
+    monkeypatch.setenv('EAPPROVAL_FINAL_ENABLED', 'false')
+    assert ea.create(ea.FORM_FUND, JW, '박정우', dict(FIELDS))['status'] == ea.PENDING
+    monkeypatch.setenv('EAPPROVAL_FINAL_ENABLED', 'true')
     # 업무요청형은 그대로(승인 없이 처리 대기)
     from dashboard.services import e_approval_forms as forms
     assert not ea.needs_final(forms.FORM_CONTRACT) and ea.needs_final(forms.FORM_EXPENSE)
@@ -435,11 +439,10 @@ def test_first_step_kiko_or_jw_yg(se, monkeypatch):
     assert ea.A_FINAL in [b['action_id'] for b in ea.buttons(m, 'final')]
     pings = [kw for kw in se._fake.of('chat_postMessage') if '최종 승인 차례' in kw.get('text', '')]
     assert {kw.get('thread_ts') for kw in pings} == {r['ts'] for r in finals}
-    # JW 본인 요청 — JW 는 ① 못 누름, YG·KiKO 는 가능(DM 도 JW 빼고)
+    # JW 본인 요청 — 바로 이체 대기, DM 은 이체 담당에게만
     j = se.process_new_submit(JW, dict(FIELDS))
-    assert JW not in {r['user'] for r in ea.dm_refs(j)}
-    assert se.apply_action('approve', j['id'], JW) == '본인이 올린 결재는 본인이 승인할 수 없어요.'
-    assert se.apply_action('approve', j['id'], YG) is None and ea.get(j['id'])['status'] == ea.APPROVED
+    assert j['status'] == ea.APPROVED
+    assert {r['role'] for r in ea.dm_refs(j)} <= {'executor', 'notice'}
     # ① 단계 반려도 JW·YG 가능
     r = se.process_new_submit(MGR, dict(FIELDS))
     assert se.apply_action('reject', r['id'], YG, '이유 없음') is None
