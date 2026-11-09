@@ -8,6 +8,15 @@ from dashboard.services import e_approval as ea
 KIKO, SB, JW, YG, MGR = 'U04UL2ZLJAX', 'U0BHC2JV7U5', 'U051ENK8AAY', 'U050XNG5VBR', 'UMGR'
 
 
+def test_parse_amount_sheet_float():
+    # 시트 '총액 1' 이 420000.0 으로 오면 숫자만 남겨 4200000(10배)이 되던 것(11-09 R4251-TH)
+    assert ea.parse_amount(420000.0) == 420000
+    assert ea.parse_amount('420000.0') == 420000
+    assert ea.parse_amount('₩420,000.00원') == 420000
+    assert ea.parse_amount('533,500원') == 533500
+    assert ea.parse_amount(None) == 0 and ea.parse_amount('') == 0 and ea.parse_amount(True) == 0
+
+
 @pytest.fixture
 def tmp_db(tmp_path, monkeypatch):
     from dashboard.utils.user_database import UserDatabase

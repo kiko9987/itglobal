@@ -506,8 +506,14 @@ def remember_personal(kind: str, uid: str, name: str, bank: str = '', account: s
 
 # ── 입력 검사 ─────────────────────────────────────────────────────────
 def parse_amount(s) -> int:
-    """'533,500원' → 533500. 숫자가 없으면 0."""
-    digits = re.sub(r'[^\d]', '', str(s or ''))
+    """'533,500원' → 533500. 숫자가 없으면 0.
+    시트 값은 420000.0 처럼 소수로 오기도 한다 — 숫자만 남기면 4200000(10배)이 됐다(11-09 R4251-TH)."""
+    if isinstance(s, bool):
+        return 0
+    if isinstance(s, (int, float)):
+        return int(round(s))
+    s = re.sub(r'\.\d*\s*(원)?\s*$', '', str(s or '').strip())   # '420,000.00원' 의 소수 부분 버림
+    digits = re.sub(r'[^\d]', '', s)
     return int(digits) if digits else 0
 
 
