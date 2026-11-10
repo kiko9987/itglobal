@@ -20,9 +20,10 @@ groupware_bp = Blueprint('groupware', __name__)
 
 # ── 현장 세션 문지기 ───────────────────────────────────────────────────
 # 슬랙 링크로 들어온 현장·미화 직원(session.user.gw_field)은 아래 경로만. 나머지(기존 PM 화면·API)는 전부 막는다.
-_FIELD_PAGES = ('/hr/me', '/logout', '/login')
+_FIELD_PAGES = ('/hr/me', '/leave', '/logout', '/login')
 _FIELD_API = [
     (('GET',), re.compile(r'^/api/hr/people/\d+$')),     # 본인 카드(본인 여부는 화면 쪽에서 다시 확인)
+    (('GET',), re.compile(r'^/api/leave/me$')),          # 내 휴가
     (('POST',), re.compile(r'^/api/auth/ping$')),       # 세션 연장
 ]
 
@@ -92,7 +93,8 @@ def inject_groupware_layout():
         from dashboard.services import hr
         return {
             'gw_layout': True,
-            'gw_nav': gw.build_nav(request.path, user.get('permission_level', ''), hr.is_hr_admin(email)),
+            'gw_nav': gw.build_nav(request.path, user.get('permission_level', ''), hr.is_hr_admin(email),
+                                   leave_all=hr.can_view_all_leave(email)),
         }
     except Exception as e:
         logger.warning(f'[GW] 틀 고르기 실패 → 기존 틀: {e}')

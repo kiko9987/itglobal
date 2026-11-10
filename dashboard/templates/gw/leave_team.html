@@ -1,0 +1,56 @@
+{% extends "modern_base.html" %}
+
+{% block title %}휴가 전사 현황 - IT글로벌 그룹웨어{% endblock %}
+
+{% block additional_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/gw-pages.css') }}?v={{ cache_buster() }}">
+{% endblock %}
+
+{% block content %}
+<div class="gw-page">
+  <div class="gw-page-head">
+    <h1 class="gw-page-title">휴가 전사 현황</h1>
+    <div class="gw-seg" role="tablist" aria-label="보기">
+      <button type="button" role="tab" class="gw-seg-btn" id="lvTabCal" aria-selected="true" aria-controls="lvCalPane">달력</button>
+      <button type="button" role="tab" class="gw-seg-btn" id="lvTabList" aria-selected="false" aria-controls="lvListPane">직원별</button>
+    </div>
+  </div>
+
+  <section id="lvCalPane" role="tabpanel" aria-labelledby="lvTabCal">
+    <div class="gw-cal-head">
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="lvPrev" aria-label="이전 달"><i class="fas fa-chevron-left" aria-hidden="true"></i></button>
+      <h2 class="gw-cal-title" id="lvMonthTitle"></h2>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="lvNext" aria-label="다음 달"><i class="fas fa-chevron-right" aria-hidden="true"></i></button>
+      <button type="button" class="btn btn-sm btn-link" id="lvToday">이번 달</button>
+      <span class="gw-cal-legend"><span class="gw-chip-ok">승인</span><span class="gw-chip-wait">승인 대기</span></span>
+    </div>
+    <div class="gw-cal" id="lvCal" aria-live="polite"></div>
+  </section>
+
+  <section id="lvListPane" role="tabpanel" aria-labelledby="lvTabList" hidden>
+    <div class="gw-panel gw-table-wrap">
+      <table class="gw-table gw-table-click" id="lvTeamTable">
+        <thead><tr><th>이름</th><th>부서</th><th>입사일</th><th class="n">남은 연차</th><th class="n">올해 쓴 연차</th><th class="n">병가</th><th class="n">대기</th><th>다음 휴가</th></tr></thead>
+        <tbody><tr><td colspan="8" class="gw-empty">불러오는 중…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<div class="modal fade" id="lvPersonModal" tabindex="-1" aria-labelledby="lvPersonTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="lvPersonTitle">휴가</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
+      </div>
+      <div class="modal-body" id="lvPersonBody"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block additional_js %}
+<script>window.GW_LEAVE = { mode: 'team' };</script>
+<script src="{{ url_for('static', filename='js/gw-leave.js') }}?v={{ cache_buster() }}" defer></script>
+{% endblock %}

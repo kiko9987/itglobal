@@ -153,8 +153,9 @@ def test_field_session_ends_when_resigned(client):
 
 def test_nav_for_field():
     nav = gw.build_nav('/hr/me', 'field', field=True)
-    assert [a['label'] for a in nav['areas']] == ['인사']
+    assert [a['label'] for a in nav['areas']] == ['휴가', '인사']
     assert [i['label'] for i in nav['items']] == ['내 정보']
+    assert [i['label'] for i in gw.build_nav('/leave', 'field', field=True)['items']] == ['내 휴가']
 
 
 def test_slack_home_button_only_for_field_pilot(db, monkeypatch):

@@ -180,3 +180,73 @@ def api_set_roles():
     gw.set_setting(key, json.dumps(emails), _me())
     logger.info(f'[GW] {key} = {emails} by {_me()}')
     return jsonify({'success': True, key: emails})
+
+
+# ── 휴가(조회) ────────────────────────────────────────────────────────
+# 신청·승인·취소는 슬랙 휴가 봇. 여기서는 보기만.
+def _leave_all() -> bool:
+    """전 직원 휴가를 볼 수 있나 — 인사카드 관리자·휴가 현황 열람자. 현장 세션은 아님."""
+    return not _is_field() and hr.can_view_all_leave(_me())
+
+
+@hr_bp.route('/leave')
+@gw_page
+def page_leave_me():
+    p = _my_person()
+    return render_template('gw/leave_me.html', person_id=p['id'] if p else None)
+
+
+@hr_bp.route('/leave/team')
+@gw_page
+def page_leave_team():
+    if not _leave_all():
+        return redirect('/leave')
+    return render_template('gw/leave_team.html')
+
+
+@hr_bp.route('/api/leave/me', methods=['GET'])
+@gw_page
+def api_leave_me():
+    from dashboard.services import leave_view
+    p = _my_person()
+    if not p:
+        return jsonify({'success': False, 'message': '인사카드가 연결되지 않았습니다.'}), 404
+    return jsonify({'success': True, 'leave': leave_view.summary(p)})
+
+
+@hr_bp.route('/api/leave/person/<int:pid>', methods=['GET'])
+@gw_page
+def api_leave_person(pid):
+    from dashboard.services import leave_view
+    mine = _my_person()
+    if not _leave_all() and not (mine and mine['id'] == pid):
+        return jsonify({'success': False, 'message': '본인 휴가만 볼 수 있습니다.'}), 403
+    p = hr.get_person(pid)
+    if not p:
+        return jsonify({'success': False, 'message': '없는 구성원입니다.'}), 404
+    return jsonify({'success': True, 'leave': leave_view.summary(p)})
+
+
+@hr_bp.route('/api/leave/team', methods=['GET'])
+@gw_page
+def api_leave_team():
+    from dashboard.services import leave_view
+    if not _leave_all():
+        return jsonify({'success': False, 'message': '전 직원 휴가 현황은 볼 수 없는 계정입니다.'}), 403
+    return jsonify({'success': True, 'people': leave_view.team()})
+
+
+@hr_bp.route('/api/leave/calendar', methods=['GET'])
+@gw_page
+def api_leave_calendar():
+    from datetime import date as _date
+    from dashboard.services import leave_view
+    if not _leave_all():
+        return jsonify({'success': False, 'message': '전 직원 휴가 달력은 볼 수 없는 계정입니다.'}), 403
+    month = request.args.get('month') or _date.today().strftime('%Y-%m')
+    try:
+        y, m = (int(x) for x in month.split('-'))
+        _date(y, m, 1)
+    except (ValueError, TypeError):
+        return jsonify({'success': False, 'message': '달 형식은 YYYY-MM 입니다.'}), 400
+    return jsonify({'success': True, 'month': f'{y:04d}-{m:02d}', 'entries': leave_view.calendar(y, m)})

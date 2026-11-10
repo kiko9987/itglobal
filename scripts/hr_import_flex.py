@@ -152,6 +152,39 @@ def build_records(flex_dir: Path, leave_slack: dict):
     return records, skipped_appts
 
 
+def build_leave_history(flex_dir: Path):
+    """플렉스 '휴가 사용 내역' 시트 → 보관용 줄. 건 번호로 원본 JSON 에서 직원(플렉스 ID)을 찾는다(동명이인 구분)."""
+    import openpyxl
+    wb = openpyxl.load_workbook(flex_dir / '플렉스_요약_20261106.xlsx', read_only=True, data_only=True)
+    hist = _sheet(wb, '휴가 사용 내역')
+    flex_json = json.load(open(flex_dir / '원본' / 'flex_data_20261106.json', encoding='utf-8'))
+    owner = {}
+    for uid, v in (flex_json.get('users') or {}).items():
+        for x in ((v.get('timeOffUsesAll') or {}).get('timeOffUses') or []):
+            if x.get('userTimeOffRegisterEventId') is not None:
+                owner[str(x['userTimeOffRegisterEventId'])] = uid
+    rows, unmatched = [], 0
+    for h in hist:
+        eid = _s(h.get('플렉스 ID'))
+        if not eid:
+            continue
+        uid = owner.get(eid)
+        if not uid:
+            unmatched += 1
+        start = _d(h.get('시작'))
+        if not start:
+            continue
+        days = h.get('일수')
+        rows.append({
+            'flex_event_id': eid, 'person_flex_id': uid, 'name': _s(h.get('이름')) or '',
+            'type_label': _s(h.get('종류')), 'start': start, 'end': _d(h.get('끝')) or start,
+            'days': float(days) if isinstance(days, (int, float)) else None, 'unit': _s(h.get('단위')),
+            'status': _s(h.get('상태')), 'reason': _s(h.get('사유(메모)')), 'approval': _s(h.get('승인')),
+            'comment': _s(h.get('댓글')), 'requested_at': _s(h.get('신청 시각')),
+        })
+    return rows, unmatched
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--apply', action='store_true')
@@ -198,6 +231,11 @@ def main():
               f'{r["access"]:<6} {r["login_email"] or "(없음)"} / {"O" if r["slack_id"] else "-"} / '
               f'{"O" if r["ssn"] else "-"} / {len(r["_appts"])}')
 
+    history, unmatched = build_leave_history(Path(args.flex_dir))
+    from collections import Counter as _C
+    print(f'\n휴가 기록 {len(history)}건 (직원 못 찾음 {unmatched}건) — '
+          + ' · '.join(f'{k} {v}' for k, v in _C(h['status'] for h in history).most_common()))
+
     if not args.apply:
         print('\n미리 보기만 했습니다. 쓰려면 --apply')
         return
@@ -208,6 +246,18 @@ def main():
         appts = r.pop('_appts')
         result[hr.upsert_from_flex(r, appts)] += 1
     print(f'\n저장: 새로 {result["insert"]} · 고침 {result["update"]} · 그대로 {result["skip"]}')
+
+    # 휴가 기록 보관(인사카드 번호 연결)
+    from dashboard.services import leave_view
+    if args.db:
+        leave_view._db = lambda: d
+        leave_view._table_ready = False
+    with hr._db()._get_connection() as conn:
+        pid_by_flex = {r[0]: r[1] for r in conn.execute('SELECT flex_id, id FROM hr_people WHERE flex_id IS NOT NULL')}
+    for h in history:
+        h['person_id'] = pid_by_flex.get(h.pop('person_flex_id'))
+    n = leave_view.upsert_flex_history(history)
+    print(f'휴가 기록 보관: {n}건 (인사카드 연결 {sum(1 for h in history if h["person_id"])}건)')
 
 
 if __name__ == '__main__':
