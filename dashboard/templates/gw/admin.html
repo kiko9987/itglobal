@@ -3,7 +3,7 @@
 {% block title %}그룹웨어 설정 - IT글로벌 그룹웨어{% endblock %}
 
 {% block additional_css %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/gw-pages.css') }}?v={{ cache_buster() }}">
+<link rel="stylesheet" href="{{ gw_asset('css/gw-pages.css') }}">
 {% endblock %}
 
 {% block content %}
@@ -56,5 +56,5 @@
 {% endblock %}
 
 {% block additional_js %}
-<script src="{{ url_for('static', filename='js/gw-admin.js') }}?v={{ cache_buster() }}" defer></script>
+<script src="{{ gw_asset('js/gw-admin.js') }}" defer></script>
 {% endblock %}

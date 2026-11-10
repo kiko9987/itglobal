@@ -85,7 +85,7 @@
 
     {% if gw_layout %}
     <!-- 그룹웨어 새 틀(시범 명단만) — 이 파일은 새 틀일 때만 읽힘 -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/groupware-shell.css') }}?v={{ cache_buster() }}">
+    <link rel="stylesheet" href="{{ gw_asset('css/groupware-shell.css') }}">
     {% endif %}
 
 

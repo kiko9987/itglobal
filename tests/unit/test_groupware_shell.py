@@ -123,3 +123,24 @@ def test_layout_api_blocks_non_pilot(db, monkeypatch):
     assert c.post('/api/gw/layout', json={'new': True}).status_code == 200
     with c.session_transaction() as s:
         assert 'gw_off' not in s
+
+
+def test_new_layout_renders_with_file_versioned_assets(db, tmp_path):
+    """새 틀 화면이 실제로 그려지고, 그룹웨어 CSS·JS 주소에 파일 시각 버전이 붙는다(재시작 없이 반영, 11-10)."""
+    import os
+    import re
+    from flask import session, render_template
+    from dashboard.blueprints.groupware import groupware_bp
+    from dashboard.utils import frontend_helpers as fh
+    root = os.path.join(os.path.dirname(__file__), '..', '..', 'dashboard')
+    app = Flask('t', template_folder=os.path.join(root, 'templates'), static_folder=os.path.join(root, 'static'))
+    app.secret_key = 't'
+    fh.init_frontend_helpers(app)
+    app.register_blueprint(groupware_bp)
+    with app.test_request_context('/hr/me'):
+        session['user'] = {'email': 'kiko@itg-aircon.com', 'name': '고광일', 'permission_level': 'super_admin'}
+        html = render_template('gw/hr_me.html', person_id=None, fields=[])
+    assert 'class="gw-shell"' in html and 'gwRail' in html
+    css = re.search(r'/static/css/gw-pages\.css\?v=(\d+)', html)
+    shell = re.search(r'/static/js/groupware-shell\.js\?v=(\d+)', html)
+    assert css and shell and int(css.group(1)) == int(os.path.getmtime(os.path.join(root, 'static', 'css', 'gw-pages.css')))

@@ -76,6 +76,20 @@ def field_login(token):
     return redirect('/home')
 
 
+@groupware_bp.app_template_global()
+def gw_asset(filename: str) -> str:
+    """그룹웨어 정적 파일 주소 + 파일 수정 시각 버전.
+    cache_buster()는 서버를 켤 때 한 번 정해져서, CSS·JS 만 고치면 브라우저가 옛 파일을 계속 씀(11-10).
+    파일 시각을 붙이면 재시작 없이 고친 파일이 바로 반영된다."""
+    from flask import current_app, url_for
+    try:
+        import os
+        v = int(os.path.getmtime(os.path.join(current_app.static_folder, filename)))
+    except OSError:
+        v = 0
+    return f"{url_for('static', filename=filename)}?v={v}"
+
+
 @groupware_bp.app_context_processor
 def inject_groupware_layout():
     """화면을 그릴 때 새 틀을 쓸지와 메뉴를 넣어 준다. 실패하면 기존 틀."""
