@@ -59,6 +59,12 @@
     return esc(String(name || '?').slice(0, 1));
   }
 
+  // 현장·미화 직원 배지 = 직무(시공·미화 등). 직무가 비었으면 '현장'
+  function fieldBadge(p) {
+    if (p.access !== 'field') return '';
+    return ' <span class="gw-badge gw-badge-field">' + esc(p.job_role || '현장') + '</span>';
+  }
+
   function statusBadge(s) {
     var cls = s === '재직' ? 'gw-badge-active' : (s === '휴직' ? 'gw-badge-leave' : 'gw-badge-resigned');
     return '<span class="gw-badge ' + cls + '">' + esc(s) + '</span>';
@@ -83,7 +89,7 @@
     var h = '<div class="gw-card">';
     h += '<div class="gw-card-head"><div class="gw-avatar gw-avatar-lg" aria-hidden="true">' + initial(p.name) + '</div>' +
       '<div><h2 class="gw-card-name">' + esc(p.name) + ' ' + statusBadge(p.status) +
-      (p.access === 'field' ? ' <span class="gw-badge gw-badge-field">현장·미화</span>' : '') + '</h2>' +
+      fieldBadge(p) + '</h2>' +
       '<div class="gw-card-org">' + (org(p) || '<span class="text-muted">소속 없음</span>') + '</div></div>';
     if (p.can_edit && CFG.mode !== 'me') {   // 수정은 구성원 화면에서(내 정보엔 수정 창이 없음)
       h += '<div class="gw-card-actions"><button type="button" class="btn btn-sm btn-outline-secondary" id="hrEditBtn">' +
@@ -206,7 +212,7 @@
         '<span class="gw-avatar" aria-hidden="true">' + initial(p.name) + '</span>' +
         '<span><span class="gw-list-name">' + esc(p.name) + '</span>' +
         (p.status !== '재직' ? ' ' + statusBadge(p.status) : '') +
-        (p.access === 'field' && p.status !== '퇴사' ? ' <span class="gw-badge gw-badge-field">현장</span>' : '') +
+        (p.status !== '퇴사' ? fieldBadge(p) : '') +
         '<br><span class="gw-list-sub">' + esc(sub || '-') + '</span></span></button></li>';
     }).join('') || '<li class="gw-empty">맞는 구성원이 없습니다.</li>';
   }

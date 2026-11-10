@@ -208,7 +208,7 @@
       tbody.innerHTML = rows.map(function (p) {
         var nxt = p.next ? esc(period(p.next)) + (p.next.status === '대기' ? ' <span class="gw-badge gw-badge-leave">대기</span>' : '') : '<span class="text-muted">-</span>';
         return '<tr tabindex="0" data-id="' + p.person_id + '" data-name="' + esc(p.name) + '">' +
-          '<td><strong>' + esc(p.name) + '</strong>' + (p.access === 'field' ? ' <span class="gw-badge gw-badge-field">현장</span>' : '') + '</td>' +
+          '<td><strong>' + esc(p.name) + '</strong>' + (p.access === 'field' ? ' <span class="gw-badge gw-badge-field">' + esc(p.job_role || '현장') + '</span>' : '') + '</td>' +
           '<td>' + esc(p.department) + '</td><td>' + esc(p.hire_date) + '</td>' +
           '<td class="n">' + (p.linked ? days(p.balance) : '<span class="text-muted" title="휴가 장부에 없음">-</span>') + '</td>' +
           '<td class="n">' + days(p.annual_used) + '</td><td class="n">' + days(p.sick_used) + '</td>' +

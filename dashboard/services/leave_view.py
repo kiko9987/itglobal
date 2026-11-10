@@ -186,7 +186,7 @@ def team(today: Optional[date] = None) -> List[dict]:
         nxt = s['upcoming'][0] if s['upcoming'] else None
         rows.append({
             'person_id': p['id'], 'name': p['name'], 'department': p.get('department') or '',
-            'hire_date': p.get('hire_date') or '', 'access': p.get('access'),
+            'hire_date': p.get('hire_date') or '', 'access': p.get('access'), 'job_role': p.get('job_role') or '',
             'linked': s['linked'], 'balance': s['balance'],
             'annual_used': s['annual_used'], 'sick_used': s['sick_used'], 'pending': s['pending'],
             'next': {'start': nxt['start'], 'end': nxt['end'], 'half': nxt['half'], 'type': nxt['type'],
