@@ -78,6 +78,9 @@ _POST_RE = re.compile(
     re.S)
 # 끝에 붙는 회신 요청 꼬리 — 거래처 이름에서 뺀다
 _TAIL_RE = re.compile(r'\s*(?:회신|확인)\s*(?:바랍니다|부탁드립니다|부탁드려요|요청드립니다|해\s*주세요)?\.?\s*$')
+# 거래처 이름 뒤에 이어 쓴 메모 — '비전아카데미 회신 바라며, 상호 변경 확인 완료.'(11-10)처럼 문장 중간에
+# 회신·확인·부탁·요청·상호 변경이 시작되면 그 앞까지만 거래처. 띄어쓰기·쉼표 뒤에서만 자른다(이름 첫 글자는 안 건드림)
+_NOTE_RE = re.compile(r'[\s,.]+(?=(?:회신|확인|부탁|요청|상호\s*변경))')
 
 
 _CODE_IN_POST_RE = re.compile(r'(?<![A-Za-z0-9])([GRNP]\d{3,5}-[A-Za-z]{1,4})(?![A-Za-z0-9])', re.I)
@@ -96,7 +99,7 @@ def split_code(partner: str) -> tuple:
 def parse_invoice_post(text: str) -> Optional[Dict]:
     """첫 줄에서 날짜·G/R/N·금액·거래처를 읽는다. 양식이 아니면 None.
 
-    거래처는 꼬리('회신 바랍니다')를 뗀 나머지 첫 줄 전체(상호 뒤 설명이 붙는 경우도 그대로 둠).
+    거래처는 꼬리('회신 바랍니다')와 이어 쓴 메모('회신 바라며, 상호 변경 확인 완료.')를 뗀 나머지(11-10).
     """
     first = (text or '').strip().split('\n', 1)[0]
     m = _POST_RE.match(first)
@@ -104,12 +107,15 @@ def parse_invoice_post(text: str) -> Optional[Dict]:
         return None
     month, day, grn, amount_s, rest = m.groups()
     rest = re.sub(r'[*_~`]', '', rest or '').strip()
-    rest = _TAIL_RE.sub('', rest).strip()
+    rest = _TAIL_RE.sub('', rest).strip(' ,.')
     try:
         amount = int(amount_s.replace(',', ''))
     except ValueError:
         return None
     partner, code = split_code(rest)
+    note = _NOTE_RE.search(partner)
+    if note and note.start() > 0:
+        partner = partner[:note.start()].strip(' ,.')
     out = {
         'date_md': f'{int(month):02d}/{int(day):02d}',
         'grn': grn.upper(),
