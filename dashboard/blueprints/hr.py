@@ -250,3 +250,49 @@ def api_leave_calendar():
     except (ValueError, TypeError):
         return jsonify({'success': False, 'message': '달 형식은 YYYY-MM 입니다.'}), 400
     return jsonify({'success': True, 'month': f'{y:04d}-{m:02d}', 'entries': leave_view.calendar(y, m)})
+
+
+# ── 홈 ────────────────────────────────────────────────────────────────
+@hr_bp.route('/home')
+@gw_page
+def page_home():
+    p = _my_person()
+    name = (p or {}).get('name') or (session.get('user') or {}).get('name', '')
+    return render_template('gw/home.html', person_name=name, is_field=_is_field())
+
+
+@hr_bp.route('/api/home', methods=['GET'])
+@gw_page
+def api_home():
+    """결재·내 휴가·휴가자. 메일은 느릴 수 있어 /api/home/mail 로 따로."""
+    from dashboard.services import gw_home, leave_view
+    p = _my_person()
+    out = {'success': True, 'field': _is_field()}
+    try:
+        out['leave'] = leave_view.summary(p) if p else None
+        if out['leave']:
+            out['leave'] = {k: out['leave'][k] for k in ('linked', 'balance', 'grants', 'pending', 'upcoming', 'annual_used')}
+    except Exception as e:
+        logger.warning(f'[GW-HOME] 휴가 요약 실패: {e}')
+        out['leave'] = None
+    if not _is_field():
+        try:
+            out['approvals'] = gw_home.approvals((p or {}).get('slack_id') or '')
+        except Exception as e:
+            logger.warning(f'[GW-HOME] 결재 목록 실패: {e}')
+            out['approvals'] = None
+        try:
+            out['off'] = gw_home.people_off()
+        except Exception as e:
+            logger.warning(f'[GW-HOME] 휴가자 실패: {e}')
+            out['off'] = None
+    return jsonify(out)
+
+
+@hr_bp.route('/api/home/mail', methods=['GET'])
+@gw_page
+def api_home_mail():
+    from dashboard.services import gw_home
+    if _is_field():
+        return jsonify({'success': False, 'message': '현장 계정은 메일 칸이 없습니다.'}), 403
+    return jsonify({'success': True, 'mail': gw_home.mail_summary(_me())})

@@ -1,0 +1,57 @@
+{% extends "modern_base.html" %}
+
+{% block title %}홈 - IT글로벌 그룹웨어{% endblock %}
+
+{% block additional_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/gw-pages.css') }}?v={{ cache_buster() }}">
+{% endblock %}
+
+{% block content %}
+<div class="gw-page gw-home">
+  <div class="gw-home-head">
+    <h1 class="gw-page-title">{{ person_name or '' }}님, 안녕하세요</h1>
+    <div class="gw-home-date" id="homeDate"></div>
+  </div>
+
+  <div class="gw-home-grid">
+    {% if not is_field %}
+    <section class="gw-panel gw-home-card" aria-labelledby="homeApprovalTitle">
+      <div class="gw-home-card-head">
+        <h2 class="gw-panel-title" id="homeApprovalTitle"><i class="fas fa-file-signature me-1" aria-hidden="true"></i>결재</h2>
+        <span class="gw-home-sub">처리는 슬랙 #전자_결재 카드에서</span>
+      </div>
+      <div id="homeApprovals" aria-live="polite"><div class="gw-empty">불러오는 중…</div></div>
+    </section>
+    {% endif %}
+
+    <section class="gw-panel gw-home-card" aria-labelledby="homeLeaveTitle">
+      <div class="gw-home-card-head">
+        <h2 class="gw-panel-title" id="homeLeaveTitle"><i class="fas fa-umbrella-beach me-1" aria-hidden="true"></i>내 휴가</h2>
+        <a class="gw-home-more" href="/leave">자세히</a>
+      </div>
+      <div id="homeLeave" aria-live="polite"><div class="gw-empty">불러오는 중…</div></div>
+    </section>
+
+    {% if not is_field %}
+    <section class="gw-panel gw-home-card" aria-labelledby="homeOffTitle">
+      <div class="gw-home-card-head">
+        <h2 class="gw-panel-title" id="homeOffTitle"><i class="fas fa-user-clock me-1" aria-hidden="true"></i>휴가자</h2>
+      </div>
+      <div id="homeOff" aria-live="polite"><div class="gw-empty">불러오는 중…</div></div>
+    </section>
+
+    <section class="gw-panel gw-home-card" aria-labelledby="homeMailTitle">
+      <div class="gw-home-card-head">
+        <h2 class="gw-panel-title" id="homeMailTitle"><i class="fas fa-envelope me-1" aria-hidden="true"></i>메일</h2>
+        <a class="gw-home-more" id="homeMailInbox" href="https://mail.google.com" target="_blank" rel="noopener">Gmail 열기</a>
+      </div>
+      <div id="homeMail" aria-live="polite"><div class="gw-empty">불러오는 중…</div></div>
+    </section>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block additional_js %}
+<script src="{{ url_for('static', filename='js/gw-home.js') }}?v={{ cache_buster() }}" defer></script>
+{% endblock %}

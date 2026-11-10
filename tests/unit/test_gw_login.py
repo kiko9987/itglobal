@@ -110,7 +110,7 @@ def client(db):
 def test_field_login_flow_and_gatekeeper(client):
     tok = _token(gw_login.issue(FIELD_SLACK))
     r = client.get(f'/gw/login/{tok}')
-    assert r.status_code == 302 and r.headers['Location'].endswith('/hr/me')
+    assert r.status_code == 302 and r.headers['Location'].endswith('/home')
     assert client.get(f'/gw/login/{tok}').status_code == 410                     # 다시 쓰면 거절 화면
 
     with client.session_transaction() as s:
@@ -121,7 +121,7 @@ def test_field_login_flow_and_gatekeeper(client):
 
     # 기존 PM 화면·API 는 문지기가 막음
     r = client.get('/projects')
-    assert r.status_code == 302 and r.headers['Location'].endswith('/hr/me')
+    assert r.status_code == 302 and r.headers['Location'].endswith('/home')
     assert client.get('/api/projects/list').status_code == 403
     assert client.get('/hr/people').status_code == 302
     assert client.get('/gw/admin').status_code == 302
@@ -153,7 +153,7 @@ def test_field_session_ends_when_resigned(client):
 
 def test_nav_for_field():
     nav = gw.build_nav('/hr/me', 'field', field=True)
-    assert [a['label'] for a in nav['areas']] == ['휴가', '인사']
+    assert [a['label'] for a in nav['areas']] == ['홈', '휴가', '인사']
     assert [i['label'] for i in nav['items']] == ['내 정보']
     assert [i['label'] for i in gw.build_nav('/leave', 'field', field=True)['items']] == ['내 휴가']
 

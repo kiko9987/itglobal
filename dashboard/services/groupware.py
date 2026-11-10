@@ -148,6 +148,10 @@ def set_setting(key: str, value: str, by: str) -> None:
 # admin=True 는 관리자(admin·super_admin)에게만 보인다(기존 상단 버튼과 같은 조건).
 AREAS = [
     {
+        'key': 'home', 'label': '홈', 'icon': 'fas fa-home',
+        'items': [{'href': '/home', 'label': '홈', 'icon': 'fas fa-home', 'field': True}],
+    },
+    {
         'key': 'sales', 'label': '영업', 'icon': 'fas fa-briefcase',
         'items': [
             {'href': '/projects', 'label': '프로젝트', 'icon': 'fas fa-folder-open'},

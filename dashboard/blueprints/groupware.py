@@ -20,8 +20,9 @@ groupware_bp = Blueprint('groupware', __name__)
 
 # ── 현장 세션 문지기 ───────────────────────────────────────────────────
 # 슬랙 링크로 들어온 현장·미화 직원(session.user.gw_field)은 아래 경로만. 나머지(기존 PM 화면·API)는 전부 막는다.
-_FIELD_PAGES = ('/hr/me', '/leave', '/logout', '/login')
+_FIELD_PAGES = ('/home', '/hr/me', '/leave', '/logout', '/login')
 _FIELD_API = [
+    (('GET',), re.compile(r'^/api/home$')),              # 홈(현장은 내 휴가만 담김)
     (('GET',), re.compile(r'^/api/hr/people/\d+$')),     # 본인 카드(본인 여부는 화면 쪽에서 다시 확인)
     (('GET',), re.compile(r'^/api/leave/me$')),          # 내 휴가
     (('POST',), re.compile(r'^/api/auth/ping$')),       # 세션 연장
@@ -45,7 +46,7 @@ def field_gatekeeper():
         return None
     if request.path.startswith('/api/') or request.is_json:
         return jsonify({'success': False, 'message': '현장 계정은 쓸 수 없는 기능입니다.'}), 403
-    return redirect('/hr/me')
+    return redirect('/home')
 
 
 _LINK_FAIL_PAGE = '''<!doctype html><html lang="ko"><head><meta charset="utf-8">
@@ -72,7 +73,7 @@ def field_login(token):
     session['session_id'] = str(uuid.uuid4())
     session.permanent = True
     logger.info(f'[GW-LOGIN] 현장 로그인 #{p["id"]} ip={ip}')
-    return redirect('/hr/me')
+    return redirect('/home')
 
 
 @groupware_bp.app_context_processor
