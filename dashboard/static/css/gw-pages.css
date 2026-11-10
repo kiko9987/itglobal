@@ -210,39 +210,50 @@
   gap: 6px;
 }
 
+/* 소제목 / 항목 이름 / 값 — 글자 단계 3개로 나눔(11-10 KiKO: 소제목과 항목 구분이 어려움)
+   소제목 = 15px 굵은 검정 + 위 구분선·넉넉한 간격, 항목 이름 = 13px 연한 회색, 값 = 14.5px 검정 약간 굵게 */
 .gw-sec-title {
-  font-size: 0.8rem;
+  font-size: 15px;
   font-weight: 700;
-  color: #64748b;
-  margin: 16px 0 6px;
+  color: #1a1c20;
+  margin: 22px 0 8px;
+  padding-top: 18px;
+  border-top: 1px solid #eeeff1;
+}
+
+.gw-card-head + .gw-sec-title {
+  margin-top: 12px;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .gw-dl {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: 6px 18px;
+  gap: 2px 24px;
   margin: 0;
 }
 
 .gw-dl > div {
   display: flex;
+  align-items: baseline;
   gap: 10px;
-  padding: 5px 0;
-  border-bottom: 1px dashed #f1f5f9;
+  padding: 6px 0;
   min-width: 0;
 }
 
 .gw-dl dt {
-  flex: 0 0 92px;
-  color: #64748b;
-  font-weight: 500;
-  font-size: 0.85rem;
+  flex: 0 0 88px;
+  color: #868b94;
+  font-weight: 400;
+  font-size: 13px;
 }
 
 .gw-dl dd {
   margin: 0;
-  color: #0f172a;
-  font-size: 0.9rem;
+  color: #1a1c20;
+  font-size: 14.5px;
+  font-weight: 500;
   overflow-wrap: anywhere;
   min-width: 0;
 }

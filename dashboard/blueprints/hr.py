@@ -131,7 +131,7 @@ def _can_see(pid: int) -> bool:
 @hr_bp.route('/api/hr/documents/<int:doc_id>', methods=['GET'])
 @gw_page
 def api_doc_download(doc_id):
-    """서류 내려받기 — 본인·인사카드 관리자. 누가 받았는지 남긴다."""
+    """서류 보기·내려받기 — 본인·인사카드 관리자. 기록은 남기지 않음(11-10 KiKO 결정)."""
     from flask import send_file
     d = hr.document_file(doc_id)
     if not d or not _can_see(d['person_id']):
@@ -139,8 +139,6 @@ def api_doc_download(doc_id):
     import os
     if not os.path.exists(d['path']):
         return jsonify({'success': False, 'message': '파일이 서버에 없습니다. 경영지원에 문의해 주세요.'}), 404
-    who = _me() if not _is_field() else f'field:{(session.get("user") or {}).get("gw_person_id")}'
-    hr.log_access(d['person_id'], who, 'doc_download', f'{d.get("doc_type") or ""} {d["file_name"]}')
     inline = request.args.get('view') == '1'
     resp = send_file(d['path'], as_attachment=not inline, download_name=d['file_name'], max_age=0)
     resp.headers['Cache-Control'] = 'no-store'

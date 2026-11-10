@@ -109,9 +109,10 @@
       dd('회사 메일', p.work_email) + dd('개인 메일', p.personal_email) + dd('전화', phone(p.phone)) +
       dd('주소', p.address, { wide: true }) + '</dl>';
 
-    var ssnHtml = p.has_ssn ? esc(p.ssn_masked) : '';
+    // 전체 보기 = 그 자리에서 * 만 풀림(다시 누르면 가림). 열람 기록은 남기지 않음(11-10 KiKO)
+    var ssnHtml = p.has_ssn ? '<span class="gw-ssn-val">' + esc(p.ssn_masked) + '</span>' : '';
     if (p.has_ssn && p.can_reveal_ssn) {
-      ssnHtml += '<button type="button" class="btn btn-sm btn-outline-secondary gw-ssn-btn" id="hrSsnBtn">전체 보기</button>';
+      ssnHtml += '<button type="button" class="btn btn-sm btn-outline-secondary gw-ssn-btn" data-ssn-url="/api/hr/people/' + p.id + '/ssn">전체 보기</button>';
     }
     h += '<div class="gw-sec-title">개인 정보</div><dl class="gw-dl">' +
       dd('성별', p.gender) + dd('생년월일', p.birth_date) +
@@ -151,8 +152,8 @@
     }
 
     if (p.access_log && p.access_log.length) {
-      var labels = { ssn_view: '주민번호 전체 보기', edit: '수정', create: '추가' };
-      h += '<details class="mt-3"><summary class="gw-log">열람·수정 기록 ' + p.access_log.length + '건</summary><ul class="gw-log mt-1">';
+      var labels = { edit: '수정', create: '추가', doc_upload: '서류 업로드', doc_delete: '서류 삭제' };
+      h += '<details class="mt-3"><summary class="gw-log">수정 기록 ' + p.access_log.length + '건</summary><ul class="gw-log mt-1">';
       p.access_log.forEach(function (l) {
         h += '<li>' + esc(l.at) + ' · ' + esc(l.viewer_email) + ' · ' + esc(labels[l.action] || l.action) +
           (l.detail && l.action === 'edit' ? ' (' + esc(l.detail) + ')' : '') + '</li>';
@@ -165,8 +166,7 @@
 
     var editBtn = document.getElementById('hrEditBtn');
     if (editBtn) editBtn.addEventListener('click', function () { openEdit(p); });
-    var ssnBtn = document.getElementById('hrSsnBtn');
-    if (ssnBtn) ssnBtn.addEventListener('click', function () { revealSsn(p, ssnBtn); });
+    bindSsnToggles();
     bindPrivate(p);
   }
 
@@ -207,7 +207,7 @@
     if (p.families && p.families.length) {
       h += '<div class="gw-sec-title">가족 · 공제 대상</div>' + table(['이름', '관계', '연락처', '주민등록번호', '공제 관계', '기본공제', '자녀공제', '건보 피부양'],
         p.families.map(function (f) {
-          var ssn = f.has_ssn ? esc(f.ssn_masked) + (p.can_reveal_ssn ? ' <button type="button" class="btn btn-sm btn-outline-secondary gw-ssn-btn" data-fam-ssn="' + f.id + '">전체 보기</button>' : '') : '';
+          var ssn = f.has_ssn ? '<span class="gw-ssn-val">' + esc(f.ssn_masked) + '</span>' + (p.can_reveal_ssn ? ' <button type="button" class="btn btn-sm btn-outline-secondary gw-ssn-btn" data-ssn-url="/api/hr/families/' + f.id + '/ssn">전체 보기</button>' : '') : '';
           var yn = function (b) { return b ? '<span class="gw-badge gw-badge-active">예</span>' : '<span class="text-muted">-</span>'; };
           return '<tr><td>' + esc(f.name) + '</td><td>' + esc(f.relation) + '</td><td>' + esc(phone(f.phone)) +
             '</td><td data-fam-cell="' + f.id + '">' + ssn + '</td><td>' + esc(f.deduction_relation) + '</td><td>' + yn(f.default_deduction) +
@@ -238,24 +238,11 @@
           '<button type="submit" class="btn btn-sm btn-outline-primary">업로드</button>' +
           '<span class="gw-form-error" id="hrDocError" role="alert"></span></form>';
       }
-      h += '<div class="gw-log mt-1">서류를 열람·다운로드하면 열람 기록이 남습니다.</div>';
     }
     return h;
   }
 
   function bindPrivate(p) {
-    cardEl.querySelectorAll('[data-fam-ssn]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        if (!window.confirm('가족 주민등록번호 전체를 봅니다.\n본 기록(누가·언제)이 남습니다.')) return;
-        var id = btn.getAttribute('data-fam-ssn');
-        btn.disabled = true;
-        api('/api/hr/families/' + id + '/ssn', { method: 'POST' }).then(function (j) {
-          var cell = cardEl.querySelector('[data-fam-cell="' + id + '"]');
-          if (cell) cell.textContent = j.ssn;
-          setTimeout(function () { if (state.current && state.current.id === p.id) loadCard(p.id); }, 30000);
-        }).catch(function (e) { btn.disabled = false; window.alert(e.message); });
-      });
-    });
     cardEl.querySelectorAll('[data-doc-del]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         if (!window.confirm('이 서류를 지웁니다. 되돌릴 수 없습니다.')) return;
@@ -293,20 +280,32 @@
     });
   }
 
-  var ssnTimer = null;
-  function revealSsn(p, btn) {
-    if (!window.confirm(p.name + '님의 주민등록번호 전체를 봅니다.\n본 기록(누가·언제)이 남습니다.')) return;
-    btn.disabled = true;
-    api('/api/hr/people/' + p.id + '/ssn', { method: 'POST' }).then(function (j) {
-      var cell = document.getElementById('hrSsnCell');
-      if (!cell) return;
-      cell.textContent = j.ssn;
-      clearTimeout(ssnTimer);
-      // 30초 뒤 다시 가림(화면을 열어 둔 채 자리를 비울 때 대비)
-      ssnTimer = setTimeout(function () { if (state.current && state.current.id === p.id) loadCard(p.id); }, 30000);
-    }).catch(function (e) {
-      btn.disabled = false;
-      window.alert(e.message);
+  // 주민등록번호 전체 보기 ↔ 숨기기 — 본인·가족 공용. 한 번 받은 번호는 이 화면에서만 기억
+  function bindSsnToggles() {
+    cardEl.querySelectorAll('[data-ssn-url]').forEach(function (btn) {
+      var val = btn.parentElement.querySelector('.gw-ssn-val');
+      if (!val) return;
+      var masked = val.textContent, full = null;
+      btn.addEventListener('click', function () {
+        if (btn.getAttribute('aria-pressed') === 'true') {
+          val.textContent = masked;
+          btn.textContent = '전체 보기';
+          btn.setAttribute('aria-pressed', 'false');
+          return;
+        }
+        function show() {
+          val.textContent = full;
+          btn.textContent = '숨기기';
+          btn.setAttribute('aria-pressed', 'true');
+        }
+        if (full) { show(); return; }
+        btn.disabled = true;
+        api(btn.getAttribute('data-ssn-url'), { method: 'POST' }).then(function (j) {
+          full = j.ssn;
+          btn.disabled = false;
+          show();
+        }).catch(function (e) { btn.disabled = false; window.alert(e.message); });
+      });
     });
   }
 

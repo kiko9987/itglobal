@@ -48,7 +48,9 @@ def test_ssn_encrypted_masked_and_reveal_logged(db):
     with pytest.raises(PermissionError):
         hr.reveal_ssn(p['id'], STAFF)
     assert hr.reveal_ssn(p['id'], ADMIN) == SSN
-    assert [l['action'] for l in hr.access_log(p['id'])] == ['ssn_view']
+    assert hr.access_log(p['id']) == []                             # 보기는 기록 안 남김(11-10)
+    hr.log_access(p['id'], ADMIN, 'ssn_view')                        # 예전에 쌓인 보기 기록도 화면엔 안 나옴
+    assert hr.access_log(p['id']) == []
 
 
 def test_no_key_refuses_plain_storage(db, monkeypatch):
@@ -178,7 +180,7 @@ def test_details_import_and_family_ssn(db):
     with pytest.raises(PermissionError):
         hr.reveal_family_ssn(f['id'], STAFF)
     assert hr.reveal_family_ssn(f['id'], ADMIN) == '920304-2234567'
-    assert hr.access_log(pid)[0]['action'] == 'family_ssn_view'
+    assert all(l['action'] != 'family_ssn_view' for l in hr.access_log(pid))   # 보기 기록 안 남김
     hr.import_flex_details(pid, [], [], [])                          # 다시 돌리면 flex 줄은 새로
     assert hr.private_sections(pid)['families'] == []
 
@@ -216,7 +218,7 @@ def test_documents_save_download_permissions(client, tmp_path, monkeypatch):
     assert up['success'] and len(up['documents']) == 2
     assert client.delete(f'/api/hr/documents/{r1["id"]}').get_json()['success']
     actions = [l['action'] for l in hr.access_log(staff_id)]
-    assert 'doc_download' in actions and 'doc_upload' in actions and 'doc_delete' in actions
+    assert 'doc_download' not in actions and 'doc_upload' in actions and 'doc_delete' in actions   # 내려받기는 기록 안 남김
 
 
 def test_reimport_after_human_edit_only_follows_resignation(db):

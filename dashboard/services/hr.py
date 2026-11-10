@@ -7,7 +7,7 @@
   - 결재자(JW·YG): 전 직원 휴가 현황(휴가 화면) — 인사카드는 안 봄
   - 경영지원·대표(HR 관리자): 인사카드 전체 + 수정
 주민등록번호: 저장하되 암호화(개인정보보호법 제24조의2). 화면은 뒷자리 가림, HR 관리자만 [전체 보기],
-  보면 누가 언제 봤는지 hr_access_log 에 남긴다. 암호화 키는 .env GW_HR_KEY(Fernet). 키가 없으면 저장 안 함.
+  보기 기록은 남기지 않음(11-10 KiKO — 내부 그룹웨어). 수정·서류 올리기·지우기만 hr_access_log. 암호화 키는 .env GW_HR_KEY(Fernet). 키가 없으면 저장 안 함.
 연봉 등 급여 정보는 옮기지 않는다(요청 범위 밖).
 """
 from __future__ import annotations
@@ -259,15 +259,13 @@ def card(person_id: int, viewer_email: str) -> Optional[dict]:
 
 
 def reveal_ssn(person_id: int, viewer_email: str) -> str:
-    """HR 관리자만. 본 기록을 남긴다."""
+    """HR 관리자만. 열람 기록은 남기지 않는다(내부 그룹웨어 — 11-10 KiKO 결정)."""
     if not is_hr_admin(viewer_email):
         raise PermissionError('주민등록번호 전체 보기는 경영지원·대표만 할 수 있습니다.')
     p = get_person(person_id)
     if not p or not p.get('ssn_enc'):
         raise LookupError('저장된 주민등록번호가 없습니다.')
-    full = decrypt_ssn(p['ssn_enc'])
-    log_access(person_id, viewer_email, 'ssn_view')
-    return full
+    return decrypt_ssn(p['ssn_enc'])
 
 
 def log_access(person_id: Optional[int], viewer_email: str, action: str, detail: str = '') -> None:
@@ -276,10 +274,17 @@ def log_access(person_id: Optional[int], viewer_email: str, action: str, detail:
                      (person_id, (viewer_email or '').lower(), action, detail, _now()))
 
 
+# 보기만 한 기록(11-10 이전에 쌓인 것)은 화면 '수정 기록'에서 뺀다 — 이제는 남기지도 않음
+VIEW_ACTIONS = ('ssn_view', 'family_ssn_view', 'doc_download')
+
+
 def access_log(person_id: int, limit: int = 30) -> List[dict]:
+    """수정 기록(수정·추가·서류 업로드/삭제). 보기 기록은 제외."""
+    ph = ','.join('?' * len(VIEW_ACTIONS))
     with _conn() as conn:
-        rows = conn.execute('SELECT viewer_email, action, detail, at FROM hr_access_log WHERE person_id = ? '
-                            'ORDER BY id DESC LIMIT ?', (person_id, limit)).fetchall()
+        rows = conn.execute(f'SELECT viewer_email, action, detail, at FROM hr_access_log WHERE person_id = ? '
+                            f'AND action NOT IN ({ph}) ORDER BY id DESC LIMIT ?',
+                            (person_id, *VIEW_ACTIONS, limit)).fetchall()
     return [_row(r) for r in rows]
 
 
@@ -415,7 +420,7 @@ def upsert_from_flex(rec: Dict, appts: List[Dict], by: str = 'flex-import') -> s
 
 # ── 경력·학력·가족·서류 (11-10 추가 — 플렉스 구성원 상세에 있던 것) ───────────
 # 열람: 본인 + 인사카드 관리자. 가족 주민번호는 본인 주민번호처럼 암호화(가린 값만 화면에).
-# 서류 파일: instance/hr_docs/<인사카드 번호>/ (git 제외). 내려받으면 hr_access_log 에 남긴다.
+# 서류 파일: instance/hr_docs/<인사카드 번호>/ (git 제외). 올리기·지우기만 hr_access_log 에 남긴다(보기·내려받기는 안 남김, 11-10).
 _DDL += [
     '''CREATE TABLE IF NOT EXISTS hr_careers (
         id INTEGER PRIMARY KEY AUTOINCREMENT, person_id INTEGER NOT NULL,
@@ -605,9 +610,7 @@ def reveal_family_ssn(family_id: int, viewer_email: str) -> str:
         r = conn.execute('SELECT person_id, name, ssn_enc FROM hr_families WHERE id = ?', (family_id,)).fetchone()
     if not r or not r[2]:
         raise LookupError('저장된 주민등록번호가 없습니다.')
-    full = decrypt_ssn(r[2])
-    log_access(r[0], viewer_email, 'family_ssn_view', r[1] or '')
-    return full
+    return decrypt_ssn(r[2])
 
 
 def import_flex_details(person_id: int, careers_: List[Dict], educations_: List[Dict], families_: List[Dict]) -> dict:
