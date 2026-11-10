@@ -88,6 +88,29 @@
         <kbd>/</kbd>
     </button>
 
+    {# 알림 🔔 — 안 읽은 게 있으면 빨간 점(당근 비즈니스 위쪽 「알림」처럼, 2026-11-10) #}
+    <div class="gw-notify" id="gwNotify">
+        <button type="button" class="gw-notify-btn" id="gwNotifyBtn" aria-haspopup="true" aria-expanded="false"
+                aria-controls="gwNotifyPanel" title="알림">
+            <i class="fas fa-bell" aria-hidden="true"></i>
+            <span class="gw-notify-dot" id="gwNotifyDot" hidden></span>
+            <span class="visually-hidden" id="gwNotifySr">알림</span>
+        </button>
+        <div class="gw-notify-panel" id="gwNotifyPanel" hidden role="dialog" aria-label="알림">
+            <div class="gw-notify-head">
+                <strong>알림</strong>
+                <span class="gw-notify-sub">최근 30일</span>
+            </div>
+            <div class="gw-notify-tabs" id="gwNotifyTabs" role="tablist">
+                <button type="button" data-cat="" class="active">전체</button>
+                {% if not gw_field %}<button type="button" data-cat="approval">결재</button>{% endif %}
+                <button type="button" data-cat="leave">휴가</button>
+                <button type="button" data-cat="hr">인사</button>
+            </div>
+            <div class="gw-notify-list" id="gwNotifyList"><div class="gw-notify-empty">불러오는 중…</div></div>
+        </div>
+    </div>
+
     <div class="gw-topbar-right">
         {% include 'components/_user_menu.html' %}
     </div>
@@ -110,3 +133,4 @@
 
 <script src="{{ gw_asset('js/groupware-shell.js') }}" defer></script>
 <script src="{{ gw_asset('js/gw-search.js') }}" defer></script>
+<script src="{{ gw_asset('js/gw-notify.js') }}" defer></script>

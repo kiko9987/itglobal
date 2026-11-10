@@ -357,6 +357,21 @@ def api_home():
     return jsonify(out)
 
 
+# ── 알림 🔔(11-10) — 이미 쌓인 기록에서 나와 관련된 최근 일. 현장은 휴가·연말정산만 ─────────────
+@hr_bp.route('/api/gw/notify', methods=['GET'])
+@gw_page
+def api_notify():
+    from dashboard.services import gw_notify
+    return jsonify({'success': True, **gw_notify.feed(_me(), _my_person(), _is_field(), _hr_admin())})
+
+
+@hr_bp.route('/api/gw/notify/seen', methods=['POST'])
+@gw_page
+def api_notify_seen():
+    from dashboard.services import gw_notify
+    return jsonify({'success': True, 'seen_at': gw_notify.mark_seen(gw_notify.who_key(_me(), _my_person(), _is_field()))})
+
+
 @hr_bp.route('/api/home/sales', methods=['GET'])
 @gw_page
 def api_home_sales():

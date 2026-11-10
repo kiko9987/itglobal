@@ -29,6 +29,8 @@ _FIELD_API = [
     (('GET', 'POST'), re.compile(r'^/api/yearend/me(/submit|/reopen|/documents)?$')),   # 연말정산 본인 것만
     (('DELETE',), re.compile(r'^/api/yearend/me/documents/\d+$')),
     (('POST',), re.compile(r'^/api/auth/ping$')),       # 세션 연장
+    (('GET',), re.compile(r'^/api/gw/notify$')),         # 알림 🔔(휴가·연말정산만 담김)
+    (('POST',), re.compile(r'^/api/gw/notify/seen$')),
 ]
 
 
