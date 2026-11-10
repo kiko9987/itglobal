@@ -544,8 +544,8 @@ def data_format_requests(gid: int, r0: int, r1: int, check_end: int | None = Non
     reqs = []
     for i in range(WIDTH):
         h = HEADERS[i]
-        f = {'horizontalAlignment': column_alignment(i)}
-        fields = ['horizontalAlignment']
+        f = {'horizontalAlignment': column_alignment(i), 'verticalAlignment': 'MIDDLE'}
+        fields = ['horizontalAlignment', 'verticalAlignment']
         if h in DATE_COLS:
             f['numberFormat'] = {'type': 'DATE', 'pattern': 'yyyy-mm-dd'}
         elif h in MONEY_COLS:
@@ -555,7 +555,7 @@ def data_format_requests(gid: int, r0: int, r1: int, check_end: int | None = Non
         if 'numberFormat' in f:
             fields.append('numberFormat')
         if i in COST_IDX:
-            f['backgroundColor'] = {'red': 1, 'green': 0.97, 'blue': 0.8}
+            f['backgroundColor'] = COST_BG
             fields.append('backgroundColor')
         reqs.append({'repeatCell': {'range': rng(i, i + 1), 'cell': {'userEnteredFormat': f},
                                     'fields': 'userEnteredFormat(' + ','.join(fields) + ')'}})
@@ -563,6 +563,23 @@ def data_format_requests(gid: int, r0: int, r1: int, check_end: int | None = Non
             reqs.append({'setDataValidation': {'range': rng(i, i + 1, r1 if check_end is None else check_end),
                                                'rule': {'condition': {'type': 'BOOLEAN'}}}})
     return reqs
+
+
+# 옛 탭·메인과 같은 모양: 머리글 검은 바탕·흰 굵은 글씨·흰 줄, 원가 값 칸만 연노랑(#FFF2CC)
+COST_BG = {'red': 1, 'green': 0.949, 'blue': 0.8}
+_WHITE = {'red': 1, 'green': 1, 'blue': 1}
+
+
+def header_format_requests(gid: int) -> list:
+    line = {'style': 'SOLID', 'color': _WHITE}
+    return [{'repeatCell': {
+        'range': {'sheetId': gid, 'startRowIndex': 0, 'endRowIndex': 1, 'startColumnIndex': 0, 'endColumnIndex': WIDTH},
+        'cell': {'userEnteredFormat': {
+            'backgroundColor': {'red': 0, 'green': 0, 'blue': 0},
+            'textFormat': {'bold': True, 'foregroundColor': _WHITE},
+            'horizontalAlignment': 'CENTER', 'verticalAlignment': 'MIDDLE',
+            'borders': {'top': line, 'bottom': line, 'left': line, 'right': line}}},
+        'fields': 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment,borders)'}}]
 
 
 # 메인과 같은 드롭다운(색깔 칩)을 쓰는 칸 — 규칙·칩 색은 API 로 못 만들어서 메인 칸에서 그대로 복사
@@ -611,7 +628,8 @@ def apply_formats(tab: str) -> int:
     codes = svc.spreadsheets().values().get(spreadsheetId=sid, range=f"'{tab}'!A1:A").execute().get('values', [])
     svc.spreadsheets().batchUpdate(spreadsheetId=sid, body={
         'requests': data_format_requests(p['sheetId'], 1, rows, check_end=len(codes))
-        + dropdown_requests(svc, sid, p['sheetId'], 1, len(codes))}).execute()
+        + dropdown_requests(svc, sid, p['sheetId'], 1, len(codes))
+        + header_format_requests(p['sheetId'])}).execute()
     return len(codes) - 1
 
 
@@ -696,16 +714,8 @@ def rebuild_tab(tab: str, backup_dir: str, apply: bool = False) -> dict:
             d['endRowIndex'] = r1
         return d
 
-    reqs = data_format_requests(gid, 1, grid_rows, check_end=n) + dropdown_requests(svc, sid, gid, 1, n) + [
-        {'repeatCell': {'range': rng(0, WIDTH, 0, 1), 'cell': {'userEnteredFormat': {
-            'textFormat': {'bold': True}, 'backgroundColor': {'red': 0.9, 'green': 0.9, 'blue': 0.9},
-            'horizontalAlignment': 'CENTER'}},
-            'fields': 'userEnteredFormat(textFormat,backgroundColor,horizontalAlignment)'}},
-        {'repeatCell': {'range': rng(COST_IDX[0], COST_IDX[-1] + 1, 0, 1), 'cell': {'userEnteredFormat': {
-            'textFormat': {'bold': True}, 'backgroundColor': {'red': 1, 'green': 0.85, 'blue': 0.4},
-            'horizontalAlignment': 'CENTER'}},
-            'fields': 'userEnteredFormat(textFormat,backgroundColor,horizontalAlignment)'}},
-    ]
+    reqs = (data_format_requests(gid, 1, grid_rows, check_end=n) + dropdown_requests(svc, sid, gid, 1, n)
+            + header_format_requests(gid))
     for ci in (PROFIT_IDX, MARGIN_IDX):     # 적자면 빨간 굵은 글씨 (옛 탭 규칙)
         reqs.append({'addConditionalFormatRule': {'index': 0, 'rule': {
             'ranges': [rng(ci, ci + 1)],

@@ -159,3 +159,13 @@ def test_dropdown_cols_map_to_main_headers():
     assert all(h in HEADERS for h in pct.DROPDOWN_COLS)
     assert src['거래처'] == '거래처명' and src['사업자명'] == '사업자명'
     assert pct.dropdown_requests(None, 'x', 1, 5, 5) == []      # 붙일 줄 없으면 API 안 부름
+
+
+def test_header_black_white_and_cost_bg():
+    f = pct.header_format_requests(3)[0]['repeatCell']['cell']['userEnteredFormat']
+    assert f['backgroundColor'] == {'red': 0, 'green': 0, 'blue': 0}
+    assert f['textFormat']['foregroundColor'] == {'red': 1, 'green': 1, 'blue': 1}
+    assert f['borders']['left']['color'] == {'red': 1, 'green': 1, 'blue': 1}
+    cells = [r['repeatCell'] for r in pct.data_format_requests(3, 1, 10) if 'repeatCell' in r]
+    bg = [c['range']['startColumnIndex'] for c in cells if 'backgroundColor' in c['cell']['userEnteredFormat']]
+    assert bg == COST_IDX
