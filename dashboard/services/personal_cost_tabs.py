@@ -428,7 +428,9 @@ def _apply_tab(svc, sid: str, tab: str, vals: list, pl: dict) -> None:
             svc.spreadsheets().batchUpdate(spreadsheetId=sid, body={'requests': [{'appendDimension': {
                 'sheetId': p['sheetId'], 'dimension': 'ROWS',
                 'length': end + 100 - p['gridProperties']['rowCount']}}]}).execute()
-        freqs = data_format_requests(p['sheetId'], start - 1, end)   # 새 줄도 정렬·숫자 서식·체크박스
+        # 새 줄도 정렬·숫자 서식·체크박스·드롭다운
+        freqs = data_format_requests(p['sheetId'], start - 1, end) + \
+            dropdown_requests(svc, sid, p['sheetId'], start - 1, end)
         data.append({'range': f"'{tab}'!A{start}:{TAB_LAST_COL}{end}", 'values': pl['appends']})
         for k in range(len(pl['appends'])):
             r = start + k
@@ -563,6 +565,41 @@ def data_format_requests(gid: int, r0: int, r1: int, check_end: int | None = Non
     return reqs
 
 
+# 메인과 같은 드롭다운(색깔 칩)을 쓰는 칸 — 규칙·칩 색은 API 로 못 만들어서 메인 칸에서 그대로 복사
+DROPDOWN_COLS = ('사업자', '담당자', '거래처', '사업자명', '공사 구분', '기계 분류', '브랜드', '도급 구분', '계산서')
+
+
+def dropdown_requests(svc, sid: str, tab_gid: int, r0: int, r1: int) -> list:
+    """메인 마지막 공사 줄의 드롭다운을 탭 r0~r1(0부터, r1 미포함) 줄에 붙여 넣는 요청."""
+    if r1 <= r0:
+        return []
+    from dashboard.utils.google_sheets import main_sheet_name
+    name = main_sheet_name()
+    meta = svc.spreadsheets().get(spreadsheetId=sid, ranges=[f"'{name}'"],
+                                  fields='sheets(properties(sheetId))').execute()
+    mgid = meta['sheets'][0]['properties']['sheetId']
+    got = svc.spreadsheets().values().batchGet(
+        spreadsheetId=sid, ranges=[f"'{name}'!1:1", f"'{name}'!A1:A"]).execute()['valueRanges']
+    hdr = [str(h).strip() for h in got[0].get('values', [[]])[0]]
+    src = len(got[1].get('values', [])) - 1          # 0부터 센 마지막 공사 줄
+    if src < 1:
+        return []
+    src_of = dict(LAYOUT)
+    reqs = []
+    for h in DROPDOWN_COLS:
+        ci, mh = HEADERS.index(h), src_of[h]
+        if mh not in hdr:
+            continue
+        mi = hdr.index(mh)
+        reqs.append({'copyPaste': {
+            'source': {'sheetId': mgid, 'startRowIndex': src, 'endRowIndex': src + 1,
+                       'startColumnIndex': mi, 'endColumnIndex': mi + 1},
+            'destination': {'sheetId': tab_gid, 'startRowIndex': r0, 'endRowIndex': r1,
+                            'startColumnIndex': ci, 'endColumnIndex': ci + 1},
+            'pasteType': 'PASTE_DATA_VALIDATION'}})
+    return reqs
+
+
 def apply_formats(tab: str) -> int:
     """이미 만든 탭의 데이터 줄 서식만 다시 입힌다(값은 안 건드림). 줄 수를 돌려준다."""
     svc = _svc()
@@ -573,7 +610,8 @@ def apply_formats(tab: str) -> int:
     rows = p['gridProperties']['rowCount']
     codes = svc.spreadsheets().values().get(spreadsheetId=sid, range=f"'{tab}'!A1:A").execute().get('values', [])
     svc.spreadsheets().batchUpdate(spreadsheetId=sid, body={
-        'requests': data_format_requests(p['sheetId'], 1, rows, check_end=len(codes))}).execute()
+        'requests': data_format_requests(p['sheetId'], 1, rows, check_end=len(codes))
+        + dropdown_requests(svc, sid, p['sheetId'], 1, len(codes))}).execute()
     return len(codes) - 1
 
 
@@ -658,7 +696,7 @@ def rebuild_tab(tab: str, backup_dir: str, apply: bool = False) -> dict:
             d['endRowIndex'] = r1
         return d
 
-    reqs = data_format_requests(gid, 1, grid_rows, check_end=n) + [
+    reqs = data_format_requests(gid, 1, grid_rows, check_end=n) + dropdown_requests(svc, sid, gid, 1, n) + [
         {'repeatCell': {'range': rng(0, WIDTH, 0, 1), 'cell': {'userEnteredFormat': {
             'textFormat': {'bold': True}, 'backgroundColor': {'red': 0.9, 'green': 0.9, 'blue': 0.9},
             'horizontalAlignment': 'CENTER'}},
