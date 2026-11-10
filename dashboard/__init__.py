@@ -44,6 +44,22 @@ SOCKETIO_MAX_HTTP_BUFFER_SIZE = 10 * 1024 * 1024  # 10MB - 대용량 데이터 �
 SOCKETIO_PING_TIMEOUT = 10  # 10초 후 응답 없으면 연결 종료
 SOCKETIO_PING_INTERVAL = 5  # 5초마다 ping 체크
 
+
+def _engineio_log_filter(record) -> bool:
+    """engineio.server 로그 거름 — 브라우저 쪽 끊김이 남기는 정상 소음.
+
+    - 'Invalid session': 재시작 직후 옛 세션으로 재접속(자동 재연결) → 버림 (2026-10-28 4차, 3일 50건).
+    - 'Session is disconnected': 이미 끊긴 세션으로 신호가 옴(탭 여러 개 닫기·절전 복귀 등) →
+      WARNING 으로 낮춤. 프로세스마다 첫 1건이 ERROR 로 찍혀 Sentry·관리자 알림이 갔음 (2026-11-10).
+      필터는 Sentry 의 callHandlers 앞에서 돌므로 낮춘 단계가 그대로 적용됨.
+    """
+    msg = record.getMessage()
+    if 'Invalid session' in msg:
+        return False
+    if 'Session is disconnected' in msg and record.levelno > logging.WARNING:
+        record.levelno, record.levelname = logging.WARNING, 'WARNING'
+    return True
+
 def create_app(config_name=None, config_overrides=None, enable_socketio=True):
     """
     Flask 앱 팩토리 함수
@@ -578,10 +594,9 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
             )
             logger.info(f"SocketIO 초기화 완료 (async_mode={socketio_instance.async_mode}, message_queue={redis_url}, ping_timeout={SOCKETIO_PING_TIMEOUT}s, ping_interval={SOCKETIO_PING_INTERVAL}s)")
             logger.info("SocketIO Redis Pub/Sub 활성화 (멀티 워커 간 실시간 이벤트 브로드캐스트)")
-            # 재시작 직후 브라우저가 옛 소켓 세션으로 재접속하며 남기는 'Invalid session' 은 정상(자동 재연결) —
-            #   ERROR 로 찍혀 진짜 오류를 가렸음(3일 50건). 이 문구만 거름 (2026-10-28 4차).
-            import logging as _lg
-            _lg.getLogger('engineio.server').addFilter(lambda r: 'Invalid session' not in r.getMessage())
+            # 브라우저 쪽 끊김이 남기는 정상 소음('Invalid session' 버림·'Session is disconnected' WARNING) —
+            #   ERROR 로 찍혀 진짜 오류를 가리고 Sentry 알림이 갔음 (2026-10-28 4차, 2026-11-10).
+            logging.getLogger('engineio.server').addFilter(_engineio_log_filter)
 
             # 로그인한 사람만 실시간 연결 — 공사 취소·재개·잠금 이벤트가 시트 행(금액·사업자·주소·연락처)과
             #   직원 이메일을 모든 접속자에게 보내는데 접속 확인이 없어 누구나 받아볼 수 있었음 (2026-10-29 점검)
