@@ -5,7 +5,7 @@
 
 body.gw-shell {
   --gw-rail-w: 60px;
-  --gw-rail-w-open: 208px;
+  --gw-rail-w-open: 224px;
   --gw-rail-bg: #f7f8f9;
   --gw-rail-line: rgba(0, 0, 0, 0.07);
   --gw-rail-fg: #1a1c20;
@@ -1070,4 +1070,12 @@ body.gw-shell .filter-section .filter-result-count {
   body.gw-shell .gw-nav-caret {
     transition: none;
   }
+}
+
+/* 매출통계(카드·차트 모음)는 넓은 화면에서 가운데 1400px — 당근 광고 홈과 같은 폭(11-10).
+   표 화면(프로젝트·리드·월별 수금)은 꽉 채움 그대로 */
+body.gw-shell .main-content .container-fluid:has(.stats-card) > .content-container {
+  max-width: 1400px;
+  margin-left: auto;
+  margin-right: auto;
 }

@@ -4,8 +4,18 @@
   padding: 16px 16px 48px;
 }
 
+/* 화면을 다 채우지 않는 화면은 가운데로(당근 비즈니스 광고 화면 실측, 11-10):
+   보고서처럼 짧은 화면 = 좁게 가운데, 홈처럼 카드 모음 = 1240px 가운데. 넓은 표 화면(구성원·전사 현황 등)은 꽉 채움 */
 .gw-page-narrow {
   max-width: 980px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.gw-page.gw-home {
+  max-width: 1240px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .gw-page-head {
