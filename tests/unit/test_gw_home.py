@@ -167,3 +167,52 @@ def test_home_api_staff_and_field(client, db):
 def test_nav_home_first():
     assert gw.build_nav('/home', 'editor')['areas'][0]['label'] == '홈'
     assert [a['label'] for a in gw.build_nav('/home', 'field', field=True)['areas']] == ['홈', '휴가', '인사']
+
+
+class _FakeBatchSvc(_Fake):
+    """묶음 요청(batch)을 흉내 — 구글 왕복 수를 센다."""
+    trips = 0
+
+    def list(self, **kw):
+        _FakeBatchSvc.trips += 1
+        return super().list(**kw)
+
+    def new_batch_http_request(self, callback):
+        svc = self
+
+        class _B:
+            def __init__(self):
+                self.reqs = []
+
+            def add(self, req, request_id):
+                self.reqs.append((request_id, req._k))
+
+            def execute(self):
+                _FakeBatchSvc.trips += 1
+                for rid, k in self.reqs:
+                    svc._k = k
+                    callback(rid, svc.execute(), None)
+        return _B()
+
+    def get(self, userId=None, id=None, **kw):
+        req = _Fake()
+        req._k = ('get', id)
+        return req
+
+    def labels(self):
+        return self
+
+
+def test_mail_batch_two_trips_and_stale_while_revalidate(db, monkeypatch):
+    _FakeBatchSvc.trips = 0
+    r = gw_home.mail_summary('kiko@itg-aircon.com', service=_FakeBatchSvc())
+    assert r['ok'] and r['unread'] == 3 and len(r['items']) == 1
+    assert _FakeBatchSvc.trips == 2                                   # 목록 1번 + 묶음 1번
+
+    calls = []
+    monkeypatch.setattr(gw_home, '_refresh_in_background', lambda email, limit: calls.append(email))
+    gw_home._mail_cache['kiko@itg-aircon.com'] = (gw_home.time.time() - 120, r)      # 2분 지난 값
+    assert gw_home.mail_summary('kiko@itg-aircon.com') is r and calls == ['kiko@itg-aircon.com']
+    gw_home._mail_cache['kiko@itg-aircon.com'] = (gw_home.time.time() - 3600, r)     # 1시간 지난 값 → 새로 받음
+    monkeypatch.setattr(gw_home, '_gmail', lambda email: _Fake())
+    assert gw_home.mail_summary('kiko@itg-aircon.com')['unread'] == 3 and calls == ['kiko@itg-aircon.com']

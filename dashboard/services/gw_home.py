@@ -131,37 +131,90 @@ def _when(raw: str) -> str:
         return ''
 
 
+_MAIL_STALE = 15 * 60          # 이 시간 안이면 옛 값을 먼저 보여 주고 뒤에서 새로 받는다
+_mail_refreshing: set = set()
+
+
+def _item(email: str, m: dict, msg: dict) -> dict:
+    h = {x['name'].lower(): x['value'] for x in (msg.get('payload') or {}).get('headers') or []}
+    name, addr = parseaddr(h.get('from', ''))
+    return {
+        'from': name or addr, 'subject': h.get('subject') or '(제목 없음)',
+        'snippet': (msg.get('snippet') or '')[:120], 'when': _when(h.get('date', '')),
+        'unread': 'UNREAD' in (msg.get('labelIds') or []),
+        'link': f'https://mail.google.com/mail/u/?authuser={email}#inbox/{msg.get("threadId") or m["id"]}',
+    }
+
+
+def _fetch_mail(email: str, limit: int, service=None) -> dict:
+    """구글에 두 번만 묻는다: ① 받은편지함 목록 ② 안 읽은 수 + 메일 몇 통을 한 번에 묶어서(batch)."""
+    inbox = f'https://mail.google.com/mail/u/?authuser={email}#inbox'
+    try:
+        svc = service or _gmail(email)
+        users = svc.users()
+        lst = users.messages().list(userId='me', q='in:inbox', maxResults=limit).execute()
+        ids = [m['id'] for m in lst.get('messages') or []]
+        got: Dict[str, dict] = {}
+        if hasattr(svc, 'new_batch_http_request'):
+            def _cb(rid, resp, exc):
+                if exc is None:
+                    got[rid] = resp
+            batch = svc.new_batch_http_request(callback=_cb)
+            batch.add(users.labels().get(userId='me', id='INBOX'), request_id='__inbox__')
+            for mid in ids:
+                batch.add(users.messages().get(userId='me', id=mid, format='metadata',
+                                               metadataHeaders=['From', 'Subject', 'Date']), request_id=mid)
+            batch.execute()
+        else:   # 묶음 요청을 못 쓰는 경우(시험용 가짜 등)
+            got['__inbox__'] = users.labels().get(userId='me', id='INBOX').execute()
+            for mid in ids:
+                got[mid] = users.messages().get(userId='me', id=mid, format='metadata',
+                                                metadataHeaders=['From', 'Subject', 'Date']).execute()
+        items = [_item(email, {'id': mid}, got[mid]) for mid in ids if mid in got]
+        return {'ok': True, 'unread': int((got.get('__inbox__') or {}).get('messagesUnread') or 0),
+                'items': items, 'inbox': inbox}
+    except Exception as e:
+        logger.warning(f'[GW-HOME] 메일 불러오기 실패({email}): {type(e).__name__}: {e}')
+        return {'ok': False, 'reason': 'error', 'inbox': inbox}
+
+
+def _refresh_in_background(email: str, limit: int) -> None:
+    with _mail_lock:
+        if email in _mail_refreshing:
+            return
+        _mail_refreshing.add(email)
+
+    def _run():
+        try:
+            out = _fetch_mail(email, limit)
+            if out.get('ok'):
+                with _mail_lock:
+                    _mail_cache[email] = (time.time(), out)
+        finally:
+            with _mail_lock:
+                _mail_refreshing.discard(email)
+    threading.Thread(target=_run, daemon=True, name='gw-mail-refresh').start()
+
+
 def mail_summary(email: str, limit: int = 5, service=None) -> dict:
-    """안 읽은 수 + 받은편지함 최근 몇 통. 회사 메일만, 실패하면 {'ok': False}."""
+    """안 읽은 수 + 받은편지함 최근 몇 통. 회사 메일만, 실패하면 {'ok': False}.
+    1분 안이면 기억한 값, 15분 안이면 기억한 값을 바로 주고 뒤에서 새로 받음(홈이 메일 때문에 늦지 않게)."""
     email = (email or '').strip().lower()
     if not email.endswith(COMPANY_DOMAIN):
         return {'ok': False, 'reason': 'no_company_mail'}
     now = time.time()
     with _mail_lock:
         hit = _mail_cache.get(email)
-        if hit and now - hit[0] < _MAIL_TTL:
+    if hit and hit[1].get('ok'):
+        age = now - hit[0]
+        if age < _MAIL_TTL:
             return hit[1]
-    try:
-        svc = service or _gmail(email)
-        label = svc.users().labels().get(userId='me', id='INBOX').execute()
-        lst = svc.users().messages().list(userId='me', q='in:inbox', maxResults=limit).execute()
-        items = []
-        for m in lst.get('messages') or []:
-            msg = svc.users().messages().get(userId='me', id=m['id'], format='metadata',
-                                             metadataHeaders=['From', 'Subject', 'Date']).execute()
-            h = {x['name'].lower(): x['value'] for x in (msg.get('payload') or {}).get('headers') or []}
-            name, addr = parseaddr(h.get('from', ''))
-            items.append({
-                'from': name or addr, 'subject': h.get('subject') or '(제목 없음)',
-                'snippet': (msg.get('snippet') or '')[:120], 'when': _when(h.get('date', '')),
-                'unread': 'UNREAD' in (msg.get('labelIds') or []),
-                'link': f'https://mail.google.com/mail/u/?authuser={email}#inbox/{msg.get("threadId") or m["id"]}',
-            })
-        out = {'ok': True, 'unread': int(label.get('messagesUnread') or 0), 'items': items,
-               'inbox': f'https://mail.google.com/mail/u/?authuser={email}#inbox'}
-    except Exception as e:
-        logger.warning(f'[GW-HOME] 메일 불러오기 실패({email}): {type(e).__name__}: {e}')
-        out = {'ok': False, 'reason': 'error', 'inbox': f'https://mail.google.com/mail/u/?authuser={email}#inbox'}
+        if age < _MAIL_STALE and service is None:
+            _refresh_in_background(email, limit)
+            return hit[1]
+    elif hit and now - hit[0] < _MAIL_TTL:      # 실패도 1분은 기억(구글 장애 때 매번 기다리지 않게)
+        return hit[1]
+    out = _fetch_mail(email, limit, service)
     with _mail_lock:
         _mail_cache[email] = (now, out)
     return out
