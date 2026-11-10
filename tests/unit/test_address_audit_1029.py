@@ -314,5 +314,16 @@ def test_homepage_unverified_form_address_kept(monkeypatch):
     assert blank['방문 주소'] == '-'
 
 
+def test_company_systems_suffix_not_cut():
+    # L-04529: '파트리지시스템즈' 가 절단어 '시스템'에서 잘려 '파트리지 파트리지시스템즈'로 겹침
+    from dashboard.services.lead_helpers import extract_korean_address as E
+    t = '강남구 테헤란로 207 8층 파트리지시스템즈'
+    assert E(t)[0] == t
+    assert ar._extract_building_tail(t) == '8층 파트리지시스템즈'
+    # 문의글의 '시스템에어컨'·'시스템 설치'는 기존대로 절단
+    assert E('강남구 테헤란로 207 8층 사무실 시스템에어컨 견적')[0] == '강남구 테헤란로 207 8층 사무실'
+    assert E('강남구 테헤란로 207 8층 한빛시스템스 시스템에어컨 설치')[0] == '강남구 테헤란로 207 8층 한빛시스템스'
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))

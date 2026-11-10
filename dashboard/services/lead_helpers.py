@@ -426,6 +426,16 @@ _STOP_WORDS = [
     '부탁', '바랍니다', '필요합니다', '희망', '원합니다', '에어컨',
     '냉난방', '냉방', '시스템', '제품',
 ]
+
+
+def _mask_stop_exempt(s: str) -> str:
+    """종료 키워드 검색용 사본 — 상호 꼬리로 쓰인 '시스템즈/시스템스'의 '시스템'을 같은
+    길이 기호로 가려 절단 안 되게 한다(위치 보존). 2026-11-10 L-04529 '8층 파트리지시스템즈'가
+    '시스템'에서 잘려 '파트리지 파트리지시스템즈'로 겹침. '시스템에어컨'·'시스템 설치'는 그대로 절단.
+    """
+    return re.sub(r'시스템(?=[즈스])', '___', s)
+
+
 # '전화' 추가 (2026-07-30): '구로구 고척동 전화연락 부탁드립니다' 에서 '연락'만
 #   잘리고 남은 '전화' 가 상호 fallback 으로 주소에 흡수되던 leak (G5). '전화'
 #   substring 이 '전화연락/전화주세요/전화번호' 모두 앞에서 차단.
@@ -554,8 +564,9 @@ def _extend_address(text: str, base_addr: str, end_offset: int) -> str:
     rest = text[end_offset:end_offset + 80]
     # 종료 키워드 위치
     stop_pos = len(rest)
+    _rest_s = _mask_stop_exempt(rest)
     for sw in _STOP_WORDS:
-        p = rest.find(sw)
+        p = _rest_s.find(sw)
         if 0 <= p < stop_pos:
             stop_pos = p
     # 줄바꿈·쉼표 위치 (마침표는 제외 — "20-16.  1층 일미리금계찜닭" 처럼

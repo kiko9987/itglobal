@@ -934,8 +934,10 @@ def _extract_building_tail(text: str) -> str:
         # 종료 키워드까지 자르기 — 앞의 여는 괄호도 함께 자름
         # (2026-07-21 L-03317: "중국마사지샵(예정)" → '예정' 앞 '(' 만 남는 이슈)
         cut_pos = len(tail)
+        from dashboard.services.lead_helpers import _mask_stop_exempt
+        _tail_s = _mask_stop_exempt(tail)
         for sw in _TAIL_STOP_WORDS:
-            p = tail.find(sw)
+            p = _tail_s.find(sw)
             # 2026-08-06 L-03600: '예정지'(예정+지)는 계획 중 '장소' 표시라 절단 안 함
             #   (뒤 _mark_planned 가 '(예정)' 으로 변환). '예정'(지 없음)만 동사구
             #   ('설치 예정')로 보고 기존대로 절단.
@@ -1022,12 +1024,13 @@ def _append_missing_bare_name(addr: str, text: str) -> str:
     if not m:
         return addr
     word = m.group(1).rstrip('.,')
+    from dashboard.services.lead_helpers import _mask_stop_exempt
     if (not 2 <= len(word) <= 20
             or not re.search(r'[가-힣A-Za-z]', word)
             or re.fullmatch(r'산?\d+(?:-\d+)*', word)           # 지번('산17-16')
             or re.search(r'건물|주택|\(', word)                 # '단독건물(주택)' 설명
             or word in _TAIL_NOISE_WORDS
-            or any(sw in word for sw in _TAIL_STOP_WORDS)
+            or any(sw in _mask_stop_exempt(word) for sw in _TAIL_STOP_WORDS)
             or not _strip_personal_name(f'_ {word}').endswith(word)):  # 사람 이름
         return addr
     _w = word.lower()
@@ -1983,9 +1986,11 @@ def _extract_shop_candidates(text: str) -> list:
     - 중복 제거
     """
     try:
-        from dashboard.services.lead_helpers import _STOP_WORDS
+        from dashboard.services.lead_helpers import _STOP_WORDS, _mask_stop_exempt
     except Exception:
         _STOP_WORDS = []
+        def _mask_stop_exempt(s):
+            return s
     seen, out = set(), []
     for _mw in re.finditer(r'[가-힣][가-힣A-Za-z0-9]{1,14}', text):
         w = _mw.group(0)
@@ -2002,7 +2007,7 @@ def _extract_shop_candidates(text: str) -> list:
             continue
         if _SIDO_WORD_RE.match(w):   # 시/도 이름은 상호 아님 (L-03875 헌인릉 오매칭 차단)
             continue
-        if any(sw in w for sw in _STOP_WORDS):
+        if any(sw in _mask_stop_exempt(w) for sw in _STOP_WORDS):
             continue
         # 2026-07-25 ETC-841a3c: 층 표기 접두어 (`지하1층`, `옥탑2층` 등) exclude.
         #   `호|층` 을 _ADMIN_SUFFIX_RE 에서 뺀 후 (지호창호 fix) 층 표기가 shop
