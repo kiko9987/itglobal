@@ -134,3 +134,21 @@ def test_plan_duplicate_code_row_left_alone():
     tab = [HEADERS, trow(m['G1-YG']), trow(m['G1-YG'], costs=[9, 0, 0, 0])]
     p = plan_tab('박용구', tab, fr(2), m, ['G1-YG'], IDX, {'G1-YG': [0, 0, 0, 0]}, {})
     assert not p['pushes'] and not p['deletes'] and p['notes']
+
+
+def test_column_alignment_matches_main_sheet():
+    al = {h: pct.column_alignment(i) for i, h in enumerate(pct.HEADERS)}
+    assert al['현장 주소'] == 'LEFT' and al['견적서 및 계약서 폴더 경로'] == 'LEFT'
+    for h in ('총액1', '총액2', '계약금', '미수금', '제품대', '기타비', '순익', '마진율'):
+        assert al[h] == 'RIGHT', h
+    for h in ('프로젝트 No.', '사업자', '담당자', '공사 내용', '공사 시작', '수금 날짜', '부가세', '비고', '잔금 부담자'):
+        assert al[h] == 'CENTER', h
+
+
+def test_data_format_requests_checkbox_stops_at_data_rows():
+    reqs = pct.data_format_requests(7, 1, 200, check_end=50)
+    val = [r['setDataValidation']['range'] for r in reqs if 'setDataValidation' in r]
+    assert len(val) == 2 and all(v['endRowIndex'] == 50 for v in val)
+    cells = [r['repeatCell'] for r in reqs if 'repeatCell' in r]
+    assert len(cells) == pct.WIDTH and all(c['range']['endRowIndex'] == 200 for c in cells)
+    assert not [r for r in pct.data_format_requests(7, 60, 80, check_end=50) if 'setDataValidation' in r]

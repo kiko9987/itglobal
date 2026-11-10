@@ -413,7 +413,7 @@ def _apply_tab(svc, sid: str, tab: str, vals: list, pl: dict) -> None:
         raise _TabMoved(f'{len(before)}→{len(after)}줄')
 
     nrows = len(vals)            # 머리글 포함 마지막으로 값이 있는 줄
-    data, fdata = [], []
+    data, fdata, freqs = [], [], []
     for r, ci, v in pl['cells']:
         data.append({'range': f"'{tab}'!{col_letter(ci)}{r}", 'values': [[v]]})
     for r, ci, f in pl['formulas']:
@@ -428,6 +428,7 @@ def _apply_tab(svc, sid: str, tab: str, vals: list, pl: dict) -> None:
             svc.spreadsheets().batchUpdate(spreadsheetId=sid, body={'requests': [{'appendDimension': {
                 'sheetId': p['sheetId'], 'dimension': 'ROWS',
                 'length': end + 100 - p['gridProperties']['rowCount']}}]}).execute()
+        freqs = data_format_requests(p['sheetId'], start - 1, end)   # 새 줄도 정렬·숫자 서식·체크박스
         data.append({'range': f"'{tab}'!A{start}:{TAB_LAST_COL}{end}", 'values': pl['appends']})
         for k in range(len(pl['appends'])):
             r = start + k
@@ -438,6 +439,8 @@ def _apply_tab(svc, sid: str, tab: str, vals: list, pl: dict) -> None:
     if fdata:
         svc.spreadsheets().values().batchUpdate(
             spreadsheetId=sid, body={'valueInputOption': 'USER_ENTERED', 'data': fdata}).execute()
+    if freqs:
+        svc.spreadsheets().batchUpdate(spreadsheetId=sid, body={'requests': freqs}).execute()
     if pl['deletes']:
         meta = svc.spreadsheets().get(spreadsheetId=sid, ranges=[f"'{tab}'"],
                                       fields='sheets(properties(sheetId))').execute()
@@ -508,6 +511,70 @@ def _register_queue_handler():
 
 
 _register_queue_handler()
+
+
+# ── 칸 서식 ─────────────────────────────────────────────
+
+# 메인 시트와 같게: 주소·폴더 경로는 왼쪽, 금액(원가·순익 포함)·마진율은 오른쪽, 나머지는 가운데
+LEFT_COLS = ('현장 주소', '견적서 및 계약서 폴더 경로')
+MONEY_COLS = ('총액1', '총액2', '계약금', '중도금', '잔금', '미수금') + COST_FIELDS + ('순익',)
+DATE_COLS = ('공사 시작', '공사 종료', '수금 날짜')
+CHECK_COLS = ('부가세', '수금 확인')
+
+
+def column_alignment(i: int) -> str:
+    h = HEADERS[i]
+    if h in LEFT_COLS:
+        return 'LEFT'
+    if h in MONEY_COLS or h == '마진율':
+        return 'RIGHT'
+    return 'CENTER'
+
+
+def data_format_requests(gid: int, r0: int, r1: int, check_end: int | None = None) -> list:
+    """데이터 줄(0부터 센 r0 이상 r1 미만) 서식 — 재구성 때와 새 줄을 붙일 때 같이 쓴다.
+
+    체크박스는 check_end(기본 r1) 줄까지만 — 빈 줄에 빈 체크박스가 보이지 않게.
+    """
+    def rng(c0, c1, end=r1):
+        return {'sheetId': gid, 'startColumnIndex': c0, 'endColumnIndex': c1,
+                'startRowIndex': r0, 'endRowIndex': end}
+    reqs = []
+    for i in range(WIDTH):
+        h = HEADERS[i]
+        f = {'horizontalAlignment': column_alignment(i)}
+        fields = ['horizontalAlignment']
+        if h in DATE_COLS:
+            f['numberFormat'] = {'type': 'DATE', 'pattern': 'yyyy-mm-dd'}
+        elif h in MONEY_COLS:
+            f['numberFormat'] = {'type': 'NUMBER', 'pattern': '#,##0'}
+        elif h == '마진율':
+            f['numberFormat'] = {'type': 'PERCENT', 'pattern': '0.0%'}
+        if 'numberFormat' in f:
+            fields.append('numberFormat')
+        if i in COST_IDX:
+            f['backgroundColor'] = {'red': 1, 'green': 0.97, 'blue': 0.8}
+            fields.append('backgroundColor')
+        reqs.append({'repeatCell': {'range': rng(i, i + 1), 'cell': {'userEnteredFormat': f},
+                                    'fields': 'userEnteredFormat(' + ','.join(fields) + ')'}})
+        if h in CHECK_COLS and (check_end is None or check_end > r0):
+            reqs.append({'setDataValidation': {'range': rng(i, i + 1, r1 if check_end is None else check_end),
+                                               'rule': {'condition': {'type': 'BOOLEAN'}}}})
+    return reqs
+
+
+def apply_formats(tab: str) -> int:
+    """이미 만든 탭의 데이터 줄 서식만 다시 입힌다(값은 안 건드림). 줄 수를 돌려준다."""
+    svc = _svc()
+    sid = os.getenv('GOOGLE_SHEET_ID', '').strip()
+    meta = svc.spreadsheets().get(spreadsheetId=sid, ranges=[f"'{tab}'"],
+                                  fields='sheets(properties(sheetId,gridProperties(rowCount)))').execute()
+    p = meta['sheets'][0]['properties']
+    rows = p['gridProperties']['rowCount']
+    codes = svc.spreadsheets().values().get(spreadsheetId=sid, range=f"'{tab}'!A1:A").execute().get('values', [])
+    svc.spreadsheets().batchUpdate(spreadsheetId=sid, body={
+        'requests': data_format_requests(p['sheetId'], 1, rows, check_end=len(codes))}).execute()
+    return len(codes) - 1
 
 
 # ── 처음 만들기·다시 만들기 ─────────────────────────────────
@@ -591,11 +658,7 @@ def rebuild_tab(tab: str, backup_dir: str, apply: bool = False) -> dict:
             d['endRowIndex'] = r1
         return d
 
-    def fmt(c0, c1, pattern, typ):
-        return {'repeatCell': {'range': rng(c0, c1), 'cell': {'userEnteredFormat': {
-            'numberFormat': {'type': typ, 'pattern': pattern}}}, 'fields': 'userEnteredFormat.numberFormat'}}
-    H = HEADERS.index
-    reqs = [
+    reqs = data_format_requests(gid, 1, grid_rows, check_end=n) + [
         {'repeatCell': {'range': rng(0, WIDTH, 0, 1), 'cell': {'userEnteredFormat': {
             'textFormat': {'bold': True}, 'backgroundColor': {'red': 0.9, 'green': 0.9, 'blue': 0.9},
             'horizontalAlignment': 'CENTER'}},
@@ -604,19 +667,7 @@ def rebuild_tab(tab: str, backup_dir: str, apply: bool = False) -> dict:
             'textFormat': {'bold': True}, 'backgroundColor': {'red': 1, 'green': 0.85, 'blue': 0.4},
             'horizontalAlignment': 'CENTER'}},
             'fields': 'userEnteredFormat(textFormat,backgroundColor,horizontalAlignment)'}},
-        {'repeatCell': {'range': rng(COST_IDX[0], COST_IDX[-1] + 1), 'cell': {'userEnteredFormat': {
-            'backgroundColor': {'red': 1, 'green': 0.97, 'blue': 0.8}}},
-            'fields': 'userEnteredFormat.backgroundColor'}},
     ]
-    for c in ('공사 시작', '공사 종료', '수금 날짜'):
-        reqs.append(fmt(H(c), H(c) + 1, 'yyyy-mm-dd', 'DATE'))
-    for c in ('총액1', '총액2', '계약금', '중도금', '잔금', '미수금'):
-        reqs.append(fmt(H(c), H(c) + 1, '#,##0', 'NUMBER'))
-    reqs.append(fmt(COST_IDX[0], PROFIT_IDX + 1, '#,##0', 'NUMBER'))
-    reqs.append(fmt(MARGIN_IDX, MARGIN_IDX + 1, '0.0%', 'PERCENT'))
-    for c in ('부가세', '수금 확인'):
-        reqs.append({'setDataValidation': {'range': rng(H(c), H(c) + 1, 1, n),
-                                           'rule': {'condition': {'type': 'BOOLEAN'}}}})
     for ci in (PROFIT_IDX, MARGIN_IDX):     # 적자면 빨간 굵은 글씨 (옛 탭 규칙)
         reqs.append({'addConditionalFormatRule': {'index': 0, 'rule': {
             'ranges': [rng(ci, ci + 1)],
