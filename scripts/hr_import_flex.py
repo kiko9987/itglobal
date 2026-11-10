@@ -123,6 +123,10 @@ def build_records(flex_dir: Path, leave_slack: dict):
             continue
         work = (_s(m.get('회사 메일')) or '').lower() or None
         personal = (_s(m.get('개인 메일')) or '').lower() or None
+        # 플렉스 '회사 메일' 칸에 개인 메일(네이버 등)을 넣어 둔 현장 직원 → 개인 메일로 옮김
+        if work and not work.endswith(COMPANY_DOMAIN):
+            personal = personal or work
+            work = None
         status = _status(m.get('상태'))
         active = status != '퇴사'
         staff = bool(work and work.endswith(COMPANY_DOMAIN))

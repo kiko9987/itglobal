@@ -26,12 +26,31 @@ def _is_admin() -> bool:
     return (session.get('user') or {}).get('permission_level') in ('admin', 'super_admin')
 
 
+def _is_field() -> bool:
+    return bool((session.get('user') or {}).get('gw_field'))
+
+
+def _hr_admin() -> bool:
+    """HR 관리자인가 — 현장 세션은 절대 아님."""
+    return not _is_field() and hr.is_hr_admin(_me())
+
+
+def _my_person():
+    """로그인한 사람의 인사카드 — 현장 세션은 인사카드 번호로, 그 외는 이메일로."""
+    user = session.get('user') or {}
+    if user.get('gw_field'):
+        p = hr.get_person(int(user.get('gw_person_id') or 0))
+        return p if p and p.get('status') != hr.STATUS_RESIGNED else None
+    return hr.find_by_email(_me())
+
+
 def gw_page(f):
-    """그룹웨어 화면 — 로그인 + 새 화면을 쓸 수 있는 사람(정식 오픈 전엔 시범 명단)."""
+    """그룹웨어 화면 — 로그인 + 새 화면을 쓸 수 있는 사람(정식 오픈 전엔 시범 명단).
+    현장 세션은 링크 발급 때 이미 확인했고, 다닐 수 있는 경로는 groupware 문지기가 막는다."""
     @login_required
     @wraps(f)
     def wrapper(*a, **kw):
-        if not gw.can_use(_me()):
+        if not (session.get('user') or {}).get('gw_field') and not gw.can_use(_me()):
             if request.path.startswith('/api/'):
                 return jsonify({'success': False, 'message': '아직 열리지 않은 화면입니다.'}), 403
             return redirect('/projects')
@@ -54,14 +73,14 @@ def _fail(e: Exception):
 @hr_bp.route('/hr/me')
 @gw_page
 def page_me():
-    p = hr.find_by_email(_me())
+    p = _my_person()
     return render_template('gw/hr_me.html', person_id=p['id'] if p else None, fields=hr.FIELDS)
 
 
 @hr_bp.route('/hr/people')
 @gw_page
 def page_people():
-    if not hr.is_hr_admin(_me()):
+    if not _hr_admin():
         return redirect('/hr/me')
     return render_template('gw/hr_people.html', fields=hr.FIELDS, statuses=hr.STATUSES)
 
@@ -78,7 +97,7 @@ def page_admin():
 @hr_bp.route('/api/hr/people', methods=['GET'])
 @gw_page
 def api_list():
-    if not hr.is_hr_admin(_me()):
+    if not _hr_admin():
         return jsonify({'success': False, 'message': '구성원 목록은 경영지원·대표만 볼 수 있습니다.'}), 403
     return jsonify({'success': True, 'people': hr.list_people(include_resigned=request.args.get('resigned') == '1')})
 
@@ -86,15 +105,15 @@ def api_list():
 @hr_bp.route('/api/hr/people/<int:pid>', methods=['GET'])
 @gw_page
 def api_card(pid):
-    me = _me()
-    if not hr.is_hr_admin(me):
-        mine = hr.find_by_email(me)
+    me = '' if _is_field() else _me()      # 현장 세션은 관리자 권한 판단에 이메일을 쓰지 않음
+    if not _hr_admin():
+        mine = _my_person()
         if not mine or mine['id'] != pid:
             return jsonify({'success': False, 'message': '본인 인사카드만 볼 수 있습니다.'}), 403
     c = hr.card(pid, me)
     if not c:
         return jsonify({'success': False, 'message': '없는 구성원입니다.'}), 404
-    if hr.is_hr_admin(me):
+    if _hr_admin():
         c['access_log'] = hr.access_log(pid)
     return jsonify({'success': True, 'person': c})
 

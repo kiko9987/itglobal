@@ -165,7 +165,7 @@ AREAS = [
     {
         'key': 'hr', 'label': '인사', 'icon': 'fas fa-id-card',
         'items': [
-            {'href': '/hr/me', 'label': '내 정보', 'icon': 'fas fa-user'},
+            {'href': '/hr/me', 'label': '내 정보', 'icon': 'fas fa-user', 'field': True},
             {'href': '/hr/people', 'label': '구성원', 'icon': 'fas fa-users', 'hr_admin': True},
         ],
     },
@@ -182,7 +182,9 @@ def _matches(path: str, href: str) -> bool:
     return path == href or path.startswith(href.rstrip('/') + '/')
 
 
-def _visible(it: dict, is_admin: bool, is_hr_admin: bool) -> bool:
+def _visible(it: dict, is_admin: bool, is_hr_admin: bool, field: bool = False) -> bool:
+    if field:                       # 현장·미화 세션: field=True 메뉴만
+        return bool(it.get('field'))
     if it.get('admin') and not is_admin:
         return False
     if it.get('hr_admin') and not is_hr_admin:
@@ -190,13 +192,13 @@ def _visible(it: dict, is_admin: bool, is_hr_admin: bool) -> bool:
     return True
 
 
-def build_nav(path: str, permission_level: str, is_hr_admin: bool = False) -> dict:
+def build_nav(path: str, permission_level: str, is_hr_admin: bool = False, field: bool = False) -> dict:
     """현재 주소에 맞춰 왼쪽 줄(영역)과 위쪽 줄(하위 메뉴)을 만든다.
-    bottom=True 영역(관리)은 왼쪽 줄 아래쪽에 따로 둔다."""
+    bottom=True 영역(관리)은 왼쪽 줄 아래쪽에 따로 둔다. field=True 는 현장·미화 세션."""
     is_admin = permission_level in ('admin', 'super_admin')
     areas, active_items = [], []
     for area in AREAS:
-        items = [dict(it) for it in area['items'] if _visible(it, is_admin, is_hr_admin)]
+        items = [dict(it) for it in area['items'] if _visible(it, is_admin, is_hr_admin, field)]
         if not items:
             continue
         hit = False

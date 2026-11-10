@@ -18,6 +18,7 @@
                 </div>
             </li>
             <li><hr class="dropdown-divider"></li>
+            {% if not gw_field %}
             <li id="admin-menu-item" style="display: none;">
                 <a class="dropdown-item" href="#" onclick="openUserManagement()">
                     <i class="fas fa-users-cog me-2"></i>사용자 관리
@@ -43,6 +44,7 @@
                     <i class="fas fa-sync-alt me-2"></i>폴더 경로 변환
                 </a>
             </li>
+            {% endif %}
             {% if gw_can_switch %}
             <li>
                 <a class="dropdown-item" href="#" onclick="fetch('/api/gw/layout',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({'new':true})}).then(function(r){if(r.ok)location.reload();});return false;">

@@ -31,10 +31,12 @@
     </a>
     {% endfor %}
 
+    {% if not gw_field %}
     <button type="button" class="gw-rail-item gw-rail-classic" id="gwClassicBtn" title="예전 PM 화면으로 돌아가기">
         <span class="gw-rail-icon"><i class="fas fa-undo" aria-hidden="true"></i></span>
         <span class="gw-rail-label">예전 화면</span>
     </button>
+    {% endif %}
 </nav>
 
 <header class="gw-topbar" id="gwTopbar">

@@ -4,7 +4,11 @@
   명단에 없는 사람에겐 gw_layout=False → 기존 머리글 그대로.
 - API 는 /api/ 아래(CSRF 경로 규칙).
 """
-from flask import Blueprint, jsonify, request, session
+import re
+import uuid
+from datetime import datetime
+
+from flask import Blueprint, jsonify, redirect, render_template_string, request, session
 
 from dashboard.auth import admin_required, login_required
 from dashboard.services import groupware as gw
@@ -14,6 +18,61 @@ logger = get_logger(__name__)
 
 groupware_bp = Blueprint('groupware', __name__)
 
+# ── 현장 세션 문지기 ───────────────────────────────────────────────────
+# 슬랙 링크로 들어온 현장·미화 직원(session.user.gw_field)은 아래 경로만. 나머지(기존 PM 화면·API)는 전부 막는다.
+_FIELD_PAGES = ('/hr/me', '/logout', '/login')
+_FIELD_API = [
+    (('GET',), re.compile(r'^/api/hr/people/\d+$')),     # 본인 카드(본인 여부는 화면 쪽에서 다시 확인)
+    (('POST',), re.compile(r'^/api/auth/ping$')),       # 세션 연장
+]
+
+
+def field_path_allowed(method: str, path: str) -> bool:
+    if path.startswith('/static/') or path == '/favicon.ico' or path.startswith('/gw/login/'):
+        return True
+    if path in _FIELD_PAGES:
+        return True
+    return any(method in methods and pat.match(path) for methods, pat in _FIELD_API)
+
+
+@groupware_bp.before_app_request
+def field_gatekeeper():
+    user = session.get('user') or {}
+    if not user.get('gw_field'):
+        return None
+    if field_path_allowed(request.method, request.path):
+        return None
+    if request.path.startswith('/api/') or request.is_json:
+        return jsonify({'success': False, 'message': '현장 계정은 쓸 수 없는 기능입니다.'}), 403
+    return redirect('/hr/me')
+
+
+_LINK_FAIL_PAGE = '''<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>링크를 쓸 수 없어요</title>
+<style>body{font-family:-apple-system,'Segoe UI',sans-serif;background:#f8fafc;margin:0;padding:48px 16px;color:#0f172a}
+.box{max-width:420px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:24px}
+h1{font-size:1.15rem;margin:0 0 8px}p{color:#475569;line-height:1.6;margin:0}</style></head>
+<body><div class="box"><h1>링크를 쓸 수 없어요</h1>
+<p>이미 쓴 링크이거나 10분이 지났어요. 슬랙 휴가 앱에서 [그룹웨어 열기]를 다시 눌러 주세요.</p></div></body></html>'''
+
+
+@groupware_bp.route('/gw/login/<token>')
+def field_login(token):
+    """슬랙 휴가 봇이 준 1회용 링크 → 현장 세션."""
+    from dashboard.services import gw_login
+    ip = (request.headers.get('X-Forwarded-For') or request.remote_addr or '').split(',')[0].strip()
+    p = gw_login.consume(token, ip)
+    if not p:
+        logger.warning(f'[GW-LOGIN] 링크 거절(만료·사용함·없음) ip={ip}')
+        return render_template_string(_LINK_FAIL_PAGE), 410
+    session.clear()   # 세션 고정 방지
+    session['user'] = gw_login.session_user(p)
+    session['login_time'] = datetime.now().isoformat()
+    session['session_id'] = str(uuid.uuid4())
+    session.permanent = True
+    logger.info(f'[GW-LOGIN] 현장 로그인 #{p["id"]} ip={ip}')
+    return redirect('/hr/me')
+
 
 @groupware_bp.app_context_processor
 def inject_groupware_layout():
@@ -21,6 +80,10 @@ def inject_groupware_layout():
     try:
         user = session.get('user') or {}
         email = user.get('email', '')
+        if user.get('gw_field'):
+            # 현장 세션은 늘 새 틀(기존 머리글엔 PM 메뉴가 있음), 메뉴는 현장용만
+            return {'gw_layout': True, 'gw_field': True,
+                    'gw_nav': gw.build_nav(request.path, 'field', field=True)}
         if not gw.can_use(email):
             return {'gw_layout': False}
         if session.get('gw_off'):

@@ -302,7 +302,44 @@ def home_view(uid: str) -> dict:
                        '슬랙 휴가 신청은 준비 중이에요. 지금은 플렉스에서 신청해 주세요.'}]})
     blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
                    'JW → YG 승인 후 #휴가_일정에 날짜만 올라가요. 종류·사유는 승인자만 봐요.'}]})
+    # 회사 구글 계정이 없는 현장·미화 직원만 — 그룹웨어 1회용 로그인 링크(2026-11-10)
+    if _gw_link_ok(uid):
+        blocks.append({'type': 'divider'})
+        blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text':
+                       '*그룹웨어*\n내 인사 정보와 휴가 내역을 볼 수 있어요.'},
+                       'accessory': {'type': 'button', 'action_id': A_GW_LINK, 'text': _plain('🔑 그룹웨어 열기')}})
     return {'type': 'home', 'blocks': blocks}
+
+
+A_GW_LINK, A_GW_LINK_OPEN = 'gw_login_link', 'gw_login_link_open'
+
+
+def _gw_link_ok(uid: str) -> bool:
+    try:
+        from dashboard.services import gw_login
+        return gw_login.can_issue(uid)
+    except Exception as exc:
+        logger.warning(f'{_LOG} 그룹웨어 버튼 판단 실패: {exc}')
+        return False
+
+
+def gw_link_view(url: str) -> dict:
+    return {
+        'type': 'modal', 'title': _plain('그룹웨어 열기'), 'close': _plain('닫기'),
+        'blocks': [
+            {'type': 'section', 'text': {'type': 'mrkdwn', 'text':
+             '아래 버튼을 누르면 그룹웨어가 열려요.\n이 링크는 *10분 동안 한 번만* 쓸 수 있어요. 다른 사람에게 보내지 마세요.'}},
+            {'type': 'actions', 'elements': [
+                {'type': 'button', 'action_id': A_GW_LINK_OPEN, 'style': 'primary', 'url': url,
+                 'text': _plain('그룹웨어 열기')}]},
+        ],
+    }
+
+
+def gw_link_denied_view() -> dict:
+    return {'type': 'modal', 'title': _plain('그룹웨어 열기'), 'close': _plain('닫기'),
+            'blocks': [{'type': 'section', 'text': {'type': 'mrkdwn', 'text':
+                        '지금은 그룹웨어를 열 수 없어요. 경영지원에 문의해 주세요.'}}]}
 
 
 def _mine_text(uid: str) -> str:
@@ -481,6 +518,35 @@ def register_leave_handlers(app) -> None:
         ack()
         if body.get('is_cleared') or not (body.get('view') or {}).get('previous_view_id'):
             se._complete_step(body)
+
+    @app.action(A_GW_LINK)
+    def handle_gw_link(ack, body, client):
+        """[🔑 그룹웨어 열기] — 누른 사람에게만 보이는 창에 1회용 링크. 창부터 열고(trigger 3초) 링크를 채운다."""
+        ack()
+        uid = (body.get('user') or {}).get('id', '')
+        try:
+            view_id = client.views_open(trigger_id=body['trigger_id'],
+                                        view=se._loading_view('그룹웨어 열기'))['view']['id']
+        except Exception as exc:
+            logger.error(f'{_LOG} 그룹웨어 창 열기 실패: {exc}', exc_info=True)
+            return
+        try:
+            from dashboard.services import gw_login
+            view = gw_link_view(gw_login.issue(uid))
+        except PermissionError:
+            view = gw_link_denied_view()
+        except Exception as exc:
+            logger.error(f'{_LOG} 그룹웨어 링크 만들기 실패: {exc}', exc_info=True)
+            view = gw_link_denied_view()
+        try:
+            client.views_update(view_id=view_id, view=view)
+        except Exception as exc:
+            logger.error(f'{_LOG} 그룹웨어 창 바꾸기 실패: {exc}', exc_info=True)
+
+    @app.action(A_GW_LINK_OPEN)
+    def handle_gw_link_open(ack):
+        """링크 버튼(url) 누름 — 슬랙이 알림만 보내므로 받기만 한다."""
+        ack()
 
     @app.event('app_home_opened')
     def handle_leave_home(event, client):

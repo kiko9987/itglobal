@@ -105,6 +105,26 @@ def _validate_session(require_admin=False):
                 return jsonify({'error': '세션이 만료되었습니다.', 'redirect': '/login'}), 401
             return redirect(url_for('auth.login_page', message='session_expired'))
 
+    # 현장·미화 직원 슬랙 링크 세션(2026-11-10): 사용자 표(users)에 계정이 없고 인사카드로 확인한다.
+    # permission_level='field' 라 관리자·편집자 검사는 아래에서 그대로 막히고, 그룹웨어 문지기가 경로도 막는다.
+    if user.get('gw_field'):
+        try:
+            from dashboard.services.gw_login import field_session_valid
+            ok = field_session_valid(user)
+        except Exception as e:
+            logger.warning(f"현장 세션 확인 실패 → 종료: {e}")
+            ok = False
+        if not ok:
+            session.clear()
+            if request.is_json:
+                return jsonify({'error': '세션이 만료되었습니다.', 'redirect': '/login'}), 401
+            return redirect(url_for('auth.login_page', message='session_expired'))
+        if require_admin:
+            if request.is_json:
+                return jsonify({'error': '관리자 권한이 필요합니다.'}), 403
+            return redirect('/hr/me')
+        return None
+
     # 실시간 DB 확인: 사용자 상태 및 권한 검증
     try:
         db = get_user_database()

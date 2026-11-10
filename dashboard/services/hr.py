@@ -214,6 +214,21 @@ def find_by_email(email: str) -> Optional[dict]:
     return None
 
 
+def find_by_slack(slack_id: str) -> Optional[dict]:
+    """슬랙 ID → 재직 중인 인사카드(퇴사자 제외)."""
+    if not slack_id:
+        return None
+    with _conn() as conn:
+        r = conn.execute("SELECT * FROM hr_people WHERE slack_id = ? AND status != '퇴사' ORDER BY id LIMIT 1",
+                         (slack_id,)).fetchone()
+    return _row(r)
+
+
+def identity_email(p: dict) -> str:
+    """그룹웨어 세션에 쓸 이메일 — 로그인 메일 > 개인 메일 > 자리표시(현장 직원 중 메일 없는 사람)."""
+    return (p.get('login_email') or p.get('personal_email') or f'field-{p["id"]}@itg-aircon.invalid').lower()
+
+
 def appointments(person_id: int) -> List[dict]:
     with _conn() as conn:
         rows = conn.execute('SELECT * FROM hr_appointments WHERE person_id = ? '
