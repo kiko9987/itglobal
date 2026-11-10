@@ -156,6 +156,7 @@ def test_new_layout_renders_with_file_versioned_assets(db, tmp_path):
     assert 'aria-controls="gwSub-home"' not in html and '<a class="gw-nav-area" href="/home"' in html
     # 빠른 찾기(11-10): 사무실 직원은 프로젝트·리드까지, 스크립트는 파일 시각 버전
     assert 'id="gwFindBtn"' in html and 'data-scope="all"' in html and '/static/js/gw-search.js?v=' in html
+    assert re.search(r'<link rel="icon" type="image/x-icon" href="/static/favicon\.ico\?v=\d+">', html)   # 파비콘(11-10)
     css = re.search(r'/static/css/gw-pages\.css\?v=(\d+)', html)
     shell = re.search(r'/static/js/groupware-shell\.js\?v=(\d+)', html)
     assert css and shell and int(css.group(1)) == int(os.path.getmtime(os.path.join(root, 'static', 'css', 'gw-pages.css')))
@@ -174,3 +175,23 @@ def test_project_filters_chip_labels_only_in_new_layout():
     for label in ('내부 사업자', '담당자', '유입 구분', '거래처·사업자명', '상태', '세금계산서', '수금 상태', '데이터'):
         assert f'<option value="">{label}</option>' in new
     assert 'placeholder="검색..."' in old and 'placeholder="코드·현장·고객 검색"' in new
+
+
+def test_favicon_links_and_templates_parse():
+    """파비콘(11-10): 공통 틀·로그인 화면 템플릿이 문법 오류 없이 읽히고, 아이콘 주소가 gw_asset 으로 제대로 들어감.
+    (넣을 때 {{ }} 가 { } 로 줄고 \' 가 섞여 운영 로그인 화면 주소가 깨졌던 것 재발 방지)"""
+    import os
+    import re
+    from jinja2 import Environment, FileSystemLoader
+    root = os.path.join(os.path.dirname(__file__), '..', '..', 'dashboard', 'templates')
+    env = Environment(loader=FileSystemLoader(root))
+    for name in ('modern_base.html', 'login.html'):
+        src = open(os.path.join(root, name), encoding='utf-8').read()
+        env.parse(src)                                   # 문법 오류면 여기서 실패
+        links = re.findall(r'<link rel="(?:icon|apple-touch-icon)"[^>]*>', src)
+        assert len(links) == 4, name
+        for l in links:
+            assert re.search(r'''href="\{\{ gw_asset\('(favicon\.ico|images/(favicon-32|favicon-192|apple-touch-icon)\.png)'\) \}\}"''', l), l
+    static = os.path.join(root, '..', 'static')
+    for f in ('favicon.ico', 'images/favicon-32.png', 'images/favicon-192.png', 'images/apple-touch-icon.png'):
+        assert os.path.getsize(os.path.join(static, f)) > 500, f        # 0바이트 파비콘이었던 것
