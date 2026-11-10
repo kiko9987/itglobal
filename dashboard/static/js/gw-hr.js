@@ -218,27 +218,27 @@
     if (docs.length || p.can_edit) {
       h += '<div class="gw-sec-title">서류</div>';
       if (docs.length) {
-        h += table(['종류', '파일', '크기', '올린 날', ''], docs.map(function (d) {
+        h += table(['종류', '파일', '크기', '업로드일', ''], docs.map(function (d) {
           return '<tr><td>' + esc(d.doc_type || '기타') + '</td><td class="gw-doc-name">' + esc(d.file_name) + '</td><td>' + kb(d.size) +
             '</td><td>' + (d.uploaded_by === 'flex-import' ? '<span class="text-muted">플렉스에서 옮김</span>' : esc((d.created_at || '').slice(0, 10))) +
             '</td><td class="gw-doc-act">' +
             '<a class="btn btn-sm btn-outline-secondary" href="/api/hr/documents/' + d.id + '?view=1" target="_blank" rel="noopener">보기</a> ' +
-            '<a class="btn btn-sm btn-outline-secondary" href="/api/hr/documents/' + d.id + '">받기</a>' +
+            '<a class="btn btn-sm btn-outline-secondary" href="/api/hr/documents/' + d.id + '">다운로드</a>' +
             (p.can_edit && CFG.mode !== 'me' ? ' <button type="button" class="btn btn-sm btn-outline-danger" data-doc-del="' + d.id + '">삭제</button>' : '') +
             '</td></tr>';
         }));
       } else {
-        h += '<div class="gw-log">올린 서류가 없습니다.</div>';
+        h += '<div class="gw-log">업로드된 서류가 없습니다.</div>';
       }
       if (p.can_edit && CFG.mode !== 'me') {
         h += '<form class="gw-doc-upload" id="hrDocForm">' +
           '<select class="form-select form-select-sm" name="doc_type" aria-label="서류 종류">' +
           (p.doc_types || []).map(function (t) { return '<option>' + esc(t) + '</option>'; }).join('') + '</select>' +
           '<input type="file" class="form-control form-control-sm" name="file" aria-label="파일" required>' +
-          '<button type="submit" class="btn btn-sm btn-outline-primary">올리기</button>' +
+          '<button type="submit" class="btn btn-sm btn-outline-primary">업로드</button>' +
           '<span class="gw-form-error" id="hrDocError" role="alert"></span></form>';
       }
-      h += '<div class="gw-log mt-1">서류를 열거나 받으면 누가 언제 봤는지 기록이 남습니다.</div>';
+      h += '<div class="gw-log mt-1">서류를 열람·다운로드하면 열람 기록이 남습니다.</div>';
     }
     return h;
   }
@@ -271,13 +271,13 @@
         var err = document.getElementById('hrDocError');
         var file = form.elements.file.files[0];
         if (!file) { err.textContent = '파일을 골라 주세요.'; return; }
-        if (file.size > 8 * 1024 * 1024) { err.textContent = '8MB까지 올릴 수 있습니다.'; return; }
+        if (file.size > 8 * 1024 * 1024) { err.textContent = '8MB까지 업로드할 수 있습니다.'; return; }
         var fd = new FormData(form);
         var btn = form.querySelector('button[type=submit]');
         btn.disabled = true;
         err.textContent = '';
         fetch('/api/hr/people/' + p.id + '/documents', { method: 'POST', body: fd, credentials: 'same-origin' })
-          .then(function (r) { return r.json().then(function (j) { if (!r.ok || !j.success) throw new Error(j.message || '올리지 못했습니다.'); return j; }); })
+          .then(function (r) { return r.json().then(function (j) { if (!r.ok || !j.success) throw new Error(j.message || '업로드하지 못했습니다.'); return j; }); })
           .then(function () { loadCard(p.id); })
           .catch(function (x) { err.textContent = x.message; btn.disabled = false; });
       });

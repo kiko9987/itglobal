@@ -517,15 +517,15 @@ def save_document(person_id: int, doc_type: str, file_name: str, data: bytes, by
                   flex_file_key: Optional[str] = None) -> dict:
     """서류 파일 저장 + 장부 한 줄. 인사카드 관리자(또는 이관 스크립트 by='flex-import')만."""
     if by != 'flex-import' and not is_hr_admin(by):
-        raise PermissionError('서류 올리기는 경영지원·대표만 할 수 있습니다.')
+        raise PermissionError('서류 업로드는 경영지원·대표만 할 수 있습니다.')
     if not get_person(person_id):
         raise LookupError('없는 구성원입니다.')
     if not data:
         raise ValueError('빈 파일입니다.')
     if len(data) > DOC_MAX_BYTES:
-        raise ValueError('파일이 너무 큽니다(8MB까지).')
+        raise ValueError('파일이 너무 큽니다(8MB까지 업로드할 수 있습니다).')
     if not (file_name or '').lower().endswith(DOC_EXT):
-        raise ValueError('올릴 수 없는 파일 형식입니다.')
+        raise ValueError('업로드할 수 없는 파일 형식입니다.')
     doc_type = doc_type if doc_type in DOC_TYPES else '기타'
     folder = os.path.join(docs_dir(), str(person_id))
     os.makedirs(folder, exist_ok=True)
