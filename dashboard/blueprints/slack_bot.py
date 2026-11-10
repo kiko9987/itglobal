@@ -9993,7 +9993,16 @@ def _process_consult_submission(client, body, view):
     # 미verified(도로명·번지 오타)면 raw 유지 + '확인 필요' addr_note → 방문 카드 배지.
     _visit_addr_note = None
     if visit_address:
+        _addr_full = visit_address
+        visit_address, consultation, _addr_memo = _split_visit_address_memo(visit_address, consultation)
         visit_address, _visit_addr_note = _normalize_visit_address_if_verified(visit_address)
+        # 메모를 뗐으면 카드 원본 줄엔 입력 전체를 보여 줌 (시트 동기화 경로와 같게)
+        if _addr_memo:
+            if _visit_addr_note:
+                _visit_addr_note['original'] = _addr_full
+            else:
+                _visit_addr_note = {'kind': 'note_only', 'original': _addr_full,
+                                    'normalized': visit_address}
 
     # 본인 방문 필수 라디오 (2026-07-17) — JW 담당자 배정 참고용
     _assign_state = (state.get('assign_self', {}).get('value', {}) or {}).get('selected_option') or {}
@@ -11873,6 +11882,10 @@ def _process_visit_edit_same_platform(client, body, lead_no, channel, message_ts
     _edit_addr_note = None
     if new_address:
         try:
+            new_address, new_consultation, _memo = _split_visit_address_memo(
+                new_address, new_consultation)
+            if _memo:
+                new_consultation_merged = _replace_last_consult_content(_old_k, new_consultation)
             _norm_addr, _addr_note = _normalize_visit_address_if_verified(new_address)
             new_address = _norm_addr
             if _addr_note and (_addr_note.get('kind') == 'failed'
@@ -14049,6 +14062,33 @@ def _region_changed(raw: str, norm: str) -> bool:
     return False
 
 
+def _split_visit_address_memo(raw_addr: str, consultation: str) -> tuple:
+    """방문 모달 주소칸에 붙은 메모를 떼어 상담 내용 뒤로 옮김 (2026-11-10).
+
+    시트 동기화 경로(lead_sync)는 '(현재 철거중)'·'오전 9시 방문' 같은 메모를 split_address_notes
+    로 떼어 상담 내용에 붙이는데, 모달(상담하기·방문 요청·정보 수정)은 그 단계가 없어 메모가
+    변환 주소에 그대로 남았음. 메모 신호가 있을 때만 분리(보수적), 상담 내용에 이미 있으면 생략.
+
+    Returns: (주소, 상담 내용, 떼어낸 메모)
+    """
+    addr = (raw_addr or '').strip()
+    consult = consultation or ''
+    if not addr:
+        return raw_addr, consultation, ''
+    try:
+        from dashboard.services.address_resolver import split_address_notes
+        _clean, _memo = split_address_notes(addr)
+    except Exception as exc:
+        logger.warning(f"[SLACK/방문주소] 메모 분리 실패 (원문 유지): {exc}")
+        return raw_addr, consultation, ''
+    if not _memo or not _clean:
+        return raw_addr, consultation, ''
+    if _memo not in consult:
+        consult = f'{consult.strip()} / {_memo}' if consult.strip() else _memo
+    logger.info(f"[SLACK/방문주소] 주소 메모 → 상담 내용: '{addr}' → '{_clean}' + '{_memo}'")
+    return _clean, consult, _memo
+
+
 def _normalize_visit_address_if_verified(raw_addr: str) -> tuple:
     """방문 모달 입력 주소를 카카오 verified 면 정규화값, 아니면 raw 유지 + 미검증 배지.
 
@@ -14124,9 +14164,10 @@ def _process_visit_submission(client, body, view):
     # 방문 모달 주소 정규화 + 미검증 배지 (2026-07-30 / 2026-08-01) — verified 만 정정,
     #   미verified(도로·번지 오타)면 raw 유지 + 답글에 '확인 필요' 경고.
     _visit_addr_note = None
-    if visit_address:
-        visit_address, _visit_addr_note = _normalize_visit_address_if_verified(visit_address)
     consultation = _v(state, "consultation")
+    if visit_address:
+        visit_address, consultation, _ = _split_visit_address_memo(visit_address, consultation)
+        visit_address, _visit_addr_note = _normalize_visit_address_if_verified(visit_address)
 
     # 메인 시트 업데이트
     try:

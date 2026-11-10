@@ -358,5 +358,14 @@ def test_planned_with_vacancy_and_question_mark():
     assert ar._post_normalize_display('송파구 중대로27길 1 인더크림 카페 ?') == '송파구 중대로27길 1 인더크림 카페'
 
 
+def test_visit_modal_address_memo_moves_to_consultation():
+    from dashboard.blueprints.slack_bot import _split_visit_address_memo as S
+    assert S('부평구 부평대로 25 2층 한의원 예정지 (현재 철거중)', '실외기 분리 문의') == (
+        '부평구 부평대로 25 2층 한의원 예정지', '실외기 분리 문의 / 현재 철거중', '현재 철거중')
+    # 메모 없는 주소는 그대로, 이미 상담 내용에 있으면 다시 안 붙임
+    assert S('강남구 테헤란로 207 8층', '10시 이후') == ('강남구 테헤란로 207 8층', '10시 이후', '')
+    assert S('방배로 83 3층 오전 9시 방문', '오전 9시 방문 확정')[1] == '오전 9시 방문 확정'
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
