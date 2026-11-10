@@ -78,24 +78,27 @@ body.gw-shell .gw-rail-toggle:hover {
   color: var(--gw-rail-fg-active);
 }
 
-/* 로고: 흰 둥근 네모 안에 로고 왼쪽 무늬만 */
+/* 로고: 슬랙 워크스페이스 아이콘처럼 흰 둥근 네모 안에 무늬(로고 왼쪽 물결)만 가운데 꽉 차게.
+   무늬 이미지(images/logo-symbol.png)는 가로형 로고에서 잘라 만든 정사각형. 템플릿을 안 바꾸고 CSS 로만 바꿔 재시작 불필요 */
 body.gw-shell .gw-rail-logo {
   display: block;
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  background: #ffffff;
+  background: #ffffff url('../images/logo-symbol.png') center / 36px 36px no-repeat;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.25);
   overflow: hidden;
-  margin: 4px 0 10px;
+  margin: 6px 0 12px;
   flex-shrink: 0;
+  transition: transform 0.12s ease;
+}
+
+body.gw-shell .gw-rail-logo:hover {
+  transform: scale(1.04);
 }
 
 body.gw-shell .gw-rail-logo img {
-  display: block;
-  height: 40px;
-  width: auto;
-  max-width: none;
-  margin-left: 2px;
+  display: none;
 }
 
 body.gw-shell .gw-rail-item {
