@@ -36,7 +36,8 @@ def _line(ea, row: dict) -> dict:
         'id': row['id'], 'title': ea.title(row), 'what': ea.what_of(row),
         'amount': int(row.get('amount') or 0), 'status': label,
         'requester': row.get('requester_name') or '', 'created_at': (row.get('created_at') or '')[:16],
-        'link': _card_link(row),
+        'link': f"/approval?box=todo&id={row['id']}",   # 그룹웨어 결재함 상세(11-10) — 슬랙 카드는 상세 창에서
+        'slack_link': _card_link(row),
     }
 
 
@@ -130,8 +131,8 @@ def todos(person: Optional[dict], slack_id: str, field: bool, hr_admin: bool,
         first = (approvals_data.get('todo') or [{}])[0]
         out.append({'id': 'approval', 'sig': str(n), 'tone': 'act', 'icon': 'fas fa-file-signature',
                     'title': f'결재 {n}건이 기다리고 있어요',
-                    'desc': '슬랙 #전자_결재 카드에서 승인하거나 반려해 주세요.',
-                    'action': '결재 카드 열기', 'href': first.get('link') or '', 'external': True})
+                    'desc': '결재함에서 바로 승인·반려할 수 있어요. 슬랙 카드도 같이 바뀌어요.',
+                    'action': '결재함 열기', 'href': '/approval?box=todo'})
     # 2) 휴가 승인 — 내 차례
     if not field and slack_id:
         try:

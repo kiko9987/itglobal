@@ -58,7 +58,8 @@ def test_whose_turn(db):
     assert [x['id'] for x in gw_home.approvals(SB)['todo']] == [a]  # 이체 대기(G 통장 → 경영지원)
     m = gw_home.approvals(MW)
     assert [x['id'] for x in m['todo']] == [r] and m['mine_count'] == 4    # 수정 요청은 요청자 차례
-    assert m['todo'][0]['link'].endswith('/archives/C1/p1700000000123456')
+    assert m['todo'][0]['slack_link'].endswith('/archives/C1/p1700000000123456')
+    assert m['todo'][0]['link'] == f"/approval?box=todo&id={r}"            # 그룹웨어 결재함 상세(11-10)
     assert gw_home.approvals('')['linked'] is False
 
 
@@ -232,7 +233,7 @@ def test_todos_approval_leave_yearend(db, monkeypatch):
 
     # 결재 내 차례
     t = gw_home.todos(me, MW, False, False, {'todo_count': 2, 'todo': [{'link': 'https://x/1'}]})
-    assert t[0]['id'] == 'approval' and t[0]['title'] == '결재 2건이 기다리고 있어요' and t[0]['href'] == 'https://x/1'
+    assert t[0]['id'] == 'approval' and t[0]['title'] == '결재 2건이 기다리고 있어요' and t[0]['href'] == '/approval?box=todo'
 
     # 휴가 승인 — 첫 승인자(JW) 차례, 나에게 온 DM 카드로 링크
     lv.upsert_staff('박민우', '2022-02-03', MW)

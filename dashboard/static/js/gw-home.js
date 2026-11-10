@@ -58,7 +58,7 @@
           '<span class="gw-home-li-sub">' + esc([r.requester, r.what].filter(Boolean).join(' · ')) +
           (r.amount ? ' · ' + r.amount.toLocaleString('ko-KR') + '원' : '') + '</span>' +
           '<span class="gw-badge gw-badge-leave">' + esc(r.status) + '</span>';
-        return '<li>' + (r.link ? '<a href="' + esc(r.link) + '" target="_blank" rel="noopener">' + inner + '</a>' : '<div>' + inner + '</div>') + '</li>';
+        return '<li>' + (r.link ? '<a href="' + esc(r.link) + '">' + inner + '</a>' : '<div>' + inner + '</div>') + '</li>';
       }).join('') + '</ul>';
     }
     box.innerHTML =

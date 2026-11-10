@@ -1,0 +1,73 @@
+{% extends "modern_base.html" %}
+
+{% block title %}결재함 - 아이티글로벌그룹{% endblock %}
+
+{% block additional_css %}
+<link rel="stylesheet" href="{{ gw_asset('css/gw-pages.css') }}">
+{% endblock %}
+
+{% block content %}
+{# 결재함 — 슬랙 전자결재와 같은 장부. 작성은 슬랙, 여기서는 찾기·보기·처리(승인 단추는 슬랙 카드와 같이 바뀜) #}
+<div class="gw-page gw-approval" id="apPage">
+  <div class="gw-page-head">
+    <h1 class="gw-page-title">결재함</h1>
+    <div class="gw-page-actions">
+      <a class="btn btn-sm btn-outline-secondary" id="apExcel" href="/api/approval/export.xlsx"><i class="fas fa-file-excel me-1" aria-hidden="true"></i>엑셀 다운로드</a>
+      <a class="btn btn-sm btn-primary" id="apNew" href="https://w1679118856-ybv966043.slack.com/archives/C0CDJUXRQGL" target="_blank" rel="noopener"
+         title="새 결재는 슬랙 #전자_결재 채널 메뉴에서 올려요"><i class="fab fa-slack me-1" aria-hidden="true"></i>새 결재 (슬랙)</a>
+    </div>
+  </div>
+
+  <div class="gw-ap-tabs" role="tablist" id="apTabs">
+    <button type="button" role="tab" data-box="todo" class="active">내 차례 <b id="apCntTodo">-</b></button>
+    <button type="button" role="tab" data-box="mine">내가 올린 결재 <b id="apCntMine">-</b></button>
+    <button type="button" role="tab" data-box="all" id="apTabAll" hidden>전체 <b id="apCntAll">-</b></button>
+  </div>
+
+  <div class="gw-ap-filters" id="apFilters">
+    <select class="gw-chip-select" id="apForm" aria-label="양식"><option value="">양식</option></select>
+    <select class="gw-chip-select" id="apStatus" aria-label="상태">
+      <option value="">상태</option>
+      <option value="open">진행 중</option>
+      <option value="done">완료</option>
+      <option value="rejected">반려</option>
+      <option value="cancelled">취소</option>
+    </select>
+    <input type="date" class="gw-chip-date" id="apFrom" aria-label="올린 날 부터">
+    <span class="gw-ap-tilde">~</span>
+    <input type="date" class="gw-chip-date" id="apTo" aria-label="올린 날 까지">
+    <input type="search" class="gw-chip-search" id="apQ" placeholder="제목·거래처·현장 코드·요청자" aria-label="검색">
+    <button type="button" class="gw-chip-reset" id="apReset"><i class="fas fa-times me-1" aria-hidden="true"></i>초기화</button>
+    <span class="gw-ap-count" id="apCount"></span>
+  </div>
+
+  <div class="gw-callout gw-callout-sm" id="apUnlinked" hidden>
+    인사카드에 슬랙 계정이 연결되지 않아 결재함을 쓸 수 없어요. 경영지원에 말씀해 주세요.
+  </div>
+
+  <div class="gw-panel gw-ap-tablewrap">
+    <table class="gw-table gw-ap-table">
+      <thead><tr>
+        <th>번호</th><th>양식</th><th>내용</th><th>현장</th><th class="num">금액</th><th>요청자</th><th>상태</th><th>올린 때</th>
+      </tr></thead>
+      <tbody id="apRows"><tr><td colspan="8" class="gw-empty">불러오는 중…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+{# 문서 상세 — 오른쪽에서 열리는 창(당근 광고 「최적화 인사이트」처럼 표 위에 겹침) #}
+<div class="gw-drawer" id="apDrawer" hidden>
+  <div class="gw-drawer-backdrop" data-close></div>
+  <aside class="gw-drawer-panel" role="dialog" aria-modal="true" aria-labelledby="apDocTitle">
+    <div class="gw-drawer-head">
+      <h2 id="apDocTitle">결재</h2>
+      <button type="button" class="btn-close" data-close aria-label="닫기"></button>
+    </div>
+    <div class="gw-drawer-body" id="apDoc"></div>
+  </aside>
+</div>
+{% endblock %}
+
+{% block additional_js %}
+<script src="{{ gw_asset('js/gw-approval.js') }}" defer></script>
+{% endblock %}

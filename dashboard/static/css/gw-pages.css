@@ -1258,3 +1258,358 @@
   color: #868b94;
   font-size: 12px;
 }
+
+/* ── 결재함·플렉스 보관함(11-10) — 표 화면이라 꽉 채움, 상세는 오른쪽 창 ───────── */
+.gw-ap-tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  margin-bottom: 10px;
+  border-radius: 9999px;
+  background: #f2f3f6;
+}
+
+.gw-ap-tabs button {
+  height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #555d6d;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.gw-ap-tabs button b {
+  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.gw-ap-tabs button.active {
+  background: #2a3038;
+  color: #ffffff;
+}
+
+.gw-ap-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.gw-chip-select,
+.gw-chip-date,
+.gw-chip-search {
+  height: 36px;
+  border-radius: 9999px;
+  font-size: 14px;
+  color: #1a1c20;
+}
+
+.gw-chip-select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 0 30px 0 14px;
+  border: 0;
+  background: rgba(0, 0, 0, 0.047) url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%231a1c20' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e") right 12px center / 12px no-repeat;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.gw-chip-select.on {
+  background-color: #2a3038;
+  color: #ffffff;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23ffffff' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
+}
+
+.gw-chip-select option {
+  background: #ffffff;
+  color: #1a1c20;
+}
+
+.gw-chip-date {
+  padding: 0 12px;
+  border: 1px solid #dcdee3;
+  background: #ffffff;
+}
+
+.gw-chip-search {
+  width: 240px;
+  padding: 0 14px;
+  border: 1px solid #dcdee3;
+  background: #ffffff;
+}
+
+.gw-ap-tilde {
+  color: #868b94;
+}
+
+.gw-chip-reset {
+  height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 9999px;
+  background: rgba(0, 0, 0, 0.047);
+  color: #1a1c20;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.has-active-filters .gw-chip-reset {
+  border: 1.5px solid #2a3038;
+  background: #ffffff;
+  font-weight: 700;
+}
+
+.has-active-filters .gw-chip-reset:hover {
+  background: #2a3038;
+  color: #ffffff;
+}
+
+.gw-ap-count {
+  margin-left: 4px;
+  color: #555d6d;
+  font-size: 13px;
+}
+
+.gw-ap-tablewrap {
+  padding: 0;
+  overflow-x: auto;
+}
+
+.gw-ap-table {
+  min-width: 860px;
+}
+
+.gw-ap-table th {
+  padding: 10px 12px;
+  background: #f7f8f9;
+  color: #555d6d;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.gw-ap-table td {
+  padding: 10px 12px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.gw-ap-table td.main {
+  white-space: normal;
+  min-width: 220px;
+  color: #1a1c20;
+  font-weight: 500;
+}
+
+.gw-ap-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.gw-ap-table .muted,
+.gw-ap-table i.muted {
+  color: #868b94;
+}
+
+.gw-ap-table tbody tr[data-id],
+.gw-ap-table tbody tr[data-doc] {
+  cursor: pointer;
+}
+
+.gw-ap-table tbody tr[data-id]:hover,
+.gw-ap-table tbody tr[data-doc]:hover {
+  background: #f7f8f9;
+}
+
+.gw-ap-table tbody tr.my-turn td:first-child {
+  box-shadow: inset 3px 0 0 #ff6f0f;
+}
+
+.gw-ap-st {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 6px;
+  background: #f2f3f6;
+  color: #555d6d;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.gw-ap-st.st-pending, .gw-ap-st.st-final { background: #fff4d6; color: #8a5a00; }
+.gw-ap-st.st-approved { background: #eef3ff; color: #2456c4; }
+.gw-ap-st.st-revise { background: #fff1e8; color: #c2410c; }
+.gw-ap-st.st-done, .gw-ap-st.flex-완료 { background: #e8f6ef; color: #087a5b; }
+.gw-ap-st.st-rejected, .gw-ap-st.flex-반려 { background: #fdecec; color: #c4302b; }
+
+.gw-ap-turn {
+  color: #e8590c;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.gw-badge-urgent {
+  background: #fdecec;
+  color: #c4302b;
+}
+
+.gw-ap-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px;
+  font-size: 13px;
+  color: #555d6d;
+}
+
+/* 오른쪽 창 */
+.gw-drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 1055;
+}
+
+.gw-drawer[hidden] {
+  display: none;
+}
+
+.gw-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(17, 20, 24, 0.25);
+}
+
+.gw-drawer-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(520px, 100vw);
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  box-shadow: -2px 0 16px rgba(0, 0, 0, 0.12);
+}
+
+.gw-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid #eeeff1;
+}
+
+.gw-drawer-head h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #1a1c20;
+}
+
+.gw-drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px 32px;
+}
+
+.gw-ap-doc-top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.gw-ap-doc-meta {
+  color: #555d6d;
+  font-size: 13px;
+}
+
+.gw-ap-amount {
+  margin-top: 8px;
+  font-size: 22px;
+  font-weight: 700;
+  color: #1a1c20;
+  font-variant-numeric: tabular-nums;
+}
+
+.gw-ap-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.gw-ap-actions .btn {
+  height: 38px;
+  padding: 0 16px;
+}
+
+.gw-ap-reason {
+  margin-top: 10px;
+}
+
+.gw-ap-reason-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.gw-dl-1col {
+  grid-template-columns: 1fr;
+}
+
+.gw-ap-section {
+  margin: 10px 0 2px;
+  color: #555d6d;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.gw-ap-steps {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.gw-ap-steps li {
+  padding: 6px 0;
+  font-size: 14px;
+  color: #1a1c20;
+}
+
+.gw-ap-steps .who {
+  font-weight: 700;
+}
+
+.gw-ap-steps .why {
+  margin-top: 2px;
+  color: #c4302b;
+  font-size: 13px;
+}
+
+.gw-ap-steps .at {
+  display: block;
+  color: #868b94;
+  font-size: 12px;
+}
+
+.gw-ap-slack {
+  display: inline-block;
+  margin-top: 16px;
+  font-size: 13.5px;
+}
+
+.gw-ap-memo {
+  font-size: 14px;
+  color: #1a1c20;
+  white-space: normal;
+}
+
+@media (max-width: 767.98px) {
+  .gw-chip-search {
+    width: 100%;
+  }
+}

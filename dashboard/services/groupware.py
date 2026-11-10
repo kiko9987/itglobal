@@ -152,6 +152,14 @@ AREAS = [
         'items': [{'href': '/home', 'label': '홈', 'icon': 'fas fa-home', 'field': True}],
     },
     {
+        # 결재(11-10) — 슬랙 전자결재와 같은 장부. 작성은 슬랙, 결재함·처리 단추·플렉스 보관함은 여기
+        'key': 'approval', 'label': '결재', 'icon': 'fas fa-file-signature',
+        'items': [
+            {'href': '/approval', 'label': '결재함', 'icon': 'fas fa-inbox'},
+            {'href': '/approval/archive', 'label': '플렉스 보관함', 'icon': 'fas fa-box-archive'},
+        ],
+    },
+    {
         'key': 'sales', 'label': '영업', 'icon': 'fas fa-briefcase',
         'items': [
             {'href': '/projects', 'label': '프로젝트', 'icon': 'fas fa-folder-open'},
