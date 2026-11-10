@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """플렉스 구성원·인사발령 → 인사 장부(hr_people·hr_appointments) (2026-11-10).
 
-읽는 곳: flex_export_20261106/플렉스_요약_20261106.xlsx(구성원·인사발령) + 원본/flex_data_20261106.json(주민번호·주소).
+읽는 곳: flex_export_20261106/ 의 가장 최근 요약 엑셀(플렉스_요약_YYYYMMDD.xlsx: 구성원·인사발령·휴가 사용 내역)
+        + 가장 최근 원본 JSON(원본/flex_refresh_*.json, 없으면 flex_data_*.json: 주민번호·주소·휴가 건↔직원).
+  2026-11-10 다시 받은 자료(김민욱 입사·휴가 2건)부터 자동으로 최신을 고른다. --summary/--raw 로 직접 지정 가능.
   - 연봉 등 급여 정보는 옮기지 않는다.
   - 같은 사람(플렉스 ID)은 다시 돌려도 한 줄. 사람이 화면에서 고친 칸은 덮어쓰지 않는다.
   - 회사 메일(@itg-aircon.com)이 있으면 그 메일로 로그인(staff), 없으면 현장·미화(field) — 로그인 메일은 경영지원이 나중에 넣음.
@@ -74,6 +76,27 @@ def _sheet(wb, title):
     return [dict(zip(hdr, r)) for r in rows if any(c not in (None, '') for c in r)]
 
 
+def _latest(flex_dir: Path, patterns) -> Path:
+    """이름 끝 날짜(YYYYMMDD)가 가장 늦은 파일. patterns 는 앞에 있을수록 우선(같은 날짜면)."""
+    best = None
+    for rank, pat in enumerate(patterns):
+        for f in flex_dir.glob(pat):
+            key = (f.stem[-8:], -rank)
+            if best is None or key > best[0]:
+                best = (key, f)
+    if not best:
+        raise FileNotFoundError(f'{flex_dir} 에 {patterns} 파일이 없습니다.')
+    return best[1]
+
+
+def summary_path(flex_dir: Path) -> Path:
+    return _latest(flex_dir, ['플렉스_요약_*.xlsx'])
+
+
+def raw_path(flex_dir: Path) -> Path:
+    return _latest(flex_dir / '원본', ['flex_refresh_*.json', 'flex_data_*.json'])
+
+
 def _private(flex_json, fid):
     """원본 JSON 에서 주민번호·주소만."""
     u = (flex_json.get('users') or {}).get(fid) or {}
@@ -83,12 +106,12 @@ def _private(flex_json, fid):
     return ssn, addr or None
 
 
-def build_records(flex_dir: Path, leave_slack: dict):
+def build_records(flex_dir: Path, leave_slack: dict, summary: Path = None, raw: Path = None):
     import openpyxl
-    wb = openpyxl.load_workbook(flex_dir / '플렉스_요약_20261106.xlsx', read_only=True, data_only=True)
+    wb = openpyxl.load_workbook(summary or summary_path(flex_dir), read_only=True, data_only=True)
     members = _sheet(wb, '구성원')
     appts_rows = _sheet(wb, '인사발령')
-    flex_json = json.load(open(flex_dir / '원본' / 'flex_data_20261106.json', encoding='utf-8'))
+    flex_json = json.load(open(raw or raw_path(flex_dir), encoding='utf-8'))
 
     # 같은 이름이 둘 이상(예: 재직 박민재·퇴사 박민재 = 다른 사람)이면 발령 적용일이 근무 기간 안에 드는 사람에게
     by_name = {}
@@ -152,12 +175,12 @@ def build_records(flex_dir: Path, leave_slack: dict):
     return records, skipped_appts
 
 
-def build_leave_history(flex_dir: Path):
+def build_leave_history(flex_dir: Path, summary: Path = None, raw: Path = None):
     """플렉스 '휴가 사용 내역' 시트 → 보관용 줄. 건 번호로 원본 JSON 에서 직원(플렉스 ID)을 찾는다(동명이인 구분)."""
     import openpyxl
-    wb = openpyxl.load_workbook(flex_dir / '플렉스_요약_20261106.xlsx', read_only=True, data_only=True)
+    wb = openpyxl.load_workbook(summary or summary_path(flex_dir), read_only=True, data_only=True)
     hist = _sheet(wb, '휴가 사용 내역')
-    flex_json = json.load(open(flex_dir / '원본' / 'flex_data_20261106.json', encoding='utf-8'))
+    flex_json = json.load(open(raw or raw_path(flex_dir), encoding='utf-8'))
     owner = {}
     for uid, v in (flex_json.get('users') or {}).items():
         for x in ((v.get('timeOffUsesAll') or {}).get('timeOffUses') or []):
@@ -190,6 +213,8 @@ def main():
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--db', help='쓸 사용자 DB 경로(기본: 운영 instance/users.db)')
     ap.add_argument('--flex-dir', default=str(DEFAULT_FLEX_DIR))
+    ap.add_argument('--summary', help='요약 엑셀(기본: 가장 최근 플렉스_요약_*.xlsx)')
+    ap.add_argument('--raw', help='원본 JSON(기본: 가장 최근 flex_refresh_*/flex_data_*)')
     args = ap.parse_args()
 
     try:
@@ -218,7 +243,11 @@ def main():
     except Exception as e:
         print(f'(휴가 장부 없음 — 슬랙 ID 비움: {e})')
 
-    records, skipped_appts = build_records(Path(args.flex_dir), leave_slack)
+    fdir = Path(args.flex_dir)
+    summary = Path(args.summary) if args.summary else summary_path(fdir)
+    raw = Path(args.raw) if args.raw else raw_path(fdir)
+    print(f'읽는 파일: {summary.name} + {raw.name}')
+    records, skipped_appts = build_records(fdir, leave_slack, summary, raw)
     key_ok = bool(os.getenv('GW_HR_KEY', '').strip())
     by_status = Counter(r['status'] for r in records)
     print(f'구성원 {len(records)}명 — ' + ' · '.join(f'{k} {v}' for k, v in by_status.items()))
@@ -231,7 +260,7 @@ def main():
               f'{r["access"]:<6} {r["login_email"] or "(없음)"} / {"O" if r["slack_id"] else "-"} / '
               f'{"O" if r["ssn"] else "-"} / {len(r["_appts"])}')
 
-    history, unmatched = build_leave_history(Path(args.flex_dir))
+    history, unmatched = build_leave_history(fdir, summary, raw)
     from collections import Counter as _C
     print(f'\n휴가 기록 {len(history)}건 (직원 못 찾음 {unmatched}건) — '
           + ' · '.join(f'{k} {v}' for k, v in _C(h['status'] for h in history).most_common()))
