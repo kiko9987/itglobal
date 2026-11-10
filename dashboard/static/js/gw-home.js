@@ -235,12 +235,14 @@
     });
     svg += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + (T + ph) + '" y2="' + (T + ph) + '" stroke="#d6d9de" stroke-width="1"/>';
     if (goal) {
-      svg += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(goal) + '" y2="' + y(goal) + '" stroke="#555d6d" stroke-width="1.5" stroke-dasharray="5 4"/>' +
-        '<text x="' + (L + 6) + '" y="' + (y(goal) - 5) + '" font-size="11" font-weight="700" fill="#555d6d" stroke="#ffffff" stroke-width="3" paint-order="stroke">평일 목표 ' + goal + '건</text>';
+      // 목표 글자는 막대에 겹치지 않게 그래프 밖(제목 줄)에 둔다
+      svg += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(goal) + '" y2="' + y(goal) + '" stroke="#555d6d" stroke-width="1.5" stroke-dasharray="5 4"/>';
     }
     svg += '</svg>';
     var total = days.reduce(function (a, d) { return a + d[m.key]; }, 0);
-    box.innerHTML = '<div class="gw-sales-chart-head"><span><strong>최근 ' + n + '일 날짜별 ' + m.label + '</strong></span><span>합계 ' + total.toLocaleString('ko-KR') + '건</span></div>' +
+    box.innerHTML = '<div class="gw-sales-chart-head"><span><strong>최근 ' + n + '일 날짜별 ' + m.label + '</strong>' +
+      (goal ? ' <span class="gw-sales-goal">점선 = 평일 목표 ' + goal + '건</span>' : '') +
+      '</span><span>합계 ' + total.toLocaleString('ko-KR') + '건</span></div>' +
       svg + '<div class="gw-sales-tip" id="homeSalesTip"></div>';
     var tip = el('homeSalesTip'), svgEl = box.querySelector('svg');
     box.querySelectorAll('rect.hit').forEach(function (r) {

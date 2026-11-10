@@ -1231,3 +1231,9 @@
     grid-template-columns: 1fr;
   }
 }
+
+.gw-sales-goal {
+  margin-left: 8px;
+  color: #868b94;
+  font-size: 12px;
+}
