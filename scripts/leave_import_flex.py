@@ -43,6 +43,7 @@ SNAPSHOT = [
     ('주영민', 'U0BHK2UET44', '2024-04-08', 6),
     ('황샛별', 'U0BHC2JV7U5', '2023-04-04', 1),
 ]
+# 김영숙 대표이사(플렉스 잔여 26일)는 휴가 장부에 넣지 않음 — KiKO 11-10 결정.
 
 
 def next_anniversary(hire: date, after: date) -> date:
