@@ -9,22 +9,21 @@
  */
 import ProjectStatusCalculator from '../utils/ProjectStatusCalculator.js';
 import logger from '../utils/logger.js';
+import { PAID_UNISSUED, PAID_UNISSUED_LABEL, matchesInvoice } from '../utils/invoiceFilter.js';
 
 // key: 칸 이름표, kind: 어느 필터를 쓰는지, value: 그 필터 값, tone: 점 색
-const CARDS = [
+// ⚠️ 함수로 만든다: utils 묶음(청크)의 값을 모듈 맨 위에서 읽으면 components↔utils 청크 순환 때문에
+//    "Cannot access before initialization"으로 목록 화면 전체가 멈춘다(2026-11-10 시험 서버에서 확인).
+const cardDefs = () => [
   { key: '공사대기', kind: 'status', value: '공사대기', tone: 'wait', tip: '공사 시작 전인 공사' },
   { key: '공사진행', kind: 'status', value: '공사진행', tone: 'run', tip: '공사가 시작됐거나 입금이 들어온 공사' },
   { key: '수금필요', kind: 'status', value: '수금필요', tone: 'due', tip: '공사가 끝났는데 입금이 다 안 된 공사' },
   { key: '확인필요', kind: 'status', value: '확인필요', tone: 'check', tip: '금액·날짜가 비었거나 서로 맞지 않는 공사' },
-  { key: '계산서 미발행', kind: 'invoice', value: '미발행', tone: 'bill', tip: '세금계산서 칸이 「미발행」인 공사' },
+  // 입금이 들어왔는데 세금계산서가 없는 공사만(입금 전 공사·현금(N입금)·카드는 안 셈). 2026-11-10 사용자 결정
+  { key: '계산서 미발행', kind: 'invoice', value: PAID_UNISSUED, tone: 'bill', tip: '입금은 들어왔는데 세금계산서가 없는 공사' },
 ];
 
 const SELECT_ID = { status: 'statusFilter', invoice: 'invoiceFilter' };
-
-function invoiceStatus(item) {
-  // 시트 Y열 = "{단계} - {상태}" → 상태 부분 (ModernProjectFilters 와 같은 규칙)
-  return String(item['계산서'] || '').trim().split(' - ').pop().trim();
-}
 
 export default class ProjectStatusCards {
   constructor(container, filters) {
@@ -37,7 +36,8 @@ export default class ProjectStatusCards {
   }
 
   render() {
-    this.el.innerHTML = CARDS.map((c, i) => `
+    this.cards = cardDefs();
+    this.el.innerHTML = this.cards.map((c, i) => `
       <button type="button" class="gw-stat" data-i="${i}" title="${c.tip} — 누르면 이 공사만 보기" aria-pressed="false">
         <span class="gw-stat-dot gw-stat-${c.tone}" aria-hidden="true"></span>
         <span class="gw-stat-label">${c.key}</span>
@@ -59,12 +59,12 @@ export default class ProjectStatusCards {
       for (const r of rows) {
         const st = ProjectStatusCalculator.calculateStatus(r);
         counts['status:' + st] = (counts['status:' + st] || 0) + 1;
-        const inv = invoiceStatus(r);
-        counts['invoice:' + inv] = (counts['invoice:' + inv] || 0) + 1;
       }
-      CARDS.forEach((c, i) => {
+      this.cards.forEach((c, i) => {
         const btn = this.buttons[i];
-        const n = counts[c.kind + ':' + c.value] || 0;
+        // 계산서 칸은 목록 필터와 같은 함수로 센다(숫자 = 누르면 나오는 목록 수)
+        const n = c.kind === 'invoice' ? rows.filter((r) => matchesInvoice(r, c.value)).length
+          : (counts[c.kind + ':' + c.value] || 0);
         btn.querySelector('.gw-stat-num b').textContent = n.toLocaleString('ko-KR');
         const on = (f.filters[c.kind] || '') === c.value;
         btn.classList.toggle('active', on);
@@ -81,14 +81,15 @@ export default class ProjectStatusCards {
   onClick(e) {
     const btn = e.target.closest('.gw-stat');
     if (!btn) return;
-    const c = CARDS[Number(btn.dataset.i)];
+    const c = this.cards[Number(btn.dataset.i)];
     const f = this.filters;
     const turnOff = (f.filters[c.kind] || '') === c.value;
     const setSelect = (kind, value) => {
       const sel = document.getElementById(SELECT_ID[kind]);
       if (!sel || sel.value === value) return;
       if (value && ![...sel.options].some(o => o.value === value)) {
-        sel.add(new Option(value, value));   // 아직 목록에 없는 값(0건)이어도 고를 수 있게
+        // 아직 목록에 없는 값(0건)이어도 고를 수 있게
+        sel.add(new Option(value === PAID_UNISSUED ? PAID_UNISSUED_LABEL : value, value));
       }
       sel.value = value;
       sel.dispatchEvent(new Event('change', { bubbles: true }));

@@ -2,6 +2,7 @@ import ProjectStatusCalculator from '../utils/ProjectStatusCalculator.js';
 import UnifiedBadgeSystem from './UnifiedBadgeSystem.js';
 import AmountCalculator from '../utils/AmountCalculator.js';
 import { partnerDisplayName } from '../utils/partnerName.js';
+import { PAID_UNISSUED, PAID_UNISSUED_LABEL, invoiceStatusOf, matchesInvoice } from '../utils/invoiceFilter.js';
 
 import logger from '../utils/logger.js';
 
@@ -697,11 +698,9 @@ export default class ModernProjectFilters {
     }
 
     // 세금계산서 필터 (시트 Y열 = '계산서' 필드). Y="{단계} - {상태}"라 상태 부분으로 매칭.
+    //   '미발행·입금' = 미발행 중 입금이 들어온 공사만(2026-11-10, utils/invoiceFilter.js)
     if (f.invoice) {
-      filteredData = filteredData.filter(item => {
-        const invoiceStatus = String(item['계산서'] || '').trim().split(' - ').pop().trim();
-        return invoiceStatus === f.invoice;
-      });
+      filteredData = filteredData.filter(item => matchesInvoice(item, f.invoice));
     }
 
     // 데이터 완성도 필터
@@ -1054,22 +1053,24 @@ export default class ModernProjectFilters {
     // Y="{단계} - {상태}"라 상태 부분만 옵션으로 (미발행/발행완료/N입금/카드결제/기타).
     const invoiceSet = new Set();
     data.forEach(item => {
-      const status = String(item['계산서'] || '').trim().split(' - ').pop().trim();
+      const status = invoiceStatusOf(item);
       if (status && status !== '-') invoiceSet.add(status);
     });
+    // 미발행 바로 뒤에 「미발행 · 입금된 건」(위쪽 상태 칸이 이 값으로 거름, 2026-11-10)
+    if (invoiceSet.has('미발행')) invoiceSet.add(PAID_UNISSUED);
 
     // 기존 옵션 제거 (첫 '전체' 유지)
     while (this.invoiceFilter.children.length > 1) {
       this.invoiceFilter.removeChild(this.invoiceFilter.lastChild);
     }
     // 의미 순서 고정 (가나다순 대신): 미발행(요청필요) → 발행완료 → 현금 → 카드 → 기타
-    const ORDER = ['미발행', '발행완료', 'N입금', '카드결제', '기타'];
+    const ORDER = ['미발행', PAID_UNISSUED, '발행완료', 'N입금', '카드결제', '기타'];
     const sorted = Array.from(invoiceSet).sort((a, b) => {
       const ia = ORDER.indexOf(a); const ib = ORDER.indexOf(b);
       return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b, 'ko');
     });
     // 보이는 글자만 직원 말로 (값은 시트 그대로 — 필터 비교용). 2026-10-28: 'N입금'이 그대로 나왔음
-    const LABEL = { 'N입금': '현금', '카드결제': '카드' };
+    const LABEL = { 'N입금': '현금', '카드결제': '카드', [PAID_UNISSUED]: PAID_UNISSUED_LABEL };
     sorted.forEach(value => {
       const option = document.createElement('option');
       option.value = value;
