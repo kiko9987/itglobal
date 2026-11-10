@@ -279,6 +279,31 @@ def test_kakao_complex_list_building_name_kept(kakao):
     assert '샘마을대우' in r[0]
 
 
+@pytest.mark.parametrize('text, room', [
+    ('구리 아차산로 417 교문동 108', False),               # 법정동 뒤 숫자 = 지번 (L-04454)
+    ('파주시 광탄면 장지산로 31번길 112', False),           # 도로명 바로 뒤 숫자 = 번지 (L-04480)
+    ('수원 영통구 태장로82번길 33 자이아파트 상가동 305', True),  # 건물 구역동 뒤는 호수
+    ('인천 연수구 청명로 26 (청학동) 202', True),
+])
+def test_room_number_guards(text, room):
+    assert ('호' in ar._extract_building_tail(text)) is room
+
+
+def test_city_short_region_prefix():
+    cands = ar._build_candidates('구리 아차산로 417 교문동 108', None)
+    assert cands.index('구리시 아차산로 417') < cands.index('아차산로 417')
+
+
+def test_label_stripped():
+    assert ar._post_normalize_display('강남구 도산대로53길 39 1층 상호 : 쿤달') == '강남구 도산대로53길 39 1층 쿤달'
+
+
+def test_landmark_shop_not_candidate():
+    c = ar._extract_shop_candidates('성동구 성덕정3길 8 건너앞 망치버거 (현장건물뒤) 현재공실')
+    assert '망치버거' not in c
+    assert '망치버거' not in ar._extract_shop_candidates('성수동 망치버거 맞은편 2층')
+
+
 def test_homepage_unverified_form_address_kept(monkeypatch):
     import dashboard.services.homepage_mail_sync as hm
     monkeypatch.setattr(hm, 'resolve_address', lambda *a, **k: ('', ''))

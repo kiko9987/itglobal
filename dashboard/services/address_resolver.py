@@ -296,6 +296,8 @@ def _post_normalize_display(addr: str) -> str:
     # 동 번호 뒤 영문 호수 붙임 분리 (2026-11-09 L-04506 '305동A-110호' → '305동 A-110호').
     #   'B동'·'A동'(영문 동)은 앞이 숫자가 아니라 미대상.
     addr = re.sub(r'(?<=\d동)(?=[A-Za-z]-?\d+호)', ' ', addr)
+    # 항목 이름 제거 '(상호 : 쿤달)' → '쿤달' (2026-11-10 L-04520 '1층 상호 : 쿤달')
+    addr = re.sub(r'(?:상호명?|업체명|가게명|매장명)\s*[:：]\s*', '', addr)
     # ' 산 (숫자)' → ' 산(숫자)'
     addr = re.sub(r' 산 (\d)', r' 산\1', addr)
     # 끝 말끝(문장 종결) 제거 (2026-09-15 L-04024): 고객이 '…폭스라이브 입니다'처럼 말끝을
@@ -985,8 +987,15 @@ def _extract_building_tail(text: str) -> str:
         # 끝의 '호' 없는 3~4자리 숫자 = 호수 (2026-10-29 L-04247 '시티렉스 407',
         #   L-04367 '(청학동) 202'): 신호 없음으로 tail 째 버려지던 것 → 'N호'.
         #   앞 토큰도 숫자면 전화번호 조각, 도로명이면 번지라 제외('천마산로 113').
+        #   법정동 뒤 숫자는 지번('교문동 108', 건물 구역동 '상가동 305'는 호수), 원문에서
+        #   도로명 바로 뒤 숫자면 번지('장지산로 31번길 112') — 둘 다 제외 (2026-11-10
+        #   L-04454 '교문동 108호'·L-04480 '112 112호').
         _m_room = re.search(r'(?<![\d\S])(\d{3,4})$', tail)
-        if _m_room and not re.search(r'(?:\d|로|길)\s+\d{3,4}$', tail):
+        if (_m_room and not re.search(r'(?:\d|로|길)\s+\d{3,4}$', tail)
+                and not re.search(
+                    r'(?<!상가|관리|사무|업무|생활|기숙|부속)(?<![본별신])'
+                    r'(?<=[가-힣])(?:동|리|가)\s+\d{3,4}$', tail)
+                and not re.search(r'(?:로|길)\s*' + _m_room.group(1) + r'(?![\d-])', first_line)):
             tail = tail[:_m_room.start()] + _m_room.group(1) + '호'
 
         # 의미 있는 건물·층·호 신호 있는지 검증
@@ -1092,6 +1101,13 @@ def _build_candidates(text: str, regex_addr: Optional[str]) -> List[str]:
             )
             if m_reg:
                 region_prefix = m_reg.group(1).strip()
+            else:
+                # '시' 없이 시 이름만 앞에 쓴 경우('구리 아차산로 417')도 지역 접두로 — 안 하면
+                #   지역 없는 '아차산로 417'이 먼저 조회돼 서울 광진구로 감 (2026-11-10 L-04454)
+                from dashboard.services.lead_helpers import _CITY_SHORT
+                m_cs = re.match(r'([가-힣]{2,3})\s', first_line)
+                if m_cs and m_cs.group(1) in _CITY_SHORT:
+                    region_prefix = m_cs.group(1) + '시'
 
     # 도로명+번지 추출 — first_line 통째보다 우선 (2026-07-23 ETC-1ad649)
     # 카카오 verify 는 tail(상호명 등) 붙은 query 에서 번지를 잘못 근사하는 케이스 있음
@@ -1971,8 +1987,16 @@ def _extract_shop_candidates(text: str) -> list:
     except Exception:
         _STOP_WORDS = []
     seen, out = set(), []
-    for w in re.findall(r'[가-힣][가-힣A-Za-z0-9]{1,14}', text):
+    for _mw in re.finditer(r'[가-힣][가-힣A-Za-z0-9]{1,14}', text):
+        w = _mw.group(0)
         if w in seen:
+            continue
+        # 위치 설명 대상('건너앞 망치버거'·'망치버거 맞은편')은 방문지 아님 — POI 로 붙이면
+        #   엉뚱한 가게가 방문지처럼 보임 (2026-11-10 L-04525)
+        _before = text[:_mw.start()].split()[-1:] or ['']
+        _after = text[_mw.end():].split()[:1] or ['']
+        if (re.fullmatch(r'(?:길)?건너(?:편|앞)?|맞은편|맞은쪽|옆|앞|뒤', _before[0])
+                or re.match(r'(?:길)?건너|맞은편|맞은쪽|옆(?![가-힣])|앞(?![가-힣])|뒤(?![가-힣])', _after[0])):
             continue
         if _ADMIN_SUFFIX_RE.search(w):
             continue
