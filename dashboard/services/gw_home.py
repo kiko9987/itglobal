@@ -99,6 +99,203 @@ def people_off(today: Optional[date] = None, days: int = 7) -> dict:
     return {'today': todays, 'soon': soon}
 
 
+# ── 할 일(당근 비즈니스 홈의 「지금 할 일」 카드처럼, 11-10) ─────────────
+# 지금 이 사람이 해야 할 것만, 있을 때만. 각 줄: id(닫기 기억용)·sig(내용이 바뀌면 다시 보이게)·문구·단추.
+def _leave_waiting(uid: str) -> List[dict]:
+    """내 승인을 기다리는 휴가 신청(슬랙 휴가 앱) — 링크는 나에게 온 DM 카드."""
+    if not uid:
+        return []
+    from dashboard.services import leave
+    with leave._conn() as conn:
+        ph = ','.join('?' * len(leave.OPEN))
+        rows = [dict(r) for r in conn.execute(
+            f'SELECT * FROM leave_requests WHERE status IN ({ph}) ORDER BY id', leave.OPEN).fetchall()]
+    return [r for r in rows if leave.current_approver(r) == uid]
+
+
+def _leave_link(row: dict, uid: str) -> str:
+    from dashboard.services import leave
+    for ref in reversed(leave.dm_refs(row)):
+        if ref.get('user') == uid and ref.get('ch') and ref.get('ts'):
+            return _card_link({'card_channel': ref['ch'], 'card_ts': ref['ts']})
+    return ''
+
+
+def todos(person: Optional[dict], slack_id: str, field: bool, hr_admin: bool,
+          approvals_data: Optional[dict] = None) -> List[dict]:
+    out: List[dict] = []
+    # 1) 전자결재 — 내 차례
+    if not field and approvals_data and approvals_data.get('todo_count'):
+        n = approvals_data['todo_count']
+        first = (approvals_data.get('todo') or [{}])[0]
+        out.append({'id': 'approval', 'sig': str(n), 'tone': 'act', 'icon': 'fas fa-file-signature',
+                    'title': f'결재 {n}건이 기다리고 있어요',
+                    'desc': '슬랙 #전자_결재 카드에서 승인하거나 반려해 주세요.',
+                    'action': '결재 카드 열기', 'href': first.get('link') or '', 'external': True})
+    # 2) 휴가 승인 — 내 차례
+    if not field and slack_id:
+        try:
+            rows = _leave_waiting(slack_id)
+        except Exception as e:
+            logger.warning(f'[GW-HOME] 휴가 승인 대기 실패: {e}')
+            rows = []
+        if rows:
+            names = ', '.join(dict.fromkeys(r.get('name') or '' for r in rows if r.get('name')))
+            out.append({'id': 'leave-approve', 'sig': ','.join(str(r['id']) for r in rows), 'tone': 'act',
+                        'icon': 'fas fa-umbrella-beach', 'title': f'휴가 승인 {len(rows)}건이 기다리고 있어요',
+                        'desc': f'{names} — 슬랙 휴가 앱 DM에서 승인해 주세요.',
+                        'action': '승인 카드 열기', 'href': _leave_link(rows[0], slack_id), 'external': True})
+    # 3) 연말정산 — 내 것
+    try:
+        from dashboard.services import yearend as ye
+        year = ye.current_year()
+        season = ye.season(year)
+        if person and season.get('status') == 'open':
+            sub = ye._sub(year, person['id'])
+            st = sub.get('status') or ye.DRAFT
+            due_d = _ymd(season.get('due_date'))
+            due = f'마감 {due_d.month}월 {due_d.day}일' if due_d else ''
+            if st == ye.RETURNED:
+                out.append({'id': 'ye-mine', 'sig': f'{year}:{st}', 'tone': 'warn', 'icon': 'fas fa-receipt',
+                            'title': '연말정산 자료 보완 요청이 왔어요',
+                            'desc': (sub.get('returned_reason') or '경영지원 메모를 확인해 주세요.') + (f' · {due}' if due else ''),
+                            'action': '보완하기', 'href': '/yearend'})
+            elif st == ye.DRAFT:
+                out.append({'id': 'ye-mine', 'sig': f'{year}:{st}', 'tone': 'act', 'icon': 'fas fa-receipt',
+                            'title': f'{year}년 귀속 연말정산 자료를 내 주세요',
+                            'desc': '홈택스 자료 제공 동의 또는 간소화 PDF 업로드' + (f' · {due}' if due else ''),
+                            'action': '연말정산 하기', 'href': '/yearend'})
+        # 4) 연말정산 — 경영지원·대표: 제출 확인 기다리는 사람
+        if hr_admin and not field and season.get('status') in ('open', 'closed'):
+            waiting = [r for r in ye.admin_rows(year) if r.get('status') == ye.SUBMITTED]
+            if waiting:
+                out.append({'id': 'ye-admin', 'sig': str(len(waiting)), 'tone': 'info', 'icon': 'fas fa-clipboard-check',
+                            'title': f'연말정산 제출 {len(waiting)}명이 확인을 기다려요',
+                            'desc': '자료를 보고 「확인 완료」 또는 「보완 요청」을 눌러 주세요.',
+                            'action': '현황 보기', 'href': '/yearend/admin'})
+    except Exception as e:
+        logger.warning(f'[GW-HOME] 연말정산 할 일 실패: {e}')
+    return out
+
+
+# ── 영업 숫자(문의·방문·계약) — 당근 홈의 「최근 7일 통계」 칸처럼 누르면 그래프 ─────
+# 집계 기준은 매일 목표 점검과 같다: 문의=리드 시트 '상담 시간' 날짜(전체 플랫폼),
+# 방문=그 문의 중 방문을 잡은 것(상태가 방문 예약 이후), 계약=공사현황 '공사 확정' 날짜(공사 취소 제외).
+VISIT_STATUSES = ('방문 예약', '방문 완료', '견적 요청', '견적 제출', '공사 확정', '공사 취소')
+GOALS = {'inquiry': 20, 'visit': 10}   # 사장님 매일 목표(평일 문의 20~25·방문 10+)
+_SALES_TTL = 300
+_sales_cache: Dict[str, tuple] = {}
+
+import re as _re  # noqa: E402
+
+_DATE_RE = _re.compile(r'(\d{4})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})')
+
+
+def _ymd(v) -> Optional[date]:
+    if v is None or v == '':
+        return None
+    if hasattr(v, 'year') and hasattr(v, 'month') and hasattr(v, 'day'):
+        try:
+            return date(v.year, v.month, v.day)
+        except (TypeError, ValueError):
+            return None
+    m = _DATE_RE.search(str(v))
+    if not m:
+        return None
+    try:
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError:
+        return None
+
+
+def _amount(v) -> int:
+    try:
+        return int(float(_re.sub(r'[^\d.\-]', '', str(v)) or 0))
+    except ValueError:
+        return 0
+
+
+def _sales_counts(start: date, end: date) -> Dict[date, dict]:
+    from dashboard.services.lead_service import get_lead_records
+    from dashboard.services.project_service import load_data
+    days: Dict[date, dict] = {}
+
+    def slot(d):
+        return days.setdefault(d, {'inquiry': 0, 'visit': 0, 'contract': 0, 'amount': 0})
+
+    for r in get_lead_records() or []:
+        d = _ymd(r.get('상담 시간'))
+        if not d or not (start <= d <= end):
+            continue
+        s = slot(d)
+        s['inquiry'] += 1
+        if str(r.get('상태') or '').strip() in VISIT_STATUSES:
+            s['visit'] += 1
+    df = load_data()
+    if df is not None and len(df) and '공사 확정' in df.columns:
+        cols = [c for c in ('공사 확정', '총액 2', '수금 관련 특이사항') if c in df.columns]
+        for r in df[cols].to_dict('records'):
+            d = _ymd(r.get('공사 확정'))
+            if not d or not (start <= d <= end):
+                continue
+            if _re.search(r'공사\s*취소', str(r.get('수금 관련 특이사항') or '')):
+                continue
+            s = slot(d)
+            s['contract'] += 1
+            s['amount'] += _amount(r.get('총액 2'))
+    return days
+
+
+def _is_workday(d: date) -> bool:
+    try:
+        from dashboard.services import leave
+        return leave.is_workday(d)
+    except Exception:
+        return d.weekday() < 5
+
+
+def sales(today: Optional[date] = None, span: int = 30) -> dict:
+    """이번 달(오늘까지)·지난달 같은 기간 합계, 평일 하루 평균, 최근 span일 날짜별."""
+    today = today or date.today()
+    key = today.isoformat()
+    hit = _sales_cache.get(key)
+    if hit and time.time() - hit[0] < _SALES_TTL:
+        return hit[1]
+    month_start = today.replace(day=1)
+    prev_end_month = month_start - timedelta(days=1)
+    prev_start = prev_end_month.replace(day=1)
+    prev_end = prev_start + timedelta(days=min(today.day, prev_end_month.day) - 1)
+    span_start = today - timedelta(days=span - 1)
+    counts = _sales_counts(min(prev_start, span_start), today)
+
+    def total(a: date, b: date) -> dict:
+        t = {'inquiry': 0, 'visit': 0, 'contract': 0, 'amount': 0}
+        d = a
+        while d <= b:
+            for k, v in counts.get(d, {}).items():
+                t[k] += v
+            d += timedelta(days=1)
+        return t
+
+    this, prev = total(month_start, today), total(prev_start, prev_end)
+    workdays = [month_start + timedelta(days=i) for i in range((today - month_start).days + 1)]
+    workdays = [d for d in workdays if _is_workday(d)]
+    wd_total = {k: sum(counts.get(d, {}).get(k, 0) for d in workdays) for k in ('inquiry', 'visit')}
+    out = {
+        'month': month_start.strftime('%Y-%m'), 'today': key,
+        'prev_label': f'{prev_start.month}/{prev_start.day}~{prev_end.month}/{prev_end.day}',
+        'this': this, 'prev': prev, 'goals': GOALS,
+        'workday_avg': {k: (round(v / len(workdays), 1) if workdays else None) for k, v in wd_total.items()},
+        'days': [dict({'date': (span_start + timedelta(days=i)).isoformat(),
+                       'workday': _is_workday(span_start + timedelta(days=i))},
+                      **counts.get(span_start + timedelta(days=i), {'inquiry': 0, 'visit': 0, 'contract': 0, 'amount': 0}))
+                 for i in range(span)],
+    }
+    _sales_cache.clear()
+    _sales_cache[key] = (time.time(), out)
+    return out
+
+
 # ── 메일 ──────────────────────────────────────────────────────────────
 _MAIL_TTL = 60
 _mail_cache: Dict[str, tuple] = {}

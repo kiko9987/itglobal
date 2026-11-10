@@ -131,7 +131,160 @@
     box.innerHTML = h;
   }
 
+  // ── 지금 할 일 ────────────────────────────────────
+  // [닫기] = 오늘 하루 숨김. 내용(sig)이 바뀌면(건수 변화 등) 다시 뜬다.
+  var todayKey = now.getFullYear() + '-' + (now.getMonth() + 1) + '-' + now.getDate();
+  function hiddenTodo(t) {
+    try { return localStorage.getItem('gw.todo.hide.' + t.id) === t.sig + '|' + todayKey; } catch (e) { return false; }
+  }
+  function hideTodo(t) {
+    try { localStorage.setItem('gw.todo.hide.' + t.id, t.sig + '|' + todayKey); } catch (e) { /* noop */ }
+  }
+
+  function renderTodos(list) {
+    var box = el('homeTodos');
+    if (!box) return;
+    box.textContent = '';
+    (list || []).filter(function (t) { return !hiddenTodo(t); }).forEach(function (t) {
+      var card = document.createElement('div');
+      card.className = 'gw-todo ' + (t.tone || '');
+      card.innerHTML =
+        '<span class="gw-todo-ic"><i class="' + esc(t.icon) + '" aria-hidden="true"></i></span>' +
+        '<div class="gw-todo-main"><div class="gw-todo-title">' + esc(t.title) + '</div>' +
+        (t.desc ? '<div class="gw-todo-desc">' + esc(t.desc) + '</div>' : '') + '</div>' +
+        (t.href ? '<a class="gw-todo-act" href="' + esc(t.href) + '"' +
+          (t.external ? ' target="_blank" rel="noopener"' : '') + '>' + esc(t.action) + '</a>' : '') +
+        '<button type="button" class="gw-todo-close">닫기</button>';
+      card.querySelector('.gw-todo-close').addEventListener('click', function () {
+        hideTodo(t);
+        card.remove();
+      });
+      box.appendChild(card);
+    });
+  }
+
+  // ── 이번 달 영업: 숫자 칸 → 날짜별 막대 ──────────────────
+  var METRICS = [
+    { key: 'inquiry', label: '문의', goal: true },
+    { key: 'visit', label: '방문 잡음', goal: true },
+    { key: 'contract', label: '계약', goal: false }
+  ];
+  var salesData = null;
+  var salesMetric = 'inquiry';
+
+  function won(n) {
+    if (!n) return '0원';
+    if (n >= 1e8) return (Math.round(n / 1e7) / 10).toLocaleString('ko-KR') + '억 원';
+    return Math.round(n / 1e4).toLocaleString('ko-KR') + '만 원';
+  }
+
+  function diff(a, b) {
+    var d = a - b;
+    if (!d) return '<span>같음</span>';
+    return '<span class="' + (d > 0 ? 'up' : 'down') + '">' + (d > 0 ? '+' : '−') + Math.abs(d).toLocaleString('ko-KR') + '</span>';
+  }
+
+  function renderSalesTiles() {
+    var S = salesData, box = el('homeSalesTiles');
+    box.innerHTML = METRICS.map(function (m) {
+      var v = S.this[m.key], p = S.prev[m.key];
+      var sub = '지난달 같은 기간(' + esc(S.prev_label) + ') ' + p.toLocaleString('ko-KR') + '건 ' + diff(v, p);
+      var extra = m.goal
+        ? '평일 하루 ' + (S.workday_avg[m.key] == null ? '-' : S.workday_avg[m.key]) + '건 · 목표 ' + S.goals[m.key] + (m.key === 'inquiry' ? '~25건' : '건 이상')
+        : '계약 금액 ' + won(S.this.amount);
+      return '<button type="button" class="gw-sales-tile' + (m.key === salesMetric ? ' active' : '') + '" data-k="' + m.key + '" aria-pressed="' + (m.key === salesMetric) + '">' +
+        '<span class="k">' + m.label + '</span><span class="v">' + v.toLocaleString('ko-KR') + '건</span>' +
+        '<span class="s">' + extra + '</span><span class="s">' + sub + '</span></button>';
+    }).join('');
+  }
+
+  function niceMax(v) {
+    if (v <= 4) return 4;
+    var unit = v <= 10 ? 2 : v <= 50 ? 5 : v <= 200 ? 10 : 50;
+    return Math.ceil(v / unit) * unit;
+  }
+
+  function renderSalesChart() {
+    var S = salesData, box = el('homeSalesChart');
+    var m = METRICS.filter(function (x) { return x.key === salesMetric; })[0];
+    var days = S.days, n = days.length;
+    var goal = m.goal ? S.goals[m.key] : null;
+    // 목표선이 맨 위에 붙지 않게 15% 여유. 그림은 칸의 실제 폭으로 그리고 높이는 고정(넓은 화면에서 커지지 않게)
+    var maxV = niceMax(1.15 * Math.max(goal || 0, Math.max.apply(null, days.map(function (d) { return d[m.key]; }))));
+    var W = Math.max(320, Math.round(box.clientWidth - 24)), H = 200, L = 30, R = 8, T = 12, B = 24;
+    var pw = W - L - R, ph = H - T - B, slot = pw / n, bw = Math.max(2, slot - 2);
+    function y(v) { return T + ph - (v / maxV) * ph; }
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="최근 ' + n + '일 날짜별 ' + m.label + ' 막대 그래프">';
+    [0, Math.round(maxV / 2), maxV].forEach(function (t) {
+      svg += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(t) + '" y2="' + y(t) + '" stroke="#eef0f3" stroke-width="1"/>' +
+        '<text x="' + (L - 6) + '" y="' + (y(t) + 4) + '" text-anchor="end" font-size="11" fill="#868b94">' + t + '</text>';
+    });
+    days.forEach(function (d, i) {
+      var v = d[m.key], x = L + i * slot + 1, top = y(v), h = T + ph - top;
+      var fill = d.workday ? '#2f6fde' : '#b9cdf4';
+      if (h > 0) {
+        var r = Math.min(4, h, bw / 2);
+        svg += '<path d="M' + x + ',' + (T + ph) + 'V' + (top + r) + 'Q' + x + ',' + top + ' ' + (x + r) + ',' + top +
+          'H' + (x + bw - r) + 'Q' + (x + bw) + ',' + top + ' ' + (x + bw) + ',' + (top + r) + 'V' + (T + ph) + 'Z" fill="' + fill + '"/>';
+      }
+      var p = d.date.split('-'), dd = Number(p[2]);
+      if (i === n - 1 || (i % 5 === 0 && i < n - 3)) {
+        svg += '<text x="' + (x + bw / 2) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="11" fill="#868b94">' + Number(p[1]) + '/' + dd + '</text>';
+      }
+      svg += '<rect class="hit" data-i="' + i + '" x="' + (L + i * slot) + '" y="' + T + '" width="' + slot + '" height="' + ph + '" fill="transparent"/>';
+    });
+    svg += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + (T + ph) + '" y2="' + (T + ph) + '" stroke="#d6d9de" stroke-width="1"/>';
+    if (goal) {
+      svg += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(goal) + '" y2="' + y(goal) + '" stroke="#555d6d" stroke-width="1.5" stroke-dasharray="5 4"/>' +
+        '<text x="' + (L + 6) + '" y="' + (y(goal) - 5) + '" font-size="11" font-weight="700" fill="#555d6d" stroke="#ffffff" stroke-width="3" paint-order="stroke">평일 목표 ' + goal + '건</text>';
+    }
+    svg += '</svg>';
+    var total = days.reduce(function (a, d) { return a + d[m.key]; }, 0);
+    box.innerHTML = '<div class="gw-sales-chart-head"><span><strong>최근 ' + n + '일 날짜별 ' + m.label + '</strong></span><span>합계 ' + total.toLocaleString('ko-KR') + '건</span></div>' +
+      svg + '<div class="gw-sales-tip" id="homeSalesTip"></div>';
+    var tip = el('homeSalesTip'), svgEl = box.querySelector('svg');
+    box.querySelectorAll('rect.hit').forEach(function (r) {
+      r.addEventListener('mousemove', function () {
+        var d = days[Number(r.getAttribute('data-i'))];
+        var line = md(d.date) + ' · ' + m.label + ' ' + d[m.key] + '건';
+        if (m.key === 'contract' && d.amount) line += ' · ' + won(d.amount);
+        if (!d.workday) line += ' (휴일)';
+        tip.textContent = line;
+        var br = svgEl.getBoundingClientRect(), bb = box.getBoundingClientRect(), rb = r.getBoundingClientRect();
+        tip.style.left = (rb.left - bb.left + rb.width / 2) + 'px';
+        tip.style.top = (br.top - bb.top + (y(d[m.key]) / H) * br.height - 6) + 'px';
+        tip.style.display = 'block';
+      });
+      r.addEventListener('mouseleave', function () { tip.style.display = 'none'; });
+    });
+  }
+
+  function renderSales() {
+    renderSalesTiles();
+    renderSalesChart();
+    el('homeSalesNote').textContent = '문의 = 리드 시트 상담 시간 날짜(모든 경로) · 방문 잡음 = 그 문의 중 방문 예약 이후 상태 · ' +
+      '계약 = 공사현황 공사 확정 날짜(취소 제외) · 흐린 막대 = 주말·공휴일 · 5분마다 새로 셈';
+  }
+
+  if (el('homeSalesTiles')) {
+    el('homeSalesTiles').addEventListener('click', function (e) {
+      var b = e.target.closest('.gw-sales-tile');
+      if (!b || !salesData) return;
+      salesMetric = b.getAttribute('data-k');
+      renderSalesTiles();
+      renderSalesChart();
+    });
+    api('/api/home/sales').then(function (j) { salesData = j.sales; renderSales(); })
+      .catch(function (e) { fail('homeSalesTiles', e.message); });
+    var resizeTimer = null;
+    window.addEventListener('resize', function () {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(function () { if (salesData) renderSalesChart(); }, 150);
+    });
+  }
+
   api('/api/home').then(function (j) {
+    renderTodos(j.todos);
     renderLeave(j.leave);
     if (!j.field) {
       renderApprovals(j.approvals);

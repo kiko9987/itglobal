@@ -350,7 +350,27 @@ def api_home():
         except Exception as e:
             logger.warning(f'[GW-HOME] 휴가자 실패: {e}')
             out['off'] = None
+    try:   # 할 일 카드(11-10) — 현장은 연말정산만
+        out['todos'] = gw_home.todos(p, (p or {}).get('slack_id') or '', _is_field(), _hr_admin(),
+                                     out.get('approvals'))
+    except Exception as e:
+        logger.warning(f'[GW-HOME] 할 일 실패: {e}')
+        out['todos'] = []
     return jsonify(out)
+
+
+@hr_bp.route('/api/home/sales', methods=['GET'])
+@gw_page
+def api_home_sales():
+    """영업 숫자 칸·그래프(11-10) — 문의·방문·계약. 현장 계정은 없음."""
+    from dashboard.services import gw_home
+    if _is_field():
+        return jsonify({'success': False, 'message': '현장 계정은 영업 숫자 칸이 없습니다.'}), 403
+    try:
+        return jsonify({'success': True, 'sales': gw_home.sales()})
+    except Exception as e:
+        logger.warning(f'[GW-HOME] 영업 숫자 실패: {type(e).__name__}: {e}')
+        return jsonify({'success': False, 'message': '영업 숫자를 불러오지 못했습니다.'}), 500
 
 
 @hr_bp.route('/api/home/mail', methods=['GET'])

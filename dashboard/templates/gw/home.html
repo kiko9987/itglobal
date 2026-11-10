@@ -13,6 +13,22 @@
     <div class="gw-home-date" id="homeDate"></div>
   </div>
 
+  {# 지금 할 일 — 있을 때만 뜬다. [닫기]는 오늘 하루 숨김(내용이 바뀌면 다시 뜸) #}
+  <div class="gw-todos" id="homeTodos" aria-live="polite"></div>
+
+  {% if not is_field %}
+  {# 영업 숫자 — 칸을 누르면 아래 그래프가 그 항목으로 바뀐다(당근 비즈니스 홈 「최근 7일 통계」처럼) #}
+  <section class="gw-panel gw-sales" aria-labelledby="homeSalesTitle">
+    <div class="gw-home-card-head">
+      <h2 class="gw-panel-title" id="homeSalesTitle"><i class="fas fa-chart-column me-1" aria-hidden="true"></i>이번 달 영업</h2>
+      <a class="gw-home-more" href="/stats">매출통계</a>
+    </div>
+    <div class="gw-sales-tiles" id="homeSalesTiles" role="group" aria-label="항목 고르기"><div class="gw-empty">불러오는 중…</div></div>
+    <div class="gw-sales-chart" id="homeSalesChart"></div>
+    <div class="gw-sales-note" id="homeSalesNote"></div>
+  </section>
+  {% endif %}
+
   <div class="gw-home-grid">
     {% if not is_field %}
     <section class="gw-panel gw-home-card" aria-labelledby="homeApprovalTitle">

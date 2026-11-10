@@ -216,3 +216,81 @@ def test_mail_batch_two_trips_and_stale_while_revalidate(db, monkeypatch):
     gw_home._mail_cache['kiko@itg-aircon.com'] = (gw_home.time.time() - 3600, r)     # 1시간 지난 값 → 새로 받음
     monkeypatch.setattr(gw_home, '_gmail', lambda email: _Fake())
     assert gw_home.mail_summary('kiko@itg-aircon.com')['unread'] == 3 and calls == ['kiko@itg-aircon.com']
+
+
+# ── 할 일 카드·영업 숫자(11-10) ────────────────────────────────────────
+def test_todos_approval_leave_yearend(db, monkeypatch):
+    from dashboard.services import yearend as ye
+    monkeypatch.setattr(ye, '_db', lambda: db)
+    monkeypatch.setattr(ye, '_table_ready', False, raising=False)
+    monkeypatch.delenv('LEAVE_APPROVER_IDS', raising=False)
+    monkeypatch.setattr(ye, 'current_year', lambda today=None: 2026)
+    hr.upsert_from_flex({'flex_id': 'M', 'name': '박민우', 'status': '재직', 'work_email': 'mw@itg-aircon.com',
+                         'login_email': 'mw@itg-aircon.com', 'slack_id': MW}, [])
+    me = hr.find_by_email('mw@itg-aircon.com')
+    assert gw_home.todos(me, MW, False, False, {'todo_count': 0}) == []          # 할 일 없으면 빈 목록
+
+    # 결재 내 차례
+    t = gw_home.todos(me, MW, False, False, {'todo_count': 2, 'todo': [{'link': 'https://x/1'}]})
+    assert t[0]['id'] == 'approval' and t[0]['title'] == '결재 2건이 기다리고 있어요' and t[0]['href'] == 'https://x/1'
+
+    # 휴가 승인 — 첫 승인자(JW) 차례, 나에게 온 DM 카드로 링크
+    lv.upsert_staff('박민우', '2022-02-03', MW)
+    lv.add_grant('박민우', 8, date(2026, 2, 3), date(2027, 2, 2), source='t')
+    r = lv.create('박민우', MW, MW, '박민우', lv.ANNUAL, '', date(2026, 11, 20), date(2026, 11, 20))
+    lv.add_dm_ref(r['id'], 'D123', '1700000000.000100', 'approver', JW)
+    jw = [x for x in gw_home.todos(None, JW, False, False) if x['id'] == 'leave-approve']
+    assert jw and jw[0]['title'] == '휴가 승인 1건이 기다리고 있어요' and '박민우' in jw[0]['desc']
+    assert jw[0]['href'].endswith('/archives/D123/p1700000000000100')
+    assert not [x for x in gw_home.todos(None, MW, False, False) if x['id'] == 'leave-approve']   # 신청자는 아님
+
+    # 연말정산 — 준비 중엔 없음 → 열리면 '내 주세요' → 제출하면 HR 관리자에게 '확인 기다림' → 보완 요청이면 '보완'
+    assert not [x for x in gw_home.todos(me, MW, False, False) if x['id'].startswith('ye')]
+    ye.set_season(2026, 'kiko@itg-aircon.com', status='open', due_date='2027-01-31')
+    mine = [x for x in gw_home.todos(me, MW, False, False) if x['id'] == 'ye-mine'][0]
+    assert mine['title'] == '2026년 귀속 연말정산 자료를 내 주세요' and '마감 1월 31일' in mine['desc'] and mine['href'] == '/yearend'
+    assert [x for x in gw_home.todos(me, '', True, False) if x['id'] == 'ye-mine']                # 현장도 받음
+    ye.save_answers(me['id'], 2026, {'method': 'bulk', 'family_status': 'none', 'bulk_consent': True})
+    ye.submit(me['id'], 2026, me)
+    assert not [x for x in gw_home.todos(me, MW, False, False) if x['id'] == 'ye-mine']
+    adm = [x for x in gw_home.todos(None, KIKO, False, True) if x['id'] == 'ye-admin']
+    assert adm and adm[0]['title'] == '연말정산 제출 1명이 확인을 기다려요'
+    assert not [x for x in gw_home.todos(None, KIKO, True, True) if x['id'] == 'ye-admin']         # 현장 세션은 아님
+    ye.set_status(me['id'], 2026, ye.RETURNED, 'kiko@itg-aircon.com', '등본 누락')
+    back = [x for x in gw_home.todos(me, MW, False, False) if x['id'] == 'ye-mine'][0]
+    assert back['tone'] == 'warn' and back['desc'].startswith('등본 누락')
+
+
+def test_sales_counts(monkeypatch):
+    import pandas as pd
+    from dashboard.services import lead_service, project_service
+    leads = [
+        {'상담 시간': '2026.11.10. 09:12', '상태': '방문 예약'},
+        {'상담 시간': '2026.11.10. 10:00', '상태': '부재중'},
+        {'상담 시간': '2026.11.08. 10:00', '상태': '공사 확정'},     # 일요일
+        {'상담 시간': '2026.10.05. 10:00', '상태': '방문 완료'},     # 지난달 같은 기간(10/1~10/10)
+        {'상담 시간': '2026.10.20. 10:00', '상태': '방문 완료'},     # 지난달이지만 같은 기간 밖
+        {'상담 시간': '', '상태': '방문 완료'},
+    ]
+    df = pd.DataFrame([
+        {'공사 확정': pd.Timestamp('2026-11-03'), '총액 2': '5,500,000', '수금 관련 특이사항': ''},
+        {'공사 확정': '2026-11-04', '총액 2': '1000000', '수금 관련 특이사항': '공사 취소'},
+        {'공사 확정': '', '총액 2': '1', '수금 관련 특이사항': ''},
+    ])
+    monkeypatch.setattr(lead_service, 'get_lead_records', lambda: leads)
+    monkeypatch.setattr(project_service, 'load_data', lambda *a, **k: df)
+    gw_home._sales_cache.clear()
+    s = gw_home.sales(date(2026, 11, 10), span=30)
+    assert s['this'] == {'inquiry': 3, 'visit': 2, 'contract': 1, 'amount': 5500000}
+    assert s['prev'] == {'inquiry': 1, 'visit': 1, 'contract': 0, 'amount': 0} and s['prev_label'] == '10/1~10/10'
+    assert s['workday_avg']['inquiry'] == round(2 / 7, 1)       # 11/2~11/10 평일 7일, 일요일 문의는 평균에서 빠짐
+    assert len(s['days']) == 30 and s['days'][-1]['date'] == '2026-11-10' and s['days'][-1]['inquiry'] == 2
+    assert s['days'][-3]['workday'] is False and s['days'][-2]['workday'] is True and s['goals'] == {'inquiry': 20, 'visit': 10}
+
+
+def test_sales_api_field_blocked(client):
+    with client.session_transaction() as s:
+        s.clear()
+    tok = gw_login.issue('UF').rsplit('/', 1)[1]
+    client.get(f'/gw/login/{tok}')
+    assert client.get('/api/home/sales').status_code == 403
