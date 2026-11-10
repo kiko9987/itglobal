@@ -392,6 +392,241 @@ body.gw-shell .main-content .content-container {
   padding-right: 12px;
 }
 
+/* ── 프로젝트 화면: 상태 칸 + 필터 한 줄(당근 비즈니스 광고 관리식, 11-10) ──────────
+   실측: 칸=흰 바탕·1px #dcdee3·둥글기 12px, 필터=알약 칩 36px(고른 칩은 짙은 남색 #2a3038), 「필터 초기화」=회색 알약 */
+body.gw-shell .gw-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 10px;
+}
+
+body.gw-shell .gw-stat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 14px 0 16px;
+  background: #ffffff;
+  border: 1px solid #dcdee3;
+  border-radius: 12px;
+  color: #1a1c20;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
+}
+
+body.gw-shell .gw-stat:hover {
+  background: #fafafb;
+  border-color: #b9bdc6;
+}
+
+body.gw-shell .gw-stat.active {
+  border-color: #2a3038;
+  box-shadow: inset 0 0 0 1px #2a3038;
+}
+
+body.gw-shell .gw-stat:focus-visible {
+  outline: 2px solid var(--gw-accent);
+  outline-offset: 2px;
+}
+
+body.gw-shell .gw-stat-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+body.gw-shell .gw-stat-wait { background: #8b919c; }
+body.gw-shell .gw-stat-run { background: #2f80ed; }
+body.gw-shell .gw-stat-due { background: #fa342c; }
+body.gw-shell .gw-stat-check { background: #f5a524; }
+body.gw-shell .gw-stat-bill { background: #ff6f0f; }
+
+body.gw-shell .gw-stat-label {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body.gw-shell .gw-stat-num {
+  color: #555d6d;
+  white-space: nowrap;
+}
+
+body.gw-shell .gw-stat-num b {
+  margin-right: 1px;
+  color: #1a1c20;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+body.gw-shell .gw-stat.zero .gw-stat-num b {
+  color: #9aa0aa;
+}
+
+body.gw-shell .gw-stat-go {
+  font-size: 11px;
+  color: #9aa0aa;
+}
+
+/* 필터: 이름표 줄을 없애고(화면 낭독기용으로만 남김) 칩 한 줄로 */
+body.gw-shell .filter-section,
+body.gw-shell .filter-section.has-active-filters {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 10px 12px;
+  box-shadow: none;
+}
+
+body.gw-shell .filter-section > .row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+body.gw-shell .filter-section > .row > [class*="col-"] {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: none;
+  padding: 0;
+}
+
+body.gw-shell .filter-section .form-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+body.gw-shell .filter-section .form-select {
+  height: 36px;
+  width: auto;
+  max-width: 200px;
+  field-sizing: content;          /* 고른 글자 길이만큼(지원 안 하는 브라우저는 최대 200px) */
+  padding: 0 32px 0 14px;
+  border: 0;
+  border-radius: 9999px;
+  background-color: rgba(0, 0, 0, 0.047);
+  background-position: right 12px center;
+  color: #1a1c20;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+body.gw-shell .filter-section .form-select:hover {
+  background-color: rgba(0, 0, 0, 0.08);
+}
+
+body.gw-shell .filter-section .form-select.filter-selected {
+  background-color: #2a3038 !important;
+  color: #ffffff;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23ffffff' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
+}
+
+body.gw-shell .filter-section .form-select option {
+  background: #ffffff;
+  color: #1a1c20;
+}
+
+body.gw-shell .filter-section #searchInput {
+  height: 36px;
+  width: 200px;
+  padding: 0 14px 0 34px;
+  border: 1px solid #dcdee3;
+  border-radius: 9999px;
+  background: #ffffff url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3ccircle cx='7' cy='7' r='5' fill='none' stroke='%23868b94' stroke-width='1.6'/%3e%3cpath d='m11 11 3.2 3.2' stroke='%23868b94' stroke-width='1.6' stroke-linecap='round'/%3e%3c/svg%3e") 13px center / 15px 15px no-repeat;
+  font-size: 14px;
+}
+
+body.gw-shell .filter-section #searchInput.filter-selected {
+  border-color: #2a3038 !important;
+  background-color: #ffffff !important;
+}
+
+/* 오른쪽 묶음: 초기화·프리셋 저장·결과 수·저장한 프리셋을 한 줄에 */
+body.gw-shell .filter-section > .row > .col-md-3 {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+body.gw-shell .filter-section .filter-actions-row {
+  margin-top: 0 !important;
+}
+
+body.gw-shell .filter-section #filterPresetsContainer {
+  margin-top: 0 !important;
+  min-height: 0 !important;
+  order: 2;
+}
+
+body.gw-shell .filter-section .btn {
+  height: 36px;
+  min-width: 0;
+  margin-top: 0;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 9999px;
+  background: rgba(0, 0, 0, 0.047);
+  color: #1a1c20;
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: none;
+}
+
+body.gw-shell .filter-section .btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: #1a1c20;
+  box-shadow: none;
+}
+
+/* 필터가 걸리면 기존 화면은 초기화·프리셋 단추를 빨강·주황으로 칠함 → 새 화면은 차분하게(강조는 고른 칩만) */
+body.gw-shell .filter-section .btn,
+body.gw-shell .filter-section.has-active-filters .btn {
+  color: #1a1c20 !important;
+  border-color: transparent !important;
+  background: rgba(0, 0, 0, 0.047) !important;
+}
+
+body.gw-shell .filter-section .btn:hover,
+body.gw-shell .filter-section.has-active-filters .btn:hover {
+  background: rgba(0, 0, 0, 0.08) !important;
+}
+
+body.gw-shell .filter-section .filter-result-count::before {
+  display: none !important;
+}
+
+body.gw-shell .filter-section .btn i {
+  color: #555d6d;
+}
+
+body.gw-shell .filter-section .filter-result-display,
+body.gw-shell .filter-section .filter-result-count {
+  margin-left: 4px;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: #555d6d;
+  font-size: 13px;
+}
+
 /* ── 좁은 화면: 왼쪽 줄은 숨기고 ☰ 로만 연다(열면 처음부터 펼친 모양) ─── */
 @media (max-width: 767.98px) {
   body.gw-shell {
@@ -416,6 +651,14 @@ body.gw-shell .main-content .content-container {
 
   body.gw-shell .gw-rail-hotzone {
     display: none !important;
+  }
+
+  body.gw-shell .gw-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  body.gw-shell .filter-section #searchInput {
+    width: 100%;
   }
 }
 

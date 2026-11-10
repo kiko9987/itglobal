@@ -1,3 +1,4 @@
+{# 그룹웨어 새 화면(gw_layout)에선 첫 칸 글자가 필터 이름 — 칩 모양(당근식, 2026-11-10). 예전 화면 출력은 그대로 #}
 <!-- 현대화된 필터 섹션 (고정) -->
 <div class="filter-section-sticky">
     <div class="filter-section">
@@ -5,7 +6,7 @@
             <div class="col-md-1">
                 <label for="companyFilter" class="form-label" title="이 공사를 맡은 우리 쪽 사업자 (시트 '사업자' 칸)">내부 사업자</label>
                 <select class="form-select" id="companyFilter">
-                    <option value="">전체</option>
+                    <option value="">{% if gw_layout %}내부 사업자{% else %}전체{% endif %}</option>
                     <!-- 동적으로 사업자 목록이 로드됩니다 -->
                 </select>
             </div>
@@ -13,7 +14,7 @@
             <div class="col-md-1">
                 <label for="managerFilter" class="form-label">담당자</label>
                 <select class="form-select" id="managerFilter">
-                    <option value="">전체</option>
+                    <option value="">{% if gw_layout %}담당자{% else %}전체{% endif %}</option>
                     <!-- 동적으로 담당자 목록이 로드됩니다 -->
                 </select>
             </div>
@@ -21,7 +22,7 @@
             <div class="col-md-1">
                 <label for="clientFilter" class="form-label">유입 구분</label>
                 <select class="form-select" id="clientFilter">
-                    <option value="">전체</option>
+                    <option value="">{% if gw_layout %}유입 구분{% else %}전체{% endif %}</option>
                     <!-- 동적으로 거래처(유입채널) 목록이 로드됩니다 -->
                 </select>
             </div>
@@ -29,7 +30,7 @@
             <div class="col-md-1">
                 <label for="businessNameFilter" class="form-label" title="거래처명이 있으면 거래처명, 없으면 사업자명">거래처·사업자명</label>
                 <select class="form-select" id="businessNameFilter">
-                    <option value="">전체</option>
+                    <option value="">{% if gw_layout %}거래처·사업자명{% else %}전체{% endif %}</option>
                     <!-- 동적으로 거래처명(없으면 사업자명) 목록이 로드됩니다 -->
                 </select>
             </div>
@@ -37,7 +38,7 @@
             <div class="col-md-1">
                 <label for="statusFilter" class="form-label">상태</label>
                 <select class="form-select" id="statusFilter">
-                    <option value="">전체</option>
+                    <option value="">{% if gw_layout %}상태{% else %}전체{% endif %}</option>
                     <!-- 동적으로 상태 목록이 로드됩니다 -->
                 </select>
             </div>
@@ -45,7 +46,7 @@
             <div class="col-md-1">
                 <label for="invoiceFilter" class="form-label">세금계산서</label>
                 <select class="form-select" id="invoiceFilter">
-                    <option value="">전체</option>
+                    <option value="">{% if gw_layout %}세금계산서{% else %}전체{% endif %}</option>
                     <!-- 동적으로 시트 Y열 값 unique 로드 -->
                 </select>
             </div>
@@ -53,7 +54,7 @@
             <div class="col-md-1" id="outstandingFilterCol">
                 <label for="outstandingFilter" class="form-label">수금 상태</label>
                 <select class="form-select" id="outstandingFilter">
-                    <option value="">전체</option>
+                    <option value="">{% if gw_layout %}수금 상태{% else %}전체{% endif %}</option>
                     <option value="collected" title="수금 확인을 체크한 공사">수금 확인됨</option>
                     <option value="outstanding" title="받을 돈이 남았거나, 다 받았어도 수금 확인·수금 날짜·계산서 처리가 안 끝난 공사">처리할 일 남음</option>
                 </select>
@@ -72,7 +73,7 @@
             <div class="col-md-1">
                 <label for="dataFilter" class="form-label">데이터</label>
                 <select class="form-select" id="dataFilter">
-                    <option value="">전체</option>
+                    <option value="">{% if gw_layout %}데이터{% else %}전체{% endif %}</option>
                     <option value="complete">완료</option>
                     <option value="incomplete">미완료</option>
                 </select>
@@ -81,7 +82,7 @@
             <div class="col-md-1">
                 <label for="searchInput" class="form-label">키워드 검색</label>
                 <input type="text" class="form-control" id="searchInput"
-                       placeholder="검색...">
+                       placeholder="{% if gw_layout %}코드·현장·고객 검색{% else %}검색...{% endif %}">
             </div>
 
             <div class="col-md-3">

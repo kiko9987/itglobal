@@ -595,159 +595,7 @@ export default class ModernProjectFilters {
     }
 
     const originalCount = this.currentData.length;
-    let filteredData = [...this.currentData];
-
-
-    // 검색어 필터 (최적화: 주요 필드만 검색)
-    if (this.filters.search) {
-      const searchTerm = this.filters.search.toLowerCase();
-      filteredData = filteredData.filter(item => {
-        // 정의된 검색 가능 필드만 검색하여 성능 향상
-        return this.searchableFields.some(field => {
-          const value = item[field];
-          return value && String(value).toLowerCase().includes(searchTerm);
-        });
-      });
-    }
-
-    // 사업자 필터
-    if (this.filters.company) {
-      filteredData = filteredData.filter(item => {
-        const company = item['사업자'] || '';
-        return company.toString().trim() === this.filters.company;
-      });
-    }
-
-    // 유입 구분 필터 (유입 채널 카테고리)
-    if (this.filters.client) {
-      filteredData = filteredData.filter(item => {
-        const client = item['유입 구분'] || '';
-        return client.toString().trim() === this.filters.client;
-      });
-    }
-
-    // 거래처·사업자명 필터 — 보이는 이름(거래처명이 이름이면 그것, 아니면 사업자명) 기준.
-    //   예전에 저장된 사업자명 선택값도 맞도록 사업자명 일치도 허용 (2026-10-22)
-    if (this.filters.businessName) {
-      filteredData = filteredData.filter(item => {
-        const businessName = (item['사업자명'] || '').toString().trim();
-        return partnerDisplayName(item) === this.filters.businessName || businessName === this.filters.businessName;
-      });
-    }
-
-    // 상태 필터 (공통 유틸리티 사용)
-    if (this.filters.status) {
-      filteredData = filteredData.filter(item => {
-        const statusText = ProjectStatusCalculator.calculateStatus(item);
-        return statusText === this.filters.status;
-      });
-    }
-
-    // 세금계산서 필터 (시트 Y열 = '계산서' 필드). Y="{단계} - {상태}"라 상태 부분으로 매칭.
-    if (this.filters.invoice) {
-      filteredData = filteredData.filter(item => {
-        const invoiceStatus = String(item['계산서'] || '').trim().split(' - ').pop().trim();
-        return invoiceStatus === this.filters.invoice;
-      });
-    }
-
-    // 데이터 완성도 필터
-    if (this.filters.data) {
-      filteredData = filteredData.filter(item => {
-        const isEmpty = this.isDataIncomplete(item);
-        if (this.filters.data === 'complete') {
-          return !isEmpty; // 완료: 빈 데이터가 없음
-        } else if (this.filters.data === 'incomplete') {
-          return isEmpty; // 미완료: 빈 데이터가 있음
-        }
-        return true;
-      });
-    }
-
-    // 담당자 필터
-    if (this.filters.manager) {
-      filteredData = filteredData.filter(item => {
-        const manager = item['담당자'] || '';
-        return manager.toString().trim() === this.filters.manager;
-      });
-    }
-
-    // '내 공사만 보기' 별도 필터는 없음 — 체크박스 change 핸들러에서 this.filters.manager를
-    // 세팅해 위쪽 담당자 필터가 처리하도록 위임 (2026-07-07 변경).
-
-    // '취소된 공사 제외' 체크박스 (2026-11-03) — 기본 켜짐(끈 경우만 false).
-    //   취소 판정은 수금 관리 모드와 같은 기준. 코드로 검색하면 취소 건도 보임
-    //   (리드 화면 프로젝트 링크 ?search=코드, 취소 건을 코드로 찾는 경우 0건 방지)
-    //   A/S 관리 모드에선 안 거름 — 취소 공사에 걸린 A/S 요청이 숨지 않도록
-    const asModeOn = !!(window.__projectTableInstance && window.__projectTableInstance._asModeActive);
-    if (this.filters.hideCancelled !== false && !asModeOn) {
-      const term = (this.filters.search || '').trim().toLowerCase();
-      filteredData = filteredData.filter(item => {
-        if (!/공사\s*취소/.test(item['수금 관련 특이사항'] || '')) return true;
-        return !!term && String(item['프로젝트 코드'] || '').toLowerCase().includes(term);
-      });
-    }
-
-    // 미수금 필터
-    if (this.filters.outstanding) {
-      const beforeCount = filteredData.length;
-      filteredData = filteredData.filter((item, index) => {
-        const outstandingData = item['미수금'] || 0;
-        const outstandingAmount = AmountCalculator.safeParseCurrency(outstandingData);
-        const collectedValue = item['수금 확인'];
-        const isCollected = collectedValue === true ||
-                           collectedValue === 'TRUE' ||
-                           collectedValue === 'true' ||
-                           collectedValue === 1 ||
-                           collectedValue === '1';
-        // 수금 날짜 입력 여부 (Z열)
-        const hasPaymentDate = String(item['수금 날짜'] || '').trim() !== '';
-        // 계산서 처리완료 여부 (Y열 요약, 2026-09-07) — 완료 상태만 '처리됨'.
-        //   발행완료(세금계산서)·N입금(현금)·카드결제 = 처리 완료. 나머지(미발행/발행중/
-        //   확인필요/-)는 미완료 → 종결 안 됨(목록 유지).
-        // Y = "{단계} - {상태}" (2026-09-07) → 상태 부분만 추출해 판정
-        const billStatus = String(item['계산서'] || '').trim().split(' - ').pop().trim();
-        const invoiceIssued = ['발행완료', 'N입금', '카드결제'].includes(billStatus);
-
-        if (this.filters.outstanding === 'collected') {
-          // 수금 완료: 수금확인 체크박스가 체크된 경우만
-          return isCollected;
-        } else if (this.filters.outstanding === 'outstanding') {
-          // 수금 관리 모드 목록 유지 규칙 (2026-09-06, 매니저 요청):
-          //   기존 구글시트 미수금 현황처럼 "완전히 종결된 건"만 목록에서 제외.
-          //   종결 = ①수금 완료(수금확인 체크 AND 수금날짜 입력) AND ②세금계산서 발행완료.
-          //   → 수금은 끝났어도 계산서 미발행이면 계속 노출(주 목적: 발행 누락 잡기).
-          //   → 미수금 금액이 남아있으면 무조건 노출(안전장치).
-          const paymentDone = isCollected && hasPaymentDate;
-          const settled = paymentDone && invoiceIssued;
-          return outstandingAmount > 0 || !settled;
-        }
-        return true;
-      });
-
-      // 수금 관리 모드에서는 취소된 공사 제외 (띄어쓰기 무시)
-      // (2026-07-08: item['AG'] fallback 제거 — 컬럼 시프트 후 AG=마진율이라 잘못된 참조)
-      filteredData = filteredData.filter(item => {
-        const collectionNotes = item['수금 관련 특이사항'] || '';
-        return !/공사\s*취소/.test(collectionNotes);
-      });
-    }
-
-    // A/S 관리 모드: A/S 가 있는 프로젝트만 (window.asView.byCode 조인, 2026-08-31)
-    // 수금 미수금 필터와 동일 패턴 — 메인 테이블 A/S 모드에서 A/S 없는 프로젝트 제외.
-    // 'A/S 상태' 필터 (미수금 필터 자리에 교체) — active(진행중, 기본)/completed(완료)/all(전체).
-    if (window.__projectTableInstance && window.__projectTableInstance._asModeActive) {
-      const byCode = (window.asView && window.asView.byCode) || {};
-      const statusFilter = window.__projectTableInstance._asStatusFilter || 'active';
-      filteredData = filteredData.filter(item => {
-        const a = byCode[String(item['프로젝트 코드'] || '').trim()];
-        if (!a) return false;
-        if (statusFilter === 'all') return true;
-        const st = String(a['진행 상태'] || '').trim();
-        if (statusFilter === 'completed') return st === '처리 완료';
-        return st === '요청됨' || st === '접수 완료';  // active(진행 중, 기본)
-      });
-    }
+    let filteredData = this.filterRows(this.currentData, this.filters);
 
     // 필터링 후 프로젝트 코드 기준 숫자 내림차순 정렬
     filteredData.sort((a, b) => {
@@ -786,6 +634,171 @@ export default class ModernProjectFilters {
         } catch (error) {
           logger.error('[ModernProjectFilters] 콜백', index, '실행 오류:', error);
         }
+      });
+    }
+
+    return filteredData;
+  }
+
+  /**
+   * 필터 조건으로 행을 거른다(정렬·화면 갱신·저장 없이 순수하게) — applyFilters 와
+   * 상태 칸 숫자(ProjectStatusCards, 2026-11-10)가 같은 규칙을 쓰도록 한곳에 둠.
+   * @param {Array} rows - 원본 행
+   * @param {Object} f - 필터 값(this.filters 모양)
+   * @returns {Array} 걸러진 행(새 배열)
+   */
+  filterRows(rows, f = this.filters) {
+    let filteredData = [...(rows || [])];
+
+
+    // 검색어 필터 (최적화: 주요 필드만 검색)
+    if (f.search) {
+      const searchTerm = f.search.toLowerCase();
+      filteredData = filteredData.filter(item => {
+        // 정의된 검색 가능 필드만 검색하여 성능 향상
+        return this.searchableFields.some(field => {
+          const value = item[field];
+          return value && String(value).toLowerCase().includes(searchTerm);
+        });
+      });
+    }
+
+    // 사업자 필터
+    if (f.company) {
+      filteredData = filteredData.filter(item => {
+        const company = item['사업자'] || '';
+        return company.toString().trim() === f.company;
+      });
+    }
+
+    // 유입 구분 필터 (유입 채널 카테고리)
+    if (f.client) {
+      filteredData = filteredData.filter(item => {
+        const client = item['유입 구분'] || '';
+        return client.toString().trim() === f.client;
+      });
+    }
+
+    // 거래처·사업자명 필터 — 보이는 이름(거래처명이 이름이면 그것, 아니면 사업자명) 기준.
+    //   예전에 저장된 사업자명 선택값도 맞도록 사업자명 일치도 허용 (2026-10-22)
+    if (f.businessName) {
+      filteredData = filteredData.filter(item => {
+        const businessName = (item['사업자명'] || '').toString().trim();
+        return partnerDisplayName(item) === f.businessName || businessName === f.businessName;
+      });
+    }
+
+    // 상태 필터 (공통 유틸리티 사용)
+    if (f.status) {
+      filteredData = filteredData.filter(item => {
+        const statusText = ProjectStatusCalculator.calculateStatus(item);
+        return statusText === f.status;
+      });
+    }
+
+    // 세금계산서 필터 (시트 Y열 = '계산서' 필드). Y="{단계} - {상태}"라 상태 부분으로 매칭.
+    if (f.invoice) {
+      filteredData = filteredData.filter(item => {
+        const invoiceStatus = String(item['계산서'] || '').trim().split(' - ').pop().trim();
+        return invoiceStatus === f.invoice;
+      });
+    }
+
+    // 데이터 완성도 필터
+    if (f.data) {
+      filteredData = filteredData.filter(item => {
+        const isEmpty = this.isDataIncomplete(item);
+        if (f.data === 'complete') {
+          return !isEmpty; // 완료: 빈 데이터가 없음
+        } else if (f.data === 'incomplete') {
+          return isEmpty; // 미완료: 빈 데이터가 있음
+        }
+        return true;
+      });
+    }
+
+    // 담당자 필터
+    if (f.manager) {
+      filteredData = filteredData.filter(item => {
+        const manager = item['담당자'] || '';
+        return manager.toString().trim() === f.manager;
+      });
+    }
+
+    // '내 공사만 보기' 별도 필터는 없음 — 체크박스 change 핸들러에서 f.manager를
+    // 세팅해 위쪽 담당자 필터가 처리하도록 위임 (2026-07-07 변경).
+
+    // '취소된 공사 제외' 체크박스 (2026-11-03) — 기본 켜짐(끈 경우만 false).
+    //   취소 판정은 수금 관리 모드와 같은 기준. 코드로 검색하면 취소 건도 보임
+    //   (리드 화면 프로젝트 링크 ?search=코드, 취소 건을 코드로 찾는 경우 0건 방지)
+    //   A/S 관리 모드에선 안 거름 — 취소 공사에 걸린 A/S 요청이 숨지 않도록
+    const asModeOn = !!(window.__projectTableInstance && window.__projectTableInstance._asModeActive);
+    if (f.hideCancelled !== false && !asModeOn) {
+      const term = (f.search || '').trim().toLowerCase();
+      filteredData = filteredData.filter(item => {
+        if (!/공사\s*취소/.test(item['수금 관련 특이사항'] || '')) return true;
+        return !!term && String(item['프로젝트 코드'] || '').toLowerCase().includes(term);
+      });
+    }
+
+    // 미수금 필터
+    if (f.outstanding) {
+      const beforeCount = filteredData.length;
+      filteredData = filteredData.filter((item, index) => {
+        const outstandingData = item['미수금'] || 0;
+        const outstandingAmount = AmountCalculator.safeParseCurrency(outstandingData);
+        const collectedValue = item['수금 확인'];
+        const isCollected = collectedValue === true ||
+                           collectedValue === 'TRUE' ||
+                           collectedValue === 'true' ||
+                           collectedValue === 1 ||
+                           collectedValue === '1';
+        // 수금 날짜 입력 여부 (Z열)
+        const hasPaymentDate = String(item['수금 날짜'] || '').trim() !== '';
+        // 계산서 처리완료 여부 (Y열 요약, 2026-09-07) — 완료 상태만 '처리됨'.
+        //   발행완료(세금계산서)·N입금(현금)·카드결제 = 처리 완료. 나머지(미발행/발행중/
+        //   확인필요/-)는 미완료 → 종결 안 됨(목록 유지).
+        // Y = "{단계} - {상태}" (2026-09-07) → 상태 부분만 추출해 판정
+        const billStatus = String(item['계산서'] || '').trim().split(' - ').pop().trim();
+        const invoiceIssued = ['발행완료', 'N입금', '카드결제'].includes(billStatus);
+
+        if (f.outstanding === 'collected') {
+          // 수금 완료: 수금확인 체크박스가 체크된 경우만
+          return isCollected;
+        } else if (f.outstanding === 'outstanding') {
+          // 수금 관리 모드 목록 유지 규칙 (2026-09-06, 매니저 요청):
+          //   기존 구글시트 미수금 현황처럼 "완전히 종결된 건"만 목록에서 제외.
+          //   종결 = ①수금 완료(수금확인 체크 AND 수금날짜 입력) AND ②세금계산서 발행완료.
+          //   → 수금은 끝났어도 계산서 미발행이면 계속 노출(주 목적: 발행 누락 잡기).
+          //   → 미수금 금액이 남아있으면 무조건 노출(안전장치).
+          const paymentDone = isCollected && hasPaymentDate;
+          const settled = paymentDone && invoiceIssued;
+          return outstandingAmount > 0 || !settled;
+        }
+        return true;
+      });
+
+      // 수금 관리 모드에서는 취소된 공사 제외 (띄어쓰기 무시)
+      // (2026-07-08: item['AG'] fallback 제거 — 컬럼 시프트 후 AG=마진율이라 잘못된 참조)
+      filteredData = filteredData.filter(item => {
+        const collectionNotes = item['수금 관련 특이사항'] || '';
+        return !/공사\s*취소/.test(collectionNotes);
+      });
+    }
+
+    // A/S 관리 모드: A/S 가 있는 프로젝트만 (window.asView.byCode 조인, 2026-08-31)
+    // 수금 미수금 필터와 동일 패턴 — 메인 테이블 A/S 모드에서 A/S 없는 프로젝트 제외.
+    // 'A/S 상태' 필터 (미수금 필터 자리에 교체) — active(진행중, 기본)/completed(완료)/all(전체).
+    if (window.__projectTableInstance && window.__projectTableInstance._asModeActive) {
+      const byCode = (window.asView && window.asView.byCode) || {};
+      const statusFilter = window.__projectTableInstance._asStatusFilter || 'active';
+      filteredData = filteredData.filter(item => {
+        const a = byCode[String(item['프로젝트 코드'] || '').trim()];
+        if (!a) return false;
+        if (statusFilter === 'all') return true;
+        const st = String(a['진행 상태'] || '').trim();
+        if (statusFilter === 'completed') return st === '처리 완료';
+        return st === '요청됨' || st === '접수 완료';  // active(진행 중, 기본)
       });
     }
 

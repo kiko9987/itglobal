@@ -155,3 +155,18 @@ def test_new_layout_renders_with_file_versioned_assets(db, tmp_path):
     css = re.search(r'/static/css/gw-pages\.css\?v=(\d+)', html)
     shell = re.search(r'/static/js/groupware-shell\.js\?v=(\d+)', html)
     assert css and shell and int(css.group(1)) == int(os.path.getmtime(os.path.join(root, 'static', 'css', 'gw-pages.css')))
+
+
+def test_project_filters_chip_labels_only_in_new_layout():
+    """프로젝트 필터(당근식 칩, 11-10): 새 화면은 첫 칸이 필터 이름, 예전 화면은 그대로 '전체'."""
+    import os
+    from jinja2 import Environment, FileSystemLoader
+    root = os.path.join(os.path.dirname(__file__), '..', '..', 'dashboard', 'templates')
+    env = Environment(loader=FileSystemLoader(root))
+    tpl = env.get_template('components/project_filters.html')
+    old, new = tpl.render(gw_layout=False), tpl.render(gw_layout=True)
+    assert '>담당자</option>' not in old and old.count('<option value="">전체</option>') == 8
+    assert '<option value="">전체</option>' not in new
+    for label in ('내부 사업자', '담당자', '유입 구분', '거래처·사업자명', '상태', '세금계산서', '수금 상태', '데이터'):
+        assert f'<option value="">{label}</option>' in new
+    assert 'placeholder="검색..."' in old and 'placeholder="코드·현장·고객 검색"' in new

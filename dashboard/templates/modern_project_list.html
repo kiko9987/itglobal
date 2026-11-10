@@ -114,6 +114,10 @@
                 </div>
             </div>
 
+            {% if gw_layout %}
+            <!-- 상태 칸(당근 비즈니스식) — 누르면 그 상태만 보기. 숫자·동작은 ProjectStatusCards.js (2026-11-10) -->
+            <div id="projectStatusCards" class="gw-stats" role="group" aria-label="상태별 공사 수"></div>
+            {% endif %}
             {% include 'components/project_filters.html' %}
 
             <!-- Modern Table Section with Semantic HTML -->

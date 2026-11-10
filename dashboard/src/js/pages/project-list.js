@@ -184,6 +184,16 @@ class ProjectListApp {
 
       // HTML에서 접근할 수 있도록 글로벌 변수 설정
       window.modernFilters = this.components.filters;
+
+      // 그룹웨어 새 화면(시범 명단)에만 있는 상태 칸 — 자리가 없으면 불러오지도 않음 (2026-11-10)
+      const statusCardsEl = document.getElementById('projectStatusCards');
+      if (statusCardsEl) {
+        import('../components/ProjectStatusCards.js')
+          .then(({ default: ProjectStatusCards }) => {
+            this.components.statusCards = new ProjectStatusCards(statusCardsEl, this.components.filters);
+          })
+          .catch(err => logger.error('[ERROR] ProjectStatusCards 로드 실패:', err));
+      }
     }
 
     // [ROCKET] 테이블은 updateUI()에서 데이터와 함께 초기화됨
