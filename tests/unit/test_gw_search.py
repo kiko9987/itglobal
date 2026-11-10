@@ -55,6 +55,9 @@ def test_phone_digits():
     assert {l['code'] for l in r['leads']} == {'L-04510', 'L-04400'}
     r = gw_search.search('010-1234-5678')
     assert [p['code'] for p in r['projects']] == ['G4266-MJ'] and [l['code'] for l in r['leads']] == ['L-04400']
+    # 글자가 섞인 코드는 전화번호로 보지 않음(G4400 의 '4400' 이 남의 번호에 걸리면 안 됨)
+    assert gw_search.search('L-0440')['projects'] == [] and [l['code'] for l in gw_search.search('L-0440')['leads']] == ['L-04400']
+    assert gw_search.search('G1234')['leads'] == [] and gw_search.search('G1234')['projects'] == []
 
 
 def test_ranking_limit_and_short_query():

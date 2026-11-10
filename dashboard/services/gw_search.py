@@ -62,8 +62,9 @@ class _Query:
         self.low = q.lower()
         self.compact = _compact(q)
         d = _digits(q)
-        # 숫자만(또는 하이픈 섞인) 4자리 이상 → 전화번호로도 비교
-        self.digits = d if len(d) >= 4 and len(d) >= len(self.compact) - 2 else ''
+        # 숫자·하이픈·띄어쓰기·괄호만으로 된 4자리 이상 → 전화번호로도 비교.
+        #   글자가 섞이면(G4266·L-0451 같은 코드) 전화번호로 보지 않음 — 코드 숫자가 남의 전화번호에 걸리던 것(11-10 운영 확인)
+        self.digits = d if len(d) >= 4 and re.fullmatch(r'[\d\s\-+().]+', q) else ''
 
     @property
     def usable(self) -> bool:
