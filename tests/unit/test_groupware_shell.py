@@ -152,6 +152,8 @@ def test_new_layout_renders_with_file_versioned_assets(db, tmp_path):
     assert 'gw-nav-group active open' in html and 'aria-controls="gwSub-hr"' in html
     assert re.search(r'gw-nav-subitem active" href="/hr/me" aria-current="page"', html)
     assert 'aria-controls="gwSub-home"' not in html and '<a class="gw-nav-area" href="/home"' in html
+    # 빠른 찾기(11-10): 사무실 직원은 프로젝트·리드까지, 스크립트는 파일 시각 버전
+    assert 'id="gwFindBtn"' in html and 'data-scope="all"' in html and '/static/js/gw-search.js?v=' in html
     css = re.search(r'/static/css/gw-pages\.css\?v=(\d+)', html)
     shell = re.search(r'/static/js/groupware-shell\.js\?v=(\d+)', html)
     assert css and shell and int(css.group(1)) == int(os.path.getmtime(os.path.join(root, 'static', 'css', 'gw-pages.css')))

@@ -49,23 +49,23 @@
                     <div class="row">
                         <div class="col-md-1">
                             <label for="consultantFilter" class="form-label">상담자</label>
-                            <select class="form-select" id="consultantFilter"><option value="">전체</option></select>
+                            <select class="form-select" id="consultantFilter"><option value="">{% if gw_layout %}상담자{% else %}전체{% endif %}</option></select>
                         </div>
                         <div class="col-md-1">
                             <label for="salesOwnerFilter" class="form-label">영업 담당</label>
-                            <select class="form-select" id="salesOwnerFilter"><option value="">전체</option></select>
+                            <select class="form-select" id="salesOwnerFilter"><option value="">{% if gw_layout %}영업 담당{% else %}전체{% endif %}</option></select>
                         </div>
                         <div class="col-md-1">
                             <label for="platformFilter" class="form-label">플랫폼</label>
-                            <select class="form-select" id="platformFilter"><option value="">전체</option></select>
+                            <select class="form-select" id="platformFilter"><option value="">{% if gw_layout %}플랫폼{% else %}전체{% endif %}</option></select>
                         </div>
                         <div class="col-md-1">
                             <label for="statusFilter" class="form-label">상태</label>
-                            <select class="form-select" id="statusFilter"><option value="">전체</option></select>
+                            <select class="form-select" id="statusFilter"><option value="">{% if gw_layout %}상태{% else %}전체{% endif %}</option></select>
                         </div>
                         <div class="col-md-1">
                             <label for="periodFilter" class="form-label">상담 기간</label>
-                            <select class="form-select" id="periodFilter"><option value="">전체</option></select>
+                            <select class="form-select" id="periodFilter"><option value="">{% if gw_layout %}상담 기간{% else %}전체{% endif %}</option></select>
                         </div>
                         <div class="col-md-2">
                             <label for="searchInput" class="form-label">키워드 검색</label>

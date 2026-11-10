@@ -151,7 +151,10 @@ export default class ModernLeadsFilters {
   populate(el, values, labelOf = (v) => v) {
     if (!el) return;
     const current = el.value;
-    el.innerHTML = '<option value="">전체</option>';
+    // 첫 칸 글자는 템플릿에 적힌 그대로(예전 화면 '전체', 그룹웨어 새 화면은 필터 이름 — 칩 모양, 2026-11-10)
+    const allLabel = el.options[0]?.textContent || '전체';
+    el.textContent = '';
+    el.appendChild(new Option(allLabel, ''));
     values.forEach((v) => {
       const o = document.createElement('option');
       o.value = v;
@@ -216,6 +219,19 @@ export default class ModernLeadsFilters {
         this.filters = saved.filters || {};
         const { myLeadsOnly, includeEtc } = saved.toggles || {};
         this.toggles = { myLeadsOnly: !!myLeadsOnly, includeEtc: !!includeEtc };
+      }
+    } catch (_) { /* noop */ }
+    // 주소의 ?search=L-04510 (그룹웨어 빠른 찾기 등, 2026-11-10) → 다른 필터를 비우고 그 검색어만.
+    //   주소에서는 지워 둔다(새로고침 땐 평소처럼 세션 값으로).
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const s = (params.get('search') || '').trim();
+      if (s) {
+        this.filters = { search: s };
+        this.toggles.myLeadsOnly = false;
+        params.delete('search');
+        const qs = params.toString();
+        window.history.replaceState({}, '', window.location.pathname + (qs ? '?' + qs : '') + window.location.hash);
       }
     } catch (_) { /* noop */ }
   }

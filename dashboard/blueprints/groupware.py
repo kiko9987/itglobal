@@ -136,6 +136,16 @@ def set_layout():
     return jsonify({'success': True, 'new': want_new})
 
 
+@groupware_bp.route('/api/gw/search', methods=['GET'])
+@login_required
+def quick_search():
+    """빠른 찾기(위쪽 검색창·/ 키) — 프로젝트·리드. ?q=검색어. 현장 세션은 문지기에서 막힘(메뉴만 찾음).
+    검색어는 로그에 남기지 않는다."""
+    from dashboard.services import gw_search
+    result = gw_search.search(request.args.get('q', ''))
+    return jsonify({'success': True, **result})
+
+
 @groupware_bp.route('/api/gw/pilots', methods=['GET'])
 @admin_required
 def get_pilots():

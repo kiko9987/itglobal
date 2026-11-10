@@ -369,6 +369,240 @@ body.gw-shell .gw-topbar-right {
   align-items: center;
 }
 
+/* ── 빠른 찾기(위쪽 검색창 + / 키 창, 11-10) ───────────────────────── */
+body.gw-shell .gw-find-trigger {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  min-width: 240px;
+  padding: 0 8px 0 12px;
+  border: 1px solid #dcdee3;
+  border-radius: 9999px;
+  background: #f7f8f9;
+  color: #868b94;
+  font-size: 13.5px;
+  cursor: text;
+  flex-shrink: 0;
+}
+
+body.gw-shell .gw-find-trigger:hover {
+  border-color: #b9bdc6;
+  background: #ffffff;
+}
+
+body.gw-shell .gw-find-trigger-text {
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+}
+
+body.gw-shell .gw-find-trigger ~ .gw-topbar-right {
+  margin-left: 12px;
+}
+
+body.gw-shell .gw-find kbd,
+body.gw-shell .gw-find-trigger kbd {
+  display: inline-block;
+  min-width: 20px;
+  padding: 1px 6px;
+  border: 1px solid #dcdee3;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #555d6d;
+  font-family: inherit;
+  font-size: 11.5px;
+  line-height: 16px;
+  text-align: center;
+  box-shadow: none;
+}
+
+body.gw-shell .gw-find {
+  position: fixed;
+  inset: 0;
+  z-index: 1060; /* 모달(1050·1055) 위 */
+}
+
+body.gw-shell .gw-find[hidden] {
+  display: none;
+}
+
+body.gw-shell .gw-find-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(17, 20, 24, 0.32);
+}
+
+body.gw-shell .gw-find-panel {
+  position: relative;
+  width: min(640px, calc(100vw - 32px));
+  max-height: min(560px, calc(100vh - 120px));
+  margin: 72px auto 0;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+}
+
+body.gw-shell .gw-find-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px 0 18px;
+  height: 56px;
+  border-bottom: 1px solid #eeeff1;
+  color: #868b94;
+}
+
+body.gw-shell .gw-find-bar input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #1a1c20;
+  font-size: 16px;
+}
+
+body.gw-shell .gw-find-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 8px 8px;
+}
+
+body.gw-shell .gw-find-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 10px 4px;
+  color: #868b94;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+body.gw-shell .gw-find-more {
+  color: #555d6d;
+  font-weight: 500;
+  text-decoration: underline;
+}
+
+body.gw-shell .gw-find-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: #1a1c20;
+  text-decoration: none;
+}
+
+body.gw-shell .gw-find-item.active {
+  background: #f2f3f6;
+}
+
+body.gw-shell .gw-find-item.dim .gw-find-name {
+  color: #868b94;
+}
+
+body.gw-shell .gw-find-ic {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: #f2f3f6;
+  color: #555d6d;
+  font-size: 13px;
+}
+
+body.gw-shell .gw-find-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+body.gw-shell .gw-find-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+body.gw-shell .gw-find-code {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: #eeeff1;
+  color: #2a3038;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+body.gw-shell .gw-find-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.gw-shell .gw-find-badge {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: #fdecec;
+  color: #c4302b;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+body.gw-shell .gw-find-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #868b94;
+  font-size: 12.5px;
+}
+
+body.gw-shell .gw-find-meta {
+  flex-shrink: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #868b94;
+  font-size: 12.5px;
+}
+
+body.gw-shell .gw-find-note {
+  padding: 18px 12px;
+  color: #868b94;
+  font-size: 13.5px;
+  text-align: center;
+}
+
+body.gw-shell .gw-find-foot {
+  display: flex;
+  gap: 16px;
+  padding: 8px 16px;
+  border-top: 1px solid #eeeff1;
+  color: #868b94;
+  font-size: 12px;
+}
+
+body.gw-shell .gw-find-foot kbd {
+  margin-right: 2px;
+}
+
 /* 빈 알림 상자(#toast-container, 고정·패딩 16px)가 위쪽 줄을 덮어 ☰·사용자 메뉴가 안 눌리던 것 —
    빈 곳은 클릭이 지나가게, 실제 알림만 눌리게(좁은 화면에선 줄 전체를 덮었음, 11-10) */
 body.gw-shell #toast-container {
@@ -655,6 +889,27 @@ body.gw-shell .filter-section .filter-result-count {
 
   body.gw-shell .gw-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* 좁은 화면: 검색창은 돋보기만, 찾기 창은 위에 붙여 */
+  body.gw-shell .gw-find-trigger {
+    min-width: 0;
+    width: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  body.gw-shell .gw-find-trigger-text,
+  body.gw-shell .gw-find-trigger kbd,
+  body.gw-shell .gw-find-bar kbd,
+  body.gw-shell .gw-find-foot,
+  body.gw-shell .gw-find-meta {
+    display: none;
+  }
+
+  body.gw-shell .gw-find-panel {
+    margin-top: 12px;
+    max-height: calc(100vh - 24px);
   }
 
   body.gw-shell .filter-section #searchInput {

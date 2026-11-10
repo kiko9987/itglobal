@@ -80,9 +80,33 @@
     <!-- 시스템 알림 슬롯 (Toast.js가 이 id 로 찾음) -->
     <div id="systemAlertContainer" aria-live="polite" class="gw-topbar-alerts"></div>
 
+    {# 빠른 찾기 — 누르거나 / 키(또는 Ctrl+K). 현장 세션은 메뉴만 (2026-11-10) #}
+    <button type="button" class="gw-find-trigger" id="gwFindBtn" aria-haspopup="dialog" aria-keyshortcuts="/ Control+K"
+            title="빠른 찾기 ( / 키 )">
+        <i class="fas fa-search" aria-hidden="true"></i>
+        <span class="gw-find-trigger-text">{{ '메뉴 찾기' if gw_field else '프로젝트·리드·메뉴 찾기' }}</span>
+        <kbd>/</kbd>
+    </button>
+
     <div class="gw-topbar-right">
         {% include 'components/_user_menu.html' %}
     </div>
 </header>
 
+<div class="gw-find" id="gwFind" hidden data-scope="{{ 'menu' if gw_field else 'all' }}">
+    <div class="gw-find-backdrop" data-close></div>
+    <div class="gw-find-panel" role="dialog" aria-modal="true" aria-label="빠른 찾기">
+        <div class="gw-find-bar">
+            <i class="fas fa-search" aria-hidden="true"></i>
+            <input type="text" id="gwFindInput" autocomplete="off" spellcheck="false"
+                   placeholder="{{ '메뉴 이름' if gw_field else '코드·이름·주소·전화번호·메뉴' }}"
+                   role="combobox" aria-expanded="true" aria-controls="gwFindList" aria-autocomplete="list">
+            <kbd>Esc</kbd>
+        </div>
+        <div class="gw-find-list" id="gwFindList" role="listbox" aria-label="찾은 결과"></div>
+        <div class="gw-find-foot"><span><kbd>↑</kbd><kbd>↓</kbd> 고르기</span><span><kbd>Enter</kbd> 열기</span><span><kbd>Esc</kbd> 닫기</span></div>
+    </div>
+</div>
+
 <script src="{{ gw_asset('js/groupware-shell.js') }}" defer></script>
+<script src="{{ gw_asset('js/gw-search.js') }}" defer></script>

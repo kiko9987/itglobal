@@ -28,6 +28,20 @@ const AsView = () => import('../components/AsView.js');
 const InvoiceLicense = () => import('../components/InvoiceLicense.js');
 const CasePhotos = () => import('../components/CasePhotos.js');
 
+// 그룹웨어 빠른 찾기에서 '?search=코드&fresh=1' 로 오면 그 공사가 바로 보이게 —
+//   이전에 걸어 둔 필터·수금 관리 모드·A/S 모드(세션에 남은 것)를 비우고 fresh 는 주소에서 지운다.
+//   필터 복원(_restoreFiltersFromUrl)·모드 복원보다 먼저 돌아야 하므로 모듈을 읽는 즉시 실행 (2026-11-10)
+(function consumeFreshSearch() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('fresh') !== '1') return;
+    ['itg_filters_v1', 'itg_receivables_mode', 'itg_as_mode'].forEach((k) => sessionStorage.removeItem(k));
+    params.delete('fresh');
+    const qs = params.toString();
+    window.history.replaceState({}, '', window.location.pathname + (qs ? '?' + qs : '') + window.location.hash);
+  } catch (_) { /* 저장소를 못 써도 검색어 자체는 URL 로 복원됨 */ }
+})();
+
 /**
  * 프로젝트 리스트 페이지 메인 클래스 (Orchestration Only)
  * 전문가 리뷰: "데이터 로딩, UI 컴포넌트, 상태 저장을 각각 별도 클래스로 나눠"
