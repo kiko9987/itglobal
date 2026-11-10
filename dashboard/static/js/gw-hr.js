@@ -144,6 +144,8 @@
       h += '<div class="gw-log">기록 없음</div>';
     }
 
+    h += renderPrivate(p);
+
     if (p.can_edit && p.memo) {
       h += '<div class="gw-sec-title">메모</div><div style="white-space:pre-wrap">' + esc(p.memo) + '</div>';
     }
@@ -165,6 +167,120 @@
     if (editBtn) editBtn.addEventListener('click', function () { openEdit(p); });
     var ssnBtn = document.getElementById('hrSsnBtn');
     if (ssnBtn) ssnBtn.addEventListener('click', function () { revealSsn(p, ssnBtn); });
+    bindPrivate(p);
+  }
+
+  // ── 경력·학력·가족·서류(본인·인사카드 관리자만 서버가 보내 줌) ─────────────
+  function period2(a, b) {
+    if (!a && !b) return '';
+    return esc(a || '') + ' ~ ' + esc(b || '');
+  }
+
+  function table(head, rows) {
+    return '<div class="gw-table-wrap"><table class="gw-table gw-appt-table"><thead><tr>' +
+      head.map(function (x) { return '<th>' + esc(x) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      rows.join('') + '</tbody></table></div>';
+  }
+
+  function kb(n) {
+    if (!n) return '';
+    return n >= 1048576 ? (Math.round(n / 104857.6) / 10) + 'MB' : Math.max(1, Math.round(n / 1024)) + 'KB';
+  }
+
+  function renderPrivate(p) {
+    if (!p.careers && !p.documents) return '';
+    var h = '';
+    if (p.careers && p.careers.length) {
+      h += '<div class="gw-sec-title">경력</div>' + table(['회사', '부서', '직무', '직급', '계약', '기간'],
+        p.careers.map(function (c) {
+          return '<tr><td>' + esc(c.company) + '</td><td>' + esc(c.department) + '</td><td>' + esc(c.job_role) +
+            '</td><td>' + esc(c.job_rank) + '</td><td>' + esc(c.contract_type) + '</td><td>' + period2(c.begin_date, c.end_date) + '</td></tr>';
+        }));
+    }
+    if (p.educations && p.educations.length) {
+      h += '<div class="gw-sec-title">학력</div>' + table(['학교', '전공', '구분', '졸업', '기간'],
+        p.educations.map(function (e) {
+          return '<tr><td>' + esc(e.school) + '</td><td>' + esc(e.major) + '</td><td>' + esc(e.level) +
+            '</td><td>' + esc(e.graduate_type) + '</td><td>' + period2(e.begin_date, e.end_date) + '</td></tr>';
+        }));
+    }
+    if (p.families && p.families.length) {
+      h += '<div class="gw-sec-title">가족 · 공제 대상</div>' + table(['이름', '관계', '연락처', '주민등록번호', '공제 관계', '기본공제', '자녀공제', '건보 피부양'],
+        p.families.map(function (f) {
+          var ssn = f.has_ssn ? esc(f.ssn_masked) + (p.can_reveal_ssn ? ' <button type="button" class="btn btn-sm btn-outline-secondary gw-ssn-btn" data-fam-ssn="' + f.id + '">전체 보기</button>' : '') : '';
+          var yn = function (b) { return b ? '<span class="gw-badge gw-badge-active">예</span>' : '<span class="text-muted">-</span>'; };
+          return '<tr><td>' + esc(f.name) + '</td><td>' + esc(f.relation) + '</td><td>' + esc(phone(f.phone)) +
+            '</td><td data-fam-cell="' + f.id + '">' + ssn + '</td><td>' + esc(f.deduction_relation) + '</td><td>' + yn(f.default_deduction) +
+            '</td><td>' + yn(f.child_deduction) + '</td><td>' + yn(f.health_dependent) + '</td></tr>';
+        }));
+    }
+    var docs = p.documents || [];
+    if (docs.length || p.can_edit) {
+      h += '<div class="gw-sec-title">서류</div>';
+      if (docs.length) {
+        h += table(['종류', '파일', '크기', '올린 날', ''], docs.map(function (d) {
+          return '<tr><td>' + esc(d.doc_type || '기타') + '</td><td class="gw-doc-name">' + esc(d.file_name) + '</td><td>' + kb(d.size) +
+            '</td><td>' + esc((d.created_at || '').slice(0, 10)) + '</td><td class="gw-doc-act">' +
+            '<a class="btn btn-sm btn-outline-secondary" href="/api/hr/documents/' + d.id + '?view=1" target="_blank" rel="noopener">보기</a> ' +
+            '<a class="btn btn-sm btn-outline-secondary" href="/api/hr/documents/' + d.id + '">받기</a>' +
+            (p.can_edit && CFG.mode !== 'me' ? ' <button type="button" class="btn btn-sm btn-outline-danger" data-doc-del="' + d.id + '">삭제</button>' : '') +
+            '</td></tr>';
+        }));
+      } else {
+        h += '<div class="gw-log">올린 서류가 없습니다.</div>';
+      }
+      if (p.can_edit && CFG.mode !== 'me') {
+        h += '<form class="gw-doc-upload" id="hrDocForm">' +
+          '<select class="form-select form-select-sm" name="doc_type" aria-label="서류 종류">' +
+          (p.doc_types || []).map(function (t) { return '<option>' + esc(t) + '</option>'; }).join('') + '</select>' +
+          '<input type="file" class="form-control form-control-sm" name="file" aria-label="파일" required>' +
+          '<button type="submit" class="btn btn-sm btn-outline-primary">올리기</button>' +
+          '<span class="gw-form-error" id="hrDocError" role="alert"></span></form>';
+      }
+      h += '<div class="gw-log mt-1">서류를 열거나 받으면 누가 언제 봤는지 기록이 남습니다.</div>';
+    }
+    return h;
+  }
+
+  function bindPrivate(p) {
+    cardEl.querySelectorAll('[data-fam-ssn]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (!window.confirm('가족 주민등록번호 전체를 봅니다.\n본 기록(누가·언제)이 남습니다.')) return;
+        var id = btn.getAttribute('data-fam-ssn');
+        btn.disabled = true;
+        api('/api/hr/families/' + id + '/ssn', { method: 'POST' }).then(function (j) {
+          var cell = cardEl.querySelector('[data-fam-cell="' + id + '"]');
+          if (cell) cell.textContent = j.ssn;
+          setTimeout(function () { if (state.current && state.current.id === p.id) loadCard(p.id); }, 30000);
+        }).catch(function (e) { btn.disabled = false; window.alert(e.message); });
+      });
+    });
+    cardEl.querySelectorAll('[data-doc-del]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (!window.confirm('이 서류를 지웁니다. 되돌릴 수 없습니다.')) return;
+        api('/api/hr/documents/' + btn.getAttribute('data-doc-del'), { method: 'DELETE' })
+          .then(function () { loadCard(p.id); })
+          .catch(function (e) { window.alert(e.message); });
+      });
+    });
+    var form = document.getElementById('hrDocForm');
+    if (form) {
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var err = document.getElementById('hrDocError');
+        var file = form.elements.file.files[0];
+        if (!file) { err.textContent = '파일을 골라 주세요.'; return; }
+        if (file.size > 8 * 1024 * 1024) { err.textContent = '8MB까지 올릴 수 있습니다.'; return; }
+        var fd = new FormData(form);
+        var btn = form.querySelector('button[type=submit]');
+        btn.disabled = true;
+        err.textContent = '';
+        fetch('/api/hr/people/' + p.id + '/documents', { method: 'POST', body: fd, credentials: 'same-origin' })
+          .then(function (r) { return r.json().then(function (j) { if (!r.ok || !j.success) throw new Error(j.message || '올리지 못했습니다.'); return j; }); })
+          .then(function () { loadCard(p.id); })
+          .catch(function (x) { err.textContent = x.message; btn.disabled = false; });
+      });
+    }
   }
 
   function loadCard(id) {

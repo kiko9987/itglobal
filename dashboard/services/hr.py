@@ -401,3 +401,211 @@ def upsert_from_flex(rec: Dict, appts: List[Dict], by: str = 'flex-import') -> s
                          (pid, a.get('apply_date'), a.get('department'), a.get('job_role'), a.get('job_rank'),
                           a.get('job_title'), a.get('memo')))
     return result
+
+
+# ── 경력·학력·가족·서류 (11-10 추가 — 플렉스 구성원 상세에 있던 것) ───────────
+# 열람: 본인 + 인사카드 관리자. 가족 주민번호는 본인 주민번호처럼 암호화(가린 값만 화면에).
+# 서류 파일: instance/hr_docs/<인사카드 번호>/ (git 제외). 내려받으면 hr_access_log 에 남긴다.
+_DDL += [
+    '''CREATE TABLE IF NOT EXISTS hr_careers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, person_id INTEGER NOT NULL,
+        company TEXT, department TEXT, job_role TEXT, job_rank TEXT, job_title TEXT, contract_type TEXT,
+        begin_date TEXT, end_date TEXT, source TEXT
+    )''',
+    'CREATE INDEX IF NOT EXISTS idx_hr_careers_person ON hr_careers(person_id)',
+    '''CREATE TABLE IF NOT EXISTS hr_educations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, person_id INTEGER NOT NULL,
+        school TEXT, major TEXT, level TEXT, graduate_type TEXT, begin_date TEXT, end_date TEXT, source TEXT
+    )''',
+    'CREATE INDEX IF NOT EXISTS idx_hr_educations_person ON hr_educations(person_id)',
+    '''CREATE TABLE IF NOT EXISTS hr_families (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, person_id INTEGER NOT NULL,
+        name TEXT, relation TEXT, gender TEXT, phone TEXT, ssn_enc TEXT,
+        deduction_relation TEXT, default_deduction INTEGER NOT NULL DEFAULT 0,
+        child_deduction INTEGER NOT NULL DEFAULT 0, health_dependent INTEGER NOT NULL DEFAULT 0,
+        handicap TEXT, source TEXT
+    )''',
+    'CREATE INDEX IF NOT EXISTS idx_hr_families_person ON hr_families(person_id)',
+    '''CREATE TABLE IF NOT EXISTS hr_documents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, person_id INTEGER NOT NULL,
+        doc_type TEXT, file_name TEXT NOT NULL, stored_name TEXT NOT NULL, size INTEGER,
+        flex_file_key TEXT UNIQUE, uploaded_by TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )''',
+    'CREATE INDEX IF NOT EXISTS idx_hr_documents_person ON hr_documents(person_id)',
+]
+
+DOC_TYPES = ['주민등록등본', '가족관계증명서', '건강보험득실확인서', '근로계약서', '연봉계약서', '이력서', '학력증명서',
+             '경력증명서', '원천징수영수증', '신분증사본', '급여계좌사본', '장애인증명서', '국가유공자증명서', '기타']
+DOC_EXT = ('.pdf', '.jpg', '.jpeg', '.png', '.heic', '.gif', '.webp', '.doc', '.docx', '.hwp', '.hwpx',
+           '.xls', '.xlsx', '.zip')
+DOC_MAX_BYTES = 8 * 1024 * 1024
+_CONTRACT_KO = {'REGULAR': '정규직', 'CONTRACT': '계약직', 'DISPATCH': '파견', 'TEMPORARY': '계약직',
+                'PART_TIME': '시간제', 'INTERN': '인턴'}
+_EDU_LEVEL_KO = {'HIGH_SCHOOL': '고등학교', 'BACHELOR_COLLEGE': '전문대학', 'BACHELOR_UNIVERSITY': '대학교',
+                 'MASTER': '대학원(석사)', 'DOCTOR': '대학원(박사)', 'MIDDLE_SCHOOL': '중학교'}
+_GRAD_KO = {'GRADUATED': '졸업', 'ATTENDING': '재학', 'DROPPED_OUT': '중퇴', 'EXPECTED': '졸업 예정',
+            'COMPLETED': '수료', 'ON_LEAVE': '휴학'}
+_GENDER_KO = {'MALE': '남', 'FEMALE': '여'}
+
+
+def docs_dir() -> str:
+    d = os.getenv('GW_HR_DOCS_DIR', '').strip()
+    if not d:
+        from pathlib import Path
+        d = str(Path(__file__).resolve().parents[2] / 'instance' / 'hr_docs')
+    return d
+
+
+def _rows(sql: str, args=()) -> List[dict]:
+    with _conn() as conn:
+        return [_row(r) for r in conn.execute(sql, args).fetchall()]
+
+
+def careers(person_id: int) -> List[dict]:
+    return _rows('SELECT * FROM hr_careers WHERE person_id = ? ORDER BY begin_date DESC, id', (person_id,))
+
+
+def educations(person_id: int) -> List[dict]:
+    return _rows('SELECT * FROM hr_educations WHERE person_id = ? ORDER BY begin_date DESC, id', (person_id,))
+
+
+def families(person_id: int) -> List[dict]:
+    """가족 — 주민번호는 가린 값만(ssn_masked), 암호문은 내보내지 않는다."""
+    out = []
+    for f in _rows('SELECT * FROM hr_families WHERE person_id = ? ORDER BY id', (person_id,)):
+        enc = f.pop('ssn_enc', None)
+        f['has_ssn'] = bool(enc)
+        f['ssn_masked'] = ''
+        if enc:
+            try:
+                f['ssn_masked'] = mask_ssn(decrypt_ssn(enc))
+            except Exception:
+                f['ssn_masked'] = '(읽기 실패)'
+        for k in ('default_deduction', 'child_deduction', 'health_dependent'):
+            f[k] = bool(f.get(k))
+        out.append(f)
+    return out
+
+
+def documents(person_id: int) -> List[dict]:
+    return _rows('SELECT id, person_id, doc_type, file_name, size, uploaded_by, created_at FROM hr_documents '
+                 'WHERE person_id = ? ORDER BY id', (person_id,))
+
+
+def private_sections(person_id: int) -> dict:
+    """경력·학력·가족·서류 — 본인·인사카드 관리자에게만 보낸다(권한 확인은 부르는 쪽)."""
+    return {'careers': careers(person_id), 'educations': educations(person_id),
+            'families': families(person_id), 'documents': documents(person_id), 'doc_types': DOC_TYPES}
+
+
+def document_file(doc_id: int) -> Optional[dict]:
+    with _conn() as conn:
+        r = conn.execute('SELECT * FROM hr_documents WHERE id = ?', (doc_id,)).fetchone()
+    d = _row(r)
+    if d:
+        d['path'] = os.path.join(docs_dir(), str(d['person_id']), d['stored_name'])
+    return d
+
+
+def _safe_name(name: str) -> str:
+    name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', '_', (name or '').strip()) or 'file'
+    return name[-120:]
+
+
+def save_document(person_id: int, doc_type: str, file_name: str, data: bytes, by: str,
+                  flex_file_key: Optional[str] = None) -> dict:
+    """서류 파일 저장 + 장부 한 줄. 인사카드 관리자(또는 이관 스크립트 by='flex-import')만."""
+    if by != 'flex-import' and not is_hr_admin(by):
+        raise PermissionError('서류 올리기는 경영지원·대표만 할 수 있습니다.')
+    if not get_person(person_id):
+        raise LookupError('없는 구성원입니다.')
+    if not data:
+        raise ValueError('빈 파일입니다.')
+    if len(data) > DOC_MAX_BYTES:
+        raise ValueError('파일이 너무 큽니다(8MB까지).')
+    if not (file_name or '').lower().endswith(DOC_EXT):
+        raise ValueError('올릴 수 없는 파일 형식입니다.')
+    doc_type = doc_type if doc_type in DOC_TYPES else '기타'
+    folder = os.path.join(docs_dir(), str(person_id))
+    os.makedirs(folder, exist_ok=True)
+    with _conn() as conn:
+        if flex_file_key:
+            hit = conn.execute('SELECT id FROM hr_documents WHERE flex_file_key = ?', (flex_file_key,)).fetchone()
+            if hit:
+                return {'id': hit[0], 'skipped': True}
+        cur = conn.execute('INSERT INTO hr_documents (person_id, doc_type, file_name, stored_name, size, flex_file_key, '
+                           'uploaded_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                           (person_id, doc_type, _safe_name(file_name), 'pending', len(data), flex_file_key,
+                            by.lower(), _now()))
+        doc_id = cur.lastrowid
+        stored = f'{doc_id}_{_safe_name(file_name)}'
+        with open(os.path.join(folder, stored), 'wb') as fp:
+            fp.write(data)
+        conn.execute('UPDATE hr_documents SET stored_name = ? WHERE id = ?', (stored, doc_id))
+    if by != 'flex-import':
+        log_access(person_id, by, 'doc_upload', doc_type)
+    return {'id': doc_id, 'skipped': False}
+
+
+def delete_document(doc_id: int, by: str) -> None:
+    if not is_hr_admin(by):
+        raise PermissionError('서류 삭제는 경영지원·대표만 할 수 있습니다.')
+    d = document_file(doc_id)
+    if not d:
+        raise LookupError('없는 서류입니다.')
+    with _conn() as conn:
+        conn.execute('DELETE FROM hr_documents WHERE id = ?', (doc_id,))
+    try:
+        os.remove(d['path'])
+    except OSError:
+        pass
+    log_access(d['person_id'], by, 'doc_delete', f'{d.get("doc_type") or ""} {d.get("file_name")}')
+
+
+def reveal_family_ssn(family_id: int, viewer_email: str) -> str:
+    if not is_hr_admin(viewer_email):
+        raise PermissionError('주민등록번호 전체 보기는 경영지원·대표만 할 수 있습니다.')
+    with _conn() as conn:
+        r = conn.execute('SELECT person_id, name, ssn_enc FROM hr_families WHERE id = ?', (family_id,)).fetchone()
+    if not r or not r[2]:
+        raise LookupError('저장된 주민등록번호가 없습니다.')
+    full = decrypt_ssn(r[2])
+    log_access(r[0], viewer_email, 'family_ssn_view', r[1] or '')
+    return full
+
+
+def import_flex_details(person_id: int, careers_: List[Dict], educations_: List[Dict], families_: List[Dict]) -> dict:
+    """플렉스 경력·학력·가족을 다시 쓴다(출처 flex 만 지우고 넣음 — 화면에서 사람이 넣은 줄은 보존)."""
+    with _conn() as conn:
+        for t in ('hr_careers', 'hr_educations', 'hr_families'):
+            conn.execute(f"DELETE FROM {t} WHERE person_id = ? AND source = 'flex'", (person_id,))
+        for c in careers_:
+            conn.execute('INSERT INTO hr_careers (person_id, company, department, job_role, job_rank, job_title, '
+                         "contract_type, begin_date, end_date, source) VALUES (?,?,?,?,?,?,?,?,?,'flex')",
+                         (person_id, c.get('name'), c.get('departmentName'), c.get('jobRoleName'), c.get('jobRankName'),
+                          c.get('jobTitleName'), _CONTRACT_KO.get(c.get('contractType') or '', c.get('contractType')),
+                          (c.get('beginDate') or '')[:10] or None, (c.get('endDate') or '')[:10] or None))
+        for e in educations_:
+            conn.execute('INSERT INTO hr_educations (person_id, school, major, level, graduate_type, begin_date, end_date, '
+                         "source) VALUES (?,?,?,?,?,?,?,'flex')",
+                         (person_id, e.get('name'), e.get('majorName'),
+                          _EDU_LEVEL_KO.get(e.get('level') or '', e.get('level')),
+                          _GRAD_KO.get(e.get('graduateType') or '', e.get('graduateType')),
+                          (e.get('beginDate') or '')[:10] or None, (e.get('endDate') or '')[:10] or None))
+        for f in families_:
+            enc = None
+            if f.get('ssn'):
+                try:
+                    enc = encrypt_ssn(f['ssn'])
+                except ValueError:
+                    enc = None
+            conn.execute('INSERT INTO hr_families (person_id, name, relation, gender, phone, ssn_enc, deduction_relation, '
+                         'default_deduction, child_deduction, health_dependent, handicap, source) '
+                         "VALUES (?,?,?,?,?,?,?,?,?,?,?,'flex')",
+                         (person_id, f.get('name'), (f.get('relation') or {}).get('label'),
+                          _GENDER_KO.get(f.get('gender') or ''), f.get('phoneNumber') or None, enc,
+                          (f.get('deductionRelation') or {}).get('label'), int(bool(f.get('isDefaultDeduction'))),
+                          int(bool(f.get('isChildrenDeduction'))), int(bool(f.get('isDependentHealthInsurance'))),
+                          (f.get('handicap') or {}).get('label')))
+    return {'careers': len(careers_), 'educations': len(educations_), 'families': len(families_)}

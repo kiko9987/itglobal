@@ -25,6 +25,7 @@ _FIELD_API = [
     (('GET',), re.compile(r'^/api/home$')),              # 홈(현장은 내 휴가만 담김)
     (('GET',), re.compile(r'^/api/hr/people/\d+$')),     # 본인 카드(본인 여부는 화면 쪽에서 다시 확인)
     (('GET',), re.compile(r'^/api/leave/me$')),          # 내 휴가
+    (('GET',), re.compile(r'^/api/hr/documents/\d+$')),  # 본인 서류 내려받기(본인 여부는 화면 쪽에서 다시 확인)
     (('POST',), re.compile(r'^/api/auth/ping$')),       # 세션 연장
 ]
 

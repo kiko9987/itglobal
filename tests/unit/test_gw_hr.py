@@ -160,3 +160,60 @@ def test_api_permissions(client):
     assert client.post('/api/gw/roles', json={'key': 'hr_admins', 'emails': []}).status_code == 400
     assert client.post('/api/gw/roles', json={'key': 'hr_admins', 'emails': [ADMIN, 'Yg@itg-aircon.com']}).get_json()['hr_admins'] == \
         [ADMIN, 'yg@itg-aircon.com']
+
+
+# ── 경력·학력·가족·서류 (11-10) ────────────────────────────────────────
+def test_details_import_and_family_ssn(db):
+    hr.upsert_from_flex(_flex(), [])
+    pid = hr.find_by_email(STAFF)['id']
+    hr.import_flex_details(pid,
+        [{'name': '앞회사', 'contractType': 'REGULAR', 'jobRoleName': '영업', 'beginDate': '2019-01-01', 'endDate': '2021-12-31'}],
+        [{'name': '한국대', 'majorName': '기계', 'level': 'BACHELOR_UNIVERSITY', 'graduateType': 'GRADUATED', 'beginDate': '2010-03-01'}],
+        [{'name': '배우자', 'ssn': '9203042234567', 'relation': {'label': '배우자'}, 'deductionRelation': {'label': '배우자'},
+          'isDefaultDeduction': True, 'isDependentHealthInsurance': True, 'phoneNumber': '01011112222'}])
+    s = hr.private_sections(pid)
+    assert s['careers'][0]['contract_type'] == '정규직' and s['educations'][0]['level'] == '대학교'
+    f = s['families'][0]
+    assert f['ssn_masked'] == '920304-2******' and 'ssn_enc' not in f and f['default_deduction'] and f['health_dependent']
+    with pytest.raises(PermissionError):
+        hr.reveal_family_ssn(f['id'], STAFF)
+    assert hr.reveal_family_ssn(f['id'], ADMIN) == '920304-2234567'
+    assert hr.access_log(pid)[0]['action'] == 'family_ssn_view'
+    hr.import_flex_details(pid, [], [], [])                          # 다시 돌리면 flex 줄은 새로
+    assert hr.private_sections(pid)['families'] == []
+
+
+def test_documents_save_download_permissions(client, tmp_path, monkeypatch):
+    monkeypatch.setenv('GW_HR_DOCS_DIR', str(tmp_path / 'docs'))
+    staff_id = hr.find_by_email(STAFF)['id']
+    jw_id = hr.find_by_email(JW)['id']
+    r1 = hr.save_document(staff_id, '신분증사본', 'id.pdf', b'%PDF-1', 'flex-import', flex_file_key='K1')
+    assert hr.save_document(staff_id, '신분증사본', 'id.pdf', b'%PDF-1', 'flex-import', flex_file_key='K1')['skipped']
+    with pytest.raises(ValueError):
+        hr.save_document(staff_id, '기타', 'x.exe', b'MZ', ADMIN)
+    with pytest.raises(PermissionError):
+        hr.save_document(staff_id, '기타', 'a.pdf', b'x', STAFF)
+
+    gw.add_pilot(STAFF, ADMIN)
+    gw.add_pilot(VIEWER, ADMIN)
+    _as(client, STAFF)
+    card = client.get(f'/api/hr/people/{staff_id}').get_json()['person']
+    assert [d['file_name'] for d in card['documents']] == ['id.pdf'] and 'careers' in card
+    assert client.get(f'/api/hr/documents/{r1["id"]}').data == b'%PDF-1'                 # 본인 서류 받기
+    assert client.post(f'/api/hr/people/{staff_id}/documents', data={'doc_type': '기타'}).status_code == 400
+    assert client.delete(f'/api/hr/documents/{r1["id"]}').status_code == 403
+
+    r2 = hr.save_document(jw_id, '이력서', 'cv.pdf', b'%PDF-2', 'flex-import', flex_file_key='K2')
+    assert client.get(f'/api/hr/documents/{r2["id"]}').status_code == 403                # 남의 서류
+    gw.set_setting('leave_viewers', '["approver@itg-aircon.com"]', ADMIN)
+    _as(client, VIEWER, 'viewer')
+    assert client.get(f'/api/hr/documents/{r1["id"]}').status_code == 403                # 휴가 열람자도 못 봄
+
+    _as(client, ADMIN, 'super_admin')
+    import io
+    up = client.post(f'/api/hr/people/{staff_id}/documents', content_type='multipart/form-data',
+                     data={'doc_type': '근로계약서', 'file': (io.BytesIO(b'%PDF-3'), '계약.pdf')}).get_json()
+    assert up['success'] and len(up['documents']) == 2
+    assert client.delete(f'/api/hr/documents/{r1["id"]}').get_json()['success']
+    actions = [l['action'] for l in hr.access_log(staff_id)]
+    assert 'doc_download' in actions and 'doc_upload' in actions and 'doc_delete' in actions

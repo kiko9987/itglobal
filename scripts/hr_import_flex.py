@@ -208,6 +208,38 @@ def build_leave_history(flex_dir: Path, summary: Path = None, raw: Path = None):
     return rows, unmatched
 
 
+def build_details_and_docs(flex_dir: Path, raw: Path):
+    """원본 JSON 의 경력·학력·가족 + 직원서류 파일(11/6 내보내기 첨부파일/직원서류/<이름>_<플렉스ID>/).
+    반환: ({플렉스ID: (경력, 학력, 가족)}, [서류], 받아 둔 파일이 없는 서류 수)."""
+    import os
+    flex_json = json.load(open(raw, encoding='utf-8'))
+    types = {t['userDocumentIdHash']: t['name'] for t in (flex_json['company'].get('userDocumentTypes') or [])}
+    base = flex_dir / '첨부파일' / '직원서류'
+    folders = {}
+    if base.exists():
+        for sub in os.listdir(base):
+            if '_' in sub:
+                folders[sub.rsplit('_', 1)[1]] = base / sub
+    details, docs, missing = {}, [], 0
+    for fid, u in (flex_json.get('users') or {}).items():
+        cs = (u.get('workExperiences') or {}).get('workExperienceResponses') or []
+        es = (u.get('educationExperiences') or {}).get('educationExperienceResponses') or []
+        fs = (u.get('dependentFamilies') or {}).get('responses') or []
+        if cs or es or fs:
+            details[fid] = (cs, es, fs)
+        folder = folders.get(fid)
+        local = os.listdir(folder) if folder else []
+        for f in u.get('documentFiles') or []:
+            name = f.get('fileName') or ''
+            hit = next((x for x in local if x == name or x.endswith('_' + name) or x.endswith(name)), None)
+            if not hit:
+                missing += 1
+                continue
+            docs.append({'flex_id': fid, 'type': types.get(f.get('userDocumentIdHash'), '기타'), 'file_name': name,
+                         'file_key': f.get('fileKey'), 'path': str(folder / hit)})
+    return details, docs, missing
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--apply', action='store_true')
@@ -265,6 +297,11 @@ def main():
     print(f'\n휴가 기록 {len(history)}건 (직원 못 찾음 {unmatched}건) — '
           + ' · '.join(f'{k} {v}' for k, v in _C(h['status'] for h in history).most_common()))
 
+    details, docs, missing_docs = build_details_and_docs(fdir, raw)
+    print(f'경력 {sum(len(x[0]) for x in details.values())}건 · 학력 {sum(len(x[1]) for x in details.values())}건 · '
+          f'가족 {sum(len(x[2]) for x in details.values())}명(주민번호 {sum(1 for x in details.values() for f in x[2] if f.get("ssn"))}명) · '
+          f'서류 {len(docs)}개(받아 둔 파일 없음 {missing_docs}개)')
+
     if not args.apply:
         print('\n미리 보기만 했습니다. 쓰려면 --apply')
         return
@@ -287,6 +324,22 @@ def main():
         h['person_id'] = pid_by_flex.get(h.pop('person_flex_id'))
     n = leave_view.upsert_flex_history(history)
     print(f'휴가 기록 보관: {n}건 (인사카드 연결 {sum(1 for h in history if h["person_id"])}건)')
+
+    # 경력·학력·가족(출처 flex 줄만 다시 씀) + 서류 파일(같은 플렉스 파일은 한 번만)
+    for fid, (cs, es, fs) in details.items():
+        pid = pid_by_flex.get(fid)
+        if pid:
+            hr.import_flex_details(pid, cs, es, fs)
+    saved = skipped = 0
+    for doc in docs:
+        pid = pid_by_flex.get(doc['flex_id'])
+        if not pid:
+            continue
+        r = hr.save_document(pid, doc['type'], doc['file_name'], open(doc['path'], 'rb').read(), 'flex-import',
+                             flex_file_key=doc['file_key'])
+        skipped += r['skipped']
+        saved += not r['skipped']
+    print(f'경력·학력·가족 반영 {len(details)}명 · 서류 새로 {saved}개 · 이미 있음 {skipped}개 → {hr.docs_dir()}')
 
 
 if __name__ == '__main__':

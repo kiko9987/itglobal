@@ -115,7 +115,70 @@ def api_card(pid):
         return jsonify({'success': False, 'message': '없는 구성원입니다.'}), 404
     if _hr_admin():
         c['access_log'] = hr.access_log(pid)
+    # 경력·학력·가족·서류 — 여기까지 왔으면 본인 또는 인사카드 관리자
+    c.update(hr.private_sections(pid))
     return jsonify({'success': True, 'person': c})
+
+
+def _can_see(pid: int) -> bool:
+    if _hr_admin():
+        return True
+    mine = _my_person()
+    return bool(mine) and mine['id'] == pid
+
+
+@hr_bp.route('/api/hr/documents/<int:doc_id>', methods=['GET'])
+@gw_page
+def api_doc_download(doc_id):
+    """서류 내려받기 — 본인·인사카드 관리자. 누가 받았는지 남긴다."""
+    from flask import send_file
+    d = hr.document_file(doc_id)
+    if not d or not _can_see(d['person_id']):
+        return jsonify({'success': False, 'message': '볼 수 없는 서류입니다.'}), 403 if d else 404
+    import os
+    if not os.path.exists(d['path']):
+        return jsonify({'success': False, 'message': '파일이 서버에 없습니다. 경영지원에 문의해 주세요.'}), 404
+    who = _me() if not _is_field() else f'field:{(session.get("user") or {}).get("gw_person_id")}'
+    hr.log_access(d['person_id'], who, 'doc_download', f'{d.get("doc_type") or ""} {d["file_name"]}')
+    inline = request.args.get('view') == '1'
+    resp = send_file(d['path'], as_attachment=not inline, download_name=d['file_name'], max_age=0)
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@hr_bp.route('/api/hr/people/<int:pid>/documents', methods=['POST'])
+@gw_page
+def api_doc_upload(pid):
+    f = request.files.get('file')
+    if not f:
+        return jsonify({'success': False, 'message': '파일을 골라 주세요.'}), 400
+    try:
+        hr.save_document(pid, request.form.get('doc_type', ''), f.filename or '', f.read(), _me() if not _is_field() else '')
+        logger.info(f'[HR] 서류 올림 #{pid} by {_me()}')
+        return jsonify({'success': True, 'documents': hr.documents(pid)})
+    except Exception as e:
+        return _fail(e)
+
+
+@hr_bp.route('/api/hr/documents/<int:doc_id>', methods=['DELETE'])
+@gw_page
+def api_doc_delete(doc_id):
+    try:
+        d = hr.document_file(doc_id)
+        hr.delete_document(doc_id, _me() if not _is_field() else '')
+        logger.info(f'[HR] 서류 지움 #{doc_id} by {_me()}')
+        return jsonify({'success': True, 'documents': hr.documents(d['person_id']) if d else []})
+    except Exception as e:
+        return _fail(e)
+
+
+@hr_bp.route('/api/hr/families/<int:fid>/ssn', methods=['POST'])
+@gw_page
+def api_family_ssn(fid):
+    try:
+        return jsonify({'success': True, 'ssn': hr.reveal_family_ssn(fid, _me() if not _is_field() else '')})
+    except Exception as e:
+        return _fail(e)
 
 
 @hr_bp.route('/api/hr/people/<int:pid>', methods=['PUT'])

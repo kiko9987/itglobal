@@ -276,6 +276,48 @@
   color: #64748b;
 }
 
+/* 서류 */
+.gw-doc-name {
+  max-width: 280px;
+  overflow-wrap: anywhere;
+}
+
+.gw-appt-table td.gw-doc-act {
+  white-space: nowrap;
+}
+
+.gw-doc-act .btn {
+  padding: 0 8px;
+  font-size: 0.78rem;
+  line-height: 1.7;
+}
+
+.gw-doc-upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.gw-page .gw-doc-upload .form-select-sm {
+  width: 170px;
+}
+
+.gw-page .gw-doc-upload .form-control-sm {
+  width: 260px;
+  height: auto;
+}
+
+.gw-doc-upload .btn {
+  white-space: nowrap;
+}
+
+.gw-doc-upload .gw-form-error {
+  margin: 0;
+  min-height: 0;
+}
+
 /* 발령 이력은 가운데 정렬 */
 .gw-appt-table th,
 .gw-appt-table td {
