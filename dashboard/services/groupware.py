@@ -222,8 +222,10 @@ def build_nav(path: str, permission_level: str, is_hr_admin: bool = False, field
         for it in items:
             it['active'] = it['href'] == best
         hit = best is not None
+        # children = 그 영역의 하위 메뉴(왼쪽 줄을 펼쳤을 때 바로 고를 수 있게, 당근 비즈니스처럼 — 11-10)
         areas.append({'key': area['key'], 'label': area['label'], 'icon': area['icon'],
-                      'href': items[0]['href'], 'active': hit, 'bottom': bool(area.get('bottom'))})
+                      'href': items[0]['href'], 'active': hit, 'bottom': bool(area.get('bottom')),
+                      'children': items})
         if hit:
             active_items = items
     return {'areas': areas, 'items': active_items}

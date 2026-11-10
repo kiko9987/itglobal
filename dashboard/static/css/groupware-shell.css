@@ -1,14 +1,19 @@
 /* 그룹웨어 새 틀 — 시범 명단일 때만 읽힌다(body.gw-shell).
-   기존 화면 CSS 는 건드리지 않고, 모든 규칙을 body.gw-shell 아래에 둔다. */
+   기존 화면 CSS 는 건드리지 않고, 모든 규칙을 body.gw-shell 아래에 둔다.
+   왼쪽 줄은 당근 비즈니스 광고 관리 화면을 본떴다(11-10 실측: 60px → 마우스 대면 200px,
+   0.3s 펼침, 표 위에 겹침, 40px 줄, 지금 메뉴는 회색 바탕+굵게). */
 
 body.gw-shell {
-  --gw-rail-w: 64px;
-  --gw-rail-bg: #1e293b;
-  --gw-rail-fg: #cbd5e1;
-  --gw-rail-fg-active: #ffffff;
-  --gw-rail-hover: rgba(255, 255, 255, 0.08);
-  --gw-rail-active: rgba(255, 255, 255, 0.16);
+  --gw-rail-w: 60px;
+  --gw-rail-w-open: 208px;
+  --gw-rail-bg: #f7f8f9;
+  --gw-rail-line: rgba(0, 0, 0, 0.07);
+  --gw-rail-fg: #1a1c20;
+  --gw-rail-fg-sub: #4b5563;
+  --gw-rail-hover: #eeeff1;
+  --gw-rail-active: #e6e8eb;
   --gw-accent: #FF6B35;
+  --gw-ease: cubic-bezier(0.4, 0, 0.2, 1);
   /* 필터 띠 등 sticky 요소가 이 높이 아래에 붙는다(기존 --header-height 를 새 틀에서만 덮어씀) */
   --header-height: 52px;
   padding-left: var(--gw-rail-w);
@@ -27,25 +32,34 @@ body.gw-shell .gw-rail {
   bottom: 0;
   width: var(--gw-rail-w);
   background: var(--gw-rail-bg);
+  border-right: 1px solid var(--gw-rail-line);
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 0 10px;
+  padding: 10px 0 10px;
   z-index: 1045; /* 머리글(1030)·필터(1020) 위, 모달(1050+) 아래 */
-  transition: transform 0.18s ease, box-shadow 0.18s ease;
-  overflow-y: auto;
+  transition: width 0.3s var(--gw-ease), transform 0.2s var(--gw-ease), box-shadow 0.2s ease;
   overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
 }
 
+body.gw-shell .gw-rail::-webkit-scrollbar {
+  display: none;
+}
+
+/* 펼침: 폭만 넓어지고 표는 그대로(겹쳐 뜸) */
+body.gw-shell.gw-expand .gw-rail {
+  width: var(--gw-rail-w-open);
+  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.1);
+}
+
+/* ☰ 로 숨긴 상태 */
 body.gw-shell.gw-collapsed .gw-rail {
   transform: translateX(-100%);
 }
 
-/* 접힌 상태에서 왼쪽 끝에 마우스를 대면 표 위에 겹쳐 잠깐 펼침(표를 밀지 않음) */
 body.gw-shell.gw-collapsed.gw-peek .gw-rail {
   transform: translateX(0);
-  box-shadow: 4px 0 16px rgba(15, 23, 42, 0.25);
 }
 
 body.gw-shell .gw-rail-hotzone {
@@ -62,34 +76,26 @@ body.gw-shell.gw-collapsed .gw-rail-hotzone {
   z-index: 1044;
 }
 
-body.gw-shell .gw-rail-toggle {
-  width: 40px;
-  height: 32px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--gw-rail-fg);
-  font-size: 16px;
-  cursor: pointer;
+/* 맨 위: 로고(슬랙 워크스페이스 아이콘처럼 흰 둥근 네모) + 펼치면 회사 이름·숨기기 단추 */
+body.gw-shell .gw-nav-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 10px;
+  margin-bottom: 14px;
+  flex-shrink: 0;
 }
 
-body.gw-shell .gw-rail-toggle:hover {
-  background: var(--gw-rail-hover);
-  color: var(--gw-rail-fg-active);
-}
-
-/* 로고: 슬랙 워크스페이스 아이콘처럼 흰 둥근 네모 안에 무늬(로고 왼쪽 물결)만 가운데 꽉 차게.
-   무늬 이미지(images/logo-symbol.png)는 가로형 로고에서 잘라 만든 정사각형. 템플릿을 안 바꾸고 CSS 로만 바꿔 재시작 불필요 */
 body.gw-shell .gw-rail-logo {
   display: block;
   width: 40px;
   height: 40px;
+  flex-shrink: 0;
   border-radius: 10px;
   background: #ffffff url('../images/logo-symbol.png') center / 36px 36px no-repeat;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.25);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.08);
   overflow: hidden;
-  margin: 6px 0 12px;
-  flex-shrink: 0;
   transition: transform 0.12s ease;
 }
 
@@ -101,65 +107,177 @@ body.gw-shell .gw-rail-logo img {
   display: none;
 }
 
-body.gw-shell .gw-rail-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  width: 58px;
-  padding: 4px 0 6px;
-  border: 0;
-  background: transparent;
+body.gw-shell .gw-nav-brand {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 700;
   color: var(--gw-rail-fg);
-  text-decoration: none;
-  font-size: 11.5px;
-  line-height: 1.2;
-  cursor: pointer;
-  flex-shrink: 0;
+  white-space: nowrap;
 }
 
-body.gw-shell .gw-rail-icon {
+body.gw-shell .gw-rail-toggle {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #6b7280;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+body.gw-shell .gw-rail-toggle:hover {
+  background: var(--gw-rail-hover);
+  color: var(--gw-rail-fg);
+}
+
+/* 메뉴 줄 — 접힘·펼침 모두 같은 자리(아이콘 위치 고정), 줄 폭만 바뀌고 글자는 잘려 숨는다 */
+body.gw-shell .gw-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+body.gw-shell .gw-nav-area {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 32px;
-  border-radius: 8px;
-  font-size: 17px;
+  gap: 10px;
+  width: calc(100% - 16px);
+  height: 40px;
+  margin: 0 8px;
+  padding: 0 12px 0 13px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gw-rail-fg);
+  font-size: 14px;
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
   transition: background 0.12s ease;
 }
 
-body.gw-shell .gw-rail-item:hover {
-  color: var(--gw-rail-fg-active);
+body.gw-shell .gw-nav-icon {
+  width: 18px;
+  flex-shrink: 0;
+  display: inline-flex;
+  justify-content: center;
+  font-size: 15px;
+  color: #3f4550;
 }
 
-body.gw-shell .gw-rail-item:hover .gw-rail-icon {
+body.gw-shell .gw-nav-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+body.gw-shell .gw-nav-caret {
+  font-size: 11px;
+  color: #6b7280;
+  transition: transform 0.2s var(--gw-ease);
+}
+
+body.gw-shell .gw-nav-group.open .gw-nav-caret {
+  transform: rotate(180deg);
+}
+
+/* 접힌 줄에서는 글자·화살표·회사 이름·숨기기 단추를 숨김 */
+body.gw-shell:not(.gw-expand) .gw-nav-label,
+body.gw-shell:not(.gw-expand) .gw-nav-caret,
+body.gw-shell:not(.gw-expand) .gw-nav-brand,
+body.gw-shell:not(.gw-expand) .gw-rail-toggle {
+  opacity: 0;
+  pointer-events: none;
+}
+
+body.gw-shell .gw-nav-label,
+body.gw-shell .gw-nav-caret,
+body.gw-shell .gw-nav-brand,
+body.gw-shell .gw-rail-toggle {
+  transition: opacity 0.15s ease;
+}
+
+body.gw-shell .gw-nav-area:hover {
   background: var(--gw-rail-hover);
 }
 
-body.gw-shell .gw-rail-item.active {
-  color: var(--gw-rail-fg-active);
-  font-weight: 600;
+/* 지금 영역: 접힌 줄에선 아이콘 칸, 펼친 줄에선 하위 메뉴가 닫혀 있을 때만 머리 줄을 칠함 */
+body.gw-shell .gw-nav-group.active > .gw-nav-area {
+  font-weight: 700;
 }
 
-body.gw-shell .gw-rail-item.active .gw-rail-icon {
+body.gw-shell:not(.gw-expand) .gw-nav-group.active > .gw-nav-area,
+body.gw-shell.gw-expand .gw-nav-group.active:not(.open) > .gw-nav-area {
   background: var(--gw-rail-active);
 }
 
-body.gw-shell .gw-rail-item:focus-visible,
+body.gw-shell .gw-nav-group.active .gw-nav-icon {
+  color: var(--gw-rail-fg);
+}
+
+/* 하위 메뉴: 펼친 줄 + 펴진 묶음에서만 보임. 글자는 머리 줄 글자와 같은 선 */
+body.gw-shell .gw-nav-sub {
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 4px;
+}
+
+body.gw-shell.gw-expand .gw-nav-group.open .gw-nav-sub {
+  display: flex;
+}
+
+body.gw-shell .gw-nav-subitem {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  margin: 0 8px;
+  padding: 0 12px 0 41px;
+  border-radius: 6px;
+  color: var(--gw-rail-fg-sub);
+  font-size: 13.5px;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.12s ease;
+}
+
+body.gw-shell .gw-nav-subitem:hover {
+  background: var(--gw-rail-hover);
+  color: var(--gw-rail-fg);
+}
+
+body.gw-shell .gw-nav-subitem.active {
+  background: var(--gw-rail-active);
+  color: var(--gw-rail-fg);
+  font-weight: 700;
+}
+
+body.gw-shell .gw-nav-area:focus-visible,
+body.gw-shell .gw-nav-subitem:focus-visible,
+body.gw-shell .gw-rail-logo:focus-visible,
 body.gw-shell .gw-rail-toggle:focus-visible {
   outline: 2px solid var(--gw-accent);
-  outline-offset: 1px;
-  border-radius: 8px;
+  outline-offset: -2px;
 }
 
 body.gw-shell .gw-rail-spacer {
   flex: 1;
+  min-height: 12px;
+}
+
+body.gw-shell .gw-nav-bottom {
+  padding-top: 8px;
+  border-top: 1px solid var(--gw-rail-line);
 }
 
 body.gw-shell .gw-rail-classic {
-  font-size: 10.5px;
-  opacity: 0.8;
+  color: #6b7280;
+  font-size: 13px;
 }
 
 /* ── 위쪽 한 줄 ───────────────────────────────────── */
@@ -251,9 +369,19 @@ body.gw-shell .gw-topbar-right {
   align-items: center;
 }
 
+/* 빈 알림 상자(#toast-container, 고정·패딩 16px)가 위쪽 줄을 덮어 ☰·사용자 메뉴가 안 눌리던 것 —
+   빈 곳은 클릭이 지나가게, 실제 알림만 눌리게(좁은 화면에선 줄 전체를 덮었음, 11-10) */
+body.gw-shell #toast-container {
+  pointer-events: none;
+}
+
+body.gw-shell #toast-container > * {
+  pointer-events: auto;
+}
+
 /* ── 화면 안쪽 여백: 가로를 조금 아낀다 ─────────────────── */
 /* 기존: 바깥 container-fluid 15px + 흰 카드(content-container) 20.4px 가 양쪽에 겹쳐 있음
-   → 왼쪽 줄 64px 의 절반쯤을 여기서 되찾는다 */
+   → 왼쪽 줄 폭의 절반쯤을 여기서 되찾는다 */
 body.gw-shell .main-content .container-fluid {
   padding-left: 8px;
   padding-right: 8px;
@@ -264,7 +392,7 @@ body.gw-shell .main-content .content-container {
   padding-right: 12px;
 }
 
-/* ── 좁은 화면: 왼쪽 줄은 기본으로 접고 ☰ 로만 연다 ─────────── */
+/* ── 좁은 화면: 왼쪽 줄은 숨기고 ☰ 로만 연다(열면 처음부터 펼친 모양) ─── */
 @media (max-width: 767.98px) {
   body.gw-shell {
     padding-left: 0;
@@ -272,11 +400,12 @@ body.gw-shell .main-content .content-container {
 
   body.gw-shell .gw-rail {
     transform: translateX(-100%);
+    width: var(--gw-rail-w-open);
   }
 
   body.gw-shell.gw-peek .gw-rail {
     transform: translateX(0);
-    box-shadow: 4px 0 16px rgba(15, 23, 42, 0.25);
+    box-shadow: 2px 0 12px rgba(0, 0, 0, 0.15);
   }
 
   body.gw-shell .gw-topbar-menu {
@@ -292,7 +421,8 @@ body.gw-shell .main-content .content-container {
 
 @media (prefers-reduced-motion: reduce) {
   body.gw-shell,
-  body.gw-shell .gw-rail {
+  body.gw-shell .gw-rail,
+  body.gw-shell .gw-nav-caret {
     transition: none;
   }
 }

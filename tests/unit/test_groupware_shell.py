@@ -79,6 +79,13 @@ def test_build_nav_active_and_admin_only():
     admin_nav = gw.build_nav('/gw/admin', 'admin')
     assert [a['label'] for a in admin_nav['areas'] if a['bottom']] == ['관리'] and admin_nav['areas'][-1]['active']
 
+    # 펼친 왼쪽 줄용 하위 메뉴(children) — 권한대로 거르고, 지금 화면만 켜짐
+    hr_area = next(a for a in gw.build_nav('/leave/team', 'editor', leave_all=True)['areas'] if a['key'] == 'leave')
+    assert [(c['label'], c['active']) for c in hr_area['children']] == [('내 휴가', False), ('전사 현황', True)]
+    sales = next(a for a in gw.build_nav('/home', 'editor')['areas'] if a['key'] == 'sales')
+    assert [c['label'] for c in sales['children']] == ['프로젝트', '고객 리드', '매출통계'] and not sales['active']
+    assert not any(c['active'] for c in sales['children'])
+
     nav = gw.build_nav('/admin/cache-monitor', 'admin')        # 메뉴에 없는 화면
     assert nav['items'] == [] and not any(a['active'] for a in nav['areas'])
     assert gw.build_nav('/projectsX', 'admin')['items'] == []   # 앞부분만 같은 주소는 아님
@@ -141,6 +148,10 @@ def test_new_layout_renders_with_file_versioned_assets(db, tmp_path):
         session['user'] = {'email': 'kiko@itg-aircon.com', 'name': '고광일', 'permission_level': 'super_admin'}
         html = render_template('gw/hr_me.html', person_id=None, fields=[])
     assert 'class="gw-shell"' in html and 'gwRail' in html
+    # 왼쪽 줄(당근식, 11-10): 하위 메뉴가 여럿인 인사는 펴진 묶음, 하나뿐인 홈은 바로 가는 링크
+    assert 'gw-nav-group active open' in html and 'aria-controls="gwSub-hr"' in html
+    assert re.search(r'gw-nav-subitem active" href="/hr/me" aria-current="page"', html)
+    assert 'aria-controls="gwSub-home"' not in html and '<a class="gw-nav-area" href="/home"' in html
     css = re.search(r'/static/css/gw-pages\.css\?v=(\d+)', html)
     shell = re.search(r'/static/js/groupware-shell\.js\?v=(\d+)', html)
     assert css and shell and int(css.group(1)) == int(os.path.getmtime(os.path.join(root, 'static', 'css', 'gw-pages.css')))

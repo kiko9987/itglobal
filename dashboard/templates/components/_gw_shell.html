@@ -1,46 +1,69 @@
-{# 그룹웨어 새 틀 — 왼쪽 줄(영역) + 위쪽 한 줄(하위 메뉴). 시범 명단만 보인다(gw_layout). #}
+{# 그룹웨어 새 틀 — 왼쪽 줄(당근 비즈니스처럼: 평소 아이콘만, 마우스를 대면 글자·하위 메뉴까지 표 위에 겹쳐 펼침)
+   + 위쪽 한 줄(지금 영역의 하위 메뉴). 시범 명단만 보인다(gw_layout). #}
 <script>
-  /* 접은 상태를 그리기 전에 먼저 적용(깜빡임 방지). 저장소를 못 쓰면 펼친 상태 */
+  /* ☰로 숨긴 상태를 그리기 전에 먼저 적용(깜빡임 방지). 저장소를 못 쓰면 보이는 상태 */
   try { if (localStorage.getItem('gw.rail.collapsed') === '1') document.body.classList.add('gw-collapsed'); } catch (e) {}
 </script>
 
 <div class="gw-rail-hotzone" id="gwRailHotzone" aria-hidden="true"></div>
 
-<nav class="gw-rail" id="gwRail" aria-label="주 메뉴">
-    <button type="button" class="gw-rail-toggle" id="gwRailToggle" title="메뉴 접기" aria-label="메뉴 접기">
-        <i class="fas fa-bars" aria-hidden="true"></i>
+{# 하위 메뉴가 둘 이상인 영역 = 접고 펴는 묶음(지금 영역은 펴진 채로). 하나뿐이면 바로 가는 링크 #}
+{% macro rail_group(area) -%}
+{% set multi = area.children|length > 1 %}
+<div class="gw-nav-group{% if area.active %} active{% endif %}{% if multi and area.active %} open{% endif %}">
+    {% if multi %}
+    <button type="button" class="gw-nav-area gw-nav-toggle" title="{{ area.label }}"
+            aria-expanded="{{ 'true' if area.active else 'false' }}" aria-controls="gwSub-{{ area.key }}">
+        <span class="gw-nav-icon"><i class="{{ area.icon }}" aria-hidden="true"></i></span>
+        <span class="gw-nav-label">{{ area.label }}</span>
+        <i class="fas fa-chevron-down gw-nav-caret" aria-hidden="true"></i>
     </button>
-
-    <a class="gw-rail-logo" href="{{ gw_nav.areas[0].href if gw_nav.areas else '/projects' }}" title="IT글로벌">
-        <img src="{{ url_for('static', filename='images/logo.png') }}" alt="IT글로벌" width="100" height="40">
+    <div class="gw-nav-sub" id="gwSub-{{ area.key }}">
+        {% for it in area.children %}
+        <a class="gw-nav-subitem{% if it.active %} active{% endif %}" href="{{ it.href }}"{% if it.active %} aria-current="page"{% endif %}>{{ it.label }}</a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <a class="gw-nav-area" href="{{ area.href }}" title="{{ area.label }}"{% if area.active %} aria-current="page"{% endif %}>
+        <span class="gw-nav-icon"><i class="{{ area.icon }}" aria-hidden="true"></i></span>
+        <span class="gw-nav-label">{{ area.label }}</span>
     </a>
+    {% endif %}
+</div>
+{%- endmacro %}
 
-    {% for area in gw_nav.areas if not area.bottom %}
-    <a class="gw-rail-item{% if area.active %} active{% endif %}" href="{{ area.href }}"{% if area.active %} aria-current="page"{% endif %}>
-        <span class="gw-rail-icon"><i class="{{ area.icon }}" aria-hidden="true"></i></span>
-        <span class="gw-rail-label">{{ area.label }}</span>
-    </a>
-    {% endfor %}
+<nav class="gw-rail" id="gwRail" aria-label="주 메뉴">
+    <div class="gw-nav-top">
+        <a class="gw-rail-logo" href="{{ gw_nav.areas[0].href if gw_nav.areas else '/home' }}" title="IT글로벌">
+            <img src="{{ url_for('static', filename='images/logo-symbol.png') }}" alt="" width="40" height="40">
+        </a>
+        <span class="gw-nav-brand">IT글로벌</span>
+        <button type="button" class="gw-rail-toggle" id="gwRailToggle" title="메뉴 숨기기" aria-label="메뉴 숨기기">
+            <i class="fas fa-angle-double-left" aria-hidden="true"></i>
+        </button>
+    </div>
+
+    <div class="gw-nav-list">
+        {% for area in gw_nav.areas if not area.bottom %}{{ rail_group(area) }}{% endfor %}
+    </div>
 
     <div class="gw-rail-spacer"></div>
 
-    {% for area in gw_nav.areas if area.bottom %}
-    <a class="gw-rail-item{% if area.active %} active{% endif %}" href="{{ area.href }}"{% if area.active %} aria-current="page"{% endif %}>
-        <span class="gw-rail-icon"><i class="{{ area.icon }}" aria-hidden="true"></i></span>
-        <span class="gw-rail-label">{{ area.label }}</span>
-    </a>
-    {% endfor %}
-
-    {% if not gw_field %}
-    <button type="button" class="gw-rail-item gw-rail-classic" id="gwClassicBtn" title="예전 PM 화면으로 돌아가기">
-        <span class="gw-rail-icon"><i class="fas fa-undo" aria-hidden="true"></i></span>
-        <span class="gw-rail-label">예전 화면</span>
-    </button>
-    {% endif %}
+    <div class="gw-nav-list gw-nav-bottom">
+        {% for area in gw_nav.areas if area.bottom %}{{ rail_group(area) }}{% endfor %}
+        {% if not gw_field %}
+        <div class="gw-nav-group">
+            <button type="button" class="gw-nav-area gw-rail-classic" id="gwClassicBtn" title="예전 PM 화면으로 돌아가기">
+                <span class="gw-nav-icon"><i class="fas fa-undo" aria-hidden="true"></i></span>
+                <span class="gw-nav-label">예전 화면</span>
+            </button>
+        </div>
+        {% endif %}
+    </div>
 </nav>
 
 <header class="gw-topbar" id="gwTopbar">
-    <button type="button" class="gw-topbar-menu" id="gwTopbarMenu" title="메뉴 펼치기" aria-label="메뉴 펼치기">
+    <button type="button" class="gw-topbar-menu" id="gwTopbarMenu" title="메뉴 보이기" aria-label="메뉴 보이기">
         <i class="fas fa-bars" aria-hidden="true"></i>
     </button>
 
