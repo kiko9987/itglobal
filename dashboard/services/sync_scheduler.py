@@ -336,6 +336,18 @@ def start_scheduler():
     )
     jobs.append('프로젝트 카드 리컨사일 10분')
 
+    # 2026-11-10 개인 원가 탭 ↔ 메인 — SB 는 원가 4칸만, 나머지(보기 칸·새 줄·순익)는 서버가. 5분 주기.
+    if os.getenv('PERSONAL_COST_TAB_SYNC_ENABLED', '1').strip().lower() not in ('0', 'false', 'no'):
+        _scheduler.add_job(
+            _safe_personal_cost_tab_sync,
+            'interval',
+            minutes=5,
+            id='personal_cost_tab_sync',
+            next_run_time=_stagger(3.25),
+            replace_existing=True,
+        )
+        jobs.append('개인 원가 탭 동기화 5분')
+
     # 고아 리드 감지 (시트에 있는데 슬랙 카드 흔적 없음 = Flask 재시작 등으로 발송 유실)
     # — 5분 주기, pending 큐에도 없는 케이스가 대상
     _scheduler.add_job(
@@ -732,6 +744,23 @@ def _safe_reconcile_project_cards():
         reconcile_project_cards()
     except Exception as exc:
         logger.error(f'[SCHED] 프로젝트 카드 리컨사일 실패: {exc}', exc_info=True)
+
+
+def _safe_personal_cost_tab_sync():
+    """개인 원가 탭(박용구·박정우) ↔ 메인 원가 양방향 + 보기 칸·새 공사 줄 자동 (2026-11-10)."""
+    if not _redis_healthy():
+        return
+    failed = False
+    try:
+        from dashboard.services.personal_cost_tabs import run_sync
+        run_sync()
+    except Exception as exc:
+        failed = True
+        if _is_transient_error(exc):
+            logger.warning(f'[SCHED] 개인 원가 탭 동기화 일시 실패: {exc}')
+        else:
+            logger.error(f'[SCHED] 개인 원가 탭 동기화 실패: {exc}', exc_info=True)
+    _fail_streak('personal_cost_tab', failed, '개인 원가 탭(박용구·박정우) 동기화')
 
 
 def _safe_recover_orphan_leads():

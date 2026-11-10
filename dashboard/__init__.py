@@ -374,6 +374,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
                     from dashboard.services.sheet_write_queue import start_worker as _start_qw
                     # blueprints 로드 후 핸들러 등록되도록 지연 임포트
                     import dashboard.blueprints.projects  # noqa: F401 — 핸들러 등록 트리거
+                    import dashboard.services.personal_cost_tabs  # noqa: F401 — personal_cost_push 핸들러
                     _start_qw()
                     logger.info("Sheet write-behind 큐 워커 시작 완료")
                 except Exception as _exc:
