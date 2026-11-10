@@ -92,6 +92,7 @@ def _conn():
         if not _table_ready:
             for ddl in _DDL:
                 conn.execute(ddl)
+            _migrate(conn)
             conn.commit()
             _table_ready = True
         yield conn
@@ -439,13 +440,14 @@ _DDL += [
         id INTEGER PRIMARY KEY AUTOINCREMENT, person_id INTEGER NOT NULL,
         doc_type TEXT, file_name TEXT NOT NULL, stored_name TEXT NOT NULL, size INTEGER,
         flex_file_key TEXT UNIQUE, uploaded_by TEXT,
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, tag TEXT
     )''',
     'CREATE INDEX IF NOT EXISTS idx_hr_documents_person ON hr_documents(person_id)',
 ]
 
 DOC_TYPES = ['주민등록등본', '가족관계증명서', '건강보험득실확인서', '근로계약서', '연봉계약서', '이력서', '학력증명서',
-             '경력증명서', '원천징수영수증', '신분증사본', '급여계좌사본', '장애인증명서', '국가유공자증명서', '기타']
+             '경력증명서', '원천징수영수증', '신분증사본', '급여계좌사본', '장애인증명서', '국가유공자증명서',
+             '연말정산 간소화자료', '연말정산 추가증빙', '기타']
 DOC_EXT = ('.pdf', '.jpg', '.jpeg', '.png', '.heic', '.gif', '.webp', '.doc', '.docx', '.hwp', '.hwpx',
            '.xls', '.xlsx', '.zip')
 DOC_MAX_BYTES = 8 * 1024 * 1024
@@ -497,9 +499,30 @@ def families(person_id: int) -> List[dict]:
     return out
 
 
-def documents(person_id: int) -> List[dict]:
-    return _rows('SELECT id, person_id, doc_type, file_name, size, uploaded_by, created_at FROM hr_documents '
-                 'WHERE person_id = ? ORDER BY id', (person_id,))
+def documents(person_id: int, tag: Optional[str] = None) -> List[dict]:
+    """서류 목록. tag 를 주면 그 꼬리표(예: 연말정산 ye2026)만."""
+    _ensure_doc_tag()
+    sql = 'SELECT id, person_id, doc_type, file_name, size, uploaded_by, created_at, tag FROM hr_documents WHERE person_id = ?'
+    args = [person_id]
+    if tag is not None:
+        sql += ' AND tag = ?'
+        args.append(tag)
+    return _rows(sql + ' ORDER BY id', tuple(args))
+
+
+def _migrate(conn) -> None:
+    """이미 있는 운영 표에 나중에 생긴 칸 추가 — hr_documents.tag(11-10 연말정산용 꼬리표)."""
+    import sqlite3
+    try:
+        conn.execute('ALTER TABLE hr_documents ADD COLUMN tag TEXT')
+    except sqlite3.OperationalError:
+        pass      # 이미 있음
+
+
+def _ensure_doc_tag() -> None:
+    """(예전 이름 유지) 칸 추가는 표를 처음 열 때 _migrate 가 한다."""
+    with _conn():
+        pass
 
 
 def private_sections(person_id: int) -> dict:
@@ -523,9 +546,11 @@ def _safe_name(name: str) -> str:
 
 
 def save_document(person_id: int, doc_type: str, file_name: str, data: bytes, by: str,
-                  flex_file_key: Optional[str] = None) -> dict:
-    """서류 파일 저장 + 장부 한 줄. 인사카드 관리자(또는 이관 스크립트 by='flex-import')만."""
-    if by != 'flex-import' and not is_hr_admin(by):
+                  flex_file_key: Optional[str] = None, tag: Optional[str] = None, trusted: bool = False) -> dict:
+    """서류 파일 저장 + 장부 한 줄. 인사카드 관리자(또는 이관 스크립트 by='flex-import')만.
+    trusted=True 는 부르는 쪽이 이미 권한을 확인한 경우(연말정산 본인 업로드 — by 에 본인 표시)."""
+    _ensure_doc_tag()
+    if not trusted and by != 'flex-import' and not is_hr_admin(by):
         raise PermissionError('서류 업로드는 경영지원·대표만 할 수 있습니다.')
     if not get_person(person_id):
         raise LookupError('없는 구성원입니다.')
@@ -544,9 +569,9 @@ def save_document(person_id: int, doc_type: str, file_name: str, data: bytes, by
             if hit:
                 return {'id': hit[0], 'skipped': True}
         cur = conn.execute('INSERT INTO hr_documents (person_id, doc_type, file_name, stored_name, size, flex_file_key, '
-                           'uploaded_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                           'uploaded_by, created_at, tag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
                            (person_id, doc_type, _safe_name(file_name), 'pending', len(data), flex_file_key,
-                            by.lower(), _now()))
+                            by.lower(), _now(), tag))
         doc_id = cur.lastrowid
         stored = f'{doc_id}_{_safe_name(file_name)}'
         with open(os.path.join(folder, stored), 'wb') as fp:
@@ -557,8 +582,9 @@ def save_document(person_id: int, doc_type: str, file_name: str, data: bytes, by
     return {'id': doc_id, 'skipped': False}
 
 
-def delete_document(doc_id: int, by: str) -> None:
-    if not is_hr_admin(by):
+def delete_document(doc_id: int, by: str, trusted: bool = False) -> None:
+    """trusted=True 는 부르는 쪽이 이미 권한을 확인한 경우(연말정산 본인 자료 — 제출 전)."""
+    if not trusted and not is_hr_admin(by):
         raise PermissionError('서류 삭제는 경영지원·대표만 할 수 있습니다.')
     d = document_file(doc_id)
     if not d:

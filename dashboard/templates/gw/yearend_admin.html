@@ -1,0 +1,22 @@
+{% extends "modern_base.html" %}
+
+{% block title %}연말정산 현황 - IT글로벌 그룹웨어{% endblock %}
+
+{% block additional_css %}
+<link rel="stylesheet" href="{{ gw_asset('css/gw-pages.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="gw-page">
+  <div class="gw-page-head">
+    <h1 class="gw-page-title" id="yeAdminTitle">연말정산 현황</h1>
+    <a class="btn btn-sm btn-outline-secondary" href="/yearend">내 연말정산</a>
+  </div>
+  <div id="yeAdmin" aria-live="polite"><div class="gw-empty">불러오는 중…</div></div>
+</div>
+{% endblock %}
+
+{% block additional_js %}
+<script>window.GW_YE = { mode: 'admin' };</script>
+<script src="{{ gw_asset('js/gw-yearend.js') }}" defer></script>
+{% endblock %}

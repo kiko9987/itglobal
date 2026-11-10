@@ -3,6 +3,7 @@
 정식 오픈 전까지는 시범 명단(그룹웨어 새 화면을 쓸 수 있는 사람)만 들어온다.
 API 는 /api/ 아래(CSRF 경로 규칙). 권한은 services/hr.py 가 다시 확인한다.
 """
+import io
 import json
 from functools import wraps
 
@@ -359,3 +360,207 @@ def api_home_mail():
     if _is_field():
         return jsonify({'success': False, 'message': '현장 계정은 메일 칸이 없습니다.'}), 403
     return jsonify({'success': True, 'mail': gw_home.mail_summary(_me())})
+
+
+# ── 연말정산 ──────────────────────────────────────────────────────────
+def _ye_year():
+    from dashboard.services import yearend as ye
+    try:
+        return int(request.args.get('year') or request.form.get('year') or (request.get_json(silent=True) or {}).get('year') or ye.current_year())
+    except (TypeError, ValueError):
+        return ye.current_year()
+
+
+def _who() -> str:
+    return _me() if not _is_field() else f'field:{(session.get("user") or {}).get("gw_person_id")}'
+
+
+@hr_bp.route('/yearend')
+@gw_page
+def page_yearend():
+    p = _my_person()
+    return render_template('gw/yearend.html', person_id=p['id'] if p else None, is_hr_admin=_hr_admin())
+
+
+@hr_bp.route('/yearend/admin')
+@gw_page
+def page_yearend_admin():
+    if not _hr_admin():
+        return redirect('/yearend')
+    return render_template('gw/yearend_admin.html')
+
+
+@hr_bp.route('/api/yearend/me', methods=['GET'])
+@gw_page
+def api_ye_me():
+    from dashboard.services import yearend as ye
+    p = _my_person()
+    if not p:
+        return jsonify({'success': False, 'message': '인사카드가 연결되지 않았습니다.'}), 404
+    v = ye.my_view(p, _ye_year())
+    v['problems'] = ye.problems(v)
+    return jsonify({'success': True, 'ye': v})
+
+
+@hr_bp.route('/api/yearend/me', methods=['POST'])
+@gw_page
+def api_ye_save():
+    from dashboard.services import yearend as ye
+    p = _my_person()
+    if not p:
+        return jsonify({'success': False, 'message': '인사카드가 연결되지 않았습니다.'}), 404
+    try:
+        ye.save_answers(p['id'], _ye_year(), request.get_json(silent=True) or {})
+        v = ye.my_view(p, _ye_year())
+        v['problems'] = ye.problems(v)
+        return jsonify({'success': True, 'ye': v})
+    except Exception as e:
+        return _fail(e)
+
+
+@hr_bp.route('/api/yearend/me/submit', methods=['POST'])
+@gw_page
+def api_ye_submit():
+    from dashboard.services import yearend as ye
+    p = _my_person()
+    try:
+        ye.submit(p['id'], _ye_year(), p)
+        logger.info(f'[연말정산] 제출 #{p["id"]}')
+        return api_ye_me()
+    except Exception as e:
+        return _fail(e)
+
+
+@hr_bp.route('/api/yearend/me/reopen', methods=['POST'])
+@gw_page
+def api_ye_reopen():
+    from dashboard.services import yearend as ye
+    p = _my_person()
+    try:
+        ye.reopen(p['id'], _ye_year())
+        return api_ye_me()
+    except Exception as e:
+        return _fail(e)
+
+
+@hr_bp.route('/api/yearend/me/documents', methods=['POST'])
+@gw_page
+def api_ye_upload():
+    from dashboard.services import yearend as ye
+    p = _my_person()
+    f = request.files.get('file')
+    if not p or not f:
+        return jsonify({'success': False, 'message': '파일을 골라 주세요.'}), 400
+    try:
+        ye.upload(p['id'], _ye_year(), request.form.get('kind', ''), f.filename or '', f.read(), _who())
+        return api_ye_me()
+    except Exception as e:
+        return _fail(e)
+
+
+@hr_bp.route('/api/yearend/me/documents/<int:doc_id>', methods=['DELETE'])
+@gw_page
+def api_ye_delete(doc_id):
+    from dashboard.services import yearend as ye
+    p = _my_person()
+    try:
+        ye.delete_upload(p['id'], _ye_year(), doc_id, _who())
+        return api_ye_me()
+    except Exception as e:
+        return _fail(e)
+
+
+@hr_bp.route('/api/yearend/admin', methods=['GET'])
+@gw_page
+def api_ye_admin():
+    from dashboard.services import yearend as ye
+    if not _hr_admin():
+        return jsonify({'success': False, 'message': '경영지원·대표만 볼 수 있습니다.'}), 403
+    y = _ye_year()
+    return jsonify({'success': True, 'year': y, 'season': ye.season(y), 'rows': ye.admin_rows(y)})
+
+
+@hr_bp.route('/api/yearend/admin/season', methods=['POST'])
+@gw_page
+def api_ye_season():
+    from dashboard.services import yearend as ye
+    data = request.get_json(silent=True) or {}
+    try:
+        s = ye.set_season(_ye_year(), _me() if not _is_field() else '', status=data.get('status'),
+                          due_date=data.get('due_date'), notice=data.get('notice'))
+        logger.info(f'[연말정산] 설정 {s} by {_me()}')
+        return jsonify({'success': True, 'season': s})
+    except Exception as e:
+        return _fail(e)
+
+
+@hr_bp.route('/api/yearend/admin/<int:pid>/status', methods=['POST'])
+@gw_page
+def api_ye_status(pid):
+    from dashboard.services import yearend as ye
+    data = request.get_json(silent=True) or {}
+    try:
+        sub = ye.set_status(pid, _ye_year(), data.get('status', ''), _me() if not _is_field() else '', data.get('reason', ''))
+        if sub['status'] == ye.RETURNED:
+            p = hr.get_person(pid)
+            ye._dm((p or {}).get('slack_id') or '',
+                   f'*{_ye_year()}년 귀속 연말정산* 자료 보완을 요청드려요.\n사유: {sub["returned_reason"]}\n'
+                   '그룹웨어 → 인사 → 연말정산에서 고친 뒤 다시 제출해 주세요.')
+        return jsonify({'success': True, 'submission': sub})
+    except Exception as e:
+        return _fail(e)
+
+
+@hr_bp.route('/api/yearend/admin/notify', methods=['POST'])
+@gw_page
+def api_ye_notify():
+    from dashboard.services import yearend as ye
+    try:
+        return jsonify({'success': True, **ye.notify_pending(_ye_year(), _me() if not _is_field() else '')})
+    except Exception as e:
+        return _fail(e)
+
+
+@hr_bp.route('/api/yearend/admin/roster.xlsx', methods=['GET'])
+@gw_page
+def api_ye_roster():
+    from flask import send_file
+    from dashboard.services import yearend as ye
+    try:
+        data = ye.roster_xlsx(_ye_year(), _me() if not _is_field() else '')
+    except Exception as e:
+        return _fail(e)
+    resp = send_file(io.BytesIO(data), as_attachment=True, download_name=f'연말정산_{_ye_year()}귀속_명단.xlsx',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@hr_bp.route('/api/yearend/admin/bundle.zip', methods=['GET'])
+@gw_page
+def api_ye_bundle():
+    from flask import send_file
+    from dashboard.services import yearend as ye
+    try:
+        data = ye.bundle_zip(_ye_year(), _me() if not _is_field() else '')
+    except Exception as e:
+        return _fail(e)
+    resp = send_file(io.BytesIO(data), as_attachment=True, download_name=f'연말정산_{_ye_year()}귀속_자료.zip',
+                     mimetype='application/zip')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@hr_bp.route('/api/yearend/admin/<int:pid>/result', methods=['POST'])
+@gw_page
+def api_ye_result(pid):
+    from dashboard.services import yearend as ye
+    f = request.files.get('file')
+    if not f:
+        return jsonify({'success': False, 'message': '파일을 골라 주세요.'}), 400
+    try:
+        ye.upload_result(pid, _ye_year(), f.filename or '', f.read(), _me() if not _is_field() else '')
+        sent = ye.notify_result(pid, _ye_year())
+        return jsonify({'success': True, 'notified': sent})
+    except Exception as e:
+        return _fail(e)

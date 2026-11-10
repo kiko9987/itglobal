@@ -73,7 +73,7 @@ def test_build_nav_active_and_admin_only():
     assert '시공사례' in [i['label'] for i in gw.build_nav('/projects', 'admin')['items']]
 
     hr_nav = gw.build_nav('/hr/me', 'editor')
-    assert [i['label'] for i in hr_nav['items']] == ['내 정보']                 # 구성원은 HR 관리자만
+    assert [i['label'] for i in hr_nav['items']] == ['내 정보', '연말정산']     # 구성원·연말정산 현황은 HR 관리자만
     hr_nav = gw.build_nav('/hr/people', 'editor', is_hr_admin=True)
     assert [i['label'] for i in hr_nav['items'] if i['active']] == ['구성원']
     admin_nav = gw.build_nav('/gw/admin', 'admin')

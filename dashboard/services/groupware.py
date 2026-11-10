@@ -178,6 +178,8 @@ AREAS = [
         'items': [
             {'href': '/hr/me', 'label': '내 정보', 'icon': 'fas fa-user', 'field': True},
             {'href': '/hr/people', 'label': '구성원', 'icon': 'fas fa-users', 'hr_admin': True},
+            {'href': '/yearend', 'label': '연말정산', 'icon': 'fas fa-receipt', 'field': True},
+            {'href': '/yearend/admin', 'label': '연말정산 현황', 'icon': 'fas fa-clipboard-check', 'hr_admin': True},
         ],
     },
     {

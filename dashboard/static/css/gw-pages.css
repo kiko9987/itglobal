@@ -276,6 +276,132 @@
   color: #64748b;
 }
 
+/* ── 연말정산 ─────────────────────────────────── */
+.gw-ye-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gw-ye-season {
+  color: #475569;
+  font-size: 0.9rem;
+}
+
+.gw-ye-notice {
+  color: #9a3412;
+  font-size: 0.88rem;
+}
+
+.gw-callout-warn {
+  background: #fef2f2;
+  color: #991b1b;
+  margin: 0 0 14px;
+}
+
+.gw-ye-methods {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  margin: 6px 0 10px;
+}
+
+.gw-ye-method {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 0.92rem;
+}
+
+.gw-ye-method.sm {
+  align-items: center;
+  padding: 8px 12px;
+}
+
+.gw-ye-method.on {
+  border-color: #fb923c;
+  background: #fff7ed;
+}
+
+.gw-ye-method input {
+  margin-top: 3px;
+}
+
+.gw-ye-method small {
+  color: #64748b;
+}
+
+.gw-ye-steps {
+  margin: 4px 0 10px;
+  padding-left: 20px;
+  font-size: 0.88rem;
+  color: #334155;
+}
+
+.gw-ye-steps li {
+  padding: 2px 0;
+}
+
+.gw-ye-check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.92rem;
+  padding: 4px 0;
+}
+
+.gw-ye-files {
+  list-style: none;
+  padding: 0;
+  margin: 4px 0 6px;
+  font-size: 0.88rem;
+}
+
+.gw-ye-files li {
+  padding: 3px 0;
+}
+
+.gw-ye-probs {
+  color: #b45309;
+  font-size: 0.88rem;
+  padding-left: 18px;
+}
+
+.gw-ye-season-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.gw-ye-season-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.8rem;
+  color: #475569;
+}
+
+.gw-page .gw-ye-season-form .form-select-sm,
+.gw-page .gw-ye-season-form .form-control-sm {
+  width: 200px;
+}
+
+.gw-page .gw-ye-season-form .gw-ye-wide .form-control-sm {
+  width: 320px;
+}
+
+.gw-ye-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
 /* 서류 */
 .gw-doc-name {
   max-width: 280px;

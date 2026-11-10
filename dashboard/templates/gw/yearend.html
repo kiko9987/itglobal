@@ -1,0 +1,28 @@
+{% extends "modern_base.html" %}
+
+{% block title %}연말정산 - IT글로벌 그룹웨어{% endblock %}
+
+{% block additional_css %}
+<link rel="stylesheet" href="{{ gw_asset('css/gw-pages.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="gw-page gw-page-narrow">
+  <div class="gw-page-head">
+    <h1 class="gw-page-title" id="yeTitle">연말정산</h1>
+    {% if is_hr_admin %}<a class="btn btn-sm btn-outline-secondary" href="/yearend/admin">현황판</a>{% endif %}
+  </div>
+  {% if person_id %}
+  <div id="yeBox" aria-live="polite"><div class="gw-empty">불러오는 중…</div></div>
+  {% else %}
+  <div class="gw-empty gw-empty-box">아직 인사카드가 연결되지 않았습니다. 경영지원에 문의해 주세요.</div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block additional_js %}
+{% if person_id %}
+<script>window.GW_YE = { mode: 'me' };</script>
+<script src="{{ gw_asset('js/gw-yearend.js') }}" defer></script>
+{% endif %}
+{% endblock %}
