@@ -152,3 +152,10 @@ def test_data_format_requests_checkbox_stops_at_data_rows():
     cells = [r['repeatCell'] for r in reqs if 'repeatCell' in r]
     assert len(cells) == pct.WIDTH and all(c['range']['endRowIndex'] == 200 for c in cells)
     assert not [r for r in pct.data_format_requests(7, 60, 80, check_end=50) if 'setDataValidation' in r]
+
+
+def test_dropdown_cols_map_to_main_headers():
+    src = dict(LAYOUT)
+    assert all(h in HEADERS for h in pct.DROPDOWN_COLS)
+    assert src['거래처'] == '거래처명' and src['사업자명'] == '사업자명'
+    assert pct.dropdown_requests(None, 'x', 1, 5, 5) == []      # 붙일 줄 없으면 API 안 부름
