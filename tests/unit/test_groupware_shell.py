@@ -1,0 +1,118 @@
+"""그룹웨어 새 틀(2026-11-10) — 시범 명단·전체 켜기·메뉴·화면 틀 고르기."""
+import pytest
+from flask import Flask, render_template_string, session
+
+from dashboard.services import groupware as gw
+
+
+@pytest.fixture
+def db(tmp_path, monkeypatch):
+    from dashboard.utils.user_database import UserDatabase
+    d = UserDatabase(db_path=str(tmp_path / 'users.db'))
+    monkeypatch.setattr(gw, '_db', lambda: d)
+    monkeypatch.setattr(gw, '_table_ready', False)
+    gw._invalidate()
+    yield d
+    gw._invalidate()
+
+
+def test_seed_only_kiko_and_others_keep_old(db):
+    assert gw.can_use('kiko@itg-aircon.com')
+    assert gw.can_use('KiKO@itg-aircon.com')            # 대소문자 무관
+    assert not gw.can_use('someone@itg-aircon.com')
+    assert not gw.can_use('')
+    assert [p['email'] for p in gw.list_pilots()] == ['kiko@itg-aircon.com']
+
+
+def test_seed_runs_once_even_after_removal(db, monkeypatch):
+    gw.remove_pilot('kiko@itg-aircon.com')
+    monkeypatch.setattr(gw, '_table_ready', False)      # 서버 재시작 흉내
+    gw._invalidate()
+    assert gw.list_pilots() == []                      # 지운 사람이 되살아나지 않음
+
+
+def test_add_remove_and_open_all(db):
+    gw.add_pilot(' SB@itg-aircon.com ', by='kiko@itg-aircon.com')
+    assert gw.can_use('sb@itg-aircon.com')              # 캐시도 바로 비움 → 재시작 없이 반영
+    gw.remove_pilot('sb@itg-aircon.com')
+    assert not gw.can_use('sb@itg-aircon.com')
+    with pytest.raises(ValueError):
+        gw.add_pilot('이메일아님', by='x')
+    gw.set_open_all(True, by='kiko@itg-aircon.com')
+    assert gw.can_use('anyone@itg-aircon.com') and gw.is_open_all()
+    gw.set_open_all(False, by='kiko@itg-aircon.com')
+    assert not gw.can_use('anyone@itg-aircon.com')
+
+
+def test_session_off_returns_old_layout(db):
+    assert gw.wants_new_layout('kiko@itg-aircon.com', session_off=False)
+    assert not gw.wants_new_layout('kiko@itg-aircon.com', session_off=True)
+    assert not gw.wants_new_layout('someone@itg-aircon.com', session_off=False)
+
+
+def test_db_error_falls_back_to_old(monkeypatch):
+    def boom():
+        raise RuntimeError('db down')
+    monkeypatch.setattr(gw, '_db', boom)
+    monkeypatch.setattr(gw, '_table_ready', False)
+    gw._invalidate()
+    assert not gw.can_use('kiko@itg-aircon.com')      # 화면은 기존 틀로라도 뜬다
+    gw._invalidate()
+
+
+def test_build_nav_active_and_admin_only():
+    nav = gw.build_nav('/leads', 'editor')
+    assert [a['label'] for a in nav['areas']] == ['영업', '경영지원']
+    assert nav['areas'][0]['active'] and not nav['areas'][1]['active']
+    labels = [i['label'] for i in nav['items']]
+    assert labels == ['프로젝트', '고객 리드', '매출통계']            # 시공사례는 관리자만
+    assert [i['label'] for i in nav['items'] if i['active']] == ['고객 리드']
+
+    nav = gw.build_nav('/settlement/collected', 'super_admin')
+    assert nav['areas'][1]['active'] and [i['label'] for i in nav['items']] == ['월별 수금']
+    assert '시공사례' in [i['label'] for i in gw.build_nav('/projects', 'admin')['items']]
+
+    nav = gw.build_nav('/admin/cache-monitor', 'admin')        # 메뉴에 없는 화면
+    assert nav['items'] == [] and not any(a['active'] for a in nav['areas'])
+    assert gw.build_nav('/projectsX', 'admin')['items'] == []   # 앞부분만 같은 주소는 아님
+
+
+def _app():
+    from dashboard.blueprints.groupware import groupware_bp
+    app = Flask('t')
+    app.secret_key = 't'
+    app.register_blueprint(groupware_bp)
+    return app
+
+
+def test_context_processor_picks_layout(db):
+    app = _app()
+    tpl = "{{ gw_layout }}|{{ gw_can_switch|default(False) }}|{{ (gw_nav['items']|map(attribute='label')|join(',')) if gw_layout else '' }}"
+    with app.test_request_context('/projects'):
+        session['user'] = {'email': 'someone@itg-aircon.com', 'permission_level': 'admin'}
+        assert render_template_string(tpl) == 'False|False|'
+    with app.test_request_context('/projects'):
+        session['user'] = {'email': 'kiko@itg-aircon.com', 'permission_level': 'super_admin'}
+        assert render_template_string(tpl) == 'True|False|프로젝트,고객 리드,매출통계,시공사례'
+    with app.test_request_context('/projects'):
+        session['user'] = {'email': 'kiko@itg-aircon.com', 'permission_level': 'super_admin'}
+        session['gw_off'] = True
+        assert render_template_string(tpl) == 'False|True|'
+
+
+def test_layout_api_blocks_non_pilot(db, monkeypatch):
+    import dashboard.auth as auth
+    monkeypatch.setattr(auth, '_validate_session', lambda require_admin=False: None)
+    app = _app()
+    c = app.test_client()
+    with c.session_transaction() as s:
+        s['user'] = {'email': 'someone@itg-aircon.com', 'permission_level': 'viewer'}
+    assert c.post('/api/gw/layout', json={'new': True}).status_code == 403
+    with c.session_transaction() as s:
+        s['user'] = {'email': 'kiko@itg-aircon.com', 'permission_level': 'super_admin'}
+    assert c.post('/api/gw/layout', json={'new': False}).get_json()['new'] is False
+    with c.session_transaction() as s:
+        assert s.get('gw_off') is True
+    assert c.post('/api/gw/layout', json={'new': True}).status_code == 200
+    with c.session_transaction() as s:
+        assert 'gw_off' not in s

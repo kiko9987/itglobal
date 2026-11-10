@@ -1,0 +1,56 @@
+{# 그룹웨어 새 틀 — 왼쪽 줄(영역) + 위쪽 한 줄(하위 메뉴). 시범 명단만 보인다(gw_layout). #}
+<script>
+  /* 접은 상태를 그리기 전에 먼저 적용(깜빡임 방지). 저장소를 못 쓰면 펼친 상태 */
+  try { if (localStorage.getItem('gw.rail.collapsed') === '1') document.body.classList.add('gw-collapsed'); } catch (e) {}
+</script>
+
+<div class="gw-rail-hotzone" id="gwRailHotzone" aria-hidden="true"></div>
+
+<nav class="gw-rail" id="gwRail" aria-label="주 메뉴">
+    <button type="button" class="gw-rail-toggle" id="gwRailToggle" title="메뉴 접기" aria-label="메뉴 접기">
+        <i class="fas fa-bars" aria-hidden="true"></i>
+    </button>
+
+    <a class="gw-rail-logo" href="{{ gw_nav.areas[0].href if gw_nav.areas else '/projects' }}" title="IT글로벌">
+        <img src="{{ url_for('static', filename='images/logo.png') }}" alt="IT글로벌" width="100" height="40">
+    </a>
+
+    {% for area in gw_nav.areas %}
+    <a class="gw-rail-item{% if area.active %} active{% endif %}" href="{{ area.href }}"{% if area.active %} aria-current="page"{% endif %}>
+        <span class="gw-rail-icon"><i class="{{ area.icon }}" aria-hidden="true"></i></span>
+        <span class="gw-rail-label">{{ area.label }}</span>
+    </a>
+    {% endfor %}
+
+    <div class="gw-rail-spacer"></div>
+
+    <button type="button" class="gw-rail-item gw-rail-classic" id="gwClassicBtn" title="예전 PM 화면으로 돌아가기">
+        <span class="gw-rail-icon"><i class="fas fa-undo" aria-hidden="true"></i></span>
+        <span class="gw-rail-label">예전 화면</span>
+    </button>
+</nav>
+
+<header class="gw-topbar" id="gwTopbar">
+    <button type="button" class="gw-topbar-menu" id="gwTopbarMenu" title="메뉴 펼치기" aria-label="메뉴 펼치기">
+        <i class="fas fa-bars" aria-hidden="true"></i>
+    </button>
+
+    {% if gw_nav['items'] %}
+    <nav class="gw-subnav" aria-label="하위 메뉴">
+        {% for item in gw_nav['items'] %}
+        <a class="gw-subnav-item{% if item.active %} active{% endif %}" href="{{ item.href }}"{% if item.active %} aria-current="page"{% endif %}>
+            <i class="{{ item.icon }}" aria-hidden="true"></i>{{ item.label }}
+        </a>
+        {% endfor %}
+    </nav>
+    {% endif %}
+
+    <!-- 시스템 알림 슬롯 (Toast.js가 이 id 로 찾음) -->
+    <div id="systemAlertContainer" aria-live="polite" class="gw-topbar-alerts"></div>
+
+    <div class="gw-topbar-right">
+        {% include 'components/_user_menu.html' %}
+    </div>
+</header>
+
+<script src="{{ url_for('static', filename='js/groupware-shell.js') }}?v={{ cache_buster() }}" defer></script>

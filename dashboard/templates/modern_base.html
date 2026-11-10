@@ -83,13 +83,18 @@
 
     {% block additional_css %}{% endblock %}
 
+    {% if gw_layout %}
+    <!-- 그룹웨어 새 틀(시범 명단만) — 이 파일은 새 틀일 때만 읽힘 -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/groupware-shell.css') }}?v={{ cache_buster() }}">
+    {% endif %}
+
 
     <!-- Favicon -->
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
 
     <!-- PWA Manifest - Disabled for now to avoid 404 errors -->
 </head>
-<body>
+<body{% if gw_layout %} class="gw-shell"{% endif %}>
     <!-- Critical loading overlay (각 페이지에 전용 로딩 표시가 있으므로 기본 숨김) -->
     <div class="loading-overlay" id="loadingOverlay" style="display: none;">
         <div class="text-center">
@@ -98,6 +103,9 @@
         </div>
     </div>
 
+    {% if gw_layout %}
+    {% include 'components/_gw_shell.html' %}
+    {% else %}
     <!-- Header -->
     <header class="header">
         <div class="container-fluid h-100">
@@ -154,62 +162,13 @@
                     <div class="header-divider"></div>
 
                     <!-- 사용자 정보 (맨 오른쪽) -->
-                    <div class="dropdown">
-                        <button class="btn btn-user-menu dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                <i class="fas fa-user me-2"></i>
-                                <span>{{ session.user.name if session.user else '관리자' }}</span>
-                            </button>
-                            <ul class="dropdown-menu dropdown-menu-end user-dropdown">
-                                <li class="dropdown-header">
-                                    <div class="user-info-header">
-                                        <i class="fas fa-user-circle"></i>
-                                        <div>
-                                            <div class="user-name">
-                                                {{ session.user.name if session.user else '관리자' }}
-                                                <span class="user-permission-badge" id="user-role-badge"></span>
-                                            </div>
-                                            <div class="user-email">{{ session.user.email if session.user else 'admin@test.com' }}</div>
-                                        </div>
-                                    </div>
-                                </li>
-                                <li><hr class="dropdown-divider"></li>
-                                <li id="admin-menu-item" style="display: none;">
-                                    <a class="dropdown-item" href="#" onclick="openUserManagement()">
-                                        <i class="fas fa-users-cog me-2"></i>사용자 관리
-                                    </a>
-                                </li>
-                                <li id="sequence-menu-item" style="display: none;">
-                                    <a class="dropdown-item" href="#" onclick="openSequenceManagement()">
-                                        <i class="fas fa-sort-numeric-up me-2"></i>시퀀스 관리
-                                    </a>
-                                </li>
-                                <li id="constructor-menu-item" style="display: none;">
-                                    <a class="dropdown-item" href="#" onclick="openConstructorManagement()">
-                                        <i class="fas fa-hard-hat me-2"></i>시공자 관리
-                                    </a>
-                                </li>
-                                <li>
-                                    <a class="dropdown-item" href="#" onclick="openAuditLogs()">
-                                        <i class="fas fa-history me-2"></i>작업 로그
-                                    </a>
-                                </li>
-                                <li>
-                                    <a class="dropdown-item" href="#" onclick="showConvertPathsModal()">
-                                        <i class="fas fa-sync-alt me-2"></i>폴더 경로 변환
-                                    </a>
-                                </li>
-                                <li>
-                                    <a class="dropdown-item logout-item" href="/logout">
-                                        <i class="fas fa-sign-out-alt me-2"></i>로그아웃
-                                    </a>
-                                </li>
-                            </ul>
-                        </div>
+                    {% include 'components/_user_menu.html' %}
                     </div>
                 </div>
             </div>
         </div>
     </header>
+    {% endif %}
 
     <!-- Main Content -->
     <main class="main-content" id="mainContent">

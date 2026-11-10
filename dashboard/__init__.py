@@ -448,6 +448,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         from dashboard.blueprints.invoice_mgmt import invoice_bp
         from dashboard.blueprints.case_posts import case_posts_bp
         from dashboard.blueprints.collected_report import collected_report_bp
+        from dashboard.blueprints.groupware import groupware_bp
         from dashboard.blueprints.admin_sequence import sequence_bp
         from dashboard.blueprints.constructors import constructors_bp
         from dashboard.blueprints.slack_bot import slack_bp
@@ -467,6 +468,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         app.register_blueprint(invoice_bp)  # 세금계산서·사업자등록증 (PM 대시보드)
         app.register_blueprint(case_posts_bp)  # 시공사례 사진·작업지시서 접수 → 아침 자동 초안
         app.register_blueprint(collected_report_bp)  # 월별 수금 완료 정산 화면·엑셀 (에어테이블 대체)
+        app.register_blueprint(groupware_bp)  # 그룹웨어 새 틀(시범 명단만) — 틀 고르기·시범 명단 API
         app.register_blueprint(monitoring_bp)
         app.register_blueprint(admin_bp)
         app.register_blueprint(users_bp)
