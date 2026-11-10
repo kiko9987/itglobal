@@ -225,6 +225,8 @@ def _post_normalize_display(addr: str) -> str:
     """
     if not addr:
         return addr
+    # 끝에 남은 물음표 — 고객이 상호를 확신 못 해 붙인 것 (2026-11-10 L-04108 '인더크림 카페 ?')
+    addr = re.sub(r'\s*[?？]+\s*$', '', addr)
     # (법정동 + 건물명) 무-콤마 괄호 → 건물명만 밖으로, 법정동 제거 (2026-08-18 L-03702).
     #   매니저가 '(갈현동 벧엘)' 처럼 '법정동 <건물>'을 괄호로 적은 케이스. 카카오/관행
     #   정식 괄호는 '(법정동, 건물)' **콤마형**이라 미매치(아래 콤마 정리로만 처리, 괄호
@@ -700,6 +702,9 @@ _TAIL_SIGNAL = re.compile(
     r'|(?:공장|본관|별관)(?![가-힣])'
     # 설비실·공간 (앞이 괄호여도 인정 — '금호덴탈제약(주) 포장실')
     r'|전기실|기계실|방재실|관리실|회의실|전산실|서버실|휴게실|탕비실|포장실|호스텔'
+    # 영문 동(B동·A동)·캠퍼스 (2026-11-10 전체 방문 점검: 'B동 티아이로지스 전기차충전소'
+    #   L-03237, '한화오션 시흥R&D캠퍼스' L-03870 이 신호 없음으로 tail 째 유실)
+    r'|(?<![A-Za-z])[A-Za-z]동(?![가-힣])|캠퍼스'
     r'|[가-힣A-Za-z0-9]+\s*'
     r'(?:아파트|빌딩|타워|오피스텔|마을|클래스원|클래스|센터|'
     r'힐스테이트|자이|푸르지오|아이파크|래미안|롯데캐슬|이편한세상|위브|더샵|'
@@ -903,7 +908,8 @@ def _extract_building_tail(text: str) -> str:
     #    한글 2글자 이상 — 1글자 "번길" 같은 오인 차단
     #    가나다길·안길: "보라매로5가길 24 …" (2026-10-29, 기존엔 'N가길'을 못 읽어 tail 유실)
     m = re.search(
-        r'[가-힣]{2,}\d*(?:로|길)(?:\s*\d+(?:번|[가나다라마바사아자차카타파하])?안?(?:로|길))?\s*\d+(?:-\d+)?(?:번지|번길)?\s*[,\s]+(.+)',
+        # 번지 뒤 붙은 '-'(해송로 143- 송도…, 2026-11-10 L-03710)도 구분자로
+        r'[가-힣]{2,}\d*(?:로|길)(?:\s*\d+(?:번|[가나다라마바사아자차카타파하])?안?(?:로|길))?\s*\d+(?:-\d+)?(?:번지|번길)?(?:\s*-(?!\d))?\s*[,\s]+(.+)',
         first_line,
     )
     if m:
@@ -931,6 +937,13 @@ def _extract_building_tail(text: str) -> str:
         # 리딩 구분자/부호 정리 (사용자가 ". ", "/ ", "- " 같은 구분자 쓴 케이스)
         # 예: "완정로 24 . 이성빌딩" → group(1) = ". 이성빌딩" → "이성빌딩"
         tail = re.sub(r'^[,.·\-/\s]+', '', tail).strip()
+        # '상호 가가 (와인바)'처럼 항목명으로 시작하면 뒤는 상호 — 건물 신호 없어도 인정
+        #   (2026-11-10 L-03229: 신호 없음으로 상호째 유실). 항목명은 떼어 냄.
+        _labeled = False
+        _m_lab = re.match(r'(?:상호명?|업체명|가게명|매장명)\s*[:：]?\s+(?=\S)', tail)
+        if _m_lab:
+            tail = tail[_m_lab.end():]
+            _labeled = True
         # 종료 키워드까지 자르기 — 앞의 여는 괄호도 함께 자름
         # (2026-07-21 L-03317: "중국마사지샵(예정)" → '예정' 앞 '(' 만 남는 이슈)
         cut_pos = len(tail)
@@ -1001,7 +1014,7 @@ def _extract_building_tail(text: str) -> str:
             tail = tail[:_m_room.start()] + _m_room.group(1) + '호'
 
         # 의미 있는 건물·층·호 신호 있는지 검증
-        if 2 <= len(tail) <= 60 and _TAIL_SIGNAL.search(tail):
+        if 2 <= len(tail) <= 60 and (_labeled or _TAIL_SIGNAL.search(tail)):
             # facility_prefix가 있으면 함께 부착 (예: "회사명 + 건물명")
             return f"{tail} {facility_prefix}".strip() if facility_prefix else tail
 
@@ -1303,17 +1316,22 @@ def verify_address(
                 #   끝자리 숫자 다르면 (유스페이스1 vs 유스페이스2) 다른 건물이라 유지.
                 if tail_words:
                     from difflib import SequenceMatcher as _SM
-                    _base_words = base.split()
+                    # 건물명 부분(도로+번지 뒤)과만 비교하고, 한쪽이 다른 쪽을 통째로 품으면
+                    #   오탈자가 아님 (2026-11-10 L-03883: 지역 '영등포구'와 '영등포구청역'을
+                    #   유사도 0.8 오탈자로 보고 역 이름 삭제).
+                    _base_words = _base_bldg.split()
                     def _tnum(s):
                         _m = re.search(r'(\d+)$', s)
                         return _m.group(1) if _m else ''
                     _kept = []
                     for _tw in tail_words:
+                        _twl = _tw.lower()
                         _dup = any(
-                            len(_tw) >= 4 and len(_bw) >= 4 and _tw != _bw
-                            and _tw[:2] == _bw[:2]
-                            and _tnum(_tw) == _tnum(_bw)
-                            and _SM(None, _tw, _bw).ratio() >= 0.7
+                            len(_twl) >= 4 and len(_bw) >= 4 and _twl != _bw
+                            and _twl[:2] == _bw[:2]
+                            and _tnum(_twl) == _tnum(_bw)
+                            and not (_bw in _twl or _twl in _bw)
+                            and _SM(None, _twl, _bw).ratio() >= 0.7
                             for _bw in _base_words
                         )
                         if not _dup:
@@ -1404,6 +1422,16 @@ def verify_address(
         if road and road.get('address_name'):
             base = normalize_display(road['address_name'])
             building_name = (road.get('building_name') or '').strip()
+            # 건물명 앞에 붙은 지역 낱말(시도·구·동) 제거 — 주소에 이미 있음 (2026-11-10
+            #   ETC-661cc3 '인천 석남동 에스앤케이 복합물류센터' → '에스앤케이 복합물류센터')
+            _regs = {(road.get(k) or '').strip() for k in (
+                'region_1depth_name', 'region_2depth_name', 'region_3depth_name')} - {''}
+            _bw = building_name.split()
+            while len(_bw) > 1 and _bw[0] in _regs:
+                _bw.pop(0)
+            # 떼고 남은 게 숫자뿐이면('교문동 108' → '108') 지번형 이름이라 원래대로 둠 (L-04454)
+            if not re.fullmatch(r'[\d\s-]+', ' '.join(_bw)):
+                building_name = ' '.join(_bw)
             # 아파트명 축약·오기 승격 (L-03695): 고객 tail 이 아파트 근사치이고 카카오·
             #   행안부가 같은 아파트로 일치하면 공식명으로 tail 교체 → 아래 skip 로직이
             #   중복 없이 공식명 부착. 조건 미충족이면 building_tail 불변(원문 유지).
@@ -1423,6 +1451,9 @@ def verify_address(
                     r'아파트|빌딩|타워|상가|오피스텔|프라자|플라자|스퀘어|'
                     r'맨션|빌라|하우스|리조트|콘도|레지던스|'
                     r'대학|학교|병원|공장|센터|파크|가든|타운|허브|쇼핑몰|백화점|'
+                    # 캠퍼스 (2026-11-10 L-03870: '한화오션 시흥R&D캠퍼스' 앞에 카카오 옛 이름
+                    #   '대우조선해양 연구개발시설'까지 붙음)
+                    r'캠퍼스|'
                     # 회관·연수원 (2026-10-16 L-04273: '새마을 교통회관' 고객 tail 에 카카오
                     #   건물명 '사단법인 서울특별시 교통회관'을 또 붙여 중복)
                     r'회관|연수원|'
@@ -1513,7 +1544,21 @@ def verify_address(
             return (_compose(normalize_display(jibun['address_name'])), 'verified')
         return None
 
-    for cand in _build_candidates(text, clean_regex):
+    _cands = _build_candidates(text, clean_regex)
+    # '언주로 107 27'(= 언주로107길 27, '길' 빠뜨림) — '언주로 107'도 실재 주소라 그대로 확정되고
+    #   뒤 '27'이 tail 로 남던 것 (2026-11-10 L-03650 다슬빌딩). 'N길 M' 형태가 실재하고 그
+    #   주소의 카카오 건물명이 원문에 있을 때만 먼저 시도 → '천마산로 113 302'(호수) 등 무영향.
+    _fl = (text or '').strip().split('\n', 1)[0]
+    _mg = re.search(
+        r'([가-힣]{2,}로)\s*(\d+)\s+(\d+(?:-\d+)?)'
+        r'(?![\d-]|\s*(?:층|호|동|번지|번길|차|단지|평|대|[Ff]))', _fl)
+    if _mg:
+        _gil = f'{_fl[:_mg.start()]}{_mg.group(1)}{_mg.group(2)}길 {_mg.group(3)}'.strip()
+        _gd = _kakao_search(_gil) or {}
+        _gb = ((_gd.get('road_address') or {}).get('building_name') or '').replace(' ', '')
+        if len(_gb) >= 2 and _gb in _fl.replace(' ', ''):
+            _cands.insert(0, _gil)
+    for cand in _cands:
         result = _try_kakao(cand)
         if result:
             return result
@@ -2209,6 +2254,11 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
             _rest = _pn_ns[len(_acc):]
             if not _rest or re.fullmatch(r'(?:주상복합)?(?:아파트|오피스텔|빌라|맨션)', _rest):
                 continue
+            # 남는 게 동 번호인데 고객이 바로 뒤에 다른 동을 적었으면 다른 동 POI (2026-11-10
+            #   L-04021: '본관 2동' 인데 POI '본관1동' 을 붙여 '본관1동 2동')
+            if (re.fullmatch(r'[A-Za-z]?\d+동', _rest)
+                    and re.match(r'\s+[A-Za-z]?\d+동', verified_addr[_span_end:])):
+                continue
             # 남는 접미가 부속시설·관리조직이면 지점명 아님 (2026-10-12 L-03152:
             #   '동탄역린스트라우스입주자대표회의' 부착)
             if any(f in _rest for f in _POI_FACILITY_SUBSTR + ('입주자대표회의',)):
@@ -2261,6 +2311,15 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
             if (_pfx and ' ' in _pfx.strip()
                     and place_name.replace(' ', '') not in original_text.replace(' ', '')):
                 _pfx = None
+            # 접두가 이미 주소 건물명 부분에 있는 낱말을 품으면 같은 건물의 다른 표기 →
+            #   붙이면 겹침 (2026-11-10 L-03791: '마젤란 21 아스테리움' + POI
+            #   '유진마젤란아스테리움' → '마젤란 21 유진마젤란아스테리움')
+            if _pfx:
+                _vb = re.split(r'(?:로|길)\s*\d+(?:-\d+)?(?![\d가-힣-])', verified_addr, 1)
+                _vb_toks = [t for t in (_vb[1] if len(_vb) > 1 else '').split()
+                            if len(t) >= 2 and not re.search(r'\d', t) and t != cand]
+                if any(t in _pfx for t in _vb_toks):
+                    _pfx = None
             # startswith('cand X'): cand 가 exact POI 로 실재(=건물/장소)하면 X 는 지점명이
             #   아니라 입점 업체(관악더행복마루 스크린파크골프장) → 지점(점/지점) 접미가
             #   아닌 한 append 금지 (2026-08-06 L-03541). exact 없으면 지점명 보강 유지
@@ -2561,6 +2620,8 @@ _NOTE_PAREN_KW = _NOTE_TAIL_KW + (
     #   현장 출입 노트 → 상담 내용으로 분리. 괄호 내부에만 적용되고 주소성 괄호
     #   ('(101동)'·'(별관)')엔 안 나타나는 어휘라 오분리 위험 낮음.
     '비밀번호', '비번', '도어락', '현관', '출입', '호출',
+    # 현장 상태 (2026-11-10 L-03575 '(현재 철거중)'이 변환 주소에 남음)
+    '철거', '공사중',
 )
 
 
@@ -2646,6 +2707,15 @@ def split_address_notes(addr: str) -> Tuple[str, str]:
         notes.insert(0, ' '.join(tail))
         s = ' '.join(toks[:cut]).strip()
 
+    # 3) 끝의 방문 시각 메모 — '…3층 오전 9시 방문' (2026-11-10 ETC-d3aa6f). 오전·오후 등
+    #    시간대 낱말로 시작하는 시각만(숫자 단독 'N시'는 주소와 헷갈릴 수 있어 제외).
+    _mt = re.search(
+        r'\s((?:오전|오후|저녁|점심|아침)\s*\d{1,2}\s*시(?:\s*\d{1,2}\s*분|\s*반)?'
+        r'(?:\s*(?:방문|이후|이전|부터|까지|쯤|경|예정|도착))*)$', s)
+    if _mt and re.search(r'(?:로|길)\s*\d|\d+\s*(?:층|호)', s[:_mt.start()]):
+        notes.insert(0, _mt.group(1).strip())
+        s = s[:_mt.start()].strip()
+
     return s, ' / '.join(n for n in notes if n)
 
 
@@ -2665,7 +2735,8 @@ def _mark_planned(addr: str) -> str:
     """
     if not addr or '예정' not in addr:
         return addr
-    addr = re.sub(r'([가-힣]{2,})\s*예정지(?=\s|$)', r'\1 (예정)', addr)
+    # '예정지공실'(예정지+공실 붙여 씀)도 같은 뜻 (2026-11-10 L-04211 '까페 예정지공실')
+    addr = re.sub(r'([가-힣]{2,})\s*예정지(?:\s*공실)?(?=\s|$)', r'\1 (예정)', addr)
     addr = re.sub(r'([가-힣]{2,})예정(?=\s|$)', r'\1 (예정)', addr)
     # 이미 괄호 친 '한의원(예정)'(공백 없이 붙은) → '한의원 (예정)' (L-03680). 고객·매니저가
     #   상호에 붙여 쓴 케이스. 앞이 한글일 때만 (숫자/공백은 정상 → 무변).
@@ -3260,6 +3331,15 @@ def resolve_address(
     if regex_addr:
         addr = normalize_display(regex_addr)
         addr = _enrich_verified_address(addr, text, regex_addr)
+        # 정규식이 tail 중간에서 멈춘 경우 나머지 이어 붙임 (2026-11-10 L-04261: '정조로 409
+        #   10전투비행단 사무실' → 정규식은 '10전투비행단'까지 → '사무실' 유실). 결과 끝이 tail
+        #   앞부분과 정확히 같을 때만 뒤 낱말을 붙임.
+        _bt = _flatten_paren_tail(_extract_building_tail(text))
+        _btw = _bt.split()
+        for _k in range(len(_btw) - 1, 0, -1):
+            if addr.endswith(' ' + ' '.join(_btw[:_k])):
+                addr = f"{addr} {' '.join(_btw[_k:])}"
+                break
         # 인접 유사 토큰 dedup·표기 정정 (2026-09-28 L-04113): 정규식 경로만 이 후처리를
         #   빠뜨려 '대륭테크노타운12 대륭테크노타운12차'(extract 가 '차' 떨군 뒤 enrich 가
         #   원문 tail 재부착) 같은 중복이 남던 갭. 타 경로(kakao·juso·POI)와 순서 통일.

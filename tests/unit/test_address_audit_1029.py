@@ -325,5 +325,38 @@ def test_company_systems_suffix_not_cut():
     assert E('강남구 테헤란로 207 8층 한빛시스템스 시스템에어컨 설치')[0] == '강남구 테헤란로 207 8층 한빛시스템스'
 
 
+
+# ── 2026-11-10 전체 방문 1,230건 재변환 점검 ──
+def test_tail_letter_dong_and_campus_signal():
+    assert ar._extract_building_tail(
+        '화성 만세구 우정읍 포승향남로 2015-9 B동 티아이로지스 전기차충전소'
+    ) == 'B동 티아이로지스 전기차충전소'
+    assert ar._extract_building_tail('시흥 배곧2로 96 한화오션 시흥R&D캠퍼스') == '한화오션 시흥R&D캠퍼스'
+
+
+def test_tail_labeled_shop_name():
+    assert ar._extract_building_tail('종로구 계동길 5 상호 가가 (와인바)') == '가가 (와인바)'
+
+
+def test_tail_after_trailing_dash():
+    assert ar._extract_building_tail(
+        '인천 연수구 해송로 143- 송도 웰카운티 1단지 관리 사무소'
+    ) == '송도 웰카운티 1단지 관리 사무소'
+
+
+def test_notes_time_and_demolition():
+    assert ar.split_address_notes('방배로 83 연세베스트 재활의학과 3층 오전 9시 방문') == (
+        '방배로 83 연세베스트 재활의학과 3층', '오전 9시 방문')
+    assert ar.split_address_notes('부평구 부평대로 25 2층 한의원 예정지 (현재 철거중)') == (
+        '부평구 부평대로 25 2층 한의원 예정지', '현재 철거중')
+    # 시간대 낱말 없는 숫자·주소만 있는 줄은 그대로
+    assert ar.split_address_notes('강남구 테헤란로 207 8층')[1] == ''
+
+
+def test_planned_with_vacancy_and_question_mark():
+    assert ar._mark_planned('꽃내음3길 46 1층 까페 예정지공실') == '꽃내음3길 46 1층 까페 (예정)'
+    assert ar._post_normalize_display('송파구 중대로27길 1 인더크림 카페 ?') == '송파구 중대로27길 1 인더크림 카페'
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
