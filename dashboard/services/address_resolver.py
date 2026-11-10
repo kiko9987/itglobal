@@ -850,7 +850,7 @@ def _flatten_paren_tail(tail: str) -> str:
     return result
 
 
-def _extract_building_tail(text: str) -> str:
+def _extract_building_tail(text: str, require_signal: bool = True) -> str:
     """
     원본 텍스트에서 도로명/동 + 번지 뒤의 건물·동·층·호 정보 추출.
 
@@ -1014,7 +1014,10 @@ def _extract_building_tail(text: str) -> str:
             tail = tail[:_m_room.start()] + _m_room.group(1) + '호'
 
         # 의미 있는 건물·층·호 신호 있는지 검증
-        if 2 <= len(tail) <= 60 and (_labeled or _TAIL_SIGNAL.search(tail)):
+        # require_signal=False: 신호 검사 없이 번지 뒤 원문(절단어·평수 등 정리 후)을 돌려줌 —
+        #   카카오 건물명이 그 안에 있는지 확인용 (2026-11-10 '…검사소')
+        if 2 <= len(tail) <= 60 and (_labeled or not require_signal
+                                     or _TAIL_SIGNAL.search(tail)):
             # facility_prefix가 있으면 함께 부착 (예: "회사명 + 건물명")
             return f"{tail} {facility_prefix}".strip() if facility_prefix else tail
 
@@ -1432,6 +1435,15 @@ def verify_address(
             # 떼고 남은 게 숫자뿐이면('교문동 108' → '108') 지번형 이름이라 원래대로 둠 (L-04454)
             if not re.fullmatch(r'[\d\s-]+', ' '.join(_bw)):
                 building_name = ' '.join(_bw)
+            # 건물 신호가 없어 tail 을 못 잡았어도, 번지 뒤 원문에 카카오 건물명이 그대로 들어
+            #   있으면 고객이 그 건물을 이름으로 적은 것 → 원문 tail 채택 (2026-11-10
+            #   '한국교통안전공단 성산자동차검사소' + 카카오 '성산자동차검사소' → 원문 유실 후
+            #   카카오명·POI '서울본부'가 따로 붙던 것)
+            if not building_tail and len(building_name) >= 3:
+                _raw_tail = _flatten_paren_tail(_extract_building_tail(text, require_signal=False))
+                if (_raw_tail and building_name.replace(' ', '').lower()
+                        in _raw_tail.replace(' ', '').lower()):
+                    building_tail = _raw_tail
             # 아파트명 축약·오기 승격 (L-03695): 고객 tail 이 아파트 근사치이고 카카오·
             #   행안부가 같은 아파트로 일치하면 공식명으로 tail 교체 → 아래 skip 로직이
             #   중복 없이 공식명 부착. 조건 미충족이면 building_tail 불변(원문 유지).
@@ -2210,7 +2222,9 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
     for _jc, _spaced in _joined_shop_candidates(original_text):
         if _spaced not in verified_addr:
             continue
-        _jresults = _search_poi(f'{_jc} {region}'.strip())
+        _jresults = sorted(
+            _search_poi(f'{_jc} {region}'.strip()),
+            key=lambda r: (r[0] or '').replace(' ', '') not in original_text.replace(' ', ''))
         # 결합형 자체가 같은 도로의 정식 POI(=건물)면 '결합형 X'의 X는 입점 업체 →
         #   치환 금지 (2026-10-20 L-04307: '크란츠 테크노' → '크란츠테크노 어머니맛나부페',
         #   L-04213 _bld_exists 와 같은 원리). 원문에 그 이름이 있으면 기존대로.
@@ -2270,8 +2284,12 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
         [c for c in candidates if c not in verified_addr]
         + [c for c in candidates if c in verified_addr]
     )
+    _orig_ns = original_text.replace(' ', '')
     for cand in priority[:5]:
         results = _search_poi(f'{cand} {region}'.strip())
+        # 원문에 그대로 있는 이름을 먼저 (2026-11-10: '인천지방법원 부천지원 김포시법원'을 적었는데
+        #   같은 번지 POI 첫 결과 '… 김포등기소'로 바꿈). 정렬은 안정적이라 나머지 순서는 유지.
+        results = sorted(results, key=lambda r: (r[0] or '').replace(' ', '') not in _orig_ns)
         # cand 자체가 같은 도로의 정식 POI 로 실재하면 = 그 이름의 건물/장소가 존재.
         #   이때 'cand 로 끝나는' 접두 변형(PINS어반322, 슈퍼스타 어반322)은 같은
         #   건물의 다른 입점 업체 → endswith 로 치환/부착하면 건물명을 엉뚱한 테넌트로
