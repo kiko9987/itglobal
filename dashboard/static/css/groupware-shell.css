@@ -1079,3 +1079,30 @@ body.gw-shell .main-content .container-fluid:has(.stats-card) > .content-contain
   margin-left: auto;
   margin-right: auto;
 }
+
+/* 필터가 걸리면 「초기화」도 같이 살아나게(11-10 KiKO: 고른 칩만 검고 초기화는 회색이라 누를 곳이 안 보임).
+   평소엔 회색 알약, 필터가 하나라도 걸리면 짙은 테두리·굵은 글씨·흰 바탕 — 고른 칩(짙은 남색)과 짝 */
+body.gw-shell .filter-section.has-active-filters .btn[onclick*="resetFilters"],
+body.gw-shell .filter-section.has-active-filters #resetFiltersBtn {
+  background: #ffffff !important;
+  border: 1.5px solid #2a3038 !important;
+  color: #1a1c20 !important;
+  font-weight: 700;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+body.gw-shell .filter-section.has-active-filters .btn[onclick*="resetFilters"] i,
+body.gw-shell .filter-section.has-active-filters #resetFiltersBtn i {
+  color: #1a1c20;
+}
+
+body.gw-shell .filter-section.has-active-filters .btn[onclick*="resetFilters"]:hover,
+body.gw-shell .filter-section.has-active-filters #resetFiltersBtn:hover {
+  background: #2a3038 !important;
+  color: #ffffff !important;
+}
+
+body.gw-shell .filter-section.has-active-filters .btn[onclick*="resetFilters"]:hover i,
+body.gw-shell .filter-section.has-active-filters #resetFiltersBtn:hover i {
+  color: #ffffff;
+}
