@@ -613,6 +613,153 @@ body.gw-shell #toast-container > * {
   pointer-events: auto;
 }
 
+/* ── 공통 모양 규칙(당근 비즈니스 실측 기준, 11-10) ─────────────────────────
+   · 카드: 흰 바탕 + 1px 회색 테두리 + 둥글기 12px, 그림자 없음
+   · 단추: 화면의 주 동작 = 짙은 남색(#2a3038) / 나머지 = 흰 바탕 회색 테두리 / 「만들기」 하나만 주황
+   · 삭제·경고(빨강·노랑)·상태색 단추는 색이 뜻이라 그대로 둠
+   · 큰 숫자는 검정 글자(색은 증감·상태에만) */
+body.gw-shell .content-container,
+body.gw-shell .stats-card,
+body.gw-shell .chart-container,
+body.gw-shell .gw-panel,
+body.gw-shell .cr-card {
+  border: 1px solid #e5e7eb !important;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+}
+
+body.gw-shell .stats-card:hover {
+  transform: none;
+  box-shadow: none !important;
+}
+
+body.gw-shell .stats-value,
+body.gw-shell .cr-card .v {
+  color: #1a1c20 !important;
+}
+
+/* 주 동작 */
+body.gw-shell .btn-primary,
+body.gw-shell .btn-success {
+  --bs-btn-color: #ffffff;
+  --bs-btn-bg: #2a3038;
+  --bs-btn-border-color: #2a3038;
+  --bs-btn-hover-color: #ffffff;
+  --bs-btn-hover-bg: #111418;
+  --bs-btn-hover-border-color: #111418;
+  --bs-btn-active-color: #ffffff;
+  --bs-btn-active-bg: #111418;
+  --bs-btn-active-border-color: #111418;
+  --bs-btn-disabled-color: #ffffff;
+  --bs-btn-disabled-bg: #2a3038;
+  --bs-btn-disabled-border-color: #2a3038;
+  background-color: var(--bs-btn-bg);
+  border-color: var(--bs-btn-border-color);
+  color: var(--bs-btn-color);
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+body.gw-shell .btn-primary:hover,
+body.gw-shell .btn-success:hover {
+  background-color: #111418;
+  border-color: #111418;
+  color: #ffffff;
+}
+
+/* 나머지 동작 */
+body.gw-shell .btn-outline-primary,
+body.gw-shell .btn-outline-secondary,
+body.gw-shell .btn-secondary,
+body.gw-shell .btn-light,
+body.gw-shell .btn-soft-primary,
+body.gw-shell .btn-soft-success {
+  --bs-btn-color: #1a1c20;
+  --bs-btn-bg: #ffffff;
+  --bs-btn-border-color: #dcdee3;
+  --bs-btn-hover-color: #1a1c20;
+  --bs-btn-hover-bg: #f7f8f9;
+  --bs-btn-hover-border-color: #b9bdc6;
+  --bs-btn-active-color: #ffffff;
+  --bs-btn-active-bg: #2a3038;
+  --bs-btn-active-border-color: #2a3038;
+  background: #ffffff;
+  border: 1px solid #dcdee3;
+  color: #1a1c20;
+  border-radius: 8px;
+  font-weight: 500;
+  box-shadow: none;
+}
+
+body.gw-shell .btn-outline-primary:hover,
+body.gw-shell .btn-outline-secondary:hover,
+body.gw-shell .btn-secondary:hover,
+body.gw-shell .btn-light:hover,
+body.gw-shell .btn-soft-primary:hover,
+body.gw-shell .btn-soft-success:hover {
+  background: #f7f8f9;
+  border-color: #b9bdc6;
+  color: #1a1c20;
+  box-shadow: none;
+}
+
+body.gw-shell .btn-outline-primary i,
+body.gw-shell .btn-outline-secondary i,
+body.gw-shell .btn-soft-primary i,
+body.gw-shell .btn-soft-success i {
+  color: #555d6d;
+}
+
+/* 「만들기」 — 화면에 하나만 주황 */
+body.gw-shell .btn[onclick*="openNewProjectModal"] {
+  background: #ff6f0f;
+  border-color: #ff6f0f;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+body.gw-shell .btn[onclick*="openNewProjectModal"]:hover {
+  background: #e85f00;
+  border-color: #e85f00;
+  color: #ffffff;
+}
+
+body.gw-shell .btn[onclick*="openNewProjectModal"] i {
+  color: #ffffff;
+}
+
+/* 보기 바꾸기(테이블·캘린더 등 btn-group) — 알약 모양 묶음, 고른 것만 짙게 */
+body.gw-shell #viewSwitcher {
+  padding: 3px;
+  gap: 2px;
+  border-radius: 9999px;
+  background: #f2f3f6;
+}
+
+body.gw-shell #viewSwitcher > .btn {
+  border: 0 !important;
+  border-radius: 9999px !important;
+  background: transparent;
+  color: #555d6d;
+  font-weight: 500;
+}
+
+body.gw-shell #viewSwitcher > .btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #1a1c20;
+}
+
+body.gw-shell #viewSwitcher > .btn.active,
+body.gw-shell #viewSwitcher > .btn-check:checked + .btn {
+  background: #2a3038;
+  color: #ffffff;
+}
+
+body.gw-shell #viewSwitcher > .btn.active i,
+body.gw-shell #viewSwitcher > .btn-check:checked + .btn i {
+  color: #ffffff;
+}
+
 /* ── 화면 안쪽 여백: 가로를 조금 아낀다 ─────────────────── */
 /* 기존: 바깥 container-fluid 15px + 흰 카드(content-container) 20.4px 가 양쪽에 겹쳐 있음
    → 왼쪽 줄 폭의 절반쯤을 여기서 되찾는다 */
