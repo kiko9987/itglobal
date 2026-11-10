@@ -15,7 +15,7 @@
         <img src="{{ url_for('static', filename='images/logo.png') }}" alt="IT글로벌" width="100" height="40">
     </a>
 
-    {% for area in gw_nav.areas %}
+    {% for area in gw_nav.areas if not area.bottom %}
     <a class="gw-rail-item{% if area.active %} active{% endif %}" href="{{ area.href }}"{% if area.active %} aria-current="page"{% endif %}>
         <span class="gw-rail-icon"><i class="{{ area.icon }}" aria-hidden="true"></i></span>
         <span class="gw-rail-label">{{ area.label }}</span>
@@ -23,6 +23,13 @@
     {% endfor %}
 
     <div class="gw-rail-spacer"></div>
+
+    {% for area in gw_nav.areas if area.bottom %}
+    <a class="gw-rail-item{% if area.active %} active{% endif %}" href="{{ area.href }}"{% if area.active %} aria-current="page"{% endif %}>
+        <span class="gw-rail-icon"><i class="{{ area.icon }}" aria-hidden="true"></i></span>
+        <span class="gw-rail-label">{{ area.label }}</span>
+    </a>
+    {% endfor %}
 
     <button type="button" class="gw-rail-item gw-rail-classic" id="gwClassicBtn" title="예전 PM 화면으로 돌아가기">
         <span class="gw-rail-icon"><i class="fas fa-undo" aria-hidden="true"></i></span>

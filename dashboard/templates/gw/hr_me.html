@@ -1,0 +1,33 @@
+{% extends "modern_base.html" %}
+
+{% block title %}내 정보 - IT글로벌 그룹웨어{% endblock %}
+
+{% block additional_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/gw-pages.css') }}?v={{ cache_buster() }}">
+{% endblock %}
+
+{% block content %}
+<div class="gw-page gw-page-narrow">
+  <div class="gw-page-head">
+    <h1 class="gw-page-title">내 정보</h1>
+  </div>
+
+  {% if person_id %}
+  <section class="gw-card-wrap" id="hrCard" aria-live="polite">
+    <div class="gw-empty">불러오는 중…</div>
+  </section>
+  <p class="gw-note">고칠 내용이 있으면 경영지원에 말씀해 주세요.</p>
+  {% else %}
+  <div class="gw-empty gw-empty-box">
+    아직 인사카드가 연결되지 않았습니다. 경영지원에 로그인 메일({{ session.user.email }}) 연결을 요청해 주세요.
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block additional_js %}
+{% if person_id %}
+<script>window.GW_HR = { mode: 'me', personId: {{ person_id|int }} };</script>
+<script src="{{ url_for('static', filename='js/gw-hr.js') }}?v={{ cache_buster() }}" defer></script>
+{% endif %}
+{% endblock %}

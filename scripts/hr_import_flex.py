@@ -1,0 +1,210 @@
+# -*- coding: utf-8 -*-
+"""플렉스 구성원·인사발령 → 인사 장부(hr_people·hr_appointments) (2026-11-10).
+
+읽는 곳: flex_export_20261106/플렉스_요약_20261106.xlsx(구성원·인사발령) + 원본/flex_data_20261106.json(주민번호·주소).
+  - 연봉 등 급여 정보는 옮기지 않는다.
+  - 같은 사람(플렉스 ID)은 다시 돌려도 한 줄. 사람이 화면에서 고친 칸은 덮어쓰지 않는다.
+  - 회사 메일(@itg-aircon.com)이 있으면 그 메일로 로그인(staff), 없으면 현장·미화(field) — 로그인 메일은 경영지원이 나중에 넣음.
+  - 슬랙 ID 는 휴가 장부(leave_staff)의 같은 이름에서 가져온다.
+  - 주민번호는 .env GW_HR_KEY 로 암호화해 저장. 키가 없으면 --apply 를 멈춘다.
+  - 화면 출력엔 주민번호·전화·주소를 찍지 않는다.
+
+사용:  .venv/Scripts/python.exe scripts/hr_import_flex.py                    # 미리 보기(쓰지 않음)
+       .venv/Scripts/python.exe scripts/hr_import_flex.py --apply            # 운영 사용자 DB 에 쓰기
+       .venv/Scripts/python.exe scripts/hr_import_flex.py --db <경로> --apply  # 다른 DB(시험)에 쓰기
+create_app() 은 부르지 않는다(스케줄러 이중 기동 방지).
+"""
+import argparse
+import json
+import os
+import sys
+from collections import Counter
+from datetime import date, datetime
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+DEFAULT_FLEX_DIR = Path(r'C:/Users/SECOM/Desktop/ITG-Project/flex_export_20261106')
+COMPANY_DOMAIN = '@itg-aircon.com'
+
+
+def _d(v):
+    """엑셀 날짜 칸 → 'YYYY-MM-DD' 또는 None."""
+    if v in (None, ''):
+        return None
+    if isinstance(v, (datetime, date)):
+        return v.strftime('%Y-%m-%d')
+    s = str(v).strip()
+    if not s or s == '-':
+        return None
+    try:
+        return date.fromisoformat(s[:10].replace('.', '-').replace('/', '-')).isoformat()
+    except ValueError:
+        return None
+
+
+def _s(v):
+    s = '' if v is None else str(v).strip()
+    return s if s and s != '-' else None
+
+
+_CONTRACT = {'REGULAR': '정규직', 'CONTRACT': '계약직', 'TEMPORARY': '계약직', 'PART_TIME': '시간제',
+             'INTERN': '인턴', 'DISPATCH': '파견'}
+
+
+def _contract(v):
+    s = _s(v)
+    return _CONTRACT.get(s.upper(), s) if s else None
+
+
+def _status(v):
+    s = str(v or '')
+    if '퇴사' in s:
+        return '퇴사'
+    if '휴직' in s:
+        return '휴직'
+    return '재직'
+
+
+def _sheet(wb, title):
+    ws = wb[title]
+    rows = ws.iter_rows(values_only=True)
+    hdr = [str(h).strip() if h is not None else '' for h in next(rows)]
+    return [dict(zip(hdr, r)) for r in rows if any(c not in (None, '') for c in r)]
+
+
+def _private(flex_json, fid):
+    """원본 JSON 에서 주민번호·주소만."""
+    u = (flex_json.get('users') or {}).get(fid) or {}
+    p = ((u.get('personalBundle') or {}).get('personal') or {})
+    ssn = (p.get('ssn') or '').strip()
+    addr = ' '.join(x for x in [(p.get('addressFull') or '').strip(), (p.get('addressDetails') or '').strip()] if x)
+    return ssn, addr or None
+
+
+def build_records(flex_dir: Path, leave_slack: dict):
+    import openpyxl
+    wb = openpyxl.load_workbook(flex_dir / '플렉스_요약_20261106.xlsx', read_only=True, data_only=True)
+    members = _sheet(wb, '구성원')
+    appts_rows = _sheet(wb, '인사발령')
+    flex_json = json.load(open(flex_dir / '원본' / 'flex_data_20261106.json', encoding='utf-8'))
+
+    # 같은 이름이 둘 이상(예: 재직 박민재·퇴사 박민재 = 다른 사람)이면 발령 적용일이 근무 기간 안에 드는 사람에게
+    by_name = {}
+    for m in members:
+        by_name.setdefault(_s(m.get('이름')), []).append(m)
+
+    def _owner(name, apply_date):
+        cands = by_name.get(name) or []
+        if len(cands) == 1:
+            return _s(cands[0].get('플렉스 ID'))
+        hits = [c for c in cands
+                if (_d(c.get('입사일')) or '0000') <= (apply_date or '9999') <= (_d(c.get('퇴사일')) or '9999')]
+        return _s(hits[0].get('플렉스 ID')) if len(hits) == 1 else None
+
+    appts = {}
+    skipped_appts = 0
+    for a in appts_rows:
+        fid = _owner(_s(a.get('이름')), _d(a.get('적용일')))
+        if not fid:
+            skipped_appts += 1
+            continue
+        appts.setdefault(fid, []).append({
+            'apply_date': _d(a.get('적용일')), 'department': _s(a.get('부서')), 'job_role': _s(a.get('직무')),
+            'job_rank': _s(a.get('직급')), 'job_title': _s(a.get('직책')), 'memo': _s(a.get('메모')),
+        })
+
+    records = []
+    for m in members:
+        fid = _s(m.get('플렉스 ID'))
+        name = _s(m.get('이름'))
+        if not fid or not name:
+            continue
+        work = (_s(m.get('회사 메일')) or '').lower() or None
+        personal = (_s(m.get('개인 메일')) or '').lower() or None
+        status = _status(m.get('상태'))
+        active = status != '퇴사'
+        staff = bool(work and work.endswith(COMPANY_DOMAIN))
+        ssn, addr = _private(flex_json, fid)
+        records.append({
+            'flex_id': fid, 'name': name, 'status': status,
+            'hire_date': _d(m.get('입사일')), 'group_hire_date': _d(m.get('그룹 입사일')),
+            'resign_date': _d(m.get('퇴사일')), 'last_work_date': _d(m.get('마지막 근무일')),
+            'resign_reason': _s(m.get('퇴사 사유')),
+            'department': _s(m.get('부서')), 'job_role': _s(m.get('직무')), 'job_rank': _s(m.get('직급')),
+            'job_title': _s(m.get('직책')), 'contract_type': _contract(m.get('계약 형태')),
+            'work_email': work if (work and '@' in work) else None,
+            'personal_email': personal if (personal and '@' in personal) else None,
+            'phone': _s(m.get('전화')), 'gender': _s(m.get('성별')), 'birth_date': _d(m.get('생년월일')),
+            'address': addr,
+            # 퇴사자는 로그인·슬랙 연결 없음(같은 이름 재직자와 섞이지 않게)
+            'login_email': work if (active and staff) else None,
+            'access': 'field' if (active and not staff) else 'staff',
+            'slack_id': leave_slack.get(name) if active else None,
+            'ssn': ssn,
+            '_appts': appts.get(fid, []),
+        })
+    return records, skipped_appts
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--apply', action='store_true')
+    ap.add_argument('--db', help='쓸 사용자 DB 경로(기본: 운영 instance/users.db)')
+    ap.add_argument('--flex-dir', default=str(DEFAULT_FLEX_DIR))
+    args = ap.parse_args()
+
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(ROOT / '.env')
+    except Exception:
+        pass
+
+    from dashboard.services import groupware as gw
+    from dashboard.services import hr
+    if args.db:
+        from dashboard.utils.user_database import UserDatabase
+        d = UserDatabase(db_path=args.db)
+        hr._db = lambda: d
+        gw._db = lambda: d
+        hr._table_ready = False
+        gw._table_ready = False
+
+    # 휴가 장부의 이름 → 슬랙 ID
+    leave_slack = {}
+    try:
+        with hr._db()._get_connection() as conn:
+            for r in conn.execute('SELECT name, slack_id FROM leave_staff'):
+                if r[1]:
+                    leave_slack[r[0]] = r[1]
+    except Exception as e:
+        print(f'(휴가 장부 없음 — 슬랙 ID 비움: {e})')
+
+    records, skipped_appts = build_records(Path(args.flex_dir), leave_slack)
+    key_ok = bool(os.getenv('GW_HR_KEY', '').strip())
+    by_status = Counter(r['status'] for r in records)
+    print(f'구성원 {len(records)}명 — ' + ' · '.join(f'{k} {v}' for k, v in by_status.items()))
+    print(f'주민번호 있음 {sum(1 for r in records if r["ssn"])}명 · 암호화 키 {"있음" if key_ok else "없음"}')
+    print(f'발령 이력 {sum(len(r["_appts"]) for r in records)}건 (이름이 겹치거나 없는 행 {skipped_appts}건 건너뜀)')
+    print()
+    print(f'{"이름":<6} {"상태":<3} {"부서":<10} {"직급":<6} {"접근":<6} 로그인 메일 / 슬랙 / 주민번호 / 발령')
+    for r in records:
+        print(f'{r["name"]:<6} {r["status"]:<3} {(r["department"] or "-"):<10} {(r["job_rank"] or "-"):<6} '
+              f'{r["access"]:<6} {r["login_email"] or "(없음)"} / {"O" if r["slack_id"] else "-"} / '
+              f'{"O" if r["ssn"] else "-"} / {len(r["_appts"])}')
+
+    if not args.apply:
+        print('\n미리 보기만 했습니다. 쓰려면 --apply')
+        return
+    if any(r['ssn'] for r in records) and not key_ok:
+        sys.exit('\nGW_HR_KEY 가 없어 멈춤 — 주민번호를 평문으로 저장하지 않습니다. .env 에 키를 넣고 다시 돌리세요.')
+    result = Counter()
+    for r in records:
+        appts = r.pop('_appts')
+        result[hr.upsert_from_flex(r, appts)] += 1
+    print(f'\n저장: 새로 {result["insert"]} · 고침 {result["update"]} · 그대로 {result["skip"]}')
+
+
+if __name__ == '__main__':
+    main()

@@ -26,9 +26,10 @@ def inject_groupware_layout():
         if session.get('gw_off'):
             # 시범 사용자가 「예전 화면」으로 돌린 상태 — 사용자 메뉴에 「새 화면으로」만 보임
             return {'gw_layout': False, 'gw_can_switch': True}
+        from dashboard.services import hr
         return {
             'gw_layout': True,
-            'gw_nav': gw.build_nav(request.path, user.get('permission_level', '')),
+            'gw_nav': gw.build_nav(request.path, user.get('permission_level', ''), hr.is_hr_admin(email)),
         }
     except Exception as e:
         logger.warning(f'[GW] 틀 고르기 실패 → 기존 틀: {e}')

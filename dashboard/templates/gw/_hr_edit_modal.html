@@ -1,0 +1,80 @@
+{# 인사카드 수정·구성원 추가 창 — 경영지원·대표만 열 수 있음(서버가 다시 확인) #}
+<div class="modal fade" id="hrEditModal" tabindex="-1" aria-labelledby="hrEditTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <form class="modal-content" id="hrEditForm" novalidate>
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="hrEditTitle">인사카드 수정</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
+      </div>
+      <div class="modal-body">
+        <div class="gw-form-sec">기본</div>
+        <div class="row g-2">
+          <div class="col-md-4"><label class="form-label" for="f_name">이름</label><input class="form-control form-control-sm" id="f_name" name="name" required></div>
+          <div class="col-md-4"><label class="form-label" for="f_status">상태</label>
+            <select class="form-select form-select-sm" id="f_status" name="status">
+              {% for s in statuses %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+            </select></div>
+          <div class="col-md-4"><label class="form-label" for="f_contract_type">계약 형태</label><input class="form-control form-control-sm" id="f_contract_type" name="contract_type"></div>
+          <div class="col-md-4"><label class="form-label" for="f_hire_date">입사일</label><input type="date" class="form-control form-control-sm" id="f_hire_date" name="hire_date"></div>
+          <div class="col-md-4"><label class="form-label" for="f_group_hire_date">그룹 입사일</label><input type="date" class="form-control form-control-sm" id="f_group_hire_date" name="group_hire_date"></div>
+        </div>
+
+        <div class="gw-form-sec">소속</div>
+        <div class="row g-2">
+          <div class="col-md-3"><label class="form-label" for="f_department">부서</label><input class="form-control form-control-sm" id="f_department" name="department"></div>
+          <div class="col-md-3"><label class="form-label" for="f_job_role">직무</label><input class="form-control form-control-sm" id="f_job_role" name="job_role"></div>
+          <div class="col-md-3"><label class="form-label" for="f_job_rank">직급</label><input class="form-control form-control-sm" id="f_job_rank" name="job_rank"></div>
+          <div class="col-md-3"><label class="form-label" for="f_job_title">직책</label><input class="form-control form-control-sm" id="f_job_title" name="job_title"></div>
+        </div>
+
+        <div class="gw-form-sec">연락처</div>
+        <div class="row g-2">
+          <div class="col-md-4"><label class="form-label" for="f_work_email">회사 메일</label><input type="email" class="form-control form-control-sm" id="f_work_email" name="work_email"></div>
+          <div class="col-md-4"><label class="form-label" for="f_personal_email">개인 메일</label><input type="email" class="form-control form-control-sm" id="f_personal_email" name="personal_email"></div>
+          <div class="col-md-4"><label class="form-label" for="f_phone">전화</label><input class="form-control form-control-sm" id="f_phone" name="phone" inputmode="tel"></div>
+          <div class="col-12"><label class="form-label" for="f_address">주소</label><input class="form-control form-control-sm" id="f_address" name="address"></div>
+        </div>
+
+        <div class="gw-form-sec">개인 정보</div>
+        <div class="row g-2">
+          <div class="col-md-3"><label class="form-label" for="f_gender">성별</label>
+            <select class="form-select form-select-sm" id="f_gender" name="gender">
+              <option value="">-</option><option value="남">남</option><option value="여">여</option>
+            </select></div>
+          <div class="col-md-3"><label class="form-label" for="f_birth_date">생년월일</label><input type="date" class="form-control form-control-sm" id="f_birth_date" name="birth_date"></div>
+          <div class="col-md-6"><label class="form-label" for="f_ssn">주민등록번호 <span class="text-muted small">(바꿀 때만 입력)</span></label>
+            <input class="form-control form-control-sm" id="f_ssn" name="ssn" autocomplete="off" inputmode="numeric" placeholder="숫자 13자리"></div>
+        </div>
+
+        <div class="gw-form-sec">그룹웨어</div>
+        <div class="row g-2">
+          <div class="col-md-5"><label class="form-label" for="f_login_email">로그인 메일</label>
+            <input type="email" class="form-control form-control-sm" id="f_login_email" name="login_email">
+            <div class="form-text">현장·미화 직원은 본인 구글 계정(개인 메일)을 넣습니다.</div></div>
+          <div class="col-md-3"><label class="form-label" for="f_access">접근</label>
+            <select class="form-select form-select-sm" id="f_access" name="access">
+              <option value="staff">사무실(전체 메뉴)</option>
+              <option value="field">현장·미화(내 정보·휴가만)</option>
+            </select></div>
+          <div class="col-md-4"><label class="form-label" for="f_slack_id">슬랙 ID</label><input class="form-control form-control-sm" id="f_slack_id" name="slack_id"></div>
+        </div>
+
+        <div class="gw-form-sec">퇴사</div>
+        <div class="row g-2">
+          <div class="col-md-3"><label class="form-label" for="f_resign_date">퇴사일</label><input type="date" class="form-control form-control-sm" id="f_resign_date" name="resign_date"></div>
+          <div class="col-md-3"><label class="form-label" for="f_last_work_date">마지막 근무일</label><input type="date" class="form-control form-control-sm" id="f_last_work_date" name="last_work_date"></div>
+          <div class="col-md-6"><label class="form-label" for="f_resign_reason">퇴사 사유</label><input class="form-control form-control-sm" id="f_resign_reason" name="resign_reason"></div>
+        </div>
+
+        <div class="gw-form-sec">메모</div>
+        <textarea class="form-control form-control-sm" id="f_memo" name="memo" rows="2"></textarea>
+
+        <div class="gw-form-error" id="hrEditError" role="alert"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">닫기</button>
+        <button type="submit" class="btn btn-sm btn-primary" id="hrEditSave">저장</button>
+      </div>
+    </form>
+  </div>
+</div>

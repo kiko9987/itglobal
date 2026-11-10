@@ -126,9 +126,20 @@ def remove_pilot(email: str) -> None:
 
 
 def set_open_all(on: bool, by: str) -> None:
+    set_setting('open_all', '1' if on else '0', by)
+
+
+def get_setting(key: str):
+    """그룹웨어 설정 값(문자열) — 없으면 None."""
+    with _conn() as conn:
+        row = conn.execute('SELECT value FROM gw_settings WHERE key = ?', (key,)).fetchone()
+    return row[0] if row else None
+
+
+def set_setting(key: str, value: str, by: str) -> None:
     with _conn() as conn:
         conn.execute('INSERT OR REPLACE INTO gw_settings (key, value, updated_by, updated_at) VALUES (?, ?, ?, ?)',
-                     ('open_all', '1' if on else '0', by, _now()))
+                     (key, value, by, _now()))
     _invalidate()
 
 
@@ -151,6 +162,19 @@ AREAS = [
             {'href': '/settlement/collected', 'label': '월별 수금', 'icon': 'fas fa-file-invoice-dollar'},
         ],
     },
+    {
+        'key': 'hr', 'label': '인사', 'icon': 'fas fa-id-card',
+        'items': [
+            {'href': '/hr/me', 'label': '내 정보', 'icon': 'fas fa-user'},
+            {'href': '/hr/people', 'label': '구성원', 'icon': 'fas fa-users', 'hr_admin': True},
+        ],
+    },
+    {
+        'key': 'admin', 'label': '관리', 'icon': 'fas fa-cog', 'bottom': True,
+        'items': [
+            {'href': '/gw/admin', 'label': '그룹웨어 설정', 'icon': 'fas fa-sliders-h', 'admin': True},
+        ],
+    },
 ]
 
 
@@ -158,12 +182,21 @@ def _matches(path: str, href: str) -> bool:
     return path == href or path.startswith(href.rstrip('/') + '/')
 
 
-def build_nav(path: str, permission_level: str) -> dict:
-    """현재 주소에 맞춰 왼쪽 줄(영역)과 위쪽 줄(하위 메뉴)을 만든다."""
+def _visible(it: dict, is_admin: bool, is_hr_admin: bool) -> bool:
+    if it.get('admin') and not is_admin:
+        return False
+    if it.get('hr_admin') and not is_hr_admin:
+        return False
+    return True
+
+
+def build_nav(path: str, permission_level: str, is_hr_admin: bool = False) -> dict:
+    """현재 주소에 맞춰 왼쪽 줄(영역)과 위쪽 줄(하위 메뉴)을 만든다.
+    bottom=True 영역(관리)은 왼쪽 줄 아래쪽에 따로 둔다."""
     is_admin = permission_level in ('admin', 'super_admin')
     areas, active_items = [], []
     for area in AREAS:
-        items = [dict(it) for it in area['items'] if is_admin or not it.get('admin')]
+        items = [dict(it) for it in area['items'] if _visible(it, is_admin, is_hr_admin)]
         if not items:
             continue
         hit = False
@@ -171,7 +204,7 @@ def build_nav(path: str, permission_level: str) -> dict:
             it['active'] = _matches(path, it['href'])
             hit = hit or it['active']
         areas.append({'key': area['key'], 'label': area['label'], 'icon': area['icon'],
-                      'href': items[0]['href'], 'active': hit})
+                      'href': items[0]['href'], 'active': hit, 'bottom': bool(area.get('bottom'))})
         if hit:
             active_items = items
     return {'areas': areas, 'items': active_items}

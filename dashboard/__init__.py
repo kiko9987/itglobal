@@ -449,6 +449,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         from dashboard.blueprints.case_posts import case_posts_bp
         from dashboard.blueprints.collected_report import collected_report_bp
         from dashboard.blueprints.groupware import groupware_bp
+        from dashboard.blueprints.hr import hr_bp
         from dashboard.blueprints.admin_sequence import sequence_bp
         from dashboard.blueprints.constructors import constructors_bp
         from dashboard.blueprints.slack_bot import slack_bp
@@ -469,6 +470,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         app.register_blueprint(case_posts_bp)  # 시공사례 사진·작업지시서 접수 → 아침 자동 초안
         app.register_blueprint(collected_report_bp)  # 월별 수금 완료 정산 화면·엑셀 (에어테이블 대체)
         app.register_blueprint(groupware_bp)  # 그룹웨어 새 틀(시범 명단만) — 틀 고르기·시범 명단 API
+        app.register_blueprint(hr_bp)  # 그룹웨어 인사 — 내 정보·구성원(인사카드)·그룹웨어 설정
         app.register_blueprint(monitoring_bp)
         app.register_blueprint(admin_bp)
         app.register_blueprint(users_bp)

@@ -1,0 +1,60 @@
+{% extends "modern_base.html" %}
+
+{% block title %}그룹웨어 설정 - IT글로벌 그룹웨어{% endblock %}
+
+{% block additional_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/gw-pages.css') }}?v={{ cache_buster() }}">
+{% endblock %}
+
+{% block content %}
+<div class="gw-page gw-page-narrow">
+  <div class="gw-page-head">
+    <h1 class="gw-page-title">그룹웨어 설정</h1>
+  </div>
+
+  <section class="gw-panel">
+    <h2 class="gw-panel-title">새 화면 시범 명단</h2>
+    <p class="gw-panel-desc">명단에 있는 사람만 새 그룹웨어 화면을 봅니다. 나머지 직원은 지금 PM 화면 그대로입니다. 바꾸면 바로 반영됩니다.</p>
+    <ul class="gw-chip-list" id="gwPilotList"></ul>
+    <div class="gw-inline-form">
+      <input type="email" class="form-control form-control-sm" id="gwPilotInput" placeholder="name@itg-aircon.com" autocomplete="off" list="gwUserEmails">
+      <button type="button" class="btn btn-sm btn-outline-primary" id="gwPilotAdd">추가</button>
+    </div>
+    <div class="gw-form-error" id="gwPilotError" role="alert"></div>
+
+    <div class="gw-open-all">
+      <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" role="switch" id="gwOpenAll">
+        <label class="form-check-label" for="gwOpenAll"><strong>전 직원에게 열기(정식 오픈)</strong></label>
+      </div>
+      <p class="gw-panel-desc mb-0">켜면 명단과 상관없이 모든 직원이 새 화면을 봅니다. 각자 「예전 화면」으로 돌아갈 수는 있습니다.</p>
+    </div>
+  </section>
+
+  <section class="gw-panel">
+    <h2 class="gw-panel-title">인사카드 관리자 <span class="gw-panel-sub">경영지원·대표</span></h2>
+    <p class="gw-panel-desc">전 직원 인사카드를 보고 고칠 수 있습니다. 주민등록번호 전체 보기도 이 사람들만 됩니다.</p>
+    <ul class="gw-chip-list" id="gwHrAdmins"></ul>
+    <div class="gw-inline-form">
+      <input type="email" class="form-control form-control-sm" id="gwHrAdminInput" placeholder="name@itg-aircon.com" autocomplete="off" list="gwUserEmails">
+      <button type="button" class="btn btn-sm btn-outline-primary" data-add="hr_admins" data-input="gwHrAdminInput">추가</button>
+    </div>
+  </section>
+
+  <section class="gw-panel">
+    <h2 class="gw-panel-title">휴가 현황 전체 보기 <span class="gw-panel-sub">휴가 결재자</span></h2>
+    <p class="gw-panel-desc">전 직원 휴가 현황만 봅니다. 인사카드는 보지 못합니다.</p>
+    <ul class="gw-chip-list" id="gwLeaveViewers"></ul>
+    <div class="gw-inline-form">
+      <input type="email" class="form-control form-control-sm" id="gwLeaveViewerInput" placeholder="name@itg-aircon.com" autocomplete="off" list="gwUserEmails">
+      <button type="button" class="btn btn-sm btn-outline-primary" data-add="leave_viewers" data-input="gwLeaveViewerInput">추가</button>
+    </div>
+    <div class="gw-form-error" id="gwRoleError" role="alert"></div>
+  </section>
+  <datalist id="gwUserEmails"></datalist>
+</div>
+{% endblock %}
+
+{% block additional_js %}
+<script src="{{ url_for('static', filename='js/gw-admin.js') }}?v={{ cache_buster() }}" defer></script>
+{% endblock %}

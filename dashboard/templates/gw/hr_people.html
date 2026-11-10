@@ -1,0 +1,45 @@
+{% extends "modern_base.html" %}
+
+{% block title %}구성원 - IT글로벌 그룹웨어{% endblock %}
+
+{% block additional_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/gw-pages.css') }}?v={{ cache_buster() }}">
+{% endblock %}
+
+{% block content %}
+<div class="gw-page">
+  <div class="gw-page-head">
+    <h1 class="gw-page-title">구성원</h1>
+    <div class="gw-page-actions">
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="hrAddBtn">
+        <i class="fas fa-user-plus me-1" aria-hidden="true"></i>구성원 추가
+      </button>
+    </div>
+  </div>
+
+  <div class="gw-split">
+    <aside class="gw-split-list" aria-label="구성원 목록">
+      <div class="gw-list-tools">
+        <input type="search" class="form-control form-control-sm" id="hrSearch" placeholder="이름·부서 검색" autocomplete="off">
+        <div class="form-check form-switch gw-list-switch">
+          <input class="form-check-input" type="checkbox" role="switch" id="hrShowResigned">
+          <label class="form-check-label" for="hrShowResigned">퇴사자 보기</label>
+        </div>
+      </div>
+      <div class="gw-list-count" id="hrCount"></div>
+      <ul class="gw-list" id="hrList" role="listbox" aria-label="구성원"></ul>
+    </aside>
+
+    <section class="gw-split-detail" id="hrCard" aria-live="polite">
+      <div class="gw-empty">왼쪽에서 구성원을 고르세요.</div>
+    </section>
+  </div>
+</div>
+
+{% include 'gw/_hr_edit_modal.html' %}
+{% endblock %}
+
+{% block additional_js %}
+<script>window.GW_HR = { mode: 'people' };</script>
+<script src="{{ url_for('static', filename='js/gw-hr.js') }}?v={{ cache_buster() }}" defer></script>
+{% endblock %}

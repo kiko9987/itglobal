@@ -1,0 +1,416 @@
+/* 그룹웨어 화면(인사·설정) 공용 — 이 화면들에서만 읽힌다 */
+
+.gw-page {
+  padding: 16px 16px 48px;
+}
+
+.gw-page-narrow {
+  max-width: 980px;
+}
+
+.gw-page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.gw-page-title {
+  font-size: 1.3rem;
+  font-weight: 600;
+  margin: 0;
+  color: #0f172a;
+}
+
+.gw-note {
+  color: #64748b;
+  font-size: 0.85rem;
+  margin-top: 10px;
+}
+
+.gw-empty {
+  color: #64748b;
+  padding: 40px 16px;
+  text-align: center;
+}
+
+.gw-empty-box {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+/* ── 목록 | 상세 ───────────────────────────────── */
+.gw-split {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.gw-split-list,
+.gw-split-detail,
+.gw-card-wrap,
+.gw-panel {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+.gw-split-list {
+  position: sticky;
+  top: calc(var(--header-height, 52px) + 12px);
+  max-height: calc(100vh - var(--header-height, 52px) - 32px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.gw-list-tools {
+  padding: 10px;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gw-list-switch {
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.gw-list-count {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  padding: 6px 12px 2px;
+}
+
+.gw-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+}
+
+.gw-list-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.gw-list-item:hover {
+  background: #f8fafc;
+}
+
+.gw-list-item[aria-selected="true"] {
+  background: #fff4ef;
+}
+
+.gw-list-item:focus-visible {
+  outline: 2px solid #FF6B35;
+  outline-offset: -2px;
+}
+
+.gw-avatar {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #334155;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.gw-avatar-lg {
+  width: 52px;
+  height: 52px;
+  font-size: 1.1rem;
+}
+
+.gw-list-name {
+  font-weight: 600;
+  color: #0f172a;
+  font-size: 0.92rem;
+}
+
+.gw-list-sub {
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+.gw-list-item.resigned .gw-list-name {
+  color: #94a3b8;
+}
+
+.gw-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+.gw-badge-active { background: #dcfce7; color: #166534; }
+.gw-badge-leave { background: #fef3c7; color: #92400e; }
+.gw-badge-resigned { background: #f1f5f9; color: #64748b; }
+.gw-badge-field { background: #e0f2fe; color: #075985; }
+
+/* ── 인사카드 ─────────────────────────────────── */
+.gw-card {
+  padding: 18px 20px 20px;
+}
+
+.gw-card-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #f1f5f9;
+  margin-bottom: 6px;
+}
+
+.gw-card-name {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+
+.gw-card-org {
+  color: #475569;
+  font-size: 0.9rem;
+}
+
+.gw-card-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+.gw-sec-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #64748b;
+  margin: 16px 0 6px;
+}
+
+.gw-dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 6px 18px;
+  margin: 0;
+}
+
+.gw-dl > div {
+  display: flex;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px dashed #f1f5f9;
+  min-width: 0;
+}
+
+.gw-dl dt {
+  flex: 0 0 92px;
+  color: #64748b;
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+.gw-dl dd {
+  margin: 0;
+  color: #0f172a;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.gw-dl dd.empty {
+  color: #cbd5e1;
+}
+
+.gw-dl-wide {
+  grid-column: 1 / -1;
+}
+
+.gw-ssn-btn {
+  margin-left: 8px;
+  padding: 0 8px;
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+.gw-table {
+  width: 100%;
+  font-size: 0.85rem;
+  border-collapse: collapse;
+}
+
+.gw-table th,
+.gw-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #f1f5f9;
+  text-align: left;
+}
+
+.gw-table th {
+  color: #64748b;
+  font-weight: 600;
+  background: #f8fafc;
+}
+
+.gw-log {
+  font-size: 0.8rem;
+  color: #64748b;
+}
+
+/* ── 설정 화면 ────────────────────────────────── */
+.gw-panel {
+  padding: 16px 18px;
+  margin-bottom: 14px;
+}
+
+.gw-panel-title {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+.gw-panel-sub {
+  font-weight: 400;
+  color: #94a3b8;
+  font-size: 0.85rem;
+  margin-left: 6px;
+}
+
+.gw-panel-desc {
+  color: #64748b;
+  font-size: 0.85rem;
+  margin: 0 0 10px;
+}
+
+.gw-chip-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.gw-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 10px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  font-size: 0.85rem;
+}
+
+.gw-chip button {
+  border: 0;
+  background: transparent;
+  color: #94a3b8;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  line-height: 1;
+}
+
+.gw-chip button:hover {
+  background: #e2e8f0;
+  color: #b91c1c;
+}
+
+.gw-inline-form {
+  display: flex;
+  gap: 6px;
+  max-width: 420px;
+}
+
+.gw-inline-form .btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.gw-open-all {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.gw-form-sec {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #64748b;
+  margin: 14px 0 6px;
+}
+
+.gw-form-sec:first-child {
+  margin-top: 0;
+}
+
+.gw-form-error {
+  color: #b91c1c;
+  font-size: 0.85rem;
+  margin-top: 8px;
+  min-height: 1em;
+}
+
+/* 기존 사이트 공용 스타일(select 가운데 정렬·email 칸 16px 패딩)이 덮어써서 칸 높이가 들쭉날쭉 → 그룹웨어 화면 안에서만 맞춤 */
+#hrEditModal .form-control-sm,
+#hrEditModal .form-select-sm,
+.gw-page .form-control-sm,
+.gw-page .form-select-sm {
+  height: 31px;
+  min-height: 31px;
+  padding: 4px 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: left;
+  width: 100%;
+  max-width: none;
+}
+
+#hrEditModal .form-select-sm,
+.gw-page .form-select-sm {
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23475569' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 12px 10px;
+}
+
+#hrEditModal textarea.form-control-sm {
+  height: auto;
+}
+
+#hrEditModal .form-label {
+  font-size: 0.8rem;
+  color: #475569;
+  margin-bottom: 2px;
+}
+
+@media (max-width: 767.98px) {
+  .gw-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .gw-split-list {
+    position: static;
+    max-height: 320px;
+  }
+}
