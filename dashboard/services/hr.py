@@ -108,8 +108,10 @@ def _row(r) -> dict:
 
 # ── 역할 ──────────────────────────────────────────────────────────────
 # 기본값은 코드에, 바꾼 값은 gw_settings(그룹웨어 관리 화면)에. 이메일 소문자.
-_DEFAULT_HR_ADMINS = ('kiko@itg-aircon.com', 'sb@itg-aircon.com')     # 경영지원(+대표는 관리 화면에서 추가)
-_DEFAULT_LEAVE_VIEWERS = ('jw@itg-aircon.com', 'yg@itg-aircon.com')   # 휴가 결재자
+# 경영지원(KiKO·SB) + 대표(박용구·박정우, KiKO 11-10 지정). 플렉스상 대표이사 김영숙은 넣지 않음.
+_DEFAULT_HR_ADMINS = ('kiko@itg-aircon.com', 'sb@itg-aircon.com', 'yg@itg-aircon.com', 'jw@itg-aircon.com')
+# 휴가 현황만 보는 사람(인사카드 X). 지금 결재자 JW·YG 는 대표라 위에 이미 들어 있음 — 결재자가 바뀌면 여기.
+_DEFAULT_LEAVE_VIEWERS = ('jw@itg-aircon.com', 'yg@itg-aircon.com')
 
 
 def _setting_list(key: str, default) -> List[str]:

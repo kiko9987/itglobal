@@ -10,7 +10,8 @@ from dashboard.services import hr
 
 ADMIN = 'kiko@itg-aircon.com'      # 경영지원(기본 HR 관리자) + 첫 시범
 STAFF = 'mw@itg-aircon.com'
-JW = 'jw@itg-aircon.com'           # 휴가 결재자
+JW = 'jw@itg-aircon.com'           # 대표(인사카드 관리자, KiKO 11-10)
+VIEWER = 'approver@itg-aircon.com'  # 휴가 현황만 보는 사람(가상)
 SSN = '900101-1234567'
 
 
@@ -62,7 +63,7 @@ def test_update_only_admin_and_validation(db):
     with pytest.raises(PermissionError):
         hr.update_person(pid, {'memo': 'x'}, STAFF)
     with pytest.raises(PermissionError):
-        hr.update_person(pid, {'memo': 'x'}, JW)                   # 결재자도 인사카드 수정 불가
+        hr.update_person(pid, {'memo': 'x'}, VIEWER)               # 휴가 열람자도 인사카드 수정 불가
     with pytest.raises(ValueError):
         hr.update_person(pid, {'hire_date': '2022-13-40'}, ADMIN)
     with pytest.raises(ValueError):
@@ -93,8 +94,12 @@ def test_find_by_email_skips_resigned(db):
 
 
 def test_roles_default_and_setting(db):
-    assert hr.is_hr_admin(ADMIN) and not hr.is_hr_admin(JW)
+    for e in (ADMIN, 'sb@itg-aircon.com', 'yg@itg-aircon.com', JW):      # 경영지원 + 대표 둘
+        assert hr.is_hr_admin(e)
+    assert not hr.is_hr_admin('mst@itg-aircon.com') and not hr.is_hr_admin(STAFF)
     assert hr.can_view_all_leave(JW) and not hr.can_view_all_leave(STAFF)
+    gw.set_setting('leave_viewers', '["approver@itg-aircon.com"]', ADMIN)
+    assert hr.can_view_all_leave(VIEWER) and not hr.is_hr_admin(VIEWER)
     gw.set_setting('hr_admins', '["yg@itg-aircon.com"]', ADMIN)
     assert hr.is_hr_admin('yg@itg-aircon.com') and not hr.is_hr_admin(ADMIN)
 
@@ -140,7 +145,9 @@ def test_api_permissions(client):
     assert client.get('/api/gw/roles').status_code == 403
     assert client.get('/hr/people').status_code == 302                   # → 내 정보
 
-    _as(client, JW, 'admin')                             # 휴가 결재자: 인사카드 못 봄
+    gw.set_setting('leave_viewers', '["approver@itg-aircon.com"]', ADMIN)
+    gw.add_pilot(VIEWER, ADMIN)
+    _as(client, VIEWER, 'admin')                         # 휴가 열람자: 인사카드 못 봄
     assert client.get('/api/hr/people').status_code == 403
     assert client.get(f'/api/hr/people/{staff_id}').status_code == 403
 
