@@ -21,12 +21,14 @@
 
   function api(url, opts) {
     opts = opts || {};
-    return fetch(url, {
-      method: opts.method || 'GET',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: opts.body ? JSON.stringify(opts.body) : undefined
-    }).then(function (r) {
+    // 본문이 있을 때만 JSON 머리글을 붙인다 — 본문 없는 POST/DELETE(주민번호 전체 보기·서류 삭제)에
+    // JSON 머리글을 붙이면 운영 보안 미들웨어가 빈 본문을 JSON 으로 읽다 400 을 낸다(11-10 운영에서 발견)
+    var init = { method: opts.method || 'GET', credentials: 'same-origin' };
+    if (opts.body) {
+      init.headers = { 'Content-Type': 'application/json' };
+      init.body = JSON.stringify(opts.body);
+    }
+    return fetch(url, init).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) {
         if (!r.ok || j.success === false) {
           throw new Error(j.message || ('요청을 처리하지 못했습니다 (' + r.status + ')'));
