@@ -220,7 +220,8 @@
       if (docs.length) {
         h += table(['종류', '파일', '크기', '올린 날', ''], docs.map(function (d) {
           return '<tr><td>' + esc(d.doc_type || '기타') + '</td><td class="gw-doc-name">' + esc(d.file_name) + '</td><td>' + kb(d.size) +
-            '</td><td>' + esc((d.created_at || '').slice(0, 10)) + '</td><td class="gw-doc-act">' +
+            '</td><td>' + (d.uploaded_by === 'flex-import' ? '<span class="text-muted">플렉스에서 옮김</span>' : esc((d.created_at || '').slice(0, 10))) +
+            '</td><td class="gw-doc-act">' +
             '<a class="btn btn-sm btn-outline-secondary" href="/api/hr/documents/' + d.id + '?view=1" target="_blank" rel="noopener">보기</a> ' +
             '<a class="btn btn-sm btn-outline-secondary" href="/api/hr/documents/' + d.id + '">받기</a>' +
             (p.can_edit && CFG.mode !== 'me' ? ' <button type="button" class="btn btn-sm btn-outline-danger" data-doc-del="' + d.id + '">삭제</button>' : '') +
