@@ -353,6 +353,9 @@ def create_person(values: Dict, by: str) -> dict:
 
 
 # ── 이관(플렉스) ───────────────────────────────────────────────────────
+_FLEX_FOLLOW = ('status', 'resign_date', 'last_work_date', 'resign_reason')
+
+
 def upsert_from_flex(rec: Dict, appts: List[Dict], by: str = 'flex-import') -> str:
     """flex_id 기준으로 넣거나 고친다. 사람이 이미 고친 칸은 덮어쓰지 않는다(updated_by 가 import 가 아니면 비어 있는 칸만).
     반환: 'insert' | 'update' | 'skip'."""
@@ -379,8 +382,14 @@ def upsert_from_flex(rec: Dict, appts: List[Dict], by: str = 'flex-import') -> s
             changed = {}
             for k, v in clean.items():
                 old = cur_row.get(k)
-                if human_edited and old not in (None, ''):
-                    continue
+                # 사람이 고친 카드는 퇴사 관련 칸만 플렉스 값을 받는다(11-10: 일부러 비운 직책에 플렉스 '매니저'가
+                # 다시 채워지지 않게). 플렉스에서 퇴사 처리된 건 놓치면 안 되니 그 칸들은 비어 있을 때 채움.
+                if human_edited:
+                    if k == 'status':
+                        if v == STATUS_ACTIVE:          # 플렉스가 재직이면 사람이 정한 상태 유지
+                            continue
+                    elif k not in _FLEX_FOLLOW or old not in (None, ''):
+                        continue
                 if (old or None) != (v or None):
                     changed[k] = v
             if ssn_raw and not cur_row.get('ssn_enc'):

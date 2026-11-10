@@ -79,10 +79,10 @@ def test_reimport_keeps_human_edits(db):
     hr.upsert_from_flex(_flex(), [{'apply_date': '2022-02-03'}])
     pid = hr.find_by_email(STAFF)['id']
     hr.update_person(pid, {'department': '기술영업'}, ADMIN)
-    assert hr.upsert_from_flex(_flex(department='영업', job_role='영업'), [{'apply_date': '2022-02-03'}]) == 'update'
+    assert hr.upsert_from_flex(_flex(department='영업', job_role='영업'), [{'apply_date': '2022-02-03'}]) == 'skip'
     p = hr.get_person(pid)
     assert p['department'] == '기술영업'        # 사람이 고친 칸은 그대로
-    assert p['job_role'] == '영업'              # 비어 있던 칸은 채움
+    assert p['job_role'] is None                # 사람이 고친 카드는 빈 칸도 안 채움(일부러 비운 칸 보호, 11-10)
     assert len(hr.appointments(pid)) == 1       # 발령 이력은 다시 써도 한 벌
 
 
@@ -217,3 +217,16 @@ def test_documents_save_download_permissions(client, tmp_path, monkeypatch):
     assert client.delete(f'/api/hr/documents/{r1["id"]}').get_json()['success']
     actions = [l['action'] for l in hr.access_log(staff_id)]
     assert 'doc_download' in actions and 'doc_upload' in actions and 'doc_delete' in actions
+
+
+def test_reimport_after_human_edit_only_follows_resignation(db):
+    """11-10: 사람이 직급·직책·계약을 고친 뒤 플렉스를 다시 옮겨도 되돌아가지 않고, 퇴사는 따라간다."""
+    hr.upsert_from_flex(_flex(job_title='매니저', job_rank=None, contract_type=None), [])
+    pid = hr.find_by_email(STAFF)['id']
+    hr.update_person(pid, {'job_rank': '매니저', 'job_title': '', 'contract_type': '정규직'}, ADMIN)
+    hr.upsert_from_flex(_flex(job_title='매니저', job_rank='주임', contract_type='계약직', department='다른부서'), [])
+    p = hr.get_person(pid)
+    assert (p['job_rank'], p['job_title'], p['contract_type'], p['department']) == ('매니저', None, '정규직', '영업')
+    hr.upsert_from_flex(_flex(status='퇴사', resign_date='2026-12-01', job_title='매니저'), [])
+    p = hr.get_person(pid)
+    assert p['status'] == '퇴사' and p['resign_date'] == '2026-12-01' and p['job_title'] is None
