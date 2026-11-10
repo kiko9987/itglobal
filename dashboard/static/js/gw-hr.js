@@ -4,6 +4,11 @@
   'use strict';
 
   var CFG = window.GW_HR || {};
+  // 로그인 방식(인사카드 access 칸) — 카드와 수정 창이 같은 말을 쓰게 여기 한곳에
+  var ACCESS_LABEL = {
+    staff: '회사 구글 계정',
+    field: '슬랙 휴가 앱 링크 (현장·미화 · 내 정보·휴가만)'
+  };
   var cardEl = document.getElementById('hrCard');
   var state = { people: [], selectedId: null, showResigned: false, query: '', current: null };
 
@@ -109,7 +114,7 @@
     if (p.can_edit) {
       h += '<div class="gw-sec-title">그룹웨어</div><dl class="gw-dl">' +
         dd('로그인 메일', p.login_email) +
-        dd('접근', p.access === 'field' ? '현장·미화(내 정보·휴가만)' : '사무실(전체 메뉴)') +
+        dd('로그인 방식', ACCESS_LABEL[p.access] || ACCESS_LABEL.staff) +
         dd('슬랙 ID', p.slack_id) + '</dl>';
     }
 
@@ -122,7 +127,7 @@
     var appts = p.appointments || [];
     h += '<div class="gw-sec-title">발령 이력</div>';
     if (appts.length) {
-      h += '<table class="gw-table"><thead><tr><th>적용일</th><th>부서</th><th>직무</th><th>직급</th><th>직책</th><th>메모</th></tr></thead><tbody>';
+      h += '<table class="gw-table gw-appt-table"><thead><tr><th>적용일</th><th>부서</th><th>직무</th><th>직급</th><th>직책</th><th>메모</th></tr></thead><tbody>';
       appts.forEach(function (a) {
         h += '<tr><td>' + esc(a.apply_date || '-') + '</td><td>' + esc(a.department || '') + '</td><td>' +
           esc(a.job_role || '') + '</td><td>' + esc(a.job_rank || '') + '</td><td>' + esc(a.job_title || '') +
@@ -232,6 +237,18 @@
   var FIELDS = ['name', 'status', 'contract_type', 'hire_date', 'group_hire_date', 'department', 'job_role',
     'job_rank', 'job_title', 'work_email', 'personal_email', 'phone', 'address', 'gender', 'birth_date',
     'login_email', 'access', 'slack_id', 'resign_date', 'last_work_date', 'resign_reason', 'memo'];
+
+  // 수정 창의 로그인 방식 문구를 카드와 같게(템플릿이 옛 문구여도 맞춰짐)
+  if (formEl && formEl.elements.access) {
+    Array.prototype.forEach.call(formEl.elements.access.options, function (o) {
+      if (o.value === 'staff') o.textContent = ACCESS_LABEL.staff;
+      if (o.value === 'field') o.textContent = '슬랙 휴가 앱 링크 (현장·미화)';
+    });
+    var accLabel = formEl.querySelector('label[for="f_access"]');
+    if (accLabel) accLabel.textContent = '로그인 방식';
+    var hint = formEl.elements.login_email && formEl.elements.login_email.parentNode.querySelector('.form-text');
+    if (hint) hint.textContent = '회사 구글 계정으로 들어오는 메일이에요. 슬랙 링크로 들어오는 현장·미화 직원은 비워 둬도 돼요.';
+  }
 
   function modal() {
     return window.bootstrap ? window.bootstrap.Modal.getOrCreateInstance(modalEl) : null;

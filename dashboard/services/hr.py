@@ -36,7 +36,7 @@ FIELDS = [
     ('contract_type', '계약 형태'),
     ('work_email', '회사 메일'), ('personal_email', '개인 메일'), ('phone', '전화'),
     ('gender', '성별'), ('birth_date', '생년월일'), ('address', '주소'),
-    ('login_email', '그룹웨어 로그인 메일'), ('access', '접근'),
+    ('login_email', '그룹웨어 로그인 메일'), ('access', '로그인 방식'),
     ('slack_id', '슬랙 ID'), ('memo', '메모'),
 ]
 EDITABLE = [k for k, _ in FIELDS]
@@ -298,7 +298,7 @@ def _clean(values: Dict) -> Dict:
         if k == 'status' and v not in STATUSES:
             raise ValueError(f'상태는 {"·".join(STATUSES)} 중 하나여야 합니다.')
         if k == 'access' and v not in (ACCESS_STAFF, ACCESS_FIELD):
-            raise ValueError('접근은 staff 또는 field 여야 합니다.')
+            raise ValueError('로그인 방식 값이 올바르지 않습니다.')
         if k in ('work_email', 'personal_email', 'login_email'):
             v = v.lower()
             if v and '@' not in v:

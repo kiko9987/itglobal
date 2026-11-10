@@ -50,11 +50,11 @@
         <div class="row g-2">
           <div class="col-md-5"><label class="form-label" for="f_login_email">로그인 메일</label>
             <input type="email" class="form-control form-control-sm" id="f_login_email" name="login_email">
-            <div class="form-text">현장·미화 직원은 본인 구글 계정(개인 메일)을 넣습니다.</div></div>
-          <div class="col-md-3"><label class="form-label" for="f_access">접근</label>
+            <div class="form-text" id="f_login_email_hint">회사 구글 계정으로 들어오는 메일이에요. 슬랙 링크로 들어오는 현장·미화 직원은 비워 둬도 돼요.</div></div>
+          <div class="col-md-3"><label class="form-label" for="f_access">로그인 방식</label>
             <select class="form-select form-select-sm" id="f_access" name="access">
-              <option value="staff">사무실(전체 메뉴)</option>
-              <option value="field">현장·미화(내 정보·휴가만)</option>
+              <option value="staff">회사 구글 계정</option>
+              <option value="field">슬랙 휴가 앱 링크 (현장·미화)</option>
             </select></div>
           <div class="col-md-4"><label class="form-label" for="f_slack_id">슬랙 ID</label><input class="form-control form-control-sm" id="f_slack_id" name="slack_id"></div>
         </div>

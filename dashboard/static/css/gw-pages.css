@@ -276,6 +276,12 @@
   color: #64748b;
 }
 
+/* 발령 이력은 가운데 정렬 */
+.gw-appt-table th,
+.gw-appt-table td {
+  text-align: center;
+}
+
 /* ── 설정 화면 ────────────────────────────────── */
 .gw-panel {
   padding: 16px 18px;
