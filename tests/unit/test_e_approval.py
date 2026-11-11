@@ -657,6 +657,26 @@ def test_handle_supply_submit_validation(se):
     assert acks[0]['response_action'] == 'errors' and 'link' in acks[0]['errors']
 
 
+def test_supply_login_only_link_and_no_unfurl(se):
+    """11-11 #15: 마이페이지 주소를 넣어 다른 사람은 로그인 화면만 — 한 번 확인. 카드 아래 링크 미리보기도 끔."""
+    assert ea.login_only_link('https://www.diaryon.co.kr/myshop/index.html')
+    assert ea.login_only_link('https://shop.example.com/order/cart.php?x=1')
+    assert not ea.login_only_link('https://www.coupang.com/vp/products/1')
+    assert not ea.login_only_link('https://smartstore.naver.com/abc/products/123')
+    assert not ea.login_only_link('https://x.kr/product/order-made-diary/12') and not ea.login_only_link('쿠팡')
+    view = dict(_supply_view(link='https://www.diaryon.co.kr/myshop/index.html'), id='V-LINK')
+    acks = []
+    se.handle_supply_submit(lambda **kw: acks.append(kw), {'user': {'id': MGR}}, view)
+    assert acks[0]['response_action'] == 'errors' and '로그인 화면' in acks[0]['errors']['link']
+    se.handle_supply_submit(lambda **kw: acks.append(kw), {'user': {'id': MGR}}, view)   # 맞다고 다시 내면 통과
+    assert acks[1] == {}
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    posted = [kw for kw in se._fake.of('chat_postMessage') if kw.get('blocks')]
+    assert posted and all(kw.get('unfurl_links') is False and kw.get('unfurl_media') is False for kw in posted)
+    se.refresh(row)
+    assert all(kw.get('attachments') == [] for kw in se._fake.of('chat_update'))
+
+
 def test_dm_is_notice_with_card_link_no_buttons(se):
     """DM 은 알림+카드 링크만, 버튼은 채널 카드에만(11-01)."""
     row = se.process_new_submit(MGR, dict(FIELDS))
