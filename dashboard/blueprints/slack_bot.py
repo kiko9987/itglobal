@@ -12017,6 +12017,12 @@ def _mark_visit_complete_on_sheet(lead_no: str, initial: str, dt_str: str) -> No
         _vs, _ve = _split_visit_date_range(str(lead.get('방문 예정일', '') or ''))
         if _vs and _ve and _vs <= _today <= _ve:
             updates['방문 예정일'] = _format_date_for_sheet(_today)
+        # 예정일보다 먼저 완료 = 앞당겨 다녀온 것 → 완료일이 실제 방문일 (2026-11-11 KiKO,
+        #   L-04286 예정 10-20·완료 10-19). 다녀오기 전엔 완료를 못 누르고 사진 자동완료도 예정일
+        #   전엔 막혀 있어(참고 도면 오작동 방지) 안전. 예정보다 늦은 완료는 '늦게 간 것'과
+        #   '버튼만 늦게 누른 것'을 구분할 근거가 없어 그대로 둠. 날짜 변경 알림은 안 보냄.
+        elif re.fullmatch(r'\d{4}-\d{2}-\d{2}', _vs or '') and _today < _vs:
+            updates['방문 예정일'] = _format_date_for_sheet(_today)
         _update_lead_dispatch(lead_no, updates)
         logger.info(
             f'[SLACK/방문완료] 시트 마커 append + 상태={updates.get("상태", cur_status)}'
