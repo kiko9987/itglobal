@@ -869,7 +869,8 @@ def step_line(row: dict, step_rows: List[dict], approver_name: str = '고광일'
     if f and f['result'] == 'auto' and a and f.get('actor_id') == a.get('actor_id') and a['result'] == 'auto':
         first = f"✅ 최종 승인 ({initial(f['actor_name'])} 본인 요청)"   # JW·YG 본인 요청 — ① 없이 바로(11-09)
     elif f and f['result'] == 'auto' and a and f.get('actor_id') == a.get('actor_id') and a['result'] == 'approved':
-        first += ' (최종 승인 겸)'   # JW·YG 가 ① 을 눌러 한 번에
+        # JW·YG 가 ① 을 눌러 한 번에 — 결과만 '최종 승인'으로('승인 (최종 승인 겸)'은 뜻이 안 들어왔다, 11-11 KiKO)
+        first = f"✅ {_who(a)} 최종 승인 {_fmt_when(a['at'])}"
     elif f and f['result'] == 'auto':
         mid = '✅ 최종 승인 (요청자 본인)'
     elif f and f['result'] == 'approved':
