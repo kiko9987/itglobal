@@ -1051,6 +1051,12 @@ def dm_intro(row: dict, role: str) -> str:
     if role == 'executor' and st == APPROVED and row.get('form') in TASK_FORMS:
         return (f"🔔 {initial(row.get('requester_name'))}님이 {title(row)}을 올렸어요. "
                 '처리하고 카드에서 [처리 완료]를 눌러 주세요.')
+    if role == 'executor' and st == APPROVED and is_n_account(row) and len(n_executor_ids()) > 1:
+        # N통장은 JW·YG 둘 다 받는다 — 둘 다 보내면 두 번 나간다(11-11 점검, KiKO: 주의 문구로)
+        names = '·'.join(_N_LABELS.get(u, 'N통장 담당') for u in n_executor_ids())
+        return (f'🔔 {title(row)} 승인이 끝났어요. {w}하고 카드에서 [{w} 완료]를 눌러 주세요.\n'
+                f'⚠️ N통장 건이라 {names} 두 분께 같이 갔어요. 보내기 전에 카드에서 이미 [{w} 완료]가 됐는지 확인하고, '
+                f'보낸 뒤에는 바로 [{w} 완료]를 눌러 주세요.')
     if role == 'executor' and st == APPROVED:
         return f'🔔 {title(row)} 승인이 끝났어요. {w}하고 카드에서 [{w} 완료]를 눌러 주세요.'
     if role == 'notice' and st == APPROVED:   # N통장 — 경영지원(SB)은 알림만(11-06)

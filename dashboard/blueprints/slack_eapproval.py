@@ -519,8 +519,10 @@ def edit_view(row: dict) -> dict:
         meta = {'edit': aid, 'origin': 'edit', 'partner': row.get('partner') or '',
                 'payee': {k: row.get(k) or '' for k in ('payee_name', 'bank', 'account')}}
         if row.get('origin_ts'):   # 계산서 글로 올린 결재 — 거래처·금액은 그 계산서 값 그대로
+            # 사업자(G/R)는 고칠 수 있게 칸을 보인다(11-11 점검: '사업자 확인' 수정 요청을 받아도 못 고쳤다).
+            # parsed 의 grn 을 비우면 창에 사업자 칸이 생기고, 올린 값(prefill)이 미리 골라진다
             meta['inv'] = {'ch': row['origin_channel'], 'ts': row['origin_ts'],
-                           'parsed': {'date_md': '', 'grn': row.get('grn') or '', 'amount': int(row.get('amount') or 0),
+                           'parsed': {'date_md': '', 'grn': '', 'amount': int(row.get('amount') or 0),
                                       'partner': row.get('partner') or ''}}
         prefill = {k: row.get(k) for k in ea.EDIT_COLUMNS}
         label = project_display(code, _project_rec(code)) if code else ''

@@ -995,6 +995,9 @@ def test_n_account_goes_to_yg_jw_and_sb_gets_notice(tmp_db, monkeypatch):
     assert ea.executor_dm_ids(n) == (YG, JW) and ea.notice_ids(n) == (sb,)
     n = ea.transition(n['id'], 'approve', KIKO, '고광일')
     assert 'N통장 건이라 YG·JW님에게 이체 요청' in ea.dm_intro(n, 'notice')
+    # 두 분 다 받으니 중복 이체 주의(11-11) — G·R 이체 요청엔 없음
+    assert '⚠️ N통장 건이라 YG·JW 두 분께 같이 갔어요' in ea.dm_intro(n, 'executor')
+    assert '⚠️' not in ea.dm_intro(ea.transition(g['id'], 'approve', KIKO, '고광일'), 'executor')
     exp = ea.create(forms.FORM_EXPENSE, MGR, '박정우', {'project_code': 'G1', 'amount': 1000, 'grn': 'N'})
     assert ea.executor_dm_ids(exp) == (sb,)            # 개인경비는 사업자 구분 없이 경영지원
     assert ea.executor_dm_ids() == (sb,)               # 증명서 등 결재 없는 곳
@@ -1651,6 +1654,19 @@ def test_edit_resets_payee_saved_mark(se):
     assert errs == {}
     new = se.process_new_submit(MGR, f2)
     assert new['account'] == '333-333-333333' and not ea.extra(new).get('payee_saved')
+
+
+def test_invoice_linked_edit_can_fix_grn(se):
+    # 11-11 점검: 계산서로 올린 결재는 수정 창에 사업자 칸이 없어 '사업자 확인' 수정 요청을 못 고쳤다
+    row = se.start(ea.create(ea.FORM_FUND, MGR, '강성환',
+                             dict(FIELDS, project_code='R4226-YM', grn='G', origin_channel='CINV', origin_ts='9.0')))
+    se.apply_action('revise', row['id'], SB, '사업자 확인')
+    v = se.edit_view(ea.get(row['id']))
+    grn = next(b for b in v['blocks'] if b.get('block_id') == 'grn')
+    assert grn['element']['initial_option']['value'] == 'G'           # 올린 값이 미리 골라짐
+    f, errs = se.validate_new_submit(_state_from_view(v, {'grn': {'selected_option': {'value': 'R'}}}))
+    assert errs == {} and f['grn'] == 'R'
+    assert se.process_new_submit(MGR, f)['grn'] == 'R'
 
 
 def test_manifest_has_file_scopes():
