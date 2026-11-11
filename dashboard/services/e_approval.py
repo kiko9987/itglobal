@@ -505,8 +505,14 @@ def can_act(action: str, row: dict, user_id: str) -> bool:
     if action == 'revise':   # 수정 요청 = 승인자(KiKO) + 경영지원(SB·JW·YG) + 최종 승인자 — 플렉스 댓글로 돌려보내던 사람들
         return user_id in approver_ids() or user_id in executor_ids() or user_id in final_approver_ids()
     if action == 'edit':
-        return user_id == row.get('requester_id')
+        return user_id == row.get('requester_id') and requester_can_edit(row)
     return False
+
+
+def requester_can_edit(row: dict) -> bool:
+    """요청자가 직접 고치기 — 취소와 같은 선(11-11 KiKO: 올리고 나서 실수를 알아도 고칠 길이 없었다).
+    수정 요청을 받았을 때 + 최종 승인 전(지출형) / 처리 전(업무요청형). 고치면 승인을 처음부터 다시 받는다."""
+    return requester_can_cancel(row)
 
 
 def requester_can_cancel(row: dict) -> bool:
@@ -530,8 +536,9 @@ def resubmit(aid: int, actor_id: str, actor_name: str, fields: Dict) -> Optional
     with _db()._get_connection() as conn:
         _ensure_tables(conn)
         old = _row(conn, aid)
-        if not old or old['status'] != REVISE:
+        if not old or not requester_can_edit(old):   # 수정 요청 + 승인 전 요청자 직접 고치기(11-11)
             return None
+        prev = old['status']
         task = old['form'] in TASK_FORMS
         self_ok = self_approves(old['form'], old['requester_id'])
         auto_final = False
@@ -564,8 +571,11 @@ def resubmit(aid: int, actor_id: str, actor_name: str, fields: Dict) -> Optional
                         changed[k] = (a.get(k), b.get(k))
             sets.append('extra=?')
             vals.append(json.dumps(ex, ensure_ascii=False))
+        if not changed and prev != REVISE:   # 바뀐 게 없으면 받은 승인을 지우지 않는다
+            conn.rollback()
+            return old, {}
         cur = conn.execute(f'UPDATE approvals SET {", ".join(sets + ["status=?", "updated_at=?"])} '
-                           f'WHERE id=? AND status=?', (*vals, nxt, now, aid, REVISE))
+                           f'WHERE id=? AND status=?', (*vals, nxt, now, aid, prev))
         if cur.rowcount != 1:
             conn.rollback()
             return None
@@ -1076,6 +1086,8 @@ def buttons(row: dict, role: str = 'all') -> List[dict]:
         out.append(_btn('✏️ 수정 요청', A_REVISE, aid))
     if st == REVISE and role in ('all', 'requester'):
         out.append(_btn('✏️ 수정하기', A_EDIT, aid, 'primary'))
+    elif st in OPEN_STATUSES and role in ('all', 'requester') and requester_can_edit(row):   # 승인 전 직접(11-11)
+        out.append(_btn('✏️ 요청 고치기', A_EDIT, aid))
     if st in OPEN_STATUSES and role in ('all', 'requester') and requester_can_cancel(row):
         out.append(_btn('요청 취소', A_CANCEL, aid, None, _confirm(
             '요청 취소', f'{title(row)} 요청을 취소할까요?', '요청 취소')))
@@ -1102,6 +1114,9 @@ def card_blocks(row: dict, step_rows: List[dict], project_line: str, quote_amoun
         if form in TASK_FORMS:
             hint = ('파일을 더 붙일 땐 이 카드 스레드에 올려 주세요. 경영지원은 결과 파일을 스레드에 올리고 '
                     '[처리 완료]를 눌러 주세요.')
+        elif requester_can_edit(row):
+            hint = ('파일을 더 붙일 땐 이 카드 스레드에 올려 주세요. 올린 사람은 [✏️ 요청 고치기]로 바로 고칠 수 있고 '
+                    '(승인은 다시 받아요), 다른 사람은 [✏️ 수정 요청]으로 돌려보내 주세요.')
         else:
             hint = '파일을 더 붙일 땐 이 카드 스레드에 올려 주세요. 고칠 게 있으면 [✏️ 수정 요청]으로 돌려보내 주세요.'
         blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': hint}]})
