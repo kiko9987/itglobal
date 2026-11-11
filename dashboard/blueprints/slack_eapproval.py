@@ -820,17 +820,7 @@ def handle_new_submit(ack, body, view) -> None:
         ack(response_action='errors', errors=errs)
         return
     ack()
-    uid = (body.get('user') or {}).get('id', '')
-
-    def _bg():
-        try:
-            process_new_submit(uid, f)
-        except Exception as exc:
-            logger.error(f'{_LOG} 새 요청 처리 실패: {exc}', exc_info=True, extra={'force_alert': True})
-            c = eap_client()
-            if c:
-                _notify(c, uid, ':warning: 자금집행 요청이 올라가지 않았어요. 잠시 뒤 다시 해 주세요.')
-    threading.Thread(target=_bg, daemon=True).start()
+    _submit_job('fund', (body.get('user') or {}).get('id', ''), f)
 
 
 # ── 비품 신청 (11-01) ─────────────────────────────────────────────────
@@ -854,17 +844,7 @@ def handle_supply_submit(ack, body, view) -> None:
         ack(response_action='errors', errors=errs)
         return
     ack()
-    uid = (body.get('user') or {}).get('id', '')
-
-    def _bg():
-        try:
-            process_supply_submit(uid, f)
-        except Exception as exc:
-            logger.error(f'{_LOG} 비품 신청 처리 실패: {exc}', exc_info=True, extra={'force_alert': True})
-            c = eap_client()
-            if c:
-                _notify(c, uid, ':warning: 비품 신청이 올라가지 않았어요. 잠시 뒤 다시 해 주세요.')
-    threading.Thread(target=_bg, daemon=True).start()
+    _submit_job('supply', (body.get('user') or {}).get('id', ''), f)
 
 
 def reset_home(client, body) -> None:
@@ -1218,8 +1198,10 @@ def process_form_submit(uid: str, form_key: str, vals: dict) -> dict:
     from dashboard.services.purchase_invoice_assign import COST_CATEGORIES
     name = _name(uid)
     files, edit_aid, docs = vals.get('_files') or [], vals.get('_edit'), vals.get('_folder_docs') or []
+    job = vals.get('_job')
     vals = {k: v for k, v in vals.items() if not k.startswith('_')}
     fields = {
+        '_job': job,
         'project_code': vals.get('project') or None,
         'amount': ea.forms.amount_of(form_key, vals),
         'grn': ea.forms.grn_of(form_key, vals),
@@ -1254,17 +1236,127 @@ def handle_form_submit(ack, body, view) -> None:
         ack(response_action='errors', errors=errs)
         return
     ack()
-    uid = (body.get('user') or {}).get('id', '')
+    _submit_job('form', (body.get('user') or {}).get('id', ''), {'form_key': form_key, 'vals': vals})
 
-    def _bg():
+
+# ── 제출 기록 · 재시작 뒤 이어서 처리 (11-11 운영 점검) ─────────────────
+# 창 제출은 3초 안에 ack 해야 해서 결재 만들기·카드·DM 은 백그라운드에서 한다. 그 사이 서버가 꺼지면(11-10 WSL
+# 업데이트, 11-11 PC 재시작) 요청이 사라지고 요청자도 몰랐다 → 제출 내용을 먼저 DB 에 남기고, 끝나지 않은 것은
+# 5분마다(재시작 직후 포함) 이어서 처리한다. 같은 제출로 결재를 두 번 만들지 않게 결재 extra['job'] 로 확인.
+_JOB_STALE_MIN = 10   # 정상 처리는 몇 초 — 슬랙이 느려 아직 도는 것과 겹쳐 두 번 만들지 않게 넉넉히
+
+
+def _job_label(kind: str, payload: dict) -> str:
+    if kind == 'form':
+        return ea.forms.get(payload.get('form_key')).label
+    return '비품 신청' if kind == 'supply' else '자금집행 요청'
+
+
+def _job_dispatch(kind: str, uid: str, payload: dict) -> dict:
+    if kind == 'fund':
+        return process_new_submit(uid, payload)
+    if kind == 'supply':
+        return process_supply_submit(uid, payload)
+    return process_form_submit(uid, payload['form_key'], payload['vals'])
+
+
+def _submit_job(kind: str, uid: str, payload: dict) -> None:
+    """제출 내용을 남기고 백그라운드에서 처리. 기록을 못 남겨도(DB 오류) 처리는 한다."""
+    jid = ''
+    try:
+        jid = ea.job_add(kind, uid, payload)
+    except Exception as exc:
+        logger.warning(f'{_LOG} 제출 기록 실패(그대로 처리): {exc}')
+    target = payload['vals'] if kind == 'form' else payload
+    target['_job'] = jid
+    threading.Thread(target=_run_job, args=(jid, kind, uid, payload), daemon=True).start()
+
+
+def _run_job(jid: str, kind: str, uid: str, payload: dict, stale_before: str = '') -> Optional[dict]:
+    """제출 하나 처리. 이미 처리됐거나 다른 곳에서 처리 중이면 None."""
+    if jid and not ea.job_claim(jid, stale_before):
+        return None
+    label = _job_label(kind, payload)
+    try:
+        target = payload['vals'] if kind == 'form' else payload
+        target['_job'] = jid
+        if stale_before:   # 재시작 뒤 이어서 — 멈추기 전에 어디까지 됐는지 먼저 본다
+            edit_aid = target.get('_edit')
+            done = ea.find_by_job(jid) if not edit_aid else None
+            if edit_aid:
+                cur = ea.get(int(edit_aid))
+                if not cur or cur['status'] != ea.REVISE:   # 이미 다시 올라갔다
+                    ea.job_finish(jid, True, int(edit_aid))
+                    return None
+            elif done:
+                if not done.get('card_ts') and done['status'] in ea.OPEN_STATUSES:
+                    done = start(done)   # 결재는 만들었는데 카드를 못 올리고 멈춘 것
+                ea.job_finish(jid, True, done['id'])
+                return done
+        row = _job_dispatch(kind, uid, payload)
+        if jid:
+            ea.job_finish(jid, True, (row or {}).get('id'))
+        return row
+    except Exception as exc:
+        logger.error(f'{_LOG} {label} 처리 실패: {exc}', exc_info=True, extra={'force_alert': True})
+        if jid:
+            ea.job_finish(jid, False, error=str(exc))
+        c = eap_client()
+        if c:
+            _notify(c, uid, f':warning: {label}이 올라가지 않았어요. 잠시 뒤 다시 해 주세요.')
+        return None
+
+
+def recover_jobs(now=None) -> int:
+    """끝나지 않은 제출을 이어서 처리 + 진행 중 결재의 빠진 카드·DM 채우기. 이어서 처리한 제출 수."""
+    from datetime import datetime as _dt, timedelta
+    if not is_configured():
+        return 0
+    now = now or _dt.now()
+    stale = (now - timedelta(minutes=_JOB_STALE_MIN)).strftime('%Y-%m-%d %H:%M:%S')
+    n = 0
+    for job in ea.jobs_unfinished(stale):
         try:
-            process_form_submit(uid, form_key, vals)
-        except Exception as exc:
-            logger.error(f'{_LOG} {form_key} 요청 처리 실패: {exc}', exc_info=True, extra={'force_alert': True})
+            payload = json.loads(job['payload'] or '{}')
+        except ValueError:
+            ea.job_finish(job['id'], False, error='payload 읽기 실패')
+            continue
+        if int(job.get('attempts') or 0) >= 3:   # 세 번 해도 안 되면 그만 — 요청자에게 다시 올려 달라고
+            ea.job_finish(job['id'], False, error='3번 시도 실패')
             c = eap_client()
             if c:
-                _notify(c, uid, f':warning: {ea.forms.get(form_key).label}이 올라가지 않았어요. 잠시 뒤 다시 해 주세요.')
-    threading.Thread(target=_bg, daemon=True).start()
+                _notify(c, job['user_id'], f':warning: {_job_label(job["kind"], payload)}이 올라가지 않았어요. '
+                                           '다시 올려 주세요.')
+            continue
+        row = _run_job(job['id'], job['kind'], job['user_id'], payload, stale_before=stale)
+        if row:
+            n += 1
+            logger.warning(f'{_LOG} 멈췄던 제출 이어서 처리: {ea.title(row)} ({job["id"]})')
+            c = eap_client()
+            if c:
+                _notify(c, job['user_id'], f'⏰ 서버가 잠깐 멈춰 늦어졌던 {ea.title(row)} 요청이 이제 올라갔어요.')
+    _reconcile_open(now)
+    return n
+
+
+def _reconcile_open(now) -> None:
+    """진행 중 결재 — 처리할 사람 DM 이 빠졌으면 보낸다(승인 직후 슬랙 장애로 DM 실패 등).
+    방금 바뀐 결재는 처리 중일 수 있어 2분 넘은 것만(같은 DM 을 두 번 보내지 않게)."""
+    from datetime import datetime as _dt
+    client = eap_client()
+    if not client:
+        return
+    for row in ea.open_rows():
+        try:
+            age = (now - _dt.strptime(str(row.get('updated_at'))[:19], '%Y-%m-%d %H:%M:%S')).total_seconds()
+        except ValueError:
+            continue
+        if age < 120 or not row.get('card_ts'):
+            continue
+        before = len(ea.dm_refs(row))
+        _dm_round(client, row)
+        if len(ea.dm_refs(ea.get(row['id']) or row)) > before:
+            logger.warning(f'{_LOG} 빠진 DM 다시 보냄: {ea.title(row)}')
 
 
 def _register_form_handlers(app) -> None:

@@ -458,6 +458,17 @@ def start_scheduler():
                 replace_existing=True,
             )
         jobs.append('전자결재 리마인드 10:00·14:00(승인)·15:30(이체)')
+        # 2026-11-11 멈췄던 제출 이어서 처리 + 빠진 DM 채우기 — 5분마다, 재시작 1분 뒤 첫 실행
+        from datetime import datetime as _dt, timedelta as _td
+        _scheduler.add_job(
+            _safe_eap_recover,
+            'interval',
+            minutes=5,
+            next_run_time=_dt.now() + _td(minutes=1),
+            id='eap_recover',
+            replace_existing=True,
+        )
+        jobs.append('전자결재 멈춘 제출 복구 5분')
     # 2026-11-05 휴가 — 입사일 기준 연차 자동 발생(입사 한 달마다·기념일). 휴가 봇이 있을 때만,
     #   실제로 넣는 건 LEAVE_ENABLED 뒤(run_accrual) — 플렉스를 쓰는 동안 장부·DM 이 따로 놀지 않게
     if os.getenv('SLACK_LEAVE_BOT_TOKEN', '').strip():
@@ -975,6 +986,15 @@ def _safe_pin_remind_daily():
         logger.info(f'[SCHED] 경영지원 DM 결과: {result}')
     except Exception as exc:
         logger.error(f'[SCHED] 경영지원 DM 실패: {exc}', exc_info=True)
+
+
+def _safe_eap_recover():
+    """전자결재 — 서버가 멈춰 끝나지 않은 제출을 이어서 처리, 진행 중 결재의 빠진 DM 채우기(11-11)."""
+    try:
+        from dashboard.blueprints.slack_eapproval import recover_jobs
+        recover_jobs()
+    except Exception as exc:
+        logger.error(f'[SCHED] 전자결재 제출 복구 실패: {exc}', exc_info=True)
 
 
 def _safe_eap_remind(kind: str):

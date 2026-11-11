@@ -220,6 +220,21 @@ _DDL = [
         account TEXT,
         last_used TIMESTAMP
     )''',
+    # 11-11 제출 기록 — 창 제출(ack) 뒤 백그라운드에서 결재를 만드는데, 그 사이 서버가 꺼지면 요청이 사라지고
+    # 요청자도 몰랐다. 제출 내용을 먼저 남기고, 끝나지 않은 것은 재시작 뒤 이어서 처리한다(recover_jobs)
+    '''CREATE TABLE IF NOT EXISTS approval_jobs (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        user_id TEXT,
+        payload TEXT NOT NULL,
+        status TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        approval_id INTEGER,
+        error TEXT,
+        created_at TIMESTAMP NOT NULL,
+        updated_at TIMESTAMP NOT NULL
+    )''',
+    'CREATE INDEX IF NOT EXISTS idx_approval_jobs_status ON approval_jobs(status)',
 ]
 _table_ready = False
 
@@ -263,6 +278,74 @@ def steps(aid: int) -> List[dict]:
         _ensure_tables(conn)
         return [dict(r) for r in conn.execute(
             'SELECT * FROM approval_steps WHERE approval_id=? ORDER BY id', (aid,)).fetchall()]
+
+
+# ── 제출 기록(11-11) ──────────────────────────────────────────────────
+JOB_PENDING, JOB_RUNNING, JOB_DONE, JOB_FAILED = 'pending', 'running', 'done', 'failed'
+
+
+def job_add(kind: str, user_id: str, payload: dict) -> str:
+    """제출 내용을 먼저 남긴다. 기록 id 반환(결재 extra['job'] 에도 실려 같은 제출을 두 번 만들지 않게)."""
+    import uuid
+    jid = 'job-' + uuid.uuid4().hex[:16]
+    now = _now()
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        conn.execute('INSERT INTO approval_jobs (id, kind, user_id, payload, status, created_at, updated_at) '
+                     'VALUES (?,?,?,?,?,?,?)',
+                     (jid, kind, user_id, json.dumps(payload, ensure_ascii=False, default=str), JOB_PENDING, now, now))
+        conn.commit()
+    return jid
+
+
+def job_claim(jid: str, stale_before: str = '') -> bool:
+    """처리 시작 — 대기 중이거나(stale_before 가 있으면) 그 전부터 '처리 중'에 멈춘 것만. 동시에 둘이 못 잡는다."""
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        if stale_before:
+            cur = conn.execute("UPDATE approval_jobs SET status=?, attempts=attempts+1, updated_at=? WHERE id=? "
+                               "AND (status=? OR (status=? AND updated_at < ?))",
+                               (JOB_RUNNING, _now(), jid, JOB_PENDING, JOB_RUNNING, stale_before))
+        else:
+            cur = conn.execute('UPDATE approval_jobs SET status=?, attempts=attempts+1, updated_at=? WHERE id=? AND status=?',
+                               (JOB_RUNNING, _now(), jid, JOB_PENDING))
+        conn.commit()
+        return cur.rowcount == 1
+
+
+def job_finish(jid: str, ok: bool, approval_id: Optional[int] = None, error: str = '') -> None:
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        conn.execute('UPDATE approval_jobs SET status=?, approval_id=?, error=?, updated_at=? WHERE id=?',
+                     (JOB_DONE if ok else JOB_FAILED, approval_id, (error or '')[:500] or None, _now(), jid))
+        conn.commit()
+
+
+def job_get(jid: str) -> Optional[dict]:
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        r = conn.execute('SELECT * FROM approval_jobs WHERE id=?', (jid,)).fetchone()
+        return dict(r) if r else None
+
+
+def jobs_unfinished(older_than: str) -> List[dict]:
+    """끝나지 않은 제출(대기·처리 중) 중 older_than 보다 오래된 것."""
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        return [dict(r) for r in conn.execute(
+            'SELECT * FROM approval_jobs WHERE status IN (?,?) AND updated_at < ? ORDER BY created_at',
+            (JOB_PENDING, JOB_RUNNING, older_than)).fetchall()]
+
+
+def find_by_job(jid: str) -> Optional[dict]:
+    """그 제출로 만든 결재(extra['job'])."""
+    if not jid:
+        return None
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        r = conn.execute('SELECT * FROM approvals WHERE extra LIKE ? ORDER BY id DESC LIMIT 1',
+                         (f'%"job": "{jid}"%',)).fetchone()
+        return dict(r) if r else None
 
 
 def open_rows() -> List[dict]:
@@ -362,7 +445,10 @@ def create(form: str, requester_id: str, requester_name: str, fields: Dict) -> d
             'bank', 'account', 'amount', 'urgency', 'memo', 'origin_channel', 'origin_ts', 'extra')
     vals = [fields.get(c) for c in cols]
     vals[cols.index('amount')] = int(fields.get('amount') or 0)
-    vals[cols.index('extra')] = json.dumps(fields.get('extra') or {}, ensure_ascii=False)
+    x = dict(fields.get('extra') or {})
+    if fields.get('_job'):   # 제출 기록 id — 재시작 뒤 이어서 처리할 때 같은 결재를 또 만들지 않게(11-11)
+        x['job'] = fields['_job']
+    vals[cols.index('extra')] = json.dumps(x, ensure_ascii=False)
     with _db()._get_connection() as conn:
         _ensure_tables(conn)
         cur = conn.execute(
