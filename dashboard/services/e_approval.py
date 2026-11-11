@@ -1813,6 +1813,20 @@ def read_supply_request(view: dict) -> Dict:
     return f
 
 
+_LOGIN_ONLY_SEGS = {'myshop', 'mypage', 'my', 'cart', 'basket', 'order', 'orders', 'orderlist', 'checkout',
+                    'login', 'signin', 'member', 'myinfo'}
+
+
+def login_only_link(url: Optional[str]) -> bool:
+    """로그인해야 보이는 쇼핑몰 주소(마이페이지·장바구니·주문)인가 — 경로 조각 이름으로만 본다(11-11 #15
+    diaryon …/myshop/index.html). 상품 페이지 주소에 그 낱말이 섞인 것(order-made 등)은 안 걸린다."""
+    m = re.match(r'https?://[^/?#]+(/[^?#]*)?', (url or '').strip())
+    if not m:
+        return False
+    segs = [re.sub(r'\.(html?|php|asp|aspx|jsp)$', '', s.lower()) for s in (m.group(1) or '').split('/') if s]
+    return any(s in _LOGIN_ONLY_SEGS for s in segs)
+
+
 def complete_supply_request(f: Dict) -> Dict[str, str]:
     """비품 신청 값 검사 + 총 금액 채움 + 장부 필드로 정리. 오류 {block_id: 문구}. f 를 고친다."""
     from dashboard.services.purchase_invoice_assign import STOCK_CODE

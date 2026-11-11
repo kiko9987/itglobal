@@ -104,13 +104,17 @@ def _card_link(row: dict) -> str:
         return ''
 
 
+# 결재 카드·DM 엔 상품 링크가 들어간다 — 미리보기가 카드 아래 크게 붙지 않게(11-11 #15 다이어리)
+_NO_UNFURL = {'unfurl_links': False, 'unfurl_media': False}
+
+
 # ── DM ────────────────────────────────────────────────────────────────
 def _send_dm(client, aid: int, uid: str, role: str) -> None:
     row = ea.get(aid)
     try:
         ch = client.conversations_open(users=uid)['channel']['id']
         text, blocks = render(row, role)
-        r = client.chat_postMessage(channel=ch, text=text, blocks=blocks)
+        r = client.chat_postMessage(channel=ch, text=text, blocks=blocks, **_NO_UNFURL)
         ea.add_dm_ref(aid, ch, r['ts'], role, uid)
     except Exception as exc:
         # 승인·이체 담당 DM 이 안 가면 아무도 모른 채 결재가 멈춘다(퇴사 계정 등) — 관리자 알림(11-06 검수)
@@ -165,7 +169,7 @@ def start(row: dict) -> dict:
     ch = ea.channel_id()
     text, blocks = render(row, 'all')
     try:
-        r = client.chat_postMessage(channel=ch, text=text, blocks=blocks)
+        r = client.chat_postMessage(channel=ch, text=text, blocks=blocks, **_NO_UNFURL)
     except Exception:
         ea.transition(row['id'], 'cancel', 'system', '시스템', '결재 카드 게시 실패')
         raise
@@ -189,7 +193,8 @@ def refresh(row: dict) -> None:
     if row.get('card_channel') and row.get('card_ts'):
         text, blocks = render(row, 'all')
         try:
-            client.chat_update(channel=row['card_channel'], ts=row['card_ts'], text=text, blocks=blocks)
+            client.chat_update(channel=row['card_channel'], ts=row['card_ts'], text=text, blocks=blocks,
+                               attachments=[])   # 상품 링크 미리보기가 붙어 있으면 걷어낸다(11-11)
         except Exception as exc:
             logger.warning(f'{_LOG} 카드 갱신 실패 ({ea.title(row)}): {exc}')
         if row['status'] not in ea.OPEN_STATUSES:
@@ -201,7 +206,7 @@ def refresh(row: dict) -> None:
     for d in ea.dm_refs(row):
         text, blocks = render(row, d['role'])
         try:
-            client.chat_update(channel=d['ch'], ts=d['ts'], text=text, blocks=blocks)
+            client.chat_update(channel=d['ch'], ts=d['ts'], text=text, blocks=blocks, attachments=[])
         except Exception as exc:
             logger.warning(f'{_LOG} DM 갱신 실패 ({ea.title(row)} {d}): {exc}')
 
@@ -211,7 +216,7 @@ def _thread_log(row: dict, text: str, broadcast: bool = False) -> None:
         return
     try:
         eap_client().chat_postMessage(channel=row['card_channel'], thread_ts=row['card_ts'],
-                                      text=text, reply_broadcast=broadcast)
+                                      text=text, reply_broadcast=broadcast, **_NO_UNFURL)
     except Exception as exc:
         logger.warning(f'{_LOG} 스레드 기록 실패 ({ea.title(row)}): {exc}')
 
@@ -851,6 +856,10 @@ def process_supply_submit(uid: str, f: dict) -> dict:
 def handle_supply_submit(ack, body, view) -> None:
     f = ea.read_supply_request(view)
     errs = ea.complete_supply_request(f)
+    # 마이페이지·장바구니 주소는 다른 사람이 열면 로그인 화면만 뜬다(11-11 #15) — 한 번 확인, 다시 내면 통과
+    if not errs and ea.login_only_link(f.get('link')) and _grn_warn_once(view.get('id', ''), 'link', f.get('link')):
+        errs['link'] = ('마이페이지·장바구니·주문 주소 같아요. 다른 사람이 열면 로그인 화면만 떠요. '
+                        '상품 상세 페이지 주소를 넣어 주세요. 이 주소가 맞으면 아래 버튼을 한 번 더 눌러 주세요.')
     if not errs and not is_configured():
         errs['item'] = '전자결재 봇이 아직 설정되지 않았어요. 관리자에게 알려 주세요.'
     if errs:
