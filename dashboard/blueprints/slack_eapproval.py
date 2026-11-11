@@ -1445,9 +1445,15 @@ def _remind_line(row: dict, mins: int) -> str:
     st = row['status']
     todo = {ea.PENDING: '승인', ea.FINAL: '최종 승인', ea.REVISE: '수정해서 다시 올리기',
             ea.APPROVED: f'{ea.step2_word(row)} 완료'}.get(st, '')
-    who = '' if st == ea.REVISE else f" · {ea.initial(row.get('requester_name'))}"
     amt = int(row.get('amount') or 0)
     money = f' {amt:,}원' if amt else ''
+    if st == ea.REVISE:   # 요청자에게 — 무엇을 고쳐야 하는지가 핵심(11-11 KiKO)
+        rv = ea.last_revise(ea.steps(row['id'])) or {}
+        line = f'• {head} — {ea.what_of(row)}{money} · 수정 요청 받은 지 {_wait_text(mins)}'
+        if rv.get('reason'):
+            line += f"\n      └ {ea.initial(rv.get('actor_name'))}: {rv['reason']}"
+        return line
+    who = f" · {ea.initial(row.get('requester_name'))}"
     return f'• {head} — {ea.what_of(row)}{money}{who} · *{todo}* 기다린 지 {_wait_text(mins)}'
 
 
@@ -1458,10 +1464,10 @@ def reminder_text(todo: list, revise: list) -> str:
     if todo:
         parts.append('\n'.join([f'⏰ *처리할 결재가 {len(todo)}건 있어요.*', gap]
                                + [_remind_line(r, m) for r, m in todo]))
-    if revise:
-        parts.append('\n'.join([f'✏️ *수정 요청을 받은 결재가 {len(revise)}건 있어요.*',
-                                '카드의 [✏️ 수정하기]로 고쳐 올리거나, 필요 없으면 [요청 취소]를 눌러 주세요.', gap]
-                               + [_remind_line(r, m) for r, m in revise]))
+    if revise:   # 첫 번째 묶음과 같은 모양 — 제목 · 빈 줄 · 목록, 안내는 맨 아래(11-11 KiKO)
+        parts.append('\n'.join([f'✏️ *수정 요청을 받은 결재가 {len(revise)}건 있어요.*', gap]
+                               + [_remind_line(r, m) for r, m in revise]
+                               + [gap, '카드의 [✏️ 수정하기]로 고쳐 올리거나, 필요 없으면 [요청 취소]를 눌러 주세요.']))
     return f'\n{gap}\n'.join(parts)
 
 
