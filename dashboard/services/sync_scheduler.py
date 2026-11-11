@@ -447,6 +447,17 @@ def start_scheduler():
             replace_existing=True,
         )
         jobs.append('법인카드 지출결의 안내 매달 첫 영업일 09:00')
+        # 2026-11-11 결재 리마인드 — 사람마다 '내 차례 목록' DM 한 통(영업일만, 판정은 함수가)
+        for _kind, _h, _m in (('morning', 10, 0), ('approve', 14, 0), ('transfer', 15, 30)):
+            _scheduler.add_job(
+                _safe_eap_remind,
+                'cron',
+                hour=_h, minute=_m,
+                args=[_kind],
+                id=f'eap_remind_{_kind}',
+                replace_existing=True,
+            )
+        jobs.append('전자결재 리마인드 10:00·14:00(승인)·15:30(이체)')
     # 2026-11-05 휴가 — 입사일 기준 연차 자동 발생(입사 한 달마다·기념일). 휴가 봇이 있을 때만,
     #   실제로 넣는 건 LEAVE_ENABLED 뒤(run_accrual) — 플렉스를 쓰는 동안 장부·DM 이 따로 놀지 않게
     if os.getenv('SLACK_LEAVE_BOT_TOKEN', '').strip():
@@ -964,6 +975,15 @@ def _safe_pin_remind_daily():
         logger.info(f'[SCHED] 경영지원 DM 결과: {result}')
     except Exception as exc:
         logger.error(f'[SCHED] 경영지원 DM 실패: {exc}', exc_info=True)
+
+
+def _safe_eap_remind(kind: str):
+    """전자결재 리마인드(11-11) — 승인·최종 승인·수정 요청·이체 대기가 머물러 있으면 차례인 사람에게 DM."""
+    try:
+        from dashboard.blueprints.slack_eapproval import post_reminders
+        post_reminders(kind)
+    except Exception as exc:
+        logger.error(f'[SCHED] 전자결재 리마인드({kind}) 실패: {exc}', exc_info=True)
 
 
 def _safe_cardexp_remind():

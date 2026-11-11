@@ -1390,6 +1390,100 @@ def post_cardexp_reminder(today=None) -> Optional[str]:
     return r.get('ts')
 
 
+# ── 리마인드 (11-11 운영 점검) ───────────────────────────────────────
+# 처음 DM 한 번뿐이라 비품 3만 원이 최종 승인 대기로 16시간, 수정 요청이 하루 넘게 머물렀다.
+# 알림 피로를 줄이려 건마다 보내지 않고 사람마다 '내 차례 목록' 한 통으로 모아 보낸다(영업일만).
+#   10:00·14:00  승인·최종 승인 차례(1시간 넘게 기다린 것) / 10:00 만 수정 요청 방치(20시간 넘은 것) → 요청자
+#   15:30        이체·처리 대기(1시간 넘은 것) → 경영지원(N통장은 JW·YG)
+_REMIND_WAIT_MIN = 60
+_REVISE_WAIT_MIN = 20 * 60
+
+
+def _wait_text(minutes: int) -> str:
+    if minutes < 60:
+        return f'{minutes}분째'
+    if minutes < 24 * 60:
+        return f'{minutes // 60}시간째'
+    return f'{minutes // (24 * 60)}일째'
+
+
+def remind_targets(kind: str, rows: List[dict], now=None) -> dict:
+    """{uid: [(row, 기다린 분)]} — kind: 'approve'(오전·오후) / 'morning'(오전: approve + 수정 요청) / 'transfer'."""
+    from datetime import datetime as _dt
+    now = now or _dt.now()
+    out: dict = {}
+
+    def _add(uid, row, mins):
+        if uid:
+            out.setdefault(uid, []).append((row, mins))
+    for row in rows:
+        try:
+            mins = int((now - _dt.strptime(str(row.get('updated_at'))[:19], '%Y-%m-%d %H:%M:%S')).total_seconds() // 60)
+        except ValueError:
+            continue
+        st = row['status']
+        if kind in ('approve', 'morning') and st in (ea.PENDING, ea.FINAL) and mins >= _REMIND_WAIT_MIN:
+            for uid, role in _targets(row):
+                # ① 대기는 KiKO 에게. JW·YG 는 하루 가까이 머문 것만(KiKO 휴가 등) — 매번 받으면 알림이 많다
+                if role == 'final' and st == ea.PENDING and mins < _REVISE_WAIT_MIN:
+                    continue
+                _add(uid, row, mins)
+        elif kind == 'morning' and st == ea.REVISE and mins >= _REVISE_WAIT_MIN:
+            _add(row.get('requester_id'), row, mins)
+        elif kind == 'transfer' and st == ea.APPROVED and mins >= _REMIND_WAIT_MIN:
+            for uid, role in _targets(row):
+                if role == 'executor':
+                    _add(uid, row, mins)
+    return out
+
+
+def _remind_line(row: dict, mins: int) -> str:
+    link = _card_link(row)
+    t = ea.title(row)
+    head = f'<{link}|{t}>' if link else t
+    st = row['status']
+    todo = {ea.PENDING: '승인', ea.FINAL: '최종 승인', ea.REVISE: '수정해서 다시 올리기',
+            ea.APPROVED: f'{ea.step2_word(row)} 완료'}.get(st, '')
+    who = '' if st == ea.REVISE else f" · {ea.initial(row.get('requester_name'))}"
+    return f'• {head} — {ea.what_of(row)}{who} · *{todo}* 기다린 지 {_wait_text(mins)}'
+
+
+def post_reminders(kind: str, now=None) -> int:
+    """리마인드 DM 보내기. 보낸 사람 수. 영업일·전자결재 설정·같은 회차 한 번만."""
+    from datetime import datetime as _dt
+    from dashboard.services.absent_remind import _is_business_day
+    now = now or _dt.now()
+    if os.getenv('EAPPROVAL_REMIND_ENABLED', 'true').strip().lower() == 'false':
+        return 0
+    if not is_configured() or not _is_business_day(now.date()):
+        return 0
+    try:   # 같은 회차 두 번 보내지 않게. Redis 가 안 되면 그냥 보낸다(스케줄러는 한 곳에서만 돈다)
+        from dashboard.utils.redis_client import get_redis_client
+        if not get_redis_client().redis.set(f'eap_remind:{kind}:{now:%Y-%m-%d-%H}', '1', nx=True, ex=86400):
+            return 0
+    except Exception as exc:
+        logger.warning(f'{_LOG} 리마인드 중복 확인 실패(보냄): {exc}')
+    targets = remind_targets(kind, ea.open_rows(), now)
+    client = eap_client()
+    for uid, items in targets.items():
+        items.sort(key=lambda x: -x[1])
+        mine_revise = [x for x in items if x[0]['status'] == ea.REVISE]
+        mine_todo = [x for x in items if x[0]['status'] != ea.REVISE]
+        parts = []
+        if mine_todo:
+            parts.append(f'⏰ *처리할 결재가 {len(mine_todo)}건 있어요.*\n'
+                         + '\n'.join(_remind_line(r, m) for r, m in mine_todo))
+        if mine_revise:
+            parts.append(f'✏️ *수정 요청을 받은 결재가 {len(mine_revise)}건 있어요.* 카드의 [✏️ 수정하기]로 고쳐 올리거나, '
+                         '필요 없으면 [요청 취소]를 눌러 주세요.\n'
+                         + '\n'.join(_remind_line(r, m) for r, m in mine_revise))
+        _notify(client, uid, '\n\n'.join(parts))
+    if targets:
+        logger.info(f'{_LOG} 리마인드({kind}) {len(targets)}명 · '
+                    f'{sum(len(v) for v in targets.values())}건')
+    return len(targets)
+
+
 def _ephemeral(client, body, text: str) -> None:
     uid = (body.get('user') or {}).get('id', '')
     ch = (body.get('channel') or {}).get('id', '')

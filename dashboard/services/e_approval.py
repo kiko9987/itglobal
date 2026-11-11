@@ -265,6 +265,15 @@ def steps(aid: int) -> List[dict]:
             'SELECT * FROM approval_steps WHERE approval_id=? ORDER BY id', (aid,)).fetchall()]
 
 
+def open_rows() -> List[dict]:
+    """진행 중인 결재(승인·최종 승인·이체 대기·수정 요청) — 리마인드용(11-11)."""
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        rows = conn.execute(f'SELECT * FROM approvals WHERE status IN ({",".join("?" * 4)}) ORDER BY id',
+                            (PENDING, FINAL, APPROVED, REVISE)).fetchall()
+        return [dict(r) for r in rows]
+
+
 def find_by_origin(channel: str, ts: str) -> Optional[dict]:
     """계산서 글에서 시작한 결재(가장 최근 것)."""
     with _db()._get_connection() as conn:

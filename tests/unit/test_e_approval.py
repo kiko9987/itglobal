@@ -484,6 +484,44 @@ def test_review_1111_fixes(se):
     assert new_btn['value'] == f"{m['id']}:1" != btn['value']
 
 
+def test_reminders(se, monkeypatch):
+    from datetime import datetime
+    monkeypatch.setenv('EAPPROVAL_FINAL_ENABLED', 'true')
+    p = se.process_new_submit(MGR, dict(FIELDS))                      # 승인 대기
+    f = se.process_new_submit(MGR, dict(FIELDS)); se.apply_action('approve', f['id'], KIKO)   # 최종 승인 대기
+    a = se.process_new_submit(MGR, dict(FIELDS)); se.apply_action('approve', a['id'], JW)     # 이체 대기
+    r = se.process_new_submit(MGR, dict(FIELDS)); se.apply_action('revise', r['id'], KIKO, '확인')  # 수정 요청
+    fresh = se.process_new_submit(MGR, dict(FIELDS))                  # 방금 올라온 건 — 안 보냄
+
+    def age(aid, at):
+        with ea._db()._get_connection() as conn:
+            conn.execute('UPDATE approvals SET updated_at=? WHERE id=?', (at, aid))
+            conn.commit()
+    for x in (p, f, a):
+        age(x['id'], '2026-11-11 08:00:00')
+    age(r['id'], '2026-11-10 09:00:00')
+    age(fresh['id'], '2026-11-11 09:50:00')
+    now = datetime(2026, 11, 11, 10, 0)
+    t = se.remind_targets('morning', ea.open_rows(), now)
+    ids = {u: sorted(x[0]['id'] for x in v) for u, v in t.items()}
+    assert ids[KIKO] == [p['id']]                    # ① 대기는 KiKO 만(2시간 — JW·YG 는 아직)
+    assert ids[JW] == [f['id']] and ids[YG] == [f['id']]
+    assert ids[MGR] == [r['id']]                     # 수정 요청 하루 넘음 → 요청자
+    assert SB not in ids                             # 이체 대기는 오후 15:30 회차
+    assert {u: [x[0]['id'] for x in v] for u, v in se.remind_targets('transfer', ea.open_rows(), now).items()} \
+        == {SB: [a['id']]}
+    assert se.remind_targets('approve', ea.open_rows(), now).get(MGR) is None   # 오후 회차엔 수정 요청 안 보냄
+    # 보내기 — 사람마다 한 통, 주말엔 안 보냄
+    n = len(se._fake.of('chat_postMessage'))
+    assert se.post_reminders('morning', now) == 4
+    sent = se._fake.of('chat_postMessage')[n:]
+    assert len(sent) == 4 and any('처리할 결재가 1건' in kw['text'] and '2시간째' in kw['text'] for kw in sent)
+    assert any('수정 요청을 받은 결재가 1건' in kw['text'] for kw in sent)
+    assert se.post_reminders('morning', datetime(2026, 11, 14, 10, 0)) == 0   # 토요일
+    monkeypatch.setenv('EAPPROVAL_REMIND_ENABLED', 'false')
+    assert se.post_reminders('approve', datetime(2026, 11, 11, 14, 0)) == 0
+
+
 def test_reject_notifies_requester_and_origin(se):
     from dashboard.services import purchase_invoice_assign as pinv  # noqa: F401
     row = se.start_from_invoice(MGR, '강성환', 'CINV', '111.1',
