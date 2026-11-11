@@ -243,7 +243,7 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '') -> Optional[
             'reject': '반려는 승인자만 할 수 있어요.',
             'transfer': f'{w} 완료는 경영지원 담당만 누를 수 있어요.',
             'cancel': '요청 취소는 요청한 사람이나 승인자만 할 수 있어요.',
-            'revise': '수정 요청은 승인자·경영지원만 할 수 있어요.',
+            'revise': '보완 요청은 승인자·경영지원만 할 수 있어요.',
         }[action]
     name = _name(uid)
     new = ea.transition(aid, action, uid, name, reason)
@@ -309,13 +309,13 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '') -> Optional[
         if uid != new.get('requester_id'):
             _notify(client, new.get('requester_id'), f'⚪ {t} 요청이 취소됐어요 ({ini}).')
     elif action == 'revise':
-        _thread_log(new, f'✏️ {who} 수정 요청 — {reason}')
-        _origin_log(new, f'✏️ {t} 수정 요청 ({who}) — {reason}')
+        _thread_log(new, f'🔁 {who} 보완 요청 — {reason}')
+        _origin_log(new, f'🔁 {t} 보완 요청 ({who}) — {reason}')
         # 요청자 DM 에 [✏️ 수정하기] — 두 번째 수정 요청이면 예전 DM 은 refresh 가 다시 버튼을 띄운다
         if (new.get('requester_id'), 'requester') not in {(r['user'], r['role']) for r in ea.dm_refs(new)}:
             _send_dm(client, aid, new.get('requester_id'), 'requester')
         else:
-            _notify(client, new.get('requester_id'), f'✏️ {t} 수정 요청이 왔어요: {reason}')
+            _notify(client, new.get('requester_id'), f'🔁 {t} 보완 요청이 왔어요: {reason}')
     refresh(ea.get(aid))
     _audit(new, action, name, reason)
     logger.info(f'{_LOG} {t} {action} ({name})')
@@ -586,8 +586,8 @@ def _revise_view(aid: int) -> dict:
     row = ea.get(aid) or {}
     return {
         'type': 'modal', 'callback_id': ea.CB_REVISE,
-        'title': {'type': 'plain_text', 'text': '수정 요청'},
-        'submit': {'type': 'plain_text', 'text': '돌려보내기'},
+        'title': {'type': 'plain_text', 'text': '보완 요청'},
+        'submit': {'type': 'plain_text', 'text': '보완 요청'},
         'close': {'type': 'plain_text', 'text': '취소'},
         'private_metadata': json.dumps({'aid': aid}),
         'blocks': [
@@ -1566,7 +1566,7 @@ def _remind_line(row: dict, mins: int) -> str:
     money = f' {amt:,}원' if amt else ''
     if st == ea.REVISE:   # 요청자에게 — 무엇을 고쳐야 하는지가 핵심(11-11 KiKO)
         rv = ea.last_revise(ea.steps(row['id'])) or {}
-        line = f'• {head} — {ea.what_of(row)}{money} · 수정 요청 받은 지 {_wait_text(mins)}'
+        line = f'• {head} — {ea.what_of(row)}{money} · 보완 요청 받은 지 {_wait_text(mins)}'
         if rv.get('reason'):
             line += f"\n      └ {ea.initial(rv.get('actor_name'))}: {rv['reason']}"
         return line
@@ -1582,7 +1582,7 @@ def reminder_text(todo: list, revise: list) -> str:
         parts.append('\n'.join([f'⏰ *처리할 결재가 {len(todo)}건 있어요.*', gap]
                                + [_remind_line(r, m) for r, m in todo]))
     if revise:   # 첫 번째 묶음과 같은 모양 — 제목 · 빈 줄 · 목록, 안내는 맨 아래(11-11 KiKO)
-        parts.append('\n'.join([f'✏️ *수정 요청을 받은 결재가 {len(revise)}건 있어요.*', gap]
+        parts.append('\n'.join([f'🔁 *보완 요청을 받은 결재가 {len(revise)}건 있어요.*', gap]
                                + [_remind_line(r, m) for r, m in revise]
                                + [gap, '카드의 [✏️ 수정하기]로 고쳐 올리거나, 필요 없으면 [요청 취소]를 눌러 주세요.']))
     return f'\n{gap}\n'.join(parts)
@@ -1774,10 +1774,10 @@ def register_eapproval_handlers(app) -> None:
         row = ea.get(aid)
         uid = (body.get('user') or {}).get('id', '')
         if not row or not ea.can_act('revise', row, uid):
-            _ephemeral(client, body, '🔒 수정 요청은 승인자·경영지원만 할 수 있어요.')
+            _ephemeral(client, body, '🔒 보완 요청은 승인자·경영지원만 할 수 있어요.')
             return
         if row['status'] not in (ea.PENDING, ea.FINAL, ea.APPROVED):
-            _ephemeral(client, body, f"🔒 지금은 수정 요청을 할 수 없어요 (지금: {ea.status_label(row)[1]}).")
+            _ephemeral(client, body, f"🔒 지금은 보완 요청을 할 수 없어요 (지금: {ea.status_label(row)[1]}).")
             return
         try:
             client.views_open(trigger_id=body['trigger_id'], view=_revise_view(aid))
