@@ -486,6 +486,13 @@ def test_review_1111_fixes(se):
 
 def test_reminders(se, monkeypatch):
     from datetime import datetime
+    import dashboard.utils.redis_client as rc
+
+    class _NoRedis:   # 같은 회차 중복 방지 키가 테스트 Redis 에 남아 두 번째 실행부터 0통이 되던 것 — Redis 없이
+        @property
+        def redis(self):
+            raise RuntimeError('no redis in test')
+    monkeypatch.setattr(rc, 'get_redis_client', lambda: _NoRedis())
     monkeypatch.setenv('EAPPROVAL_FINAL_ENABLED', 'true')
     p = se.process_new_submit(MGR, dict(FIELDS))                      # 승인 대기
     f = se.process_new_submit(MGR, dict(FIELDS)); se.apply_action('approve', f['id'], KIKO)   # 최종 승인 대기
