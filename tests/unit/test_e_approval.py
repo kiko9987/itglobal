@@ -525,7 +525,7 @@ def test_reminders(se, monkeypatch):
     sent = se._fake.of('chat_postMessage')[n:]
     body = [kw['blocks'][0]['text']['text'] for kw in sent]
     assert len(sent) == 4 and any('처리할 결재가 1건' in b and '2시간째' in b for b in body)
-    assert any('수정 요청을 받은 결재가 1건' in b for b in body)
+    assert any('보완 요청을 받은 결재가 1건' in b for b in body)
     assert all(kw['blocks'][-1]['type'] == 'context' and b.startswith('⠀\n') for kw, b in zip(sent, body))
     assert se.post_reminders('morning', datetime(2026, 11, 14, 10, 0)) == 0   # 토요일
     monkeypatch.setenv('EAPPROVAL_REMIND_ENABLED', 'false')
@@ -1121,7 +1121,7 @@ def test_contract_form_prefill_read_validate_and_task_flow(tmp_db):
     assert row['status'] == ea.APPROVED and ea.title(row).startswith('G계약서 작성 요청 #')   # 승인 없이 바로 처리 대기
     assert ea.status_label(row) == ('🔵', '처리 대기')
     labels = [b['text']['text'] for b in ea.buttons(row, 'all')]
-    assert labels == ['✅ 처리 완료', '반려', '✏️ 수정 요청', '✏️ 요청 수정', '요청 취소']
+    assert labels == ['✅ 처리 완료', '반려', '🔁 보완 요청', '✏️ 수정하기', '✖️ 취소하기']
     t = ea.card_text(row, ea.steps(row['id']), 'G4237-MJ · 마포구 양화로 45')
     assert '*인수자명* : 윤명림' in t and '*총 금액* : 11,440,000원' in t and '⏳ 경영지원 처리' in t
     assert ea.can_act('reject', row, SB) and ea.can_act('transfer', row, SB) and not ea.can_act('transfer', row, MGR)
@@ -1423,15 +1423,15 @@ def _state_from_view(view: dict, override: dict = None) -> dict:
 def test_revise_then_edit_fund_same_card(se):
     row = se.process_new_submit(MGR, dict(FIELDS))
     card_ts = row['card_ts']
-    assert se.apply_action('revise', row['id'], MGR, '계좌 확인') == '수정 요청은 승인자·경영지원만 할 수 있어요.'
+    assert se.apply_action('revise', row['id'], MGR, '계좌 확인') == '보완 요청은 승인자·경영지원만 할 수 있어요.'
     assert se.apply_action('revise', row['id'], SB, '계좌번호가 계산서와 달라요') is None
     row = ea.get(row['id'])
-    assert row['status'] == ea.REVISE and ea.status_label(row) == ('🟠', '수정 요청')
+    assert row['status'] == ea.REVISE and ea.status_label(row) == ('🟠', '보완 요청')
     dm = [m for m in se._fake.of('chat_postMessage') if m['channel'] == 'D-' + MGR][-1]
     assert ea.A_EDIT in json.dumps(dm['blocks']) and '계좌번호가 계산서와 달라요' in json.dumps(dm['blocks'], ensure_ascii=False)
     assert not ea.can_act('edit', row, SB) and ea.can_act('edit', row, MGR)
     text = ea.card_text(row, ea.steps(row['id']), 'G4049-JW')
-    assert '✏️ 경영지원 (SB) 수정 요청' in text
+    assert '🔁 경영지원 (SB) 보완 요청' in text
     # 수정 창 — 올린 값이 채워져 있다
     v = se.edit_view(row)
     assert v['title']['text'] == '자금집행 요청 수정' and v['submit']['text'] == '다시 올리기'
@@ -1678,12 +1678,12 @@ def test_invoice_linked_edit_can_fix_grn(se):
 
 
 def test_requester_self_edit_before_approval(se, monkeypatch):
-    """11-11 KiKO: 올리고 나서 실수를 알아도 고칠 길이 없었다 — 최종 승인 전엔 요청자가 [✏️ 요청 수정]."""
+    """11-11 KiKO: 올리고 나서 실수를 알아도 고칠 길이 없었다 — 최종 승인 전엔 요청자가 [✏️ 수정하기]."""
     monkeypatch.setenv('EAPPROVAL_FINAL_ENABLED', 'true')
     row = se.process_new_submit(MGR, dict(FIELDS))
     card_ts = row['card_ts']
     btns = [(b['action_id'], b['text']['text']) for b in ea.buttons(row)]
-    assert (ea.A_EDIT, '✏️ 요청 수정') in btns and ea.A_REVISE in [a for a, _ in btns]
+    assert (ea.A_EDIT, '✏️ 수정하기') in btns and ea.A_REVISE in [a for a, _ in btns]
     assert ea.can_act('edit', row, MGR) and not ea.can_act('edit', row, KIKO)
     assert se.open_edit_modal(se._fake, 'T', row['id'], KIKO) == '요청한 사람만 고칠 수 있어요.'
     # ① 승인 뒤(최종 승인 대기)에 고침 → 승인 처음부터
