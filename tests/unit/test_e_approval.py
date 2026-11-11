@@ -449,12 +449,48 @@ def test_first_step_kiko_or_jw_yg(se, monkeypatch):
     assert '❌ YG 반려' in ea.step_line(ea.get(r['id']), ea.steps(r['id']))
 
 
+def test_review_1111_fixes(se):
+    # ① G/R 불일치 — 한 번 묻고, 같은 창에서 다시 내면 통과
+    assert ea.grn_mismatch('R4226-YM', 'G').startswith('현장 R4226-YM은 R(글로벌그룹) 현장인데 G(글로벌)')
+    assert ea.grn_mismatch('R4226-YM', 'R') == '' and ea.grn_mismatch('공통비', 'G') == ''
+    assert ea.grn_mismatch('G4049-JW', 'N') == ''
+    se._GRN_WARNED.clear()
+    assert se._grn_warn_once('V1', 'R4226-YM', 'G') is True
+    assert se._grn_warn_once('V1', 'R4226-YM', 'G') is False
+    assert se._grn_warn_once('V2', 'R4226-YM', 'G') is True
+    # ② 계좌는 이체 완료 때 기억
+    f = dict(FIELDS, partner='새거래처', payee_name='홍', bank='신한', account='110-222-333444')
+    row = se.process_new_submit(MGR, f)
+    assert ea.lookup_payee('새거래처') is None
+    se.apply_action('approve', row['id'], KIKO)
+    assert se.apply_action('transfer', row['id'], SB) is None
+    assert ea.lookup_payee('새거래처')['account'] == '110-222-333444'
+    # 은행이 다르면 '예전 계좌' 표시 안 함
+    g = dict(partner='새거래처', bank='국민', account='110-222-333444')
+    ea.mark_payee_saved(g)
+    assert not (g.get('extra') or {}).get('payee_saved')
+    # ③ 계산서 글 금액 오타는 양식으로 보지 않음
+    from dashboard.services import purchase_invoice_assign as pinv
+    assert pinv.parse_invoice_post('11/11 G 533,5000원 강원포장') is None
+    assert pinv.parse_invoice_post('11/11 G 533,500원 강원포장')['amount'] == 533500
+    # ④ 버튼엔 수정 회차 — 옛 버튼(회차 다름)은 처리 안 함
+    m = se.process_new_submit(MGR, dict(FIELDS))
+    btn = next(b for b in ea.buttons(m) if b['action_id'] == ea.A_APPROVE)
+    assert ea.parse_button_value(btn['value']) == (m['id'], 0) and ea.parse_button_value('7') == (7, None)
+    se.apply_action('revise', m['id'], KIKO, '금액 확인')
+    ea.resubmit(m['id'], MGR, '강성환', {'amount': 123000})
+    assert ea.revision(m['id']) == 1
+    new_btn = next(b for b in ea.buttons(ea.get(m['id'])) if b['action_id'] == ea.A_APPROVE)
+    assert new_btn['value'] == f"{m['id']}:1" != btn['value']
+
+
 def test_reject_notifies_requester_and_origin(se):
     from dashboard.services import purchase_invoice_assign as pinv  # noqa: F401
     row = se.start_from_invoice(MGR, '강성환', 'CINV', '111.1',
                                 {'date_md': '10/29', 'grn': 'G', 'amount': 533500, 'partner': '강원포장'},
                                 'G4049-JW', '기타비:운반비', '', '전자계산서', '김강원', '신한', '110-511-825643', '일반')
-    assert row['origin_ts'] == '111.1' and ea.lookup_payee('강원포장')['bank'] == '신한'
+    # 계좌는 이체 완료 때만 기억(11-11) — 반려될 결재의 계좌가 남지 않게
+    assert row['origin_ts'] == '111.1' and ea.lookup_payee('강원포장') is None
     assert se.apply_action('reject', row['id'], KIKO, '견적 다시') is None
     assert ea.get(row['id'])['status'] == ea.REJECTED
     dms = [kw for kw in se._fake.of('chat_postMessage') if kw['channel'] == 'D-' + MGR]

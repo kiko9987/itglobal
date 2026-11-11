@@ -19,6 +19,7 @@ import logging
 import os
 import re
 import threading
+import time
 from typing import List, Optional
 
 from dashboard.services import e_approval as ea
@@ -293,6 +294,8 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '') -> Optional[
         _notify(client, new.get('requester_id'), f'🛒 {t} 구매가 끝났어요. ({new.get("content")} {amt})')
     elif action == 'transfer':
         _thread_log(new, f'💸 {ex} 이체 완료 — {new.get("partner")} {amt}')
+        # 실제로 보낸 계좌만 다음 요청에 채운다(11-11 점검)
+        ea.remember_payee(new.get('partner') or '', new.get('payee_name'), new.get('bank'), new.get('account'))
         _notify(client, new.get('requester_id'), f'💸 {t} 이체가 끝났어요. ({new.get("partner")} {amt})')
         _origin_log(new, f'💸 {t} 이체 완료 ({ex})')
         if (new.get('evidence') or '') == hw.EVIDENCE:
@@ -594,8 +597,8 @@ def start_from_invoice(uid: str, name: str, origin_ch: str, origin_ts: str, pars
         'bank': bank, 'account': account, 'amount': parsed.get('amount'), 'urgency': urgency,
         'memo': '', 'origin_channel': origin_ch, 'origin_ts': origin_ts,
     }
-    ea.mark_payee_saved(fields)   # 기억해 둔 계좌 그대로면 카드에 표시 — remember 전에 비교
-    ea.remember_payee(parsed.get('partner', ''), payee_name, bank, account)
+    ea.mark_payee_saved(fields)   # 기억해 둔 계좌 그대로면 카드에 표시
+    # 거래처 계좌는 이체 완료 때 기억한다(11-11 점검) — 잘못 친 계좌가 반려돼도 다음 요청에 채워지던 것
     row = ea.create(ea.FORM_FUND, uid, name, fields)
     _audit(row, 'request', name)
     row = start(row)
@@ -743,22 +746,43 @@ def _set_payee_prefill(meta: dict, partner: str) -> None:
     meta['pv'] = int(meta.get('pv') or 0) + 1
 
 
+_GRN_WARNED: dict = {}   # (창 id, 현장, 사업자) → 시각. 서버 한 개라 메모리로 충분(Redis 장애에도 동작)
+
+
+def _grn_warn_once(view_id: str, code: str, grn: str) -> bool:
+    """처음이면 True(경고를 띄움), 같은 창에서 같은 조합을 다시 내면 False(통과)."""
+    now = time.time()
+    for k in [k for k, t in _GRN_WARNED.items() if now - t > 3600]:
+        _GRN_WARNED.pop(k, None)
+    key = (view_id, code or '', grn or '')
+    if not view_id or key in _GRN_WARNED:
+        return False
+    _GRN_WARNED[key] = now
+    return True
+
+
 def validate_new_submit(view: dict):
     """(fields, errors) — 제출 직후 동기 검사(ack 에 errors 를 실어야 해서)."""
     f = ea.read_new_request(view)
     errs = ea.complete_new_request(f)
     if not errs and not is_configured():
         errs['content'] = '전자결재 봇이 아직 설정되지 않았어요. 관리자에게 알려 주세요.'
-    # 오류는 화면에 있는 block_id 로(계좌 칸은 다시 채우면 payee_name_2 처럼 바뀐다)
     values = view['state']['values']
+    if not errs:
+        # 현장 코드 앞글자(G/R)와 고른 사업자가 다르면 한 번 묻는다 — 5일 12건 중 3건이 이것(11-11 점검).
+        # 정말 다른 사업자로 보내는 경우가 있어 막지는 않고, 같은 창에서 한 번 더 누르면 통과
+        msg = ea.grn_mismatch(f.get('project_code'), f.get('grn'))
+        if msg and _grn_warn_once(view.get('id', ''), f.get('project_code'), f.get('grn')):
+            bid = 'grn' if 'grn' in values else ('invoice' if 'invoice' in values else 'project')
+            errs[bid] = msg
+    # 오류는 화면에 있는 block_id 로(계좌 칸은 다시 채우면 payee_name_2 처럼 바뀐다)
     errs = {ea.field_block_id(values, k) if k in ('payee_name', 'bank', 'account') else k: m
             for k, m in errs.items()}
     return f, errs
 
 
 def process_new_submit(uid: str, f: dict) -> dict:
-    name = _name(uid)
-    ea.remember_payee(f.get('partner', ''), f.get('payee_name'), f.get('bank'), f.get('account'))
+    name = _name(uid)   # 거래처 계좌 기억은 이체 완료 때(apply_action) — 승인 전 계좌가 기억되지 않게(11-11)
     if f.get('_edit'):   # [✏️ 수정하기] 로 고친 것 — 같은 결재·카드(계산서 글 현장 지정은 처음에 끝났다)
         # '예전 계좌 자동 채움' 표시는 고친 계좌 기준으로 다시 — 다른 계좌로 고쳤는데 표시가 남지 않게(11-05 점검)
         f['extra'] = {**(f.get('extra') or {}), 'payee_saved': bool((f.get('extra') or {}).get('payee_saved'))}
@@ -1479,11 +1503,16 @@ def register_eapproval_handlers(app) -> None:
     def _bg_action(action):
         def handler(ack, body, client):
             ack()
-            aid = int(body['actions'][0]['value'])
+            aid, rev = ea.parse_button_value(body['actions'][0]['value'])
             uid = (body.get('user') or {}).get('id', '')
 
             def _bg():
                 try:
+                    if rev is not None and rev != ea.revision(aid):   # 그 사이 고쳐 다시 올린 결재(11-11)
+                        _ephemeral(client, body, '🔒 이 결재는 그 사이 내용이 수정됐어요. '
+                                                 '카드의 바뀐 내용을 확인하고 다시 눌러 주세요.')
+                        refresh(ea.get(aid))
+                        return
                     msg = apply_action(action, aid, uid)
                     if msg:
                         _ephemeral(client, body, f'🔒 {msg}')
