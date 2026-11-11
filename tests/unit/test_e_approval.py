@@ -449,12 +449,86 @@ def test_first_step_kiko_or_jw_yg(se, monkeypatch):
     assert '❌ YG 반려' in ea.step_line(ea.get(r['id']), ea.steps(r['id']))
 
 
+def test_review_1111_fixes(se):
+    # ① G/R 불일치 — 한 번 묻고, 같은 창에서 다시 내면 통과
+    assert ea.grn_mismatch('R4226-YM', 'G').startswith('현장 R4226-YM은 R(글로벌그룹) 현장인데 G(글로벌)')
+    assert ea.grn_mismatch('R4226-YM', 'R') == '' and ea.grn_mismatch('공통비', 'G') == ''
+    assert ea.grn_mismatch('G4049-JW', 'N') == ''
+    se._GRN_WARNED.clear()
+    assert se._grn_warn_once('V1', 'R4226-YM', 'G') is True
+    assert se._grn_warn_once('V1', 'R4226-YM', 'G') is False
+    assert se._grn_warn_once('V2', 'R4226-YM', 'G') is True
+    # ② 계좌는 이체 완료 때 기억
+    f = dict(FIELDS, partner='새거래처', payee_name='홍', bank='신한', account='110-222-333444')
+    row = se.process_new_submit(MGR, f)
+    assert ea.lookup_payee('새거래처') is None
+    se.apply_action('approve', row['id'], KIKO)
+    assert se.apply_action('transfer', row['id'], SB) is None
+    assert ea.lookup_payee('새거래처')['account'] == '110-222-333444'
+    # 은행이 다르면 '예전 계좌' 표시 안 함
+    g = dict(partner='새거래처', bank='국민', account='110-222-333444')
+    ea.mark_payee_saved(g)
+    assert not (g.get('extra') or {}).get('payee_saved')
+    # ③ 계산서 글 금액 오타는 양식으로 보지 않음
+    from dashboard.services import purchase_invoice_assign as pinv
+    assert pinv.parse_invoice_post('11/11 G 533,5000원 강원포장') is None
+    assert pinv.parse_invoice_post('11/11 G 533,500원 강원포장')['amount'] == 533500
+    # ④ 버튼엔 수정 회차 — 옛 버튼(회차 다름)은 처리 안 함
+    m = se.process_new_submit(MGR, dict(FIELDS))
+    btn = next(b for b in ea.buttons(m) if b['action_id'] == ea.A_APPROVE)
+    assert ea.parse_button_value(btn['value']) == (m['id'], 0) and ea.parse_button_value('7') == (7, None)
+    se.apply_action('revise', m['id'], KIKO, '금액 확인')
+    ea.resubmit(m['id'], MGR, '강성환', {'amount': 123000})
+    assert ea.revision(m['id']) == 1
+    new_btn = next(b for b in ea.buttons(ea.get(m['id'])) if b['action_id'] == ea.A_APPROVE)
+    assert new_btn['value'] == f"{m['id']}:1" != btn['value']
+
+
+def test_reminders(se, monkeypatch):
+    from datetime import datetime
+    monkeypatch.setenv('EAPPROVAL_FINAL_ENABLED', 'true')
+    p = se.process_new_submit(MGR, dict(FIELDS))                      # 승인 대기
+    f = se.process_new_submit(MGR, dict(FIELDS)); se.apply_action('approve', f['id'], KIKO)   # 최종 승인 대기
+    a = se.process_new_submit(MGR, dict(FIELDS)); se.apply_action('approve', a['id'], JW)     # 이체 대기
+    r = se.process_new_submit(MGR, dict(FIELDS)); se.apply_action('revise', r['id'], KIKO, '확인')  # 수정 요청
+    fresh = se.process_new_submit(MGR, dict(FIELDS))                  # 방금 올라온 건 — 안 보냄
+
+    def age(aid, at):
+        with ea._db()._get_connection() as conn:
+            conn.execute('UPDATE approvals SET updated_at=? WHERE id=?', (at, aid))
+            conn.commit()
+    for x in (p, f, a):
+        age(x['id'], '2026-11-11 08:00:00')
+    age(r['id'], '2026-11-10 09:00:00')
+    age(fresh['id'], '2026-11-11 09:50:00')
+    now = datetime(2026, 11, 11, 10, 0)
+    t = se.remind_targets('morning', ea.open_rows(), now)
+    ids = {u: sorted(x[0]['id'] for x in v) for u, v in t.items()}
+    assert ids[KIKO] == [p['id']]                    # ① 대기는 KiKO 만(2시간 — JW·YG 는 아직)
+    assert ids[JW] == [f['id']] and ids[YG] == [f['id']]
+    assert ids[MGR] == [r['id']]                     # 수정 요청 하루 넘음 → 요청자
+    assert SB not in ids                             # 이체 대기는 오후 15:30 회차
+    assert {u: [x[0]['id'] for x in v] for u, v in se.remind_targets('transfer', ea.open_rows(), now).items()} \
+        == {SB: [a['id']]}
+    assert se.remind_targets('approve', ea.open_rows(), now).get(MGR) is None   # 오후 회차엔 수정 요청 안 보냄
+    # 보내기 — 사람마다 한 통, 주말엔 안 보냄
+    n = len(se._fake.of('chat_postMessage'))
+    assert se.post_reminders('morning', now) == 4
+    sent = se._fake.of('chat_postMessage')[n:]
+    assert len(sent) == 4 and any('처리할 결재가 1건' in kw['text'] and '2시간째' in kw['text'] for kw in sent)
+    assert any('수정 요청을 받은 결재가 1건' in kw['text'] for kw in sent)
+    assert se.post_reminders('morning', datetime(2026, 11, 14, 10, 0)) == 0   # 토요일
+    monkeypatch.setenv('EAPPROVAL_REMIND_ENABLED', 'false')
+    assert se.post_reminders('approve', datetime(2026, 11, 11, 14, 0)) == 0
+
+
 def test_reject_notifies_requester_and_origin(se):
     from dashboard.services import purchase_invoice_assign as pinv  # noqa: F401
     row = se.start_from_invoice(MGR, '강성환', 'CINV', '111.1',
                                 {'date_md': '10/29', 'grn': 'G', 'amount': 533500, 'partner': '강원포장'},
                                 'G4049-JW', '기타비:운반비', '', '전자계산서', '김강원', '신한', '110-511-825643', '일반')
-    assert row['origin_ts'] == '111.1' and ea.lookup_payee('강원포장')['bank'] == '신한'
+    # 계좌는 이체 완료 때만 기억(11-11) — 반려될 결재의 계좌가 남지 않게
+    assert row['origin_ts'] == '111.1' and ea.lookup_payee('강원포장') is None
     assert se.apply_action('reject', row['id'], KIKO, '견적 다시') is None
     assert ea.get(row['id'])['status'] == ea.REJECTED
     dms = [kw for kw in se._fake.of('chat_postMessage') if kw['channel'] == 'D-' + MGR]

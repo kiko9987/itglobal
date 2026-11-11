@@ -265,6 +265,15 @@ def steps(aid: int) -> List[dict]:
             'SELECT * FROM approval_steps WHERE approval_id=? ORDER BY id', (aid,)).fetchall()]
 
 
+def open_rows() -> List[dict]:
+    """진행 중인 결재(승인·최종 승인·이체 대기·수정 요청) — 리마인드용(11-11)."""
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        rows = conn.execute(f'SELECT * FROM approvals WHERE status IN ({",".join("?" * 4)}) ORDER BY id',
+                            (PENDING, FINAL, APPROVED, REVISE)).fetchall()
+        return [dict(r) for r in rows]
+
+
 def find_by_origin(channel: str, ts: str) -> Optional[dict]:
     """계산서 글에서 시작한 결재(가장 최근 것)."""
     with _db()._get_connection() as conn:
@@ -486,6 +495,21 @@ def resubmit(aid: int, actor_id: str, actor_name: str, fields: Dict) -> Optional
         return _row(conn, aid), changed
 
 
+def revision(aid: int) -> int:
+    """수정해 다시 올린 횟수 — 버튼 값에 실어 옛 버튼을 가려낸다(11-11)."""
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        r = conn.execute("SELECT COUNT(*) FROM approval_steps WHERE approval_id=? AND step='resubmit'",
+                         (int(aid),)).fetchone()
+        return int(r[0] if r else 0)
+
+
+def parse_button_value(value: str) -> Tuple[int, Optional[int]]:
+    """'12:1' → (12, 1). 옛 버튼 '12' → (12, None)."""
+    a, _, r = str(value or '').partition(':')
+    return int(a), (int(r) if r.strip().isdigit() else None)
+
+
 def last_revise(step_rows: List[dict]) -> Optional[dict]:
     """가장 최근 수정 요청 줄(다시 올린 뒤면 None)."""
     for s in reversed(step_rows):
@@ -647,6 +671,16 @@ def normalize_account(s: str) -> str:
 def grn_from_code(code: str) -> str:
     c = (code or '').strip()[:1].upper()
     return c if c in ('G', 'R') else ''
+
+
+def grn_mismatch(code: str, grn: str) -> str:
+    """현장 코드 앞글자(G/R)와 고른 사업자가 다르면 안내 문구, 같거나 판단할 수 없으면 ''.
+    공통비·프로젝트0 처럼 G/R 로 시작하지 않는 현장, 사업자 없음(N)은 묻지 않는다."""
+    want, got = grn_from_code(code), (grn or '').strip()[:1].upper()
+    if not want or got not in ('G', 'R') or want == got:
+        return ''
+    return (f"현장 {code}은 {want}({GRN_BIZ[want]}) 현장인데 {got}({GRN_BIZ[got]})로 골랐어요. "
+            f"맞게 고른 거면 아래 버튼을 한 번 더 눌러 주세요.")
 
 
 def validate_transfer(payee_name: str, bank: str, account: str) -> Dict[str, str]:
@@ -926,26 +960,29 @@ def buttons(row: dict, role: str = 'all') -> List[dict]:
     """상태·받는 사람 역할에 맞는 버튼. role: all(채널 카드) / approver / executor / requester."""
     st, aid = row.get('status'), row['id']
     amt = f"{int(row.get('amount') or 0):,}원"
+    # 승인·최종 승인·이체 완료 버튼엔 수정 회차를 싣는다 — 열어 둔 옛 카드·확인 창으로 고친 뒤의 결재를
+    # 처리하지 않게(11-11 점검: 옛 계좌로 이체하고 새 결재를 완료 처리)
+    rv = f'{aid}:{revision(aid)}' if st in (PENDING, FINAL, APPROVED) else aid
     out = []
     if st == PENDING and role in ('all', 'approver', 'final'):   # JW·YG 도 ① 을 누를 수 있다(11-09)
-        out += [_btn('승인', A_APPROVE, aid, 'primary'), _btn('반려', A_REJECT, aid, 'danger')]
+        out += [_btn('승인', A_APPROVE, rv, 'primary'), _btn('반려', A_REJECT, aid, 'danger')]
     if st == FINAL and role in ('all', 'final'):
-        out += [_btn('최종 승인', A_FINAL, aid, 'primary'), _btn('반려', A_REJECT, aid, 'danger')]
+        out += [_btn('최종 승인', A_FINAL, rv, 'primary'), _btn('반려', A_REJECT, aid, 'danger')]
     form = row.get('form')
     if st == APPROVED and role in ('all', 'executor') and form in TASK_FORMS:
-        out.append(_btn('✅ 처리 완료', A_TRANSFER, aid, 'primary', _confirm(
+        out.append(_btn('✅ 처리 완료', A_TRANSFER, rv, 'primary', _confirm(
             '처리 완료', f'{title(row)} 처리를 마쳤나요?', '처리 완료')))
         out.append(_btn('반려', A_REJECT, aid, 'danger'))   # 내용이 모자라면 경영지원이 사유와 함께 돌려보냄
     elif st == APPROVED and role in ('all', 'executor') and form == forms.FORM_EXPENSE:
         # 확인 창은 채널 카드에 실려 누구나 열 수 있다 — 개인 계좌는 빼고(경영지원 DM 에만, 11-06 검수)
-        out.append(_btn('💸 이체 완료', A_TRANSFER, aid, 'primary', _confirm(
+        out.append(_btn('💸 이체 완료', A_TRANSFER, rv, 'primary', _confirm(
             '이체 완료', f"{row.get('requester_name')} 개인경비 {amt}\n본인 계좌(경영지원 DM)로 이체를 마쳤나요?",
             '이체 완료')))
     elif st == APPROVED and role in ('all', 'executor') and form == FORM_SUPPLY:
-        out.append(_btn('🛒 구매 완료', A_TRANSFER, aid, 'primary', _confirm(
+        out.append(_btn('🛒 구매 완료', A_TRANSFER, rv, 'primary', _confirm(
             '구매 완료', f"{row.get('content') or '비품'} ({amt})\n구매를 마쳤나요?", '구매 완료')))
     elif st == APPROVED and role in ('all', 'executor'):
-        out.append(_btn('💸 이체 완료', A_TRANSFER, aid, 'primary', _confirm(
+        out.append(_btn('💸 이체 완료', A_TRANSFER, rv, 'primary', _confirm(
             '이체 완료', f"{row.get('bank')} {row.get('account')} · 예금주 {row.get('payee_name')}\n{amt} 이체를 마쳤나요?",
             '이체 완료')))
     if st in (PENDING, FINAL, APPROVED) and role == 'all':   # 고칠 게 있으면 반려 대신 돌려보내기(11-05)
@@ -1587,7 +1624,8 @@ def complete_new_request(f: Dict) -> Dict[str, str]:
 def mark_payee_saved(f: Dict) -> None:
     """기억해 둔 계좌와 같은 계좌로 보내면 카드에 표시(경영지원이 이체 전에 한 번 더 보게)."""
     saved = lookup_payee(f.get('partner', ''))
-    if saved and normalize_account(saved.get('account')) == normalize_account(f.get('account')):
+    if (saved and normalize_account(saved.get('account')) == normalize_account(f.get('account'))
+            and (saved.get('bank') or '') == (f.get('bank') or '')):   # 은행만 바뀐 것도 '다른 계좌'(11-11)
         f['extra'] = {**(f.get('extra') or {}), 'payee_saved': True}
 
 
