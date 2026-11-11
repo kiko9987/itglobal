@@ -244,7 +244,7 @@ def test_new_request_view_fixed_hides_project_select():
 def test_buttons_by_status_and_role(tmp_db):
     row = ea.create(ea.FORM_FUND, MGR, '박정우', FIELDS)
     ids = lambda r, role='all': [b['action_id'] for b in ea.buttons(r, role)]  # noqa: E731
-    assert ids(row) == [ea.A_APPROVE, ea.A_REJECT, ea.A_EDIT, ea.A_REVISE, ea.A_CANCEL]
+    assert ids(row) == [ea.A_APPROVE, ea.A_REJECT, ea.A_REVISE, ea.A_EDIT, ea.A_CANCEL]
     assert ids(row, 'approver') == [ea.A_APPROVE, ea.A_REJECT]
     assert ids(row, 'requester') == [ea.A_EDIT, ea.A_CANCEL]
     assert ids(row, 'executor') == []
@@ -1121,7 +1121,7 @@ def test_contract_form_prefill_read_validate_and_task_flow(tmp_db):
     assert row['status'] == ea.APPROVED and ea.title(row).startswith('G계약서 작성 요청 #')   # 승인 없이 바로 처리 대기
     assert ea.status_label(row) == ('🔵', '처리 대기')
     labels = [b['text']['text'] for b in ea.buttons(row, 'all')]
-    assert labels == ['✅ 처리 완료', '반려', '✏️ 요청 수정', '✏️ 수정 요청', '요청 취소']
+    assert labels == ['✅ 처리 완료', '반려', '✏️ 수정 요청', '✏️ 요청 수정', '요청 취소']
     t = ea.card_text(row, ea.steps(row['id']), 'G4237-MJ · 마포구 양화로 45')
     assert '*인수자명* : 윤명림' in t and '*총 금액* : 11,440,000원' in t and '⏳ 경영지원 처리' in t
     assert ea.can_act('reject', row, SB) and ea.can_act('transfer', row, SB) and not ea.can_act('transfer', row, MGR)
