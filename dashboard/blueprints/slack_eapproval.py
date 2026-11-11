@@ -1396,7 +1396,8 @@ def post_cardexp_reminder(today=None) -> Optional[str]:
 #   10:00·14:00  승인·최종 승인 차례(1시간 넘게 기다린 것) / 10:00 만 수정 요청 방치(20시간 넘은 것) → 요청자
 #   15:30        이체·처리 대기(1시간 넘은 것) → 경영지원(N통장은 JW·YG)
 _REMIND_WAIT_MIN = 60
-_REVISE_WAIT_MIN = 20 * 60
+_REVISE_WAIT_MIN = 15 * 60      # 전날 오후(19시 전)에 받은 수정 요청은 다음 날 10시에 — 20시간이면 17시 건이 이틀 밀렸다
+_FINAL_WAIT_MIN = 20 * 60       # JW·YG 가 ① 대기를 받는 기준(KiKO 휴가 등으로 하루 가까이 머문 것)
 
 
 def _wait_text(minutes: int) -> str:
@@ -1425,7 +1426,7 @@ def remind_targets(kind: str, rows: List[dict], now=None) -> dict:
         if kind in ('approve', 'morning') and st in (ea.PENDING, ea.FINAL) and mins >= _REMIND_WAIT_MIN:
             for uid, role in _targets(row):
                 # ① 대기는 KiKO 에게. JW·YG 는 하루 가까이 머문 것만(KiKO 휴가 등) — 매번 받으면 알림이 많다
-                if role == 'final' and st == ea.PENDING and mins < _REVISE_WAIT_MIN:
+                if role == 'final' and st == ea.PENDING and mins < _FINAL_WAIT_MIN:
                     continue
                 _add(uid, row, mins)
         elif kind == 'morning' and st == ea.REVISE and mins >= _REVISE_WAIT_MIN:
@@ -1445,7 +1446,9 @@ def _remind_line(row: dict, mins: int) -> str:
     todo = {ea.PENDING: '승인', ea.FINAL: '최종 승인', ea.REVISE: '수정해서 다시 올리기',
             ea.APPROVED: f'{ea.step2_word(row)} 완료'}.get(st, '')
     who = '' if st == ea.REVISE else f" · {ea.initial(row.get('requester_name'))}"
-    return f'• {head} — {ea.what_of(row)}{who} · *{todo}* 기다린 지 {_wait_text(mins)}'
+    amt = int(row.get('amount') or 0)
+    money = f' {amt:,}원' if amt else ''
+    return f'• {head} — {ea.what_of(row)}{money}{who} · *{todo}* 기다린 지 {_wait_text(mins)}'
 
 
 def post_reminders(kind: str, now=None) -> int:
