@@ -244,9 +244,9 @@ def test_new_request_view_fixed_hides_project_select():
 def test_buttons_by_status_and_role(tmp_db):
     row = ea.create(ea.FORM_FUND, MGR, '박정우', FIELDS)
     ids = lambda r, role='all': [b['action_id'] for b in ea.buttons(r, role)]  # noqa: E731
-    assert ids(row) == [ea.A_APPROVE, ea.A_REJECT, ea.A_REVISE, ea.A_CANCEL]
+    assert ids(row) == [ea.A_APPROVE, ea.A_REJECT, ea.A_REVISE, ea.A_EDIT, ea.A_CANCEL]
     assert ids(row, 'approver') == [ea.A_APPROVE, ea.A_REJECT]
-    assert ids(row, 'requester') == [ea.A_CANCEL]
+    assert ids(row, 'requester') == [ea.A_EDIT, ea.A_CANCEL]
     assert ids(row, 'executor') == []
     row = ea.transition(row['id'], 'approve', KIKO, '고광일')
     # 승인 뒤(이체 대기)엔 요청자 취소 없음 — 경영지원이 은행에서 보내는 중일 수 있다(11-06 검수). 반려로
@@ -1121,7 +1121,7 @@ def test_contract_form_prefill_read_validate_and_task_flow(tmp_db):
     assert row['status'] == ea.APPROVED and ea.title(row).startswith('G계약서 작성 요청 #')   # 승인 없이 바로 처리 대기
     assert ea.status_label(row) == ('🔵', '처리 대기')
     labels = [b['text']['text'] for b in ea.buttons(row, 'all')]
-    assert labels == ['✅ 처리 완료', '반려', '✏️ 수정 요청', '요청 취소']
+    assert labels == ['✅ 처리 완료', '반려', '✏️ 수정 요청', '✏️ 요청 고치기', '요청 취소']
     t = ea.card_text(row, ea.steps(row['id']), 'G4237-MJ · 마포구 양화로 45')
     assert '*인수자명* : 윤명림' in t and '*총 금액* : 11,440,000원' in t and '⏳ 경영지원 처리' in t
     assert ea.can_act('reject', row, SB) and ea.can_act('transfer', row, SB) and not ea.can_act('transfer', row, MGR)
@@ -1675,6 +1675,43 @@ def test_invoice_linked_edit_can_fix_grn(se):
     f, errs = se.validate_new_submit(_state_from_view(v, {'grn': {'selected_option': {'value': 'R'}}}))
     assert errs == {} and f['grn'] == 'R'
     assert se.process_new_submit(MGR, f)['grn'] == 'R'
+
+
+def test_requester_self_edit_before_approval(se, monkeypatch):
+    """11-11 KiKO: 올리고 나서 실수를 알아도 고칠 길이 없었다 — 최종 승인 전엔 요청자가 [✏️ 요청 고치기]."""
+    monkeypatch.setenv('EAPPROVAL_FINAL_ENABLED', 'true')
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    card_ts = row['card_ts']
+    btns = [(b['action_id'], b['text']['text']) for b in ea.buttons(row)]
+    assert (ea.A_EDIT, '✏️ 요청 고치기') in btns and ea.A_REVISE in [a for a, _ in btns]
+    assert ea.can_act('edit', row, MGR) and not ea.can_act('edit', row, KIKO)
+    assert se.open_edit_modal(se._fake, 'T', row['id'], KIKO) == '요청한 사람만 고칠 수 있어요.'
+    # ① 승인 뒤(최종 승인 대기)에 고침 → 승인 처음부터
+    old_rev = ea.revision(row['id'])
+    se.apply_action('approve', row['id'], KIKO)
+    row = ea.get(row['id'])
+    assert row['status'] == ea.FINAL and ea.can_act('edit', row, MGR)
+    sub = _state_from_view(se.edit_view(row), {'amount': {'value': '550000'}})
+    f, errs = se.validate_new_submit(sub)
+    assert errs == {}
+    new = se.process_new_submit(MGR, f)
+    assert new['id'] == row['id'] and new['card_ts'] == card_ts and new['status'] == ea.PENDING
+    assert new['amount'] == 550000 and ea.revision(row['id']) == old_rev + 1   # 열어 둔 옛 [승인] 버튼은 거부
+    logs = [m['text'] for m in se._fake.of('chat_postMessage') if m.get('thread_ts') == card_ts]
+    assert any('직접 고침 (승인은 처음부터 다시 받아요)' in t and '550,000' in t for t in logs)
+    assert '⏳' in ea.step_line(new, ea.steps(new['id']))
+    # 바뀐 게 없으면 승인 단계 그대로
+    se.apply_action('approve', new['id'], KIKO)
+    same, errs = se.validate_new_submit(_state_from_view(se.edit_view(ea.get(new['id'])), {}))
+    assert errs == {}
+    assert se.process_new_submit(MGR, same)['status'] == ea.FINAL and ea.get(new['id'])['status'] == ea.FINAL
+    # 최종 승인 끝(이체 대기) → 직접 못 고침
+    se.apply_action('final', new['id'], YG)
+    done = ea.get(new['id'])
+    assert done['status'] == ea.APPROVED and not ea.can_act('edit', done, MGR)
+    assert ea.A_EDIT not in [b['action_id'] for b in ea.buttons(done)]
+    assert se.open_edit_modal(se._fake, 'T', done['id'], MGR).startswith('승인이 끝나 이제 직접 고칠 수 없어요')
+    assert ea.resubmit(done['id'], MGR, '강성환', {'amount': 1}) is None
 
 
 def test_job_recovery_after_crash(se):

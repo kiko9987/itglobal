@@ -483,10 +483,12 @@ def _changes_text(form: str, changed: dict) -> str:
 def open_edit_modal(client, trigger_id: str, aid: int, uid: str) -> Optional[str]:
     """[✏️ 수정하기] — 올린 값이 채워진 같은 양식 창. 못 열면 사용자에게 보여 줄 문구."""
     row = ea.get(aid)
-    if not row or row['status'] != ea.REVISE:
-        return '지금 고칠 수 있는 요청이 아니에요.'
-    if not ea.can_act('edit', row, uid):
+    if not row or row['status'] not in ea.OPEN_STATUSES:
+        return '이미 끝난 요청이라 고칠 수 없어요.'
+    if uid != row.get('requester_id'):
         return '요청한 사람만 고칠 수 있어요.'
+    if not ea.can_act('edit', row, uid):   # 최종 승인이 끝나 이체·구매 대기 — 경영지원이 이미 보내는 중일 수 있다
+        return '승인이 끝나 이제 직접 고칠 수 없어요. 카드 스레드에 고칠 내용을 남기고 경영지원에게 알려 주세요.'
     if row['form'] not in (ea.FORM_FUND, ea.FORM_SUPPLY) and row['form'] not in ea.forms.FORMS:
         return '이 요청은 고칠 수 없어요. 취소하고 다시 올려 주세요.'
     # 현장 이름은 공사현황 조회라 3초(trigger)를 넘길 수 있다 — 불러오는 창을 먼저 열고 바꾼다
@@ -545,14 +547,25 @@ def process_edit(uid: str, aid: int, fields: dict, files: list, docs: Optional[l
     """고친 값으로 다시 올림 → 카드·DM 갱신, 스레드에 바뀐 칸, 승인자·경영지원에게 다시 알림."""
     name = _name(uid)
     fields = {k: v for k, v in fields.items() if not k.startswith('_') and k not in ('origin_channel', 'origin_ts')}
+    prev = (ea.get(aid) or {}).get('status')
     res = ea.resubmit(aid, uid, name, fields)
     if not res:
-        _notify(eap_client(), uid, '⚠️ 이미 처리된 요청이라 고친 내용을 올리지 못했어요. '
-                                   '같이 올린 첨부 파일도 붙지 않았어요.')
+        _notify(eap_client(), uid, '⚠️ 그 사이 승인이 끝났거나 처리된 요청이라 고친 내용을 올리지 못했어요. '
+                                   '같이 올린 첨부 파일도 붙지 않았어요. 카드 스레드에 고칠 내용을 남겨 주세요.')
         return None
     row, changed = res
     client = eap_client()
-    _thread_log(row, f'✏️ {ea.initial(name)} 수정해서 다시 올림 — {_changes_text(row["form"], changed)}')
+    if not changed and prev != ea.REVISE:   # 바뀐 칸 없음 — 승인 단계 그대로(첨부만 붙인다)
+        _post_folder_docs_bg(row, docs or [])
+        _post_files_bg(row, files, name)
+        if not files and not docs:
+            _notify(client, uid, f'{ea.title(row)} — 바뀐 내용이 없어 그대로 두었어요.')
+        return row
+    if prev == ea.REVISE:
+        _thread_log(row, f'✏️ {ea.initial(name)} 수정해서 다시 올림 — {_changes_text(row["form"], changed)}')
+    else:   # 승인 전에 요청자가 직접 고침 — 받은 승인이 있었으면 처음부터 다시(11-11)
+        again = ' (승인은 처음부터 다시 받아요)' if prev == ea.FINAL and row['status'] == ea.PENDING else ''
+        _thread_log(row, f'✏️ {ea.initial(name)} 직접 고침{again} — {_changes_text(row["form"], changed)}')
     refresh(row)
     who = [x for x in _targets(row) if x[1] != 'notice']
     have = {(r['user'], r['role']) for r in ea.dm_refs(row)}
@@ -1263,6 +1276,7 @@ def _job_dispatch(kind: str, uid: str, payload: dict) -> dict:
 def _submit_job(kind: str, uid: str, payload: dict) -> None:
     """제출 내용을 남기고 백그라운드에서 처리. 기록을 못 남겨도(DB 오류) 처리는 한다."""
     jid = ''
+    (payload['vals'] if kind == 'form' else payload)['_sub_at'] = ea._now()   # 수정 제출이 들어갔는지 볼 기준
     try:
         jid = ea.job_add(kind, uid, payload)
     except Exception as exc:
@@ -1270,6 +1284,16 @@ def _submit_job(kind: str, uid: str, payload: dict) -> None:
     target = payload['vals'] if kind == 'form' else payload
     target['_job'] = jid
     threading.Thread(target=_run_job, args=(jid, kind, uid, payload), daemon=True).start()
+
+
+def _edit_applied(aid: int, uid: str, sub_at: str) -> bool:
+    """재시작 뒤 이어서 — 이 수정 제출이 이미 들어갔나(제출 시각 뒤에 요청자의 'resubmit' 줄이 있으면).
+    승인 전 직접 고치기(11-11)는 상태가 REVISE 가 아니라서 상태만으론 알 수 없다."""
+    if not sub_at:
+        cur = ea.get(int(aid))
+        return not cur or cur['status'] != ea.REVISE
+    return any(s['step'] == 'resubmit' and s.get('actor_id') == uid and str(s.get('at') or '') >= sub_at
+               for s in ea.steps(int(aid)))
 
 
 def _run_job(jid: str, kind: str, uid: str, payload: dict, stale_before: str = '') -> Optional[dict]:
@@ -1284,8 +1308,7 @@ def _run_job(jid: str, kind: str, uid: str, payload: dict, stale_before: str = '
             edit_aid = target.get('_edit')
             done = ea.find_by_job(jid) if not edit_aid else None
             if edit_aid:
-                cur = ea.get(int(edit_aid))
-                if not cur or cur['status'] != ea.REVISE:   # 이미 다시 올라갔다
+                if _edit_applied(int(edit_aid), uid, target.get('_sub_at') or ''):   # 이미 다시 올라갔다
                     ea.job_finish(jid, True, int(edit_aid))
                     return None
             elif done:
