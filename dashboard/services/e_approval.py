@@ -1082,12 +1082,13 @@ def buttons(row: dict, role: str = 'all') -> List[dict]:
         out.append(_btn('💸 이체 완료', A_TRANSFER, rv, 'primary', _confirm(
             '이체 완료', f"{row.get('bank')} {row.get('account')} · 예금주 {row.get('payee_name')}\n{amt} 이체를 마쳤나요?",
             '이체 완료')))
-    if st in (PENDING, FINAL, APPROVED) and role == 'all':   # 고칠 게 있으면 반려 대신 돌려보내기(11-05)
-        out.append(_btn('✏️ 수정 요청', A_REVISE, aid))
+    # 순서: 처리 버튼 → [요청 수정](요청자 직접, 11-11) → [수정 요청](돌려보내기) → [요청 취소] 맨 뒤(11-11 KiKO)
     if st == REVISE and role in ('all', 'requester'):
         out.append(_btn('✏️ 수정하기', A_EDIT, aid, 'primary'))
     elif st in OPEN_STATUSES and role in ('all', 'requester') and requester_can_edit(row):   # 승인 전 직접(11-11)
-        out.append(_btn('✏️ 요청 고치기', A_EDIT, aid))
+        out.append(_btn('✏️ 요청 수정', A_EDIT, aid))
+    if st in (PENDING, FINAL, APPROVED) and role == 'all':   # 고칠 게 있으면 반려 대신 돌려보내기(11-05)
+        out.append(_btn('✏️ 수정 요청', A_REVISE, aid))
     if st in OPEN_STATUSES and role in ('all', 'requester') and requester_can_cancel(row):
         out.append(_btn('요청 취소', A_CANCEL, aid, None, _confirm(
             '요청 취소', f'{title(row)} 요청을 취소할까요?', '요청 취소')))
@@ -1115,7 +1116,7 @@ def card_blocks(row: dict, step_rows: List[dict], project_line: str, quote_amoun
             hint = ('파일을 더 붙일 땐 이 카드 스레드에 올려 주세요. 경영지원은 결과 파일을 스레드에 올리고 '
                     '[처리 완료]를 눌러 주세요.')
         elif requester_can_edit(row):
-            hint = ('파일을 더 붙일 땐 이 카드 스레드에 올려 주세요. 올린 사람은 [✏️ 요청 고치기]로 바로 고칠 수 있고 '
+            hint = ('파일을 더 붙일 땐 이 카드 스레드에 올려 주세요. 올린 사람은 [✏️ 요청 수정]로 바로 고칠 수 있고 '
                     '(승인은 다시 받아요), 다른 사람은 [✏️ 수정 요청]으로 돌려보내 주세요.')
         else:
             hint = '파일을 더 붙일 땐 이 카드 스레드에 올려 주세요. 고칠 게 있으면 [✏️ 수정 요청]으로 돌려보내 주세요.'
