@@ -428,8 +428,9 @@ def test_first_step_kiko_or_jw_yg(se, monkeypatch):
     row = ea.get(row['id'])
     assert row['status'] == ea.APPROVED and (SB, 'executor') in {(r['user'], r['role']) for r in ea.dm_refs(row)}
     line = ea.step_line(row, ea.steps(row['id']))
-    assert '✅ JW 승인' in line and '(최종 승인 겸)' in line and '경영지원 (JW)' not in line
-    assert any('✅ JW 승인 (최종 승인 겸)' in kw.get('text', '') for kw in se._fake.of('chat_postMessage'))
+    assert line.startswith('결재: ✅ JW 최종 승인') and '겸' not in line and '경영지원 (JW)' not in line
+    assert '⏳ 이체' in line
+    assert any(kw.get('text', '') == '✅ JW 최종 승인' for kw in se._fake.of('chat_postMessage'))
     # KiKO 가 ① → JW·YG 는 새 DM 대신 처음 DM 스레드에 알림(DM 한 통만)
     m = se.process_new_submit(MGR, dict(FIELDS))
     assert se.apply_action('approve', m['id'], KIKO) is None

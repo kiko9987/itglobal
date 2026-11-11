@@ -261,7 +261,7 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '') -> Optional[
         if action == 'final':
             _thread_log(new, f'✅ {ini} 최종 승인')
         elif any(s['step'] == 'final' and s['result'] == 'auto' and s['actor_id'] == uid for s in ea.steps(aid)):
-            _thread_log(new, f'✅ {who} 승인 (최종 승인 겸)')
+            _thread_log(new, f'✅ {who} 최종 승인')   # ① 을 눌러 최종 승인까지(11-11 문구)
         else:
             _thread_log(new, f'✅ {who} 승인')
         if new['status'] == ea.FINAL:
