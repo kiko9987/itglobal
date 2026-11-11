@@ -995,6 +995,9 @@ def test_n_account_goes_to_yg_jw_and_sb_gets_notice(tmp_db, monkeypatch):
     assert ea.executor_dm_ids(n) == (YG, JW) and ea.notice_ids(n) == (sb,)
     n = ea.transition(n['id'], 'approve', KIKO, '고광일')
     assert 'N통장 건이라 YG·JW님에게 이체 요청' in ea.dm_intro(n, 'notice')
+    # 두 분 다 받으니 중복 이체 주의(11-11) — G·R 이체 요청엔 없음
+    assert '⚠️ N통장 건이라 YG·JW 두 분께 같이 갔어요' in ea.dm_intro(n, 'executor')
+    assert '⚠️' not in ea.dm_intro(ea.transition(g['id'], 'approve', KIKO, '고광일'), 'executor')
     exp = ea.create(forms.FORM_EXPENSE, MGR, '박정우', {'project_code': 'G1', 'amount': 1000, 'grn': 'N'})
     assert ea.executor_dm_ids(exp) == (sb,)            # 개인경비는 사업자 구분 없이 경영지원
     assert ea.executor_dm_ids() == (sb,)               # 증명서 등 결재 없는 곳
@@ -1651,6 +1654,81 @@ def test_edit_resets_payee_saved_mark(se):
     assert errs == {}
     new = se.process_new_submit(MGR, f2)
     assert new['account'] == '333-333-333333' and not ea.extra(new).get('payee_saved')
+
+
+def test_invoice_linked_edit_can_fix_grn(se):
+    # 11-11 점검: 계산서로 올린 결재는 수정 창에 사업자 칸이 없어 '사업자 확인' 수정 요청을 못 고쳤다
+    row = se.start(ea.create(ea.FORM_FUND, MGR, '강성환',
+                             dict(FIELDS, project_code='R4226-YM', grn='G', origin_channel='CINV', origin_ts='9.0')))
+    se.apply_action('revise', row['id'], SB, '사업자 확인')
+    v = se.edit_view(ea.get(row['id']))
+    grn = next(b for b in v['blocks'] if b.get('block_id') == 'grn')
+    assert grn['element']['initial_option']['value'] == 'G'           # 올린 값이 미리 골라짐
+    f, errs = se.validate_new_submit(_state_from_view(v, {'grn': {'selected_option': {'value': 'R'}}}))
+    assert errs == {} and f['grn'] == 'R'
+    assert se.process_new_submit(MGR, f)['grn'] == 'R'
+
+
+def test_job_recovery_after_crash(se):
+    """11-11 점검: 제출(ack) 뒤 서버가 꺼지면 요청이 사라졌다 — 기록을 남기고 재시작 뒤 이어서 처리."""
+    from datetime import datetime, timedelta
+
+    def age(jid, minutes):
+        at = (datetime.now() - timedelta(minutes=minutes)).strftime('%Y-%m-%d %H:%M:%S')
+        with ea._db()._get_connection() as conn:
+            conn.execute('UPDATE approval_jobs SET updated_at=? WHERE id=?', (at, jid))
+            conn.commit()
+    # ① 정상 처리 — 결재에 기록 id, 기록은 done
+    jid = ea.job_add('fund', MGR, dict(FIELDS))
+    row = se._run_job(jid, 'fund', MGR, dict(FIELDS))
+    assert ea.extra(row)['job'] == jid and ea.job_get(jid)['status'] == ea.JOB_DONE
+    assert se._run_job(jid, 'fund', MGR, dict(FIELDS)) is None          # 두 번 처리 안 함
+    # ② 기록만 남기고 멈춤(처리 전) → 이어서 처리 + 요청자에게 알림
+    j2 = ea.job_add('supply', MGR, {'content': '줄자', 'amount': 20300, 'project_code': '프로젝트0',
+                                    'extra': {'qty': 1, 'unit_price': 20300}})
+    age(j2, 5)
+    assert se.recover_jobs() == 0                                        # 10분 안 됐으면 기다림
+    age(j2, 15)
+    n0 = len(se._fake.of('chat_postMessage'))
+    assert se.recover_jobs() == 1
+    made = ea.find_by_job(j2)
+    assert made and made['form'] == ea.FORM_SUPPLY and made['card_ts'] and ea.job_get(j2)['status'] == ea.JOB_DONE
+    assert any('늦어졌던' in kw.get('text', '') for kw in se._fake.of('chat_postMessage')[n0:])
+    # ③ 결재는 만들었는데 카드 전에 멈춤 → 새로 만들지 않고 카드만
+    j3 = ea.job_add('fund', MGR, dict(FIELDS))
+    half = ea.create(ea.FORM_FUND, MGR, '강성환', dict(FIELDS, _job=j3))
+    assert ea.job_claim(j3)                                              # '처리 중'에서 멈춤
+    age(j3, 15)
+    assert se.recover_jobs() == 1
+    assert ea.find_by_job(j3)['id'] == half['id'] and ea.get(half['id'])['card_ts']
+    # ④ 양식 제출도 같은 방식
+    j4 = ea.job_add('form', MGR, {'form_key': forms_key(), 'vals': _corpdocs_vals()})
+    age(j4, 15)
+    assert se.recover_jobs() == 1 and ea.find_by_job(j4)['form'] == forms_key()
+
+
+def forms_key():
+    from dashboard.services import e_approval_forms as forms
+    return forms.FORM_CORPDOCS
+
+
+def _corpdocs_vals():
+    return {'grn': 'G (글로벌)', 'project': '', 'docs': ['법인등기부등본'], 'reason': '입찰', 'receive': '직접 수령'}
+
+
+def test_reconcile_sends_missing_dm(se):
+    """승인 뒤 이체 DM 이 슬랙 장애로 안 갔으면 5분 복구가 채운다(방금 바뀐 건 기다림)."""
+    from datetime import datetime, timedelta
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    ea.transition(row['id'], 'approve', KIKO, '고광일')                  # DM 없이 상태만 바뀐 것처럼
+    assert (SB, 'executor') not in {(r['user'], r['role']) for r in ea.dm_refs(ea.get(row['id']))}
+    se.recover_jobs()
+    assert (SB, 'executor') not in {(r['user'], r['role']) for r in ea.dm_refs(ea.get(row['id']))}   # 2분 안
+    se.recover_jobs(datetime.now() + timedelta(minutes=3))
+    assert (SB, 'executor') in {(r['user'], r['role']) for r in ea.dm_refs(ea.get(row['id']))}
+    n = len(ea.dm_refs(ea.get(row['id'])))
+    se.recover_jobs(datetime.now() + timedelta(minutes=8))
+    assert len(ea.dm_refs(ea.get(row['id']))) == n                      # 두 번 보내지 않음
 
 
 def test_manifest_has_file_scopes():
