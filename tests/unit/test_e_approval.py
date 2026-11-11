@@ -515,8 +515,10 @@ def test_reminders(se, monkeypatch):
     n = len(se._fake.of('chat_postMessage'))
     assert se.post_reminders('morning', now) == 4
     sent = se._fake.of('chat_postMessage')[n:]
-    assert len(sent) == 4 and any('처리할 결재가 1건' in kw['text'] and '2시간째' in kw['text'] for kw in sent)
-    assert any('수정 요청을 받은 결재가 1건' in kw['text'] for kw in sent)
+    body = [kw['blocks'][0]['text']['text'] for kw in sent]
+    assert len(sent) == 4 and any('처리할 결재가 1건' in b and '2시간째' in b for b in body)
+    assert any('수정 요청을 받은 결재가 1건' in b for b in body)
+    assert all(kw['blocks'][-1]['type'] == 'context' and b.startswith('⠀\n') for kw, b in zip(sent, body))
     assert se.post_reminders('morning', datetime(2026, 11, 14, 10, 0)) == 0   # 토요일
     monkeypatch.setenv('EAPPROVAL_REMIND_ENABLED', 'false')
     assert se.post_reminders('approve', datetime(2026, 11, 11, 14, 0)) == 0

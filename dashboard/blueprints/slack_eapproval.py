@@ -1451,6 +1451,32 @@ def _remind_line(row: dict, mins: int) -> str:
     return f'• {head} — {ea.what_of(row)}{money}{who} · *{todo}* 기다린 지 {_wait_text(mins)}'
 
 
+def reminder_text(todo: list, revise: list) -> str:
+    """리마인드 본문 — 다른 카드와 같은 여백(11-11 KiKO): 제목 밑 한 줄, 묶음 사이 한 줄."""
+    gap = '⠀'   # 빈 줄은 슬랙이 지워 빈 글자로
+    parts = []
+    if todo:
+        parts.append('\n'.join([f'⏰ *처리할 결재가 {len(todo)}건 있어요.*', gap]
+                               + [_remind_line(r, m) for r, m in todo]))
+    if revise:
+        parts.append('\n'.join([f'✏️ *수정 요청을 받은 결재가 {len(revise)}건 있어요.*',
+                                '카드의 [✏️ 수정하기]로 고쳐 올리거나, 필요 없으면 [요청 취소]를 눌러 주세요.', gap]
+                               + [_remind_line(r, m) for r, m in revise]))
+    return f'\n{gap}\n'.join(parts)
+
+
+def _post_reminder(client, uid: str, text: str) -> None:
+    """위·아래 여백 블록으로 DM(알림 미리보기 글은 첫 줄)."""
+    if not (client and uid and text):
+        return
+    try:
+        ch = client.conversations_open(users=uid)['channel']['id']
+        client.chat_postMessage(channel=ch, text=re.sub(r'[*_]', '', text.split('\n', 1)[0]),
+                                blocks=ea.spaced(text))
+    except Exception as exc:
+        logger.warning(f'{_LOG} 리마인드 DM 실패 ({uid}): {exc}')
+
+
 def post_reminders(kind: str, now=None) -> int:
     """리마인드 DM 보내기. 보낸 사람 수. 영업일·전자결재 설정·같은 회차 한 번만."""
     from datetime import datetime as _dt
@@ -1472,15 +1498,7 @@ def post_reminders(kind: str, now=None) -> int:
         items.sort(key=lambda x: -x[1])
         mine_revise = [x for x in items if x[0]['status'] == ea.REVISE]
         mine_todo = [x for x in items if x[0]['status'] != ea.REVISE]
-        parts = []
-        if mine_todo:
-            parts.append(f'⏰ *처리할 결재가 {len(mine_todo)}건 있어요.*\n'
-                         + '\n'.join(_remind_line(r, m) for r, m in mine_todo))
-        if mine_revise:
-            parts.append(f'✏️ *수정 요청을 받은 결재가 {len(mine_revise)}건 있어요.* 카드의 [✏️ 수정하기]로 고쳐 올리거나, '
-                         '필요 없으면 [요청 취소]를 눌러 주세요.\n'
-                         + '\n'.join(_remind_line(r, m) for r, m in mine_revise))
-        _notify(client, uid, '\n\n'.join(parts))
+        _post_reminder(client, uid, reminder_text(mine_todo, mine_revise))
     if targets:
         logger.info(f'{_LOG} 리마인드({kind}) {len(targets)}명 · '
                     f'{sum(len(v) for v in targets.values())}건')
