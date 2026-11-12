@@ -13,6 +13,15 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+class OAuthCodeExpired(Exception):
+    """구글 로그인 코드가 이미 쓰였거나 만료됨(invalid_grant).
+
+    새로고침·뒤로 가기·탭 복원·로그인 화면에 오래 머문 경우 생긴다.
+    다시 로그인하면 풀리는 일이라 오류 알림 대상이 아니다(2026-11-12).
+    """
+
+
 class GoogleOAuthManager:
     def __init__(self):
         self.client_config = self._get_oauth_config()
@@ -202,6 +211,9 @@ class GoogleOAuthManager:
                 return None, None
 
         except Exception as e:
+            if 'invalid_grant' in str(e):
+                logger.warning(f"OAuth 로그인 코드 만료·재사용: {str(e)}")
+                raise OAuthCodeExpired(str(e)) from e
             logger.error(f"OAuth 사용자 정보 가져오기 오류: {str(e)}")
             return None, None
     

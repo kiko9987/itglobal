@@ -12,7 +12,7 @@ from dashboard.utils.error_helpers import generate_error_id
 
 # 인증 시스템 import
 from dashboard.auth import user_manager, login_required, admin_required, get_user_role
-from dashboard.google_oauth import get_google_oauth, is_oauth_configured
+from dashboard.google_oauth import get_google_oauth, is_oauth_configured, OAuthCodeExpired
 from dashboard.utils.google_calendar import (
     create_flow as create_calendar_flow,
     save_credentials as save_calendar_credentials,
@@ -98,10 +98,20 @@ def google_callback():
         _effective = _forced or _url_for
         logger.info(f"[OAuth] callback: url_for={_url_for!r} env={_forced!r} effective={_effective!r}")
 
-        user_info, credentials = get_google_oauth().get_user_info(
-            code, state,
-            redirect_uri=_effective
-        )
+        try:
+            user_info, credentials = get_google_oauth().get_user_info(
+                code, state,
+                redirect_uri=_effective
+            )
+        except OAuthCodeExpired:
+            # 코드가 이미 쓰였거나 만료됨 → 이미 로그인돼 있으면 그대로 들여보내고,
+            # 아니면 로그인을 한 번만 자동으로 다시 시작(무한 반복 방지).
+            if 'user' in session:
+                return redirect(url_for('projects.project_list'))
+            if session.pop('oauth_expired_retry', None):
+                return redirect(url_for('auth.login_page', message='oauth_error'))
+            session['oauth_expired_retry'] = True
+            return redirect(url_for('auth.google_login'))
 
         if not user_info:
             return redirect(url_for('auth.login_page', message='domain_not_allowed'))
