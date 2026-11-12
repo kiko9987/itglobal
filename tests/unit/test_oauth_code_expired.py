@@ -55,16 +55,15 @@ def _callback(c):
     return c.get('/auth/callback?state=st&code=x')
 
 
-def test_callback_restarts_login_once_then_stops(client):
-    r1 = _callback(client)
-    assert r1.status_code == 302 and r1.headers['Location'].endswith('/auth/google')
-    r2 = _callback(client)
-    assert r2.status_code == 302 and '/login' in r2.headers['Location']
-    assert 'oauth_error' in r2.headers['Location']
+def test_callback_goes_to_login_page_without_message(client):
+    r = _callback(client)
+    assert r.status_code == 302 and r.headers['Location'].endswith('/login')
+    # 세션을 바꾸지 않아야 동시 콜백의 로그인 쿠키를 덮지 않는다
+    assert 'Set-Cookie' not in r.headers
 
 
-def test_callback_already_logged_in_goes_to_projects(client):
+def test_login_page_sends_logged_in_user_to_projects(client):
     with client.session_transaction() as s:
         s['user'] = {'email': 'a@itg-aircon.com'}
-    r = _callback(client)
+    r = client.get('/login')
     assert r.status_code == 302 and r.headers['Location'].endswith('/projects')

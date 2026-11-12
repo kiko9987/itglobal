@@ -104,14 +104,12 @@ def google_callback():
                 redirect_uri=_effective
             )
         except OAuthCodeExpired:
-            # 코드가 이미 쓰였거나 만료됨 → 이미 로그인돼 있으면 그대로 들여보내고,
-            # 아니면 로그인을 한 번만 자동으로 다시 시작(무한 반복 방지).
-            if 'user' in session:
-                return redirect(url_for('projects.project_list'))
-            if session.pop('oauth_expired_retry', None):
-                return redirect(url_for('auth.login_page', message='oauth_error'))
-            session['oauth_expired_retry'] = True
-            return redirect(url_for('auth.google_login'))
+            # 코드가 이미 쓰였거나 만료됨 → 로그인 화면으로만 보낸다(안내 문구 없음).
+            # 로그인 화면은 이미 로그인돼 있으면 목록으로 넘긴다.
+            # 세션은 건드리지 않는다: 브라우저가 같은 콜백을 0.3초 사이 두 번 보내면
+            # (11-12 21:18 yg) 한쪽은 성공·한쪽은 이 오류인데, 여기서 세션을 바꾸면
+            # 이 응답의 쿠키가 방금 로그인된 쿠키를 덮어 로그아웃될 수 있다.
+            return redirect(url_for('auth.login_page'))
 
         if not user_info:
             return redirect(url_for('auth.login_page', message='domain_not_allowed'))
