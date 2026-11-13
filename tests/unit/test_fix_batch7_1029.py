@@ -47,9 +47,10 @@ def test_admin_routes_require_login():
     app.secret_key = 'test'
     app.register_blueprint(slack_bp)
     c = app.test_client()
+    # 2026-11-13: 관리용 주소 자체를 삭제 — 이제 없는 주소(404)
     for path in ('/slack/normalize-visit-dates?dry_run=0', '/slack/migrate-etc-to-sheet?dry_run=0',
-                 '/slack/migrate-visit-buttons?dry_run=0&days=3650'):
-        assert c.get(path).status_code == 403, path
+                 '/slack/migrate-visit-buttons?dry_run=0&days=3650', '/slack/sync-karrot', '/slack/sync-homepage'):
+        assert c.get(path).status_code == 404, path
 
 
 def test_channeltalk_slack_text_escaped():

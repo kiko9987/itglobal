@@ -1278,14 +1278,3 @@ def _safe_cert_expiry_check():
     except Exception as exc:
         logger.warning(f'[SCHED] 인증서 만료 체크 실패: {exc}')
 
-
-def trigger_karrot_sync_now() -> dict:
-    """수동 트리거 (테스트/디버깅용)"""
-    from dashboard.services.lead_sync import sync_karrot
-    return sync_karrot()
-
-
-def trigger_homepage_sync_now() -> dict:
-    """수동 트리거"""
-    from dashboard.services.homepage_mail_sync import sync_homepage_email
-    return sync_homepage_email()

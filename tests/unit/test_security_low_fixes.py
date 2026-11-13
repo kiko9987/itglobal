@@ -15,7 +15,7 @@ from flask import Flask, session
 from dashboard.blueprints import slack_bot as sb
 
 
-# ── 슬랙 관리자 정비 링크 ─────────────────────────────────────────────
+# ── 슬랙 관리자 정비 링크 — 2026-11-13 주소 자체 삭제 ─────────────────
 @pytest.fixture
 def app():
     a = Flask(__name__)
@@ -23,66 +23,10 @@ def app():
     return a
 
 
-@pytest.mark.parametrize('sfs', ['cross-site', 'same-site'])
-def test_manual_trigger_rejects_cross_site(app, sfs):
-    with app.test_request_context('/slack/sync-karrot', headers={'Sec-Fetch-Site': sfs}), \
-         patch('dashboard.auth._validate_session', return_value=None):
-        r = sb._manual_trigger_denied()
-    assert r is not None and r[1] == 403
-
-
-@pytest.mark.parametrize('headers', [{'Sec-Fetch-Site': 'none'}, {'Sec-Fetch-Site': 'same-origin'}, {}])
-def test_manual_trigger_allows_typed_or_same_origin_admin(app, headers):
-    with app.test_request_context('/slack/sync-karrot', headers=headers), \
-         patch('dashboard.auth._validate_session', return_value=None):
-        session['user'] = {'email': 'a@x', 'permission_level': 'admin'}
-        assert sb._manual_trigger_denied() is None
-
-
-def test_manual_trigger_no_session_denied(app):
-    with app.test_request_context('/slack/sync-karrot', headers={'Sec-Fetch-Site': 'none'}):
-        assert sb._manual_trigger_denied()[1] == 403
-
-
-def test_manual_trigger_uses_full_session_check(app):
-    with app.test_request_context('/slack/sync-karrot', headers={'Sec-Fetch-Site': 'none'}), \
-         patch('dashboard.auth._validate_session', return_value=('expired', 401)) as vs:
-        session['user'] = {'email': 'a@x', 'permission_level': 'admin'}
-        r = sb._manual_trigger_denied()
-    vs.assert_called_once_with(require_admin=True)
-    assert r[1] == 403
-
-
-def test_migrate_visit_buttons_skips_cancelled_cards(monkeypatch):
-    cancelled = {
-        'ts': str(time.time()),
-        'blocks': [
-            {'type': 'section', 'text': {'type': 'mrkdwn', 'text': '🚫 방문 취소\n```🔔 새 방문 일정 `L-00001````'}},
-            {'type': 'actions', 'elements': [{'action_id': 'visit_uncancel', 'type': 'button'}]},
-        ],
-    }
-
-    class _Client:
-        def __init__(self):
-            self.updates = []
-
-        def conversations_history(self, **kw):
-            return {'messages': [cancelled], 'response_metadata': {}, 'has_more': False}
-
-        def chat_update(self, **kw):
-            self.updates.append(kw)
-            return {'ok': True}
-
-    c = _Client()
-
-    class _App:
-        client = c
-
-    monkeypatch.setenv('SLACK_VISIT_CHANNEL', 'C123')
-    monkeypatch.setattr(sb, '_visit_slack_app', _App())
-    stats = sb._migrate_visit_card_buttons(days=3, dry_run=False)
-    assert c.updates == []
-    assert stats.get('cancelled_skip') == 1
+def test_admin_maintenance_routes_removed():
+    for name in ('_manual_trigger_denied', '_migrate_visit_card_buttons', '_normalize_visit_dates',
+                 '_migrate_etc_redis_to_sheet', 'slack_sync_karrot_now', 'slack_sync_homepage_now'):
+        assert not hasattr(sb, name), name
 
 
 # ── 슬랙 서명 확인 전 중복 표시 ───────────────────────────────────────
