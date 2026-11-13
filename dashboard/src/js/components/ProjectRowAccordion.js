@@ -1408,7 +1408,7 @@ export default class ProjectRowAccordion {
     // 폴더 ID 패턴이면 itgfolder:// (탐색기 직접 열기) — 리드 페이지와 공용 유틸
     const itgLink = renderItgfolderLink(localPath);
     if (itgLink) return itgLink;
-    return `<a href="#" class="text-decoration-none folder-open-link" data-project-code="${projectCode}" style="color: #0d6efd;">${localPath}</a>`;
+    return `<a href="#" class="text-decoration-none folder-open-link" data-project-code="${escHtml(projectCode)}" style="color: #0d6efd;">${escHtml(localPath)}</a>`;
   }
 
   /**
@@ -1430,7 +1430,7 @@ export default class ProjectRowAccordion {
               <i class="fab fa-google-drive me-2" style="color: #4285f4;"></i>
               문서 폴더
             </span>
-            <div class="editable-value" data-field="견적서 및 계약서 폴더 경로" data-original-value="${localPath}">
+            <div class="editable-value" data-field="견적서 및 계약서 폴더 경로" data-original-value="${escHtml(localPath)}">
               ${this.renderFolderLink(localPath, projectCode)}
             </div>
           </div>
@@ -3770,7 +3770,9 @@ export default class ProjectRowAccordion {
   }
 
   /**
-   * 폴더 열기 - Flask API를 통해 Windows 탐색기 또는 브라우저에서 폴더 열기
+   * 폴더 열기 (폴더 ID가 아닌 값: Drive 링크·옛 PC 경로).
+   * 2026-11-13 보안 점검: 서버는 더 이상 아무것도 실행하지 않고, 검증된 Drive 주소만 돌려준다.
+   * Drive 주소면 브라우저 새 탭으로 열고, PC 경로면 클립보드에 복사해 탐색기 주소창에 붙여 넣게 한다.
    */
   async openFolder(projectCode) {
     if (!projectCode) {
@@ -3778,28 +3780,34 @@ export default class ProjectRowAccordion {
       return;
     }
 
-    logger.debug('[폴더 열기] API 호출 시작:', projectCode);
-
     try {
-      const apiUrl = `/api/folder/open/${projectCode}`;
-      logger.debug('[폴더 열기] API URL:', apiUrl);
-
-      const response = await fetch(apiUrl, {
+      const response = await fetch(`/api/folder/open/${encodeURIComponent(projectCode)}`, {
         credentials: 'same-origin'
       });
-      logger.debug('[폴더 열기] Response status:', response.status);
-
       const data = await response.json();
-      logger.debug('[폴더 열기] Response data:', data);
 
-      if (data.success) {
-        const folderType = data.folder_type === 'google_drive' ? 'Google Drive' : '탐색기';
-        logger.debug(`[폴더 열기] 성공: ${folderType}에서 폴더를 열었습니다.`);
-      } else {
-        logger.error('[폴더 열기] API 실패:', data.message || data.error);
+      if (data.success && typeof data.url === 'string' && data.url.startsWith('https://drive.google.com/')) {
+        const win = window.open(data.url, '_blank', 'noopener');
+        if (!win) {
+          this.showMessage('팝업이 막혀 폴더를 열지 못했습니다. 브라우저에서 이 사이트의 팝업을 허용해 주세요.', 'warning');
+        }
+        return;
       }
+
+      if (data.folder_type === 'local_path' && data.folder_path) {
+        try {
+          await navigator.clipboard.writeText(data.folder_path);
+          this.showMessage('PC 폴더 경로라 웹에서 바로 열 수 없습니다. 경로를 복사했으니 탐색기 주소창에 붙여 넣으세요.', 'info');
+        } catch (_) {
+          this.showMessage('PC 폴더 경로라 웹에서 바로 열 수 없습니다. 경로를 복사해 탐색기 주소창에 붙여 넣으세요.', 'info');
+        }
+        return;
+      }
+
+      this.showMessage(data.error || '폴더를 열 수 없습니다.', 'error');
     } catch (error) {
       logger.error('[폴더 열기 오류]', error);
+      this.showMessage('폴더를 여는 중 오류가 났습니다.', 'error');
     }
   }
 

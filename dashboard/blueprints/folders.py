@@ -6,7 +6,6 @@ Google Drive 폴더 통합, 프로젝트 폴더 관리, 폴더 ID 변환 등 파
 import os
 import re
 import logging
-import subprocess
 from datetime import datetime
 from flask import Blueprint, jsonify, request, session
 from dashboard.auth import login_required, admin_required
@@ -16,41 +15,6 @@ from dashboard.utils.error_helpers import generate_error_id
 logger = get_logger(__name__)
 
 folders_bp = Blueprint('folders', __name__, url_prefix='/api')
-
-def find_folder_path_by_drive_id(folder_id):
-    """Google Drive 폴더 ID를 로컬 경로로 변환.
-
-    우선순위:
-    1) GOOGLE_DRIVE_WINDOWS_BASE_PATH 하위에서 Drive API로 조회한 폴더명 매칭
-       (Slack 방문사진 파이프라인 등 신규 API 생성 폴더)
-    2) .shortcut-targets-by-id/{id} (Drive Desktop 바로가기)
-    """
-    if not folder_id:
-        return None
-
-    # 1) BASE_PATH + Drive API 폴더명 조회
-    base_path = os.getenv('GOOGLE_DRIVE_WINDOWS_BASE_PATH', '').strip()
-    if base_path:
-        try:
-            from dashboard.utils.google_drive import get_folder_name
-            folder_name = get_folder_name(folder_id)
-            if folder_name:
-                candidate = os.path.join(base_path, folder_name)
-                if os.path.exists(candidate):
-                    logger.info(f"[FOLDER_PATH] BASE_PATH 매칭: {candidate}")
-                    return candidate
-        except Exception as e:
-            logger.debug(f"[FOLDER_PATH] Drive API 조회 실패: {e}")
-
-    # 2) Google Drive for Desktop 바로가기 경로
-    for drive_letter in ['G:', 'F:', 'E:', 'D:', 'C:']:
-        local_path = f"{drive_letter}\\.shortcut-targets-by-id\\{folder_id}"
-        if os.path.exists(local_path):
-            logger.info(f"[FOLDER_PATH] 바로가기 매칭: {local_path}")
-            return local_path
-
-    logger.warning(f"[FOLDER_PATH] 폴더 ID {folder_id}의 로컬 경로를 찾을 수 없습니다")
-    return None
 
 @folders_bp.route('/projects/<project_code>/folder_id')
 @login_required
@@ -455,206 +419,67 @@ def get_folder_name(project_code):
             'error_id': error_id
         }), 500
 
+def _resolve_drive_folder_id(value):
+    """셀 값 → Drive 폴더 ID. 순수 폴더 ID 또는 https://drive.google.com/ 링크만 인정, 그 외는 None."""
+    v = str(value or '').strip()
+    if not v:
+        return None
+    if _FOLDER_ID_PATTERN.match(v):
+        return v
+    if v.startswith(('https://drive.google.com/', 'http://drive.google.com/')):
+        return _extract_url_folder_id(v)
+    return None
+
+
 @folders_bp.route('/folder/open/<project_code>')
 @login_required
 def open_project_folder(project_code):
-    """프로젝트 폴더를 윈도우 탐색기로 열기"""
+    """프로젝트 문서 폴더를 여는 데 필요한 정보를 돌려준다. 서버는 어떤 프로그램도 실행하지 않는다.
+
+    2026-11-13 보안 점검: 예전에는 셀 값('견적서 및 계약서 폴더 경로')을 cmd `start`·PowerShell 문자열에
+    그대로 넣어 서버에서 실행했다 → 편집자가 셀에 명령을 섞으면 서버(LocalSystem)에서 실행될 수 있었다.
+    게다가 서버는 LocalSystem 세션이라 직원 화면에 창을 띄우지도 못했다(itgfolder.js 주석).
+    그래서 서버 실행을 없애고, 검증된 Drive 폴더 ID와 웹 주소만 돌려준다. 실제 열기는 브라우저가 한다.
+    다시 subprocess/os.startfile 로 되돌리지 말 것.
+    """
     try:
-        user_data = session.get('user', {})
-        user_email = user_data.get('email', '')
+        user_email = (session.get('user') or {}).get('email', '')
         if not user_email:
             return jsonify({'success': False, 'error': '로그인 필요'}), 401
 
-        # 프로젝트 데이터 조회
         from dashboard.services.project_service import load_data
         df = load_data()
         if df is None:
             return jsonify({'success': False, 'error': '데이터를 불러올 수 없습니다'}), 500
 
-        # DataFrame을 딕셔너리 리스트로 변환
-        df = df.fillna('')  # NaN 값을 빈 문자열로 변환
-        projects_data = df.to_dict('records')
-
-        # 프로젝트 찾기
-        project = None
-        for proj in projects_data:
-            if proj.get('프로젝트 코드', '') == project_code:
-                project = proj
-                break
-
+        df = df.fillna('')
+        project = next(
+            (p for p in df.to_dict('records') if p.get('프로젝트 코드', '') == project_code),
+            None,
+        )
         if not project:
             return jsonify({'success': False, 'error': '프로젝트를 찾을 수 없습니다'})
 
-        # 폴더 경로 추출
-        folder_path = project.get('견적서 및 계약서 폴더 경로', '')
-
-        if not folder_path:
+        folder_path = str(project.get('견적서 및 계약서 폴더 경로', '') or '').strip()
+        if not folder_path or folder_path == '-':
             return jsonify({'success': False, 'error': '폴더 경로가 설정되지 않았습니다'})
 
-        # Google Drive 폴더 ID만 있는 경우 로컬 경로로 변환
-        # 폴더 ID는 보통 20자 이상의 영숫자와 -_ 조합 (예: 1ZsnooHtIPe_4UxKq020Gk8TseLtEMdws)
-        import re
-        folder_id_pattern = r'^[a-zA-Z0-9_-]{20,}$'
-        if re.match(folder_id_pattern, folder_path.strip()):
-            # 폴더 ID로 판단되면 로컬 경로 찾기
-            logger.info(f"[FOLDER_OPEN] 폴더 ID 감지: {project_code} -> {folder_path}")
-            local_path = find_folder_path_by_drive_id(folder_path.strip())
-
-            if local_path:
-                logger.info(f"[FOLDER_OPEN] 로컬 경로 발견: {local_path}")
-                folder_path = local_path
-            else:
-                logger.warning(f"[FOLDER_OPEN] 로컬 경로를 찾을 수 없어 웹 URL로 대체")
-                folder_path = f'https://drive.google.com/drive/folders/{folder_path.strip()}'
-
-        # Google Drive 링크인 경우 브라우저로 열기
-        if 'drive.google.com' in folder_path:
-            try:
-                # Windows에서 기본 브라우저로 열기
-                subprocess.run(['start', folder_path], shell=True, check=True)
-                logger.info(f"[FOLDER_OPEN] Google Drive 폴더 열기 성공: {project_code}")
-
-                # 감사 로그 기록
-                try:
-                    from dashboard.utils.user_database import get_audit_repository
-                    audit_repo = get_audit_repository()
-                    audit_repo.log_action(
-                        user_email=user_email,
-                        action='FOLDER_OPEN',
-                        details=f'프로젝트 {project_code} 폴더 열기 (Google Drive)',
-                        field_name='folder_path',
-                        old_value='',
-                        new_value=folder_path[:100],  # 경로가 길 수 있으므로 100자로 제한
-                        ip_address=request.remote_addr
-                    )
-                except Exception as log_error:
-                    logger.warning(f"감사 로그 기록 실패: {log_error}")
-
-                return jsonify({
-                    'success': True,
-                    'message': 'Google Drive 폴더가 브라우저에서 열렸습니다',
-                    'folder_type': 'google_drive'
-                })
-
-            except subprocess.CalledProcessError as e:
-                logger.error(f"브라우저로 폴더 열기 실패: {e}")
-                return jsonify({
-                    'success': False,
-                    'error': '브라우저로 폴더를 열 수 없습니다',
-                    'folder_url': folder_path  # 사용자가 수동으로 열 수 있도록 URL 제공
-                })
-
-        # 로컬 경로인 경우 탐색기로 열기
-        elif os.path.exists(folder_path):
-            opened = False
-            error_msg = None
-
-            # 방법 1: PowerShell로 탐색기 열고 창 활성화
-            try:
-                logger.info(f"[FOLDER_OPEN] PowerShell로 탐색기 시작: {folder_path}")
-
-                # PowerShell 스크립트 - 탐색기 열고 창을 강제로 포그라운드로 가져오기
-                ps_script = f'''
-                $path = "{folder_path}"
-                $shell = New-Object -ComObject "Shell.Application"
-                $shell.Open($path)
-                Start-Sleep -Milliseconds 500
-
-                # 탐색기 창 찾아서 활성화
-                Add-Type @"
-                    using System;
-                    using System.Runtime.InteropServices;
-                    public class WinAPI {{
-                        [DllImport("user32.dll")]
-                        [return: MarshalAs(UnmanagedType.Bool)]
-                        public static extern bool SetForegroundWindow(IntPtr hWnd);
-
-                        [DllImport("user32.dll")]
-                        [return: MarshalAs(UnmanagedType.Bool)]
-                        public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
-                        [DllImport("user32.dll")]
-                        public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
-                    }}
-"@
-
-                # 잠시 대기 후 탐색기 창 찾기
-                Start-Sleep -Milliseconds 300
-                $explorerWindows = Get-Process | Where-Object {{$_.ProcessName -eq "explorer"}} | Select-Object -First 1
-                if ($explorerWindows) {{
-                    $hwnd = $explorerWindows.MainWindowHandle
-                    if ($hwnd -ne [IntPtr]::Zero) {{
-                        [WinAPI]::ShowWindow($hwnd, 9)  # SW_RESTORE
-                        [WinAPI]::SetForegroundWindow($hwnd)
-                    }}
-                }}
-                '''
-
-                # PowerShell 실행
-                subprocess.run(['powershell', '-WindowStyle', 'Hidden', '-Command', ps_script],
-                              capture_output=True,
-                              creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0)
-
-                opened = True
-                logger.info(f"[FOLDER_OPEN] PowerShell 성공")
-            except Exception as e:
-                logger.warning(f"[FOLDER_OPEN] PowerShell 실패: {e}")
-                error_msg = str(e)
-
-            # 방법 2: os.startfile() fallback
-            if not opened:
-                try:
-                    logger.info(f"[FOLDER_OPEN] os.startfile() 시도")
-                    os.startfile(folder_path)
-                    opened = True
-                    logger.info(f"[FOLDER_OPEN] os.startfile() 성공")
-                except Exception as e:
-                    logger.warning(f"[FOLDER_OPEN] os.startfile() 실패: {e}")
-                    error_msg = str(e)
-
-            # 방법 3: shell=True fallback
-            if not opened:
-                try:
-                    logger.info(f"[FOLDER_OPEN] shell=True 시도")
-                    subprocess.run(f'explorer "{folder_path}"', shell=True, check=True)
-                    opened = True
-                    logger.info(f"[FOLDER_OPEN] shell=True 성공")
-                except Exception as e:
-                    logger.error(f"[FOLDER_OPEN] shell=True 실패: {e}")
-                    error_msg = str(e)
-
-            if opened:
-                # 감사 로그 기록
-                try:
-                    from dashboard.utils.user_database import get_audit_repository
-                    audit_repo = get_audit_repository()
-                    audit_repo.log_action(
-                        user_email=user_email,
-                        action='FOLDER_OPEN',
-                        details=f'프로젝트 {project_code} 폴더 열기 (로컬)',
-                        field_name='folder_path',
-                        old_value='',
-                        new_value=folder_path[:100],
-                        ip_address=request.remote_addr
-                    )
-                except Exception as log_error:
-                    logger.warning(f"감사 로그 기록 실패: {log_error}")
-
-                return jsonify({
-                    'success': True,
-                    'message': '폴더가 탐색기에서 열렸습니다',
-                    'folder_type': 'local'
-                })
-            else:
-                logger.error(f"[FOLDER_OPEN] 모든 방법 실패: {error_msg}")
-                return jsonify({'success': False, 'error': f'폴더를 열 수 없습니다: {error_msg}'})
-
-        else:
+        folder_id = _resolve_drive_folder_id(folder_path)
+        if folder_id:
             return jsonify({
-                'success': False,
-                'error': '폴더 경로가 올바르지 않거나 접근할 수 없습니다',
-                'folder_path': folder_path
+                'success': True,
+                'folder_type': 'google_drive',
+                'folder_id': folder_id,
+                'url': f'https://drive.google.com/drive/folders/{folder_id}',
             })
+
+        # Drive 폴더가 아닌 값(옛 PC 경로 등)은 서버가 열 수 없다 → 화면이 경로를 복사해 준다.
+        return jsonify({
+            'success': False,
+            'folder_type': 'local_path',
+            'folder_path': folder_path,
+            'error': 'Drive 폴더가 아니라 서버에서 열 수 없습니다',
+        })
 
     except Exception as e:
         error_id = generate_error_id()
