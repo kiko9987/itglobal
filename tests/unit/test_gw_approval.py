@@ -90,14 +90,17 @@ def test_form_fields_and_secret(db):
 def test_act_calls_same_slack_function(db, monkeypatch):
     from dashboard.blueprints import slack_eapproval as se
     calls = []
-    monkeypatch.setattr(se, 'apply_action', lambda a, aid, uid, reason='': calls.append((a, aid, uid, reason)) or None)
+    monkeypatch.setattr(se, 'apply_action', lambda a, aid, uid, reason='', expected_rev=None:
+                        calls.append((a, aid, uid, reason, expected_rev)) or None)
     aid = _approval(db, ea.PENDING, MW)
     k = ga.viewer('kiko@itg-aircon.com')
-    assert ga.act(aid, 'approve', k) is None and calls[-1] == ('approve', aid, KIKO, '')
+    assert ga.act(aid, 'approve', k, rev=0) is None and calls[-1] == ('approve', aid, KIKO, '', 0)
+    # 판 번호 없는 옛 화면의 승인은 거절(11-14) — 반려·수정 요청은 판 번호 없어도 됨
+    assert '새로 고친' in ga.act(aid, 'approve', k) and len(calls) == 1
     assert ga.act(aid, 'reject', k, '  ') == '사유를 적어 주세요.' and len(calls) == 1
     assert ga.act(aid, 'reject', k, '증빙 없음') is None and calls[-1][3] == '증빙 없음'
     assert ga.act(aid, 'hack', k) == '알 수 없는 처리입니다.'
-    assert '슬랙 계정' in ga.act(aid, 'approve', ga.viewer('none@itg-aircon.com'))
+    assert '슬랙 계정' in ga.act(aid, 'approve', ga.viewer('none@itg-aircon.com'), rev=0)
 
 
 def test_flex_archive_import_mask_and_scope(db, tmp_path):
@@ -153,15 +156,21 @@ def client(db, monkeypatch):
 
 def test_api_list_detail_act_export_and_field_blocked(client, db, monkeypatch):
     from dashboard.blueprints import slack_eapproval as se
-    monkeypatch.setattr(se, 'apply_action', lambda a, aid, uid, reason='': None)
+    seen = []
+    monkeypatch.setattr(se, 'apply_action', lambda a, aid, uid, reason='', expected_rev=None: seen.append(expected_rev))
     aid = _approval(db, ea.PENDING, MW)
     with client.session_transaction() as s:
         s['user'] = {'email': 'kiko@itg-aircon.com', 'name': '고광일', 'permission_level': 'super_admin'}
     j = client.get('/api/approval/list?box=todo').get_json()
     assert j['success'] and j['items'][0]['id'] == aid and j['see_all']
-    assert client.get(f'/api/approval/{aid}').get_json()['doc']['actions'][0]['key'] == 'approve'
-    r = client.post(f'/api/approval/{aid}/act', json={'action': 'approve'})
-    assert r.status_code == 200 and r.get_json()['success']
+    doc = client.get(f'/api/approval/{aid}').get_json()['doc']
+    assert doc['actions'][0]['key'] == 'approve' and doc['rev'] == 0
+    r = client.post(f'/api/approval/{aid}/act', json={'action': 'approve'})   # 판 번호 없음(옛 화면) → 거절
+    assert r.status_code == 409 and '새로 고친' in r.get_json()['message'] and not seen
+    for bad in ('0', True, -1, 1.5):   # 숫자 아닌 값은 판 번호 없음과 같다
+        assert client.post(f'/api/approval/{aid}/act', json={'action': 'approve', 'rev': bad}).status_code == 409
+    r = client.post(f'/api/approval/{aid}/act', json={'action': 'approve', 'rev': doc['rev']})
+    assert r.status_code == 200 and r.get_json()['success'] and seen == [0]
     assert client.post(f'/api/approval/{aid}/act', json={'action': 'reject'}).status_code == 409   # 사유 없음
     x = client.get('/api/approval/export.xlsx?box=all')
     assert x.status_code == 200 and x.data[:2] == b'PK'

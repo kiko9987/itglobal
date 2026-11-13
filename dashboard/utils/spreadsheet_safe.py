@@ -56,7 +56,7 @@ def _is_plain_calc_formula(text: str) -> bool:
     body = text[1:]
     if '"' in body.replace('""', ''):        # 글자열 인자(URL 등) — 빈 글자 "" 만 허용
         return False
-    if any(ch in body for ch in "!'{}[];\@#`~^|\n\r\t"):  # 다른 탭 참조·배열·로캘 구분자 등
+    if any(ch in body for ch in "!'{}[];\\@#`~^|\n\r\t"):  # 다른 탭 참조·배열·로캘 구분자 등
         return False
     for name in _FUNC_CALL.findall(body):
         if name.upper() not in _CALC_FUNCS:

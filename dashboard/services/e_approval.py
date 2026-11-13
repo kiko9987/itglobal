@@ -538,6 +538,8 @@ def resubmit(aid: int, actor_id: str, actor_name: str, fields: Dict) -> Optional
         old = _row(conn, aid)
         if not old or not requester_can_edit(old):   # 수정 요청 + 승인 전 요청자 직접 고치기(11-11)
             return None
+        if actor_id != old.get('requester_id'):   # 창 열기에서만 막던 것을 여기서도(11-14 보안 점검 3차)
+            return None
         prev = old['status']
         task = old['form'] in TASK_FORMS
         self_ok = self_approves(old['form'], old['requester_id'])
@@ -616,8 +618,11 @@ def last_revise(step_rows: List[dict]) -> Optional[dict]:
     return None
 
 
-def transition(aid: int, action: str, actor_id: str, actor_name: str, reason: str = '') -> Optional[dict]:
-    """상태 전환(두 사람이 동시에 눌러도 한 번만 — 이전 상태 조건부 UPDATE). 실패면 None."""
+def transition(aid: int, action: str, actor_id: str, actor_name: str, reason: str = '',
+               expected_rev: Optional[int] = None) -> Optional[dict]:
+    """상태 전환(두 사람이 동시에 눌러도 한 번만 — 이전 상태 조건부 UPDATE). 실패면 None.
+    expected_rev = 누른 사람이 본 수정 회차. 주면 같은 UPDATE 조건에 넣어, 확인과 승인 사이에 요청자가 고쳐
+    다시 올린 결재는 승인되지 않는다(11-14 보안 점검 3차 — 바뀐 계좌로 이체 DM 이 가던 틈)."""
     allowed, nxt, step, result = _TRANSITIONS[action]
     now = _now()
     with _db()._get_connection() as conn:
@@ -632,9 +637,13 @@ def transition(aid: int, action: str, actor_id: str, actor_name: str, reason: st
             old = _row(conn, aid)
             if old and old['status'] == FINAL:
                 step = 'final'
-        cur = conn.execute(
-            f'UPDATE approvals SET status=?, updated_at=? WHERE id=? AND status IN ({",".join("?" * len(allowed))})',
-            (nxt, now, aid, *allowed))
+        sql = f'UPDATE approvals SET status=?, updated_at=? WHERE id=? AND status IN ({",".join("?" * len(allowed))})'
+        args = [nxt, now, aid, *allowed]
+        if expected_rev is not None:
+            sql += (" AND (SELECT COUNT(*) FROM approval_steps"
+                    " WHERE approval_steps.approval_id=approvals.id AND step='resubmit')=?")
+            args.append(int(expected_rev))
+        cur = conn.execute(sql, args)
         if cur.rowcount != 1:
             conn.rollback()
             return None

@@ -57,13 +57,16 @@ def api_detail(aid):
 def api_act(aid):
     body = request.get_json(silent=True) or {}
     v = _v()
+    raw_rev = body.get('rev')
+    rev = raw_rev if isinstance(raw_rev, int) and not isinstance(raw_rev, bool) and raw_rev >= 0 else None
     try:
-        msg = ga.act(aid, str(body.get('action') or ''), v, str(body.get('reason') or ''))
+        msg = ga.act(aid, str(body.get('action') or ''), v, str(body.get('reason') or ''), rev)
     except Exception as e:
         logger.error(f'[GW결재] 처리 실패 #{aid} {body.get("action")}: {e}', exc_info=True, extra={'force_alert': True})
         return jsonify({'success': False, 'message': '처리 중 오류가 났어요. 잠시 뒤 다시 눌러 주세요.'}), 500
     if msg:
-        return jsonify({'success': False, 'message': msg}), 409
+        from dashboard.blueprints.slack_eapproval import STALE_MSG
+        return jsonify({'success': False, 'message': msg, 'stale': msg == STALE_MSG}), 409
     logger.info(f'[GW결재] #{aid} {body.get("action")} by {v["email"]}')
     return jsonify({'success': True, 'doc': ga.detail(aid, v)})
 

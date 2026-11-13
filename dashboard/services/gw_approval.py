@@ -282,19 +282,27 @@ def detail(aid: int, v: dict) -> Optional[dict]:
         steps.append({'step': name, 'result': name, 'actor': s.get('actor_name') or '',
                       'reason': s.get('reason') or '', 'at': (s.get('at') or '')[:16]})
     return dict(_summary(row, v), fields=_fields(row, v), steps=steps, actions=actions_for(row, v),
+                rev=ea.revision(aid),   # 처리 단추가 이 회차를 같이 보낸다 — 화면을 연 뒤 고쳐진 결재 막기(11-14)
                 slack_link=_card_link(row), requester_id_is_me=row.get('requester_id') == v['slack_id'])
 
 
-def act(aid: int, action: str, v: dict, reason: str = '') -> Optional[str]:
-    """처리 — 실패면 보여 줄 문구, 성공이면 None. 슬랙 버튼과 같은 함수."""
+# 돈·처리가 넘어가는 단추 — 화면에서 본 수정 회차가 꼭 있어야 한다
+REV_REQUIRED = ('approve', 'final', 'transfer')
+
+
+def act(aid: int, action: str, v: dict, reason: str = '', rev: Optional[int] = None) -> Optional[str]:
+    """처리 — 실패면 보여 줄 문구, 성공이면 None. 슬랙 버튼과 같은 함수.
+    rev = 화면에서 본 수정 회차. 승인·최종 승인·완료는 없으면 거절(옛 화면), 다르면 '내용이 수정됐어요'."""
     if action not in ACTIONS:
         return '알 수 없는 처리입니다.'
+    if action in REV_REQUIRED and rev is None:
+        return '화면이 오래됐어요. 새로 고친 뒤 다시 눌러 주세요.'
     if not v['slack_id']:
         return '인사카드에 슬랙 계정이 연결되지 않아 처리할 수 없어요. 경영지원에 말씀해 주세요.'
     if action in ('reject', 'revise') and not (reason or '').strip():
         return '사유를 적어 주세요.' if action == 'reject' else '무엇을 고쳐야 하는지 적어 주세요.'
     from dashboard.blueprints import slack_eapproval as se
-    return se.apply_action(action, aid, v['slack_id'], (reason or '').strip()[:300])
+    return se.apply_action(action, aid, v['slack_id'], (reason or '').strip()[:300], expected_rev=rev)
 
 
 def export_xlsx(v: dict, **filters) -> bytes:

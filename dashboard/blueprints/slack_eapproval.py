@@ -234,8 +234,13 @@ def _origin_log(row: dict, text: str) -> None:
         logger.warning(f'{_LOG} 계산서 글 스레드 기록 실패 ({ea.title(row)}): {exc}')
 
 
-def apply_action(action: str, aid: int, uid: str, reason: str = '') -> Optional[str]:
-    """승인·반려·이체 완료·취소 처리. 실패면 사용자에게 보여 줄 문구, 성공이면 None."""
+STALE_MSG = '이 결재는 그 사이 내용이 수정됐어요. 바뀐 내용을 확인하고 다시 눌러 주세요.'
+
+
+def apply_action(action: str, aid: int, uid: str, reason: str = '',
+                 expected_rev: Optional[int] = None) -> Optional[str]:
+    """승인·반려·이체 완료·취소 처리. 실패면 사용자에게 보여 줄 문구, 성공이면 None.
+    expected_rev = 누른 사람이 본 수정 회차(슬랙 버튼 값·결재함 화면). 그 사이 고쳐졌으면 STALE_MSG."""
     row = ea.get(aid)
     if not row:
         return '결재를 찾지 못했어요.'
@@ -251,8 +256,15 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '') -> Optional[
             'revise': '보완 요청은 승인자·경영지원만 할 수 있어요.',
         }[action]
     name = _name(uid)
-    new = ea.transition(aid, action, uid, name, reason)
+    new = ea.transition(aid, action, uid, name, reason, expected_rev)
     if not new:
+        if expected_rev is not None and expected_rev != ea.revision(aid):
+            logger.info(f'{_LOG} 수정된 결재라 {action} 안 함 (#{aid}, 본 회차 {expected_rev})')
+            try:
+                refresh(ea.get(aid))   # 열어 둔 카드도 바뀐 내용으로
+            except Exception as exc:
+                logger.warning(f'{_LOG} 카드 새로 그리기 실패 (#{aid}): {exc}')
+            return STALE_MSG
         return f"이미 처리된 결재예요 (지금: {ea.status_label(ea.get(aid) or row)[1]})."
     client = eap_client()
     amt = f"{int(new.get('amount') or 0):,}원"
@@ -1755,12 +1767,8 @@ def register_eapproval_handlers(app) -> None:
 
             def _bg():
                 try:
-                    if rev is not None and rev != ea.revision(aid):   # 그 사이 고쳐 다시 올린 결재(11-11)
-                        _ephemeral(client, body, '🔒 이 결재는 그 사이 내용이 수정됐어요. '
-                                                 '카드의 바뀐 내용을 확인하고 다시 눌러 주세요.')
-                        refresh(ea.get(aid))
-                        return
-                    msg = apply_action(action, aid, uid)
+                    # 본 회차를 승인 처리(UPDATE 조건)까지 넘긴다 — 미리 확인만 하면 그 사이 고친 결재가 승인됐다(11-14)
+                    msg = apply_action(action, aid, uid, expected_rev=rev)
                     if msg:
                         _ephemeral(client, body, f'🔒 {msg}')
                 except Exception as exc:

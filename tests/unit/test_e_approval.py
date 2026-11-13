@@ -1801,3 +1801,75 @@ def test_manifest_has_file_scopes():
     path = os.path.join(os.path.dirname(__file__), '..', '..', 'docs', 'slack_eapproval_manifest.yml')
     text = open(path, encoding='utf-8').read()
     assert '- files:read' in text and '- files:write' in text
+
+
+# ── 11-14 보안 점검 3차: 승인이 승인자가 본 수정 회차에 묶인다 ─────────────────
+def test_transition_bound_to_seen_revision(se):
+    m = se.process_new_submit(MGR, dict(FIELDS))
+    aid = m['id']
+    seen = ea.revision(aid)   # 승인자가 카드를 본 회차 0
+    # 승인자가 보는 사이 요청자가 계좌를 고쳐 다시 올림 → 상태는 그대로 '승인 대기'
+    new, changed = ea.resubmit(aid, MGR, '강성환', {'account': '999-999-999999'})
+    assert new['status'] == ea.PENDING and 'account' in changed and ea.revision(aid) == 1
+    # 예전 회차로 누른 승인은 상태 조건만으론 통과하던 것 — 이제 같은 UPDATE 조건에서 막힌다
+    assert ea.transition(aid, 'approve', KIKO, '고광일', expected_rev=seen) is None
+    assert ea.get(aid)['status'] == ea.PENDING
+    assert not [s for s in ea.steps(aid) if s['step'] == 'approve']
+    # 슬랙 버튼·결재함 공용 함수도 '내용이 수정됐어요' 안내 + 카드를 바뀐 내용으로
+    n_upd = len(se._fake.of('chat_update'))
+    assert se.apply_action('approve', aid, KIKO, expected_rev=seen) == se.STALE_MSG
+    assert len(se._fake.of('chat_update')) > n_upd
+    # 바뀐 회차로 다시 누르면 승인
+    assert se.apply_action('approve', aid, KIKO, expected_rev=1) is None
+    assert ea.get(aid)['status'] == ea.APPROVED
+
+
+def test_transfer_bound_to_revision(se):
+    # 이체 대기에서 회차가 다르면 이체 완료도 안 된다(처리형 양식은 승인 뒤에도 고칠 수 있어서)
+    m = se.process_new_submit(MGR, dict(FIELDS))
+    aid = m['id']
+    assert se.apply_action('approve', aid, KIKO, expected_rev=0) is None
+    assert ea.transition(aid, 'transfer', SB, '황샛별', expected_rev=5) is None
+    assert ea.get(aid)['status'] == ea.APPROVED
+    assert ea.transition(aid, 'transfer', SB, '황샛별', expected_rev=0)['status'] == ea.DONE
+
+
+def test_old_button_without_revision_still_works(se):
+    # 11-11 이전 버튼 값('12') 은 회차가 없다 — 예전처럼 상태만 보고 처리
+    m = se.process_new_submit(MGR, dict(FIELDS))
+    assert se.apply_action('approve', m['id'], KIKO) is None
+
+
+def test_resubmit_only_by_requester(se):
+    m = se.process_new_submit(MGR, dict(FIELDS))
+    assert ea.resubmit(m['id'], KIKO, '고광일', {'account': '999-999-999999'}) is None   # 요청자 아님
+    assert ea.get(m['id'])['account'] == FIELDS['account'] and ea.revision(m['id']) == 0
+    assert ea.resubmit(m['id'], MGR, '강성환', {'account': '999-999-999999'})[0]['account'] == '999-999-999999'
+
+
+def test_slack_button_passes_revision_to_apply(se, monkeypatch):
+    # 버튼 핸들러가 미리 확인만 하지 않고 본 회차를 승인 처리까지 넘긴다
+    import threading
+    got = []
+    monkeypatch.setattr(se, 'apply_action', lambda a, aid, uid, reason='', expected_rev=None:
+                        got.append((a, aid, uid, expected_rev)) or None)
+
+    class _T:
+        def __init__(self, target, daemon=None):
+            self.t = target
+
+        def start(self):
+            self.t()
+    monkeypatch.setattr(threading, 'Thread', _T)
+    handlers = {}
+
+    class _App:   # 버튼(action)만 모으고 나머지 등록은 흘려보낸다
+        def action(self, aid):
+            return lambda f: handlers.setdefault(aid, f) or f
+
+        def __getattr__(self, _name):
+            return lambda *_a, **_k: (lambda f: f)
+    se.register_eapproval_handlers(_App())
+    body = {'actions': [{'value': '12:3'}], 'user': {'id': KIKO}}
+    handlers[ea.A_APPROVE](lambda *a, **k: None, body, se._fake)
+    assert got == [('approve', 12, KIKO, 3)]

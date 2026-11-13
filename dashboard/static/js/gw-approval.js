@@ -19,7 +19,11 @@
     }
     return fetch(url, init).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) {
-        if (!r.ok || j.success === false) throw new Error(j.message || ('처리하지 못했습니다 (' + r.status + ')'));
+        if (!r.ok || j.success === false) {
+          var err = new Error(j.message || ('처리하지 못했습니다 (' + r.status + ')'));
+          err.stale = !!j.stale;
+          throw err;
+        }
         return j;
       });
     });
@@ -227,9 +231,22 @@
       });
       function send(act, reason) {
         box.querySelectorAll('button').forEach(function (x) { x.disabled = true; });
-        api('/api/approval/' + d.id + '/act', { method: 'POST', body: { action: act, reason: reason } })
+        // rev = 이 화면을 그릴 때의 수정 회차 — 그 사이 요청자가 고쳤으면 서버가 거절한다(11-14)
+        api('/api/approval/' + d.id + '/act', { method: 'POST', body: { action: act, reason: reason, rev: d.rev } })
           .then(function (j) { renderDoc(j.doc); load(); })
           .catch(function (e) {
+            if (e.stale) {   // 바뀐 내용으로 다시 그리고 안내를 남긴다
+              api('/api/approval/' + d.id).then(function (j) {
+                renderDoc(j.doc);
+                var el = $('apActError');
+                if (el) el.textContent = e.message; else window.alert(e.message);
+                load();
+              }).catch(function () {
+                box.querySelectorAll('button').forEach(function (x) { x.disabled = false; });
+                $('apActError').textContent = e.message;
+              });
+              return;
+            }
             box.querySelectorAll('button').forEach(function (x) { x.disabled = false; });
             $('apActError').textContent = e.message;
           });
