@@ -25,6 +25,7 @@ import re
 import threading
 from typing import List, Dict, Optional
 
+from dashboard.services.lead_helpers import slack_esc
 from dashboard.utils.logging_config import get_logger
 from dashboard.utils.redis_client import get_redis_client
 
@@ -1239,9 +1240,10 @@ def _partner_misplacement_warning(code: str, partner: str) -> str:
             hits.append((c, biz))
     if not hits:
         return ''  # 개인 입금 등 — 경고 안 함
-    shown = ', '.join(f'{c}({b})' for c, b in hits[:2])
+    # 입금자·사업자명은 문자·시트 값 — 카드(mrkdwn)에 넣기 전 이스케이프 (2026-11-14 보안 점검)
+    shown = ', '.join(f'{c}({slack_esc(b)})' for c, b in hits[:2])
     more = ' 외' if len(hits) > 2 else ''
-    return f"⚠️ 입금자 '{partner}'가 다른 프로젝트({shown}{more}) 사업자명과 일치 — 이 프로젝트가 맞나요?"
+    return f"⚠️ 입금자 '{slack_esc(partner)}'가 다른 프로젝트({shown}{more}) 사업자명과 일치 — 이 프로젝트가 맞나요?"
 
 
 def _payment_card_warnings(project: str, partner: str) -> List[str]:
@@ -1376,7 +1378,7 @@ def _inflow_line(project: str) -> List[str]:
         partner = str(row.get('거래처명') or '').strip()
         if inflow == '거래처' and is_partner_name(partner):
             disp = f'거래처 ({partner})'
-        return [f'유입 구분 : {disp}']
+        return [f'유입 구분 : {slack_esc(disp)}']   # 거래처명은 시트 값 — mrkdwn 이스케이프
     except Exception as exc:
         logger.debug(f'[PAYMENT] 유입 구분 조회 실패({project}): {exc}')
         return []
@@ -1387,7 +1389,8 @@ def _payer_status_line(payer: Dict, received: int) -> str:
     amt = int(payer.get('amount') or 0)
     rem = amt - int(received or 0)
     tail = '완납' if rem <= 0 else f"남음 {rem:,}원"
-    return f"{payer['role']} {payer['name']} · 부담 {amt:,}원 · 받음 {int(received or 0):,}원 · {tail}"
+    # 부담자 구분·이름은 시트 값 — 카드(mrkdwn)에 넣기 전 이스케이프
+    return f"{slack_esc(payer['role'])} {slack_esc(payer['name'])} · 부담 {amt:,}원 · 받음 {int(received or 0):,}원 · {tail}"
 
 
 def _split_unpaid_owner(payers: Dict[str, Dict], stage: str, this_rem: int, unpaid: int) -> str:
@@ -1404,13 +1407,15 @@ def _split_unpaid_owner(payers: Dict[str, Dict], stage: str, this_rem: int, unpa
     if other_rem < 0:
         return ''
     others = [p for s, p in payers.items() if s != stage]
-    other_label = '·'.join(p['role'] for p in others) or '다른 부담자'
+    # 부담자 구분은 시트 값 — 카드 표시용이라 이스케이프
+    other_label = '·'.join(slack_esc(p['role']) for p in others) or '다른 부담자'
     me = payers.get(stage) or {}
+    me_role = slack_esc(me.get('role', ''))
     if other_rem < 2:   # 부가세 끝전
-        return f"{me.get('role', '')} 몫".strip() if this_rem else ''
+        return f"{me_role} 몫".strip() if this_rem else ''
     if this_rem < 2:
         return f"{other_label} 몫"
-    return f"{me.get('role', '')} {this_rem:,}원 · {other_label} {other_rem:,}원"
+    return f"{me_role} {this_rem:,}원 · {other_label} {other_rem:,}원"
 
 
 _SPLIT_COMPLETE_KEY = 'payment_split_complete:{}'   # 나눠 내는 공사: 수금완료 카드가 된 칸(단계)
@@ -1492,20 +1497,22 @@ def _build_stage_message(
     partner_label = '승인번호' if is_card else '입금자'
     header_action = '결제' if is_card else '입금'
 
+    # 주소·공사내용·입금자·은행 표기는 시트·문자 원문 — 카드(mrkdwn)에 넣을 때만 이스케이프 (2026-11-14 보안 점검).
+    #   partner 원문은 아래 경고(_payment_card_warnings) 대조에 그대로 쓴다.
     lines = [
         '⠀',
         f"{emoji} *{stage} {header_action}* — :id: *{project}*",
         _SEP,
         *_inflow_line(project),   # 유입 구분 — 공사 확정 카드처럼 구분선 바로 아래 첫 줄 (2026-11-03)
-        f"주소 : {address or '-'}",
+        f"주소 : {slack_esc(address) or '-'}",
     ]
     if construction:
-        lines.append(f"공사내용 : {construction}")
+        lines.append(f"공사내용 : {slack_esc(construction)}")
     lines.extend([
         f"{date_label} : {date_md}",
         f"{amount_label} : {amount:,}원",
-        f"{partner_label} : {partner}",
-        f"은행 : {bank} ({code_display})",
+        f"{partner_label} : {slack_esc(partner)}",
+        f"은행 : {slack_esc(bank)} ({slack_esc(code_display)})",
     ])
     if is_card:
         real_payment = _resolve_real_payment(stage_sheet_val, amount, total_t)
@@ -1658,8 +1665,9 @@ def _build_stage_with_history_message(
     _payer = _payers.get(stage)
     _act ='대체수금' if _is_sub else header_action
     if _payer:
-        _inst = last_payment.get('installment') or ''
-        _title = (f"{emoji} *{_payer['role']} {_payer['name']} {_act}*"
+        # 부담자 구분·이름·차수는 시트·메모 값 — 이스케이프 (2026-11-14 보안 점검)
+        _inst = slack_esc(last_payment.get('installment') or '')
+        _title = (f"{emoji} *{slack_esc(_payer['role'])} {slack_esc(_payer['name'])} {_act}*"
                   + (f" · 차수 {_inst}" if _inst and not refund_event else '') + f" ({stage} 칸)")
     else:
         _title = f"{emoji} *{stage} {_act}*"
@@ -1668,10 +1676,10 @@ def _build_stage_with_history_message(
         f"{_title} — :id: *{project}*",
         _SEP,
         *_inflow_line(project),   # 유입 구분 — 공사 확정 카드처럼 구분선 바로 아래 첫 줄 (2026-11-03)
-        f"주소 : {address or '-'}",
+        f"주소 : {slack_esc(address) or '-'}",
     ]
     if construction:
-        lines.append(f"공사내용 : {construction}")
+        lines.append(f"공사내용 : {slack_esc(construction)}")
     if _is_sub:
         # 대체수금 — 은행 date/입금자 없음. 오해 소지 은행코드·입금자 라인 생략.
         lines.extend([
@@ -1682,8 +1690,8 @@ def _build_stage_with_history_message(
         lines.extend([
             f"{date_label} : {date_md}",
             f"{amount_label} : {amount:,}원",
-            f"{partner_label} : {partner}",
-            f"은행 : {bank} ({code_display})",
+            f"{partner_label} : {slack_esc(partner)}",
+            f"은행 : {slack_esc(bank)} ({slack_esc(code_display)})",
         ])
         if is_card:
             stage_val = (stage_sheet_vals or {}).get(stage, 0)
@@ -1726,7 +1734,8 @@ def _build_stage_with_history_message(
         pt = p.get('partner', '-') or '-'
         is_c = _is_card_payment(invoice_value, pt)
         suffix = ' (카드)' if is_c else ''
-        lines.append(f"{st}  {d}  {c_disp}  {a:,}원  {pt}{suffix}")
+        # 차수·은행 표기·입금자는 메모 원문 — 표시할 때만 이스케이프(pt 원문은 카드·추심 판정에 씀)
+        lines.append(f"{slack_esc(st)}  {d}  {slack_esc(c_disp)}  {a:,}원  {slack_esc(pt)}{suffix}")
         _cl = _collection_fee_line(pt, a)   # 추심이면 (실추심/수수료)
         if _cl:
             lines.append(f"  {_cl}")
@@ -1761,10 +1770,10 @@ def _build_complete_message(
         f":white_check_mark: *수금완료* — :id: *{project}*",
         _SEP,
         *_inflow_line(project),   # 유입 구분 — 공사 확정 카드처럼 구분선 바로 아래 첫 줄 (2026-11-03)
-        f"주소 : {address or '-'}",
+        f"주소 : {slack_esc(address) or '-'}",   # 시트 값 — mrkdwn 이스케이프 (2026-11-14 보안 점검)
     ]
     if construction:
-        lines.append(f"공사내용 : {construction}")
+        lines.append(f"공사내용 : {slack_esc(construction)}")
     lines.extend([
         '',
         '[입금 이력]',
@@ -1795,8 +1804,9 @@ def _build_complete_message(
         partner = p.get('partner', '-') or '-'
         is_card = _is_card_payment(invoice_value, partner)
         suffix = ' (카드)' if is_card else ''
+        # 부담자 구분·차수·은행 표기·입금자는 시트·메모 원문 — 표시할 때만 이스케이프
         lines.append(
-            f"{label}  {date_md}  {code_display}  {amount:,}원  {partner}{suffix}"
+            f"{slack_esc(label)}  {date_md}  {slack_esc(code_display)}  {amount:,}원  {slack_esc(partner)}{suffix}"
         )
         _cl = _collection_fee_line(partner, amount)   # 추심이면 (실추심/수수료)
         if _cl:
@@ -1861,7 +1871,8 @@ def _build_unified_stage_message(
     # 대표 파트너
     partners = sorted({(p.get('partner') or '').strip() for p in payments if p.get('partner')})
     if partners:
-        lines.append(f'입금자 : {", ".join(partners)}')
+        # 입금자·주소는 메모·시트 원문 — 표시할 때만 이스케이프 (2026-11-14 보안 점검)
+        lines.append(f'입금자 : {", ".join(slack_esc(x) for x in partners)}')
 
     # 입금 이력 (공통 payments)
     lines.extend(['', '[입금 이력]'])
@@ -1880,7 +1891,7 @@ def _build_unified_stage_message(
         amount = p.get('amount', 0)
         partner = p.get('partner', '-') or '-'
         lines.append(
-            f"{stg}  {date_md}  {code_display}  {amount:,}원  {partner}"
+            f"{stg}  {date_md}  {slack_esc(code_display)}  {amount:,}원  {slack_esc(partner)}"
         )
         _cl = _collection_fee_line(partner, amount)   # 추심이면 (실추심/수수료)
         if _cl:
@@ -1889,7 +1900,7 @@ def _build_unified_stage_message(
     # 개별 지점 (짧은 주소)
     lines.extend(['', '[개별 지점 배분]'])
     for pj in projects:
-        addr = (pj.get('address') or '-')[:50]
+        addr = slack_esc((pj.get('address') or '-')[:50])   # 자른 뒤 이스케이프
         sv = int(pj.get('sheet_val') or 0)
         lines.append(f"• `{pj['code']}`  {addr}  {sv:,}원")
 
@@ -2064,7 +2075,8 @@ def _append_special_notes(text: str, notes) -> str:
                     entries.append((_stage_name, _cleaned))
         if not entries:
             return text
-        block = ['', '[특이사항]'] + [f"{f'{s} ' if s else ''}{c}" for s, c in entries[:5]]
+        # 특이사항 줄은 메모 원문 — 카드(mrkdwn)에 넣기 전 이스케이프 (2026-11-14 보안 점검)
+        block = ['', '[특이사항]'] + [f"{f'{s} ' if s else ''}{slack_esc(c)}" for s, c in entries[:5]]
         special = '\n'.join(block)
         parts = text.rsplit(_SEP, 1)   # 마지막 구분선 위에 삽입
         if len(parts) == 2:
@@ -3600,7 +3612,7 @@ def build_overdue_message(days: int = 30, limit: int = 20) -> Optional[str]:
     ]
     for it in items[:limit]:
         lines.append(
-            f"`{it['project']}` {it['address'][:30]} : "
+            f"`{it['project']}` {slack_esc(it['address'][:30])} : "   # 주소는 시트 값 — 자른 뒤 이스케이프
             f"미수금 {it['unpaid']:,}원 (마지막 입금 {it['last_date']})"
         )
     if len(items) > limit:
@@ -3651,4 +3663,4 @@ def search_project(project_code: str) -> Optional[str]:
         if unpaid != 0:
             msg += f"\n_미수금 : {unpaid:,}원_"
         return msg
-    return f"`{code}` — 시트에 없음"
+    return f"`{slack_esc(code)}` — 시트에 없음"   # code 는 슬랙 명령 입력 그대로 — 이스케이프

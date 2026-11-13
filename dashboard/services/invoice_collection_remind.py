@@ -10,6 +10,7 @@ billStatus.js(computeBillStagesFromColumns/isFullyCollected) 규칙을 파이썬
 import os
 import re
 
+from dashboard.services.lead_helpers import slack_esc
 from dashboard.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -153,10 +154,11 @@ _DATE = re.compile(r'\d{2,4}[.\-/]\d{1,2}[.\-/]\d{1,2}')
 
 
 def _addr(row) -> str:
+    """표시용 현장 주소 — 시트(고객 입력) 값이라 슬랙 mrkdwn 이스케이프까지 (2026-11-14 보안 점검)."""
     a = str(row.get('현장 주소') or '').strip()
     a = a.split('최종수정')[0].strip()
     a = _DATE.sub('', a).strip(' \n·-')
-    return a or '-'
+    return slack_esc(a) or '-'
 
 
 def _won(n) -> str:
@@ -215,7 +217,8 @@ def _who(row) -> str:
     계산서 발행 전에 사업자 정보부터 받아야 함을 드러낸다(R4075-SD 계기)."""
     code = str(row.get('프로젝트 코드') or '').strip()
     b = str(row.get('사업자명') or '').strip()
-    return f'{code}  ·  {b if b and b != "-" else "사업자 정보 없음"}'
+    # 사업자명은 사업자등록증 OCR·고객 입력 값 — '<!channel>' 등이 그대로 슬랙 호출이 되지 않게 이스케이프
+    return f'{code}  ·  {slack_esc(b) if b and b != "-" else "사업자 정보 없음"}'
 
 
 def _collect_line(r) -> str:
@@ -247,8 +250,9 @@ def _unbilled(row) -> str:
                 continue
             p = st['payer']
             todo = max(0, int(p.get('received') or 0) - int(st.get('issued') or 0))
-            _parts.append(f"{p['role']} {p['name']} {_won(todo)}")
-        done = [f"{_ss[s]['payer']['role']} {_SETTLED_LABEL.get(bs[s], '')}".strip()
+            # 부담자 칸 이름·사람 이름은 시트 값 — 이스케이프
+            _parts.append(f"{slack_esc(p['role'])} {slack_esc(p['name'])} {_won(todo)}")
+        done = [f"{slack_esc(_ss[s]['payer']['role'])} {_SETTLED_LABEL.get(bs[s], '')}".strip()
                 for s in _ss if s not in un and bs[s] in _SETTLED_LABEL]
         return ' · '.join(_parts) + (f" ({', '.join(done)})" if done else ' (각자 계산서)')
     parts = [f'{s} {_won(_num(row.get(s)))}' if _num(row.get(s)) > 0 else f'{s} (입금 전)' for s in un]

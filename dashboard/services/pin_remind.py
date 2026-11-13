@@ -18,6 +18,8 @@ import os
 import re
 from typing import Dict, List, Optional
 
+from dashboard.services.lead_helpers import slack_esc
+
 logger = logging.getLogger(__name__)
 
 _SEP = '--------------------------------------------'
@@ -155,6 +157,17 @@ def _format_deposit_summary(text: str) -> str:
     partner_s = re.sub(r'\s+', ' ', p).strip(' -·,')[:30]
     parts = [x for x in [date_s, grn, (amount_s + '원' if amount_s else ''), partner_s] if x]
     return ' '.join(parts) or _summary_line(text)
+
+
+def _esc_from_slack(text) -> str:
+    """슬랙에서 읽어 온 글(핀 메시지 text) → 다시 mrkdwn 에 넣을 수 있게 이스케이프.
+
+    슬랙이 돌려주는 text 는 이미 &amp; &lt; &gt; 로 바뀌어 있어 그대로 slack_esc 하면 '&amp;' 가 두 번 바뀌어
+    보인다. 한 번 풀고 다시 바꿔 사람이 친 글자는 그대로 보이고, 원문에 든 '<!channel>'·'<https://…|…>' 는
+    리마인드에서 다시 전체 호출·위장 링크가 되지 않게 한다(2026-11-14 보안 점검)."""
+    t = str(text if text is not None else '')
+    t = t.replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&')
+    return slack_esc(t)
 
 
 def collect_pending_pins() -> Optional[dict]:
@@ -570,8 +583,9 @@ def build_pin_remind_text(data: dict) -> str:
     total = len(deposits) + len(invoices) + len(others) + len(intakes) + len(moves)
 
     def _line(e: dict) -> str:
+        # 핀 요약은 슬랙 메시지 원문(입금 문자·거래처 등 외부 글) — 풀고 다시 이스케이프
         link = f'  |  <{e["permalink"]}|바로가기>' if e.get('permalink') else ''
-        return f'• {e["summary"]}{link}'
+        return f'• {_esc_from_slack(e["summary"])}{link}'
 
     def _section(header: str, items: list) -> str:
         return '\n'.join([header] + [_line(e) for e in items])
@@ -583,9 +597,10 @@ def build_pin_remind_text(data: dict) -> str:
         state = e.get('state', '')
         hint = ''
         if state == '미지정':                    # 추정 프로젝트(확실할 때만), 못 잡으면 (추정 불가)
-            guess = e.get('guess', '')
+            guess = slack_esc(e.get('guess', ''))   # 나눠 내는 공사면 '코드 부담자이름' 이 섞여 옴
             hint = f' ({guess} 추정)' if guess else ' (추정 불가)'
-        return f'• {badge} {e["summary"]}  {state}{hint}{link}'
+        # 인입 요약은 문자 원문에서 뽑은 입금자명(=보낸 사람이 정하는 글) 포함 — 이스케이프
+        return f'• {badge} {slack_esc(e["summary"])}  {state}{hint}{link}'
 
     sections = []
     if intakes:
@@ -599,8 +614,9 @@ def build_pin_remind_text(data: dict) -> str:
 
         def _move_line(m: dict) -> str:
             when = f" · {m['date']} 입금" if m.get('date') else ''
-            return (f"• {m['code']} {m['stage']} {int(m['amount']):,}원 · {m.get('partner', '')} · "
-                    f"{m.get('bank', '')}({ENTITY.get(m['from'], m['from'])}) → "
+            # 거래처(입금자명)·은행은 시트 메모에서 읽은 문자 원문 — 이스케이프
+            return (f"• {m['code']} {m['stage']} {int(m['amount']):,}원 · {slack_esc(m.get('partner', ''))} · "
+                    f"{slack_esc(m.get('bank', ''))}({ENTITY.get(m['from'], m['from'])}) → "
                     f"{ENTITY.get(m['to'], m['to'])}{when}")
         sections.append('\n'.join(
             [f':arrows_counterclockwise: *자금 이동 대기 — 법인 간 이체 필요 ({len(moves)}건)*']

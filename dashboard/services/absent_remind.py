@@ -33,6 +33,8 @@ from collections import defaultdict
 from datetime import date, timedelta
 from typing import Dict, List, Optional, Tuple
 
+from dashboard.services.lead_helpers import slack_esc
+
 logger = logging.getLogger(__name__)
 
 _ONLINE_CHANNEL_DEFAULT = 'C0BB9SRMEA1'
@@ -368,8 +370,10 @@ def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
         lno = str(l.get('리드 No', '')).strip()
         pl = _find_card_permalink(client, channel, lno, history_cache) if client else ''
         link = f'  |  <{pl}|확인하기>' if pl else ''
-        name = str(l.get('고객명', ''))[:20]
-        plat = str(l.get('플랫폼', ''))
+        # 고객명·플랫폼·연락처는 시트(=고객 입력) 값 — 슬랙 mrkdwn 에 넣기 전 & < > 이스케이프
+        #   ('<!channel>' 이름이 채널 전체 호출로 바뀌던 틈, 2026-11-14 보안 점검). 자른 뒤 이스케이프.
+        name = slack_esc(str(l.get('고객명', ''))[:20])
+        plat = slack_esc(l.get('플랫폼', ''))
         _d = _lead_date(l)
         # 재알림 여부 — 1일차 알림에도 처리 안 돼 2영업일째 뜨는 건은 강조 (2026-09-09 사용자 요청).
         _realert = _d is not None and _reminder_ordinal(_d, date.today()) >= 2
@@ -394,7 +398,7 @@ def build_remind_text(unassigned: List[Dict], retry: Dict[str, List[Dict]],
             _esc = f' · :warning: *{_md_weekday(_d)} 부재중 접수 후 재시도 없음*'
         else:
             _esc = f' · {_md_weekday(_d)} 부재중 접수' if _d else ''
-        return f'• `{lno}` [{plat}] {name} · {l.get("고객 연락처", "")}{_esc}{link}'
+        return f'• `{lno}` [{plat}] {name} · {slack_esc(l.get("고객 연락처", ""))}{_esc}{link}'
 
     # 헤더 — 미완료·부재중이 최근 N영업일 창이라 '어제' 고정 대신 '최근' (각 라인에 접수일 표기).
     _hdr = f':bell: *최근 미처리 문의 ({total}건) — 오늘 다시 연락 부탁드립니다*'

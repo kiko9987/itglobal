@@ -4070,16 +4070,17 @@ def _register_project_handlers(app):
                 if saved:
                     lines.append(f":white_check_mark: 사업자등록증 저장 완료 — `{result['code']}`")
                     for fn in saved:
-                        lines.append(f"  • {fn}")
+                        lines.append(f"  • {_slack_esc_txt(fn)}")
                 # OCR 결과 (2026-07-13): 법인명·상호 자동 추출 + 사업자명 자동 반영.
                 #   saved      : 사업자명 비어있어서 자동 저장
                 #   match      : 기존값 == OCR (안내 생략)
                 #   mismatch   : 기존값 ≠ OCR (덮어쓰지 않음, 매니저 확인 유도)
                 #   error / '' : 실패 or OCR 매치 못함
-                _biz = (result.get('business_name') or '').strip()
+                # 표시용 — 등록증 OCR 상호는 고객이 낸 그림 글자라 슬랙 표기 이스케이프(11-14 보안 점검 3차)
+                _biz = _slack_esc_txt((result.get('business_name') or '').strip())
                 _biz_status = result.get('biz_update_status') or ''
-                _biz_existing = (result.get('biz_update_existing') or '').strip()
-                _payer_label = (result.get('payer_label') or '').strip()
+                _biz_existing = _slack_esc_txt((result.get('biz_update_existing') or '').strip())
+                _payer_label = _slack_esc_txt((result.get('payer_label') or '').strip())
                 if _biz and _biz_status == 'saved':
                     lines.append(
                         f":memo: OCR 자동 등록 — 사업자명: *{_biz}* (시트에 저장됨)"
@@ -4124,7 +4125,7 @@ def _register_project_handlers(app):
                 if skipped:
                     lines.append(":warning: 저장 안 됨:")
                     for s in skipped:
-                        lines.append(f"  • {s}")
+                        lines.append(f"  • {_slack_esc_txt(s)}")
                 if lines:
                     try:
                         client.chat_postMessage(
@@ -4972,6 +4973,12 @@ def _amount_request_applied(proj, before: dict, updates: dict):
     return False
 
 
+def _slack_esc_txt(v) -> str:
+    """슬랙 mrkdwn 에 넣을 시트·리드·OCR 값 — & < > 이스케이프(lead_helpers.slack_esc, 11-14 보안 점검 3차)."""
+    from dashboard.services.lead_helpers import slack_esc
+    return slack_esc(v)
+
+
 def _site_head_lines(project: dict) -> list:
     """#영업_관리 카드·경영지원 DM 머리 — 공사 확정 카드와 같게 거래처명(온라인·전화 같은 분류값이면 생략) +
     사업자명(나눠 내는 공사는 두 사람). 예전엔 사업자명만 있어 등록증 전 고객은 '사업자명 : -'로 현장을 못 찾았음
@@ -4981,7 +4988,8 @@ def _site_head_lines(project: dict) -> list:
     project = project or {}
     partner = card_partner(project.get('거래처명'))
     biz = (str(biz_display(project) or project.get('사업자명') or '-')).strip() or '-'
-    return ([f'🤝 거래처명 : {partner}'] if partner else []) + [f'🏢 사업자명 : {biz}']
+    return (([f'🤝 거래처명 : {_slack_esc_txt(partner)}'] if partner else [])
+            + [f'🏢 사업자명 : {_slack_esc_txt(biz)}'])
 
 
 def _site_head_text(project: dict) -> str:
@@ -5983,7 +5991,7 @@ def _build_as_card_text(data: dict, view_state: str = 'requested', proj: Optiona
             lines.append("📝 메모/이력 :")
             lines.append(_memo_log)
         lines.append("--------------------------------------------")
-        return "⠀\n" + "\n".join(lines)
+        return "⠀\n" + _slack_esc_txt("\n".join(lines))
 
     inflow = (proj or {}).get('inflow', '-') if proj else '-'
     biz = ((proj or {}).get('biz_display') or (proj or {}).get('biz', '-')) if proj else '-'   # 나눠 내는 공사=두 사람
@@ -6019,7 +6027,8 @@ def _build_as_card_text(data: dict, view_state: str = 'requested', proj: Optiona
         lines.append("📝 메모/이력 :")
         lines.append(_memo_log)
     lines.append("--------------------------------------------")
-    return "⠀\n" + "\n".join(lines)
+    # 본문엔 코드가 만든 링크·멘션이 없다 — 시트·리드 값(주소·요청 내용·메모)을 한 번에 이스케이프(11-14)
+    return "⠀\n" + _slack_esc_txt("\n".join(lines))
 
 
 def _build_as_blocks(data: dict, view_state: str = 'requested') -> list:
@@ -6460,11 +6469,12 @@ def _send_as_manager_dm(client, as_no: str, project_code: str, card_data: dict,
         except Exception as exc:
             logger.debug(f'[SLACK/AS] permalink 조회 실패 ({as_no}): {exc}')
 
-    biz = (proj or {}).get('biz_display') or (proj or {}).get('biz', '-') or '-'   # 나눠 내는 공사=두 사람
-    address = card_data.get('현장주소') or (proj or {}).get('address', '-') or '-'
-    work = card_data.get('공사내용') or (proj or {}).get('work_content', '-') or '-'
-    req_content = card_data.get('요청 내용', '-') or '-'
-    requester = card_data.get('요청자', '-') or '-'
+    # 표시용 — 시트·리드 값은 슬랙 표기 이스케이프(11-14 보안 점검 3차)
+    biz = _slack_esc_txt((proj or {}).get('biz_display') or (proj or {}).get('biz', '-') or '-')   # 나눠 내는 공사=두 사람
+    address = _slack_esc_txt(card_data.get('현장주소') or (proj or {}).get('address', '-') or '-')
+    work = _slack_esc_txt(card_data.get('공사내용') or (proj or {}).get('work_content', '-') or '-')
+    req_content = _slack_esc_txt(card_data.get('요청 내용', '-') or '-')
+    requester = _slack_esc_txt(card_data.get('요청자', '-') or '-')
 
     lines = [
         '⠀',
@@ -6478,7 +6488,7 @@ def _send_as_manager_dm(client, as_no: str, project_code: str, card_data: dict,
     from dashboard.services.partner_names import is_partner_name
     _partner = (proj or {}).get('partner', '-') or '-'
     if is_partner_name(_partner):          # 온라인·전화 등 분류값은 DM 에선 생략
-        lines.append(f'🤝 거래처명 : {_partner}')
+        lines.append(f'🤝 거래처명 : {_slack_esc_txt(_partner)}')
     if biz and biz != '-':
         lines.append(f'🏢 사업자명 : {biz}')
     lines.append(f'📍 현장 주소 : {address}')
@@ -8212,23 +8222,26 @@ def _open_inquiry_modal(client, body, action: str):
     # 모달 상단 정보 — 값 있는 필드만 표시 (당근 리드처럼 이메일·장소·기기 등이
     # 없는 케이스에서 '-' 로 노출되는 시각적 노이즈 제거, 2026-07-20).
     def _dash(v): return v if v and v != '-' else ''
-    _info_lines = [f"*접수번호:* `{lead_no}`", f"*문의시간 :* {consult_time}"]
-    if _dash(name):    _info_lines.append(f"*이름 / 상호 :* {name}")
-    if _dash(phone):   _info_lines.append(f"*연락처 :* {phone}")
-    if _dash(email):   _info_lines.append(f"*이메일 :* {email}")
-    if _dash(place):   _info_lines.append(f"*설치 희망 장소 :* {place}")
-    if _dash(device):  _info_lines.append(f"*설치 희망 기기 :* {device}")
+    # 위쪽 안내 칸은 mrkdwn — 고객이 쓴 이름·문의는 슬랙 표기 이스케이프(11-14 보안 점검 3차).
+    #   아래 입력 칸 미리 채우기는 원래 값 그대로.
+    _e = _slack_esc_txt
+    _info_lines = [f"*접수번호:* `{_e(lead_no)}`", f"*문의시간 :* {_e(consult_time)}"]
+    if _dash(name):    _info_lines.append(f"*이름 / 상호 :* {_e(name)}")
+    if _dash(phone):   _info_lines.append(f"*연락처 :* {_e(phone)}")
+    if _dash(email):   _info_lines.append(f"*이메일 :* {_e(email)}")
+    if _dash(place):   _info_lines.append(f"*설치 희망 장소 :* {_e(place)}")
+    if _dash(device):  _info_lines.append(f"*설치 희망 기기 :* {_e(device)}")
     info_blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(_info_lines)}},
         # 문의 내용은 3000자 제한 대응 — 넘치면 자동 truncate + 안내
         {"type": "section", "text": {"type": "mrkdwn",
-                                      "text": slack_truncate(f"*문의 내용 :*\n{inquiry}")}},
+                                      "text": slack_truncate(f"*문의 내용 :*\n{_e(inquiry)}")}},
     ]
     # 이전 상담 내용 (재상담 시 참고) — 값 있을 때만 별도 섹션
     if prev_consultation and prev_consultation != '-':
         info_blocks.append({
             "type": "section", "text": {"type": "mrkdwn",
-                "text": slack_truncate(f"*상담 내용 :*\n{prev_consultation}")},
+                "text": slack_truncate(f"*상담 내용 :*\n{_e(prev_consultation)}")},
         })
     info_blocks.append({"type": "divider"})
 
@@ -9184,12 +9197,13 @@ def _build_consult_info_blocks(lead: dict | None, lead_no: str) -> list:
         device = str(lead.get('키워드') or '').strip() or parts.get('device', '').strip()
 
         def _dash(v): return v if v and v != '-' else ''
-        info_lines = [f"*접수번호:* `{lead_no}`", f"*문의시간:* {consult_time}"]
-        if _dash(name):   info_lines.append(f"*이름 / 상호:* {name}")
-        if _dash(phone):  info_lines.append(f"*연락처:* {phone}")
-        if _dash(email):  info_lines.append(f"*이메일:* {email}")
-        if _dash(device): info_lines.append(f"*설치 희망 기기:* {device}")
-        info_lines.append(f"*문의 내용:* {inquiry[:300]}")
+        _e = _slack_esc_txt   # 안내 칸은 mrkdwn — 고객 글 이스케이프(11-14 보안 점검 3차)
+        info_lines = [f"*접수번호:* `{_e(lead_no)}`", f"*문의시간:* {_e(consult_time)}"]
+        if _dash(name):   info_lines.append(f"*이름 / 상호:* {_e(name)}")
+        if _dash(phone):  info_lines.append(f"*연락처:* {_e(phone)}")
+        if _dash(email):  info_lines.append(f"*이메일:* {_e(email)}")
+        if _dash(device): info_lines.append(f"*설치 희망 기기:* {_e(device)}")
+        info_lines.append(f"*문의 내용:* {_e(inquiry[:300])}")
 
         blocks = [
             {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(info_lines)}},
@@ -9198,14 +9212,14 @@ def _build_consult_info_blocks(lead: dict | None, lead_no: str) -> list:
         if _dash(prev_consultation) and prev_consultation != inquiry:
             blocks.append({
                 "type": "section", "text": {"type": "mrkdwn",
-                    "text": slack_truncate(f"*상담 내용:*\n{prev_consultation}")},
+                    "text": slack_truncate(f"*상담 내용:*\n{_e(prev_consultation)}")},
             })
         blocks.append({"type": "divider"})
         return blocks
     if lead_no:
         return [
             {"type": "section", "text": {"type": "mrkdwn",
-                                          "text": f":warning: `{lead_no}` 리드를 시트에서 찾지 못했습니다."}},
+                                          "text": f":warning: `{_slack_esc_txt(lead_no)}` 리드를 시트에서 찾지 못했습니다."}},
             {"type": "divider"},
         ]
     return []
@@ -17046,6 +17060,9 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
 
     now_str = datetime.now().strftime('%m.%d %H:%M')
     initial = requester_initial or '-'
+    # 표시용 — 사업자명·주소·이메일·요청사항은 리드·OCR·PM 입력에서 온다. 슬랙 표기 이스케이프(11-14 보안 점검 3차)
+    _e = _slack_esc_txt
+    biz_d, addr_d, email_d, memo_d = _e(biz), _e(addr), _e(email), _e(memo)
 
     # 카드 본문
     doc_name = '현금영수증' if cash else '세금계산서'
@@ -17058,27 +17075,27 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
         _kind = _cash_receipt_kind(crno)
         lines += [
             "--------------------------------------------",
-            f"🧾 이름·상호 : {biz}",
-            f"📍 현장 주소 : {addr}",
+            f"🧾 이름·상호 : {biz_d}",
+            f"📍 현장 주소 : {addr_d}",
             f"💲 금액 : {amt_display}",
-            f"🔢 발급 번호 : {crno or '-'}" + (f" ({_kind})" if _kind else ''),
+            f"🔢 발급 번호 : {_e(crno or '-')}" + (f" ({_kind})" if _kind else ''),
         ]
     else:
         lines += [
             "--------------------------------------------",
-            f"🏢 사업자명 : {biz}",
-            f"📍 현장 주소 : {addr}",
+            f"🏢 사업자명 : {biz_d}",
+            f"📍 현장 주소 : {addr_d}",
             f"💲 금액 : {amt_display}",
             *([f"      ↳ 원 요청 금액: {vat_converted[0]:,}원(VAT 포함) → VAT 별도로 전환"]
               if vat_converted else []),
-            f"✉️ 이메일 : {email}",
+            f"✉️ 이메일 : {email_d}",
         ]
     if stages_csv:
         lines.append(f"📑 발행 단계 : {stages_list[-1]}")
     for _r in replace:
-        lines.append(f"🔁 수정발행 : 기존 계산서 대체 — {_invoice_active_option_text(_r)}")
+        lines.append(f"🔁 수정발행 : 기존 계산서 대체 — {_e(_invoice_active_option_text(_r))}")
     if memo:
-        lines.append(f"📝 요청사항 : {memo}")
+        lines.append(f"📝 요청사항 : {memo_d}")
     lines.append(f"👤 요청자 : {initial}  {now_str}")
     lines.append("--------------------------------------------")
     text = '⠀\n' + '\n'.join(lines)
@@ -17776,7 +17793,7 @@ def _process_invoice_complete(client, body) -> None:
         return
 
     amt_display = _money_kr(amt_digits)
-    biz_display = biz if biz and biz != '-' else '(사업자명 미기재)'
+    biz_display = _slack_esc_txt(biz) if biz and biz != '-' else '(사업자명 미기재)'   # 표시용(11-14)
     initial_for_msg = _slack_user_to_initial(client, user_id) or '-'
 
     # 원본 요청 카드 텍스트 → context block 으로 감싸 회색 톤 + 폰트 축소.

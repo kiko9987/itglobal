@@ -12,6 +12,7 @@ import re
 import urllib.request
 from typing import Optional
 
+from dashboard.services.lead_helpers import slack_esc
 from dashboard.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -121,8 +122,8 @@ def _build_message(
         if _re.match(r'^[a-zA-Z0-9_-]{20,}$', folder_raw):
             folder_display = f'<itgfolder://{folder_raw}|탐색기에서 열기>'
         else:
-            # 로컬 경로 등은 raw text (매니저가 복사해서 붙여넣기)
-            folder_display = folder_raw
+            # 로컬 경로 등은 raw text (매니저가 복사해서 붙여넣기) — 표기만 이스케이프
+            folder_display = slack_esc(folder_raw)
         folder_line = f"📁 폴더 경로 : {folder_display}"
     else:
         folder_line = None
@@ -137,22 +138,26 @@ def _build_message(
 
     # 이모지는 raw Unicode 사용 — 취소 시 카드가 ``` 코드블록으로 감싸져도 정상 렌더됨
     # (:bell: 같은 shortcode는 코드블록 안에서 텍스트로 남음).
+    # 시트 값은 고객 글(홈페이지·채널톡 이름·주소)이나 등록증 OCR 상호에서 올 수 있다 — 슬랙 표기(& < >)는
+    #   모두 이스케이프해 '<!channel>'·위장 링크가 카드에서 동작하지 않게(2026-11-14 보안 점검 3차)
+    def _sv(key):
+        return slack_esc(_val(data, key))
     lines = [
-        f"🔔 *[공사 확정 알림]*  `{code_safe}`",
+        f"🔔 *[공사 확정 알림]*  `{slack_esc(code_safe)}`",
         "--------------------------------------------",
-        f"📥 유입 구분 : {_format_inflow(_val(data, '유입 구분'))}",
-        *([f"🤝 거래처명 : {_partner}"] if _partner else []),
-        f"🏢 사업자명 : {_biz}",
-        f"📍 현장 주소 : {_val(data, '현장 주소')}",
-        f"👤 발주처 담당자 : {_val(data, '발주처 담당자')}",
-        f"📞 발주처 연락처 : {_val(data, '발주처 연락처')}",
-        f"✉️ 발주처 이메일 : {_val(data, '발주처 이메일')}",
-        f"📋 공사 내용 : {_val(data, '공사 내용')}",
-        f"🛠️ 도급 구분 : {_val(data, '도급 구분')}",
-        f"👷 시공자 : {_val(data, '시공자')}",
-        f"💲 공사 금액 : {amount_line}",
-        f"📅 공사 시작 : {_date_val(data, '공사 시작')}",
-        f"📅 공사 종료 : {_date_val(data, '공사 종료')}",
+        f"📥 유입 구분 : {slack_esc(_format_inflow(_val(data, '유입 구분')))}",
+        *([f"🤝 거래처명 : {slack_esc(_partner)}"] if _partner else []),
+        f"🏢 사업자명 : {slack_esc(_biz)}",
+        f"📍 현장 주소 : {_sv('현장 주소')}",
+        f"👤 발주처 담당자 : {_sv('발주처 담당자')}",
+        f"📞 발주처 연락처 : {_sv('발주처 연락처')}",
+        f"✉️ 발주처 이메일 : {_sv('발주처 이메일')}",
+        f"📋 공사 내용 : {_sv('공사 내용')}",
+        f"🛠️ 도급 구분 : {_sv('도급 구분')}",
+        f"👷 시공자 : {_sv('시공자')}",
+        f"💲 공사 금액 : {slack_esc(amount_line)}",
+        f"📅 공사 시작 : {slack_esc(_date_val(data, '공사 시작'))}",
+        f"📅 공사 종료 : {slack_esc(_date_val(data, '공사 종료'))}",
     ]
     if folder_line:
         lines.append(folder_line)
@@ -310,7 +315,7 @@ def send_project_created_notification(data: dict, code: str) -> bool:
         return False
 
     # fallback text (알림 미리보기용) — 리드 방식으로 짧은 요약만. blocks 안 텍스트는 별도.
-    biz = _val(data, '사업자명')
+    biz = slack_esc(_val(data, '사업자명'))
     text = f"[공사 확정] {code} {biz}".strip()
     blocks = _build_blocks(data, code)
     payload = {
@@ -513,7 +518,7 @@ def notify_invoice_card_amount_change(code: str, field_changes: list) -> bool:
         new = _fmt(label, c.get('new_value'))
         if old == new:
             continue
-        lines.append(f'• {label} : `{old}` → *`{new}`*')
+        lines.append(f'• {label} : `{slack_esc(old)}` → *`{slack_esc(new)}`*')
     if len(lines) == 1:
         return False  # 실제 변경 없음
     lines.append('')
@@ -560,7 +565,8 @@ def _dm_site_lines(data) -> list:
     from dashboard.services.payer_split import biz_display
     partner = card_partner(_val(data, '거래처명'))
     biz = (str(biz_display(data) or _val(data, '사업자명') or '')).strip()
-    return ([f'거래처명 : {partner}'] if partner else []) + ([f'사업자명 : {biz}'] if biz and biz != '-' else [])
+    return (([f'거래처명 : {slack_esc(partner)}'] if partner else [])
+            + ([f'사업자명 : {slack_esc(biz)}'] if biz and biz != '-' else []))
 
 
 def _project_card_permalink(code: str) -> str:
@@ -617,12 +623,12 @@ def notify_info_edit_to_settlement(code: str, field_changes: list,
     lines = [f':information_source: *[공사 정보 변경 알림]*  `{code}`']
     lines.extend(_dm_site_lines(latest_data))
     if editor_label:
-        lines.append(f'변경 경로 : {editor_label}')
+        lines.append(f'변경 경로 : {slack_esc(editor_label)}')
     elif editor_email:
         lines.append(f'변경자 : {editor_email.split("@")[0].upper()} (PM 직접 편집)')
     for c in changes:
         f = c['field_name']
-        lines.append(f'- {f}: {_info_val(c.get("old_value"))} → {_info_val(c.get("new_value"))}')
+        lines.append(f'- {f}: {slack_esc(_info_val(c.get("old_value")))} → {slack_esc(_info_val(c.get("new_value")))}')
     lines.append('')
     lines.append('_이미 반영된 변경입니다(승인 필요 없음). 이카운트에도 반영해주세요._')
     permalink = _project_card_permalink(code)
@@ -697,14 +703,14 @@ def notify_amount_edit_to_settlement(code: str, field_changes: list,
     lines = [f':rotating_light: *[공사 금액 변경 알림]*  `{code}`']
     lines.extend(_dm_site_lines(latest_data))   # 거래처명 + 사업자명 (공사 카드와 같게, 2026-10-28)
     if editor_label:
-        lines.append(f'변경 경로 : {editor_label}')
+        lines.append(f'변경 경로 : {slack_esc(editor_label)}')
     elif editor_email:
         lines.append(f'변경자 : {editor_email.split("@")[0].upper()} (PM 직접 편집)')
     for c in changes:
         f = c['field_name']
         lines.append(
-            f'- {f}: {_fmt_field(f, c.get("old_value"))} '
-            f'→ {_fmt_field(f, c.get("new_value"))}'
+            f'- {f}: {slack_esc(_fmt_field(f, c.get("old_value")))} '
+            f'→ {slack_esc(_fmt_field(f, c.get("new_value")))}'
         )
     lines.append('')
     lines.append('_경영지원을 거치지 않은 공사 금액 변경입니다. 회계·수금 반영을 확인해 주세요._')
@@ -758,13 +764,13 @@ def notify_total2_payer_change(code: str, old_total2: int, new_total2: int, plan
     addr = _val(latest_data, '현장 주소') if latest_data else ''
     lines.extend(_dm_site_lines(latest_data))   # 거래처명 + 사업자명 (공사 카드와 같게, 2026-10-28)
     if addr:
-        lines.append(f'현장 주소 : {addr}')
+        lines.append(f'현장 주소 : {slack_esc(addr)}')
     who = editor_email.split('@')[0].upper() if editor_email else '-'
     lines.append(f'변경 경로 : PM 부담자 설정 ({who})')
     lines.append(f'- 총액2: {int(old_total2):,}원 → {int(new_total2):,}원')   # PM 화면 표기와 같게 붙여 씀
     if free:
         for p in free:
-            lines.append(f"- 사유: {p.get('role', '')} {p.get('name', '')} {int(p.get('amount') or 0):,}원을 "
+            lines.append(f"- 사유: {slack_esc(p.get('role', ''))} {slack_esc(p.get('name', ''))} {int(p.get('amount') or 0):,}원을 "
                          "'현금 · 부가세 없음'으로 설정해 그 몫엔 부가세를 붙이지 않음")
     else:
         lines.append("- 사유: '현금 · 부가세 없음' 부담자를 빼서 총액2를 원래 계산으로 되돌림")
@@ -904,12 +910,12 @@ def notify_project_field_changes(code: str, field_changes: list, latest_data: di
         return False
 
     # 본문 조립
-    _who = f'  ({str(editor).strip()})' if str(editor or '').strip() else ''
+    _who = f'  ({slack_esc(str(editor).strip())})' if str(editor or '').strip() else ''
     lines = [f'[{code} 데이터 수정 알림]{_who}']
     for c in relevant:
         f = c['field_name']
-        old_disp = _fmt_field(f, c.get('old_value'))
-        new_disp = _fmt_field(f, c.get('new_value'))
+        old_disp = slack_esc(_fmt_field(f, c.get('old_value')))
+        new_disp = slack_esc(_fmt_field(f, c.get('new_value')))
         lines.append(f'- {f}: {old_disp} → {new_disp}')
     text = '\n'.join(lines)
 
@@ -986,7 +992,7 @@ def notify_project_field_changes(code: str, field_changes: list, latest_data: di
                 license_attached=license_attached,
                 thread_permalink=permalink,
             )
-            biz = _val(latest_data, '사업자명')
+            biz = slack_esc(_val(latest_data, '사업자명'))
             new_text = f"[공사 확정] {code} {biz}".strip()
             payload = {
                 'channel': channel,
@@ -1096,7 +1102,7 @@ def refresh_project_card_license(
             license_attached=license_attached,
             thread_permalink=permalink,
         )
-        biz = _val(latest_data, '사업자명')
+        biz = slack_esc(_val(latest_data, '사업자명'))
         new_text = f"[공사 확정] {code} {biz}".strip()
         payload = {
             'channel': channel,

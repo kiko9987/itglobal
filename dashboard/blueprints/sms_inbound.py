@@ -485,8 +485,10 @@ def _build_intake_blocks(intake_id: str, clean_text: str, preview: dict,
         from dashboard.services.fund_transfer import ENTITY
         cands = (transfer.get('cands') or [])[:3]
         if cands:
-            descs = [f"`{c['code']}` {c['stage']} ({c.get('bank', '')} → {ENTITY.get(c['to'], c['to'])} · "
-                     f"{int(c['amount']):,}원 · {c.get('partner', '')})" for c in cands]
+            from dashboard.services.lead_helpers import slack_esc   # 입금자 이름은 문자 원문(11-14 보안 점검 3차)
+            descs = [f"`{slack_esc(c['code'])}` {slack_esc(c['stage'])} ({slack_esc(c.get('bank', ''))} → "
+                     f"{ENTITY.get(c['to'], c['to'])} · {int(c['amount']):,}원 · {slack_esc(c.get('partner', ''))})"
+                     for c in cands]
             ev = ' · 출발 계좌 출금 문자 확인됨' if transfer.get('evidence') else ''
             blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": (
                 f"🔁 *법인 간 이체로 보입니다* — 자금 이동 요청 {' / '.join(descs)}와 일치{ev}\n"
