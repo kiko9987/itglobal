@@ -16,6 +16,7 @@
 
 import json
 import os
+import re
 import time
 
 from flask import Blueprint, jsonify, request
@@ -57,10 +58,36 @@ def _load_device_tokens() -> dict:
     return tokens
 
 
+def _normalize_sender(raw) -> str:
+    """발신번호 → 숫자만 ('1566-2566' → '15662566', '+82 10-…' → '010…'). 숫자가 없으면 ''."""
+    d = re.sub(r'\D', '', str(raw or ''))
+    if d.startswith('82') and len(d) >= 11:
+        d = '0' + d[2:]
+    return d
+
+
 def _bank_senders() -> list:
-    """SMS_BANK_SENDERS='1544xxxx,15881111' → 허용 발신번호 substring 목록 (선택)."""
+    """SMS_BANK_SENDERS='15662566,15991111' → 허용 발신번호(숫자만) 목록.
+
+    설정돼 있으면 **정확히 같은 번호**만 받는다 (2026-11-13 보안 점검 — 예전엔 '포함' 비교라
+    '0101566256699' 같은 번호도 통과). 비어 있으면 받되, 카드에 발신번호와 경고를 보여 준다."""
     raw = os.getenv('SMS_BANK_SENDERS', '').strip()
-    return [s.strip() for s in raw.split(',') if s.strip()]
+    return [n for n in (_normalize_sender(s) for s in raw.split(',')) if n]
+
+
+_BANK_REP_RE = re.compile(r'^1[5-9]\d{6}$')   # 15xx·16xx·18xx 등 8자리 대표번호
+
+
+def looks_like_bank_rep(sender_digits: str) -> bool:
+    """은행 대표번호 모양(1566-2566 같은 8자리)인지. 휴대폰·일반 전화면 False."""
+    return bool(_BANK_REP_RE.match(sender_digits or ''))
+
+
+def _mask_sender(d: str) -> str:
+    """로그용 — 대표번호는 그대로, 그 밖의 번호는 가운데를 가림."""
+    if not d or looks_like_bank_rep(d) or len(d) < 7:
+        return d
+    return d[:3] + '*' * (len(d) - 7) + d[-4:]
 
 
 @sms_bp.route('/inbound', methods=['POST'])
@@ -95,10 +122,12 @@ def sms_inbound():
                        f'content_type={request.content_type!r}) — 폰 웹훅 템플릿 확인 필요')
         return jsonify({'status': 'empty'}), 200
 
-    # 발신번호 allowlist (설정된 경우에만 적용)
+    # 발신번호 — 은행이 보낸 문자인지는 이것뿐 (기기 토큰은 '어느 폰이 넘겼나'만 증명).
+    #   허용 목록이 있으면 정확히 같은 번호만 받는다 (2026-11-13 보안 점검).
+    sender_digits = _normalize_sender(sender)
     senders = _bank_senders()
-    if senders and not any(s in sender for s in senders):
-        logger.info(f'[SMS_INBOUND] 발신번호 미허용 skip: {sender!r} (device={device})')
+    if senders and sender_digits not in senders:
+        logger.info(f'[SMS_INBOUND] 발신번호 미허용 skip: {_mask_sender(sender_digits)!r} (device={device})')
         return jsonify({'status': 'ignored', 'reason': 'sender'}), 200
 
     # 농협(N통장) 입금은 폰으로 받으면 서버에만 보관하고 슬랙 카드는 안 띄움 — 카드는 사람이
@@ -115,9 +144,13 @@ def sms_inbound():
         return jsonify({'status': res.get('status'), 'reason': res.get('reason', '')}), 200
 
     # 입금 문자 판별 → 사업자통장 → dedup → 잔액제거 → Redis → 🔗카드 (공통 파이프라인)
-    result = ingest_deposit(text, source=f'sms:{device}')
+    # 폰 문자에는 '현금' 자유문장 경로를 열지 않는다 — 현금은 직원이 #입금_관리 에 붙여넣는 경로 전용.
+    #   폰으로 아무나 '현금 100만원' 문자를 보내 입금 카드를 만들 수 있었음 (2026-11-13 보안 점검).
+    result = ingest_deposit(text, source=f'sms:{device}', allow_cash=False,
+                            origin=sender_digits or '-', origin_checked=bool(senders))
     if result.get('status') == 'ok':
         logger.info(f"[SMS_INBOUND] 인입 카드 게시: id={result.get('id')} device={device} "
+                    f"sender={_mask_sender(sender_digits)!r} "
                     f"partner={(result.get('preview') or {}).get('partner')!r}")
     else:
         logger.info(f"[SMS_INBOUND] skip: {result.get('status')}/{result.get('reason','')} (device={device})")
@@ -125,13 +158,17 @@ def sms_inbound():
     return jsonify(result), 200
 
 
-def ingest_deposit(text: str, source: str = 'sms', cash_receiver: str = '') -> dict:
+def ingest_deposit(text: str, source: str = 'sms', cash_receiver: str = '',
+                   allow_cash: bool = True, origin: str = '', origin_checked: bool = False) -> dict:
     """은행 입금 문자 1건 처리 — 폰 포워딩과 채널 붙여넣기 공통 코어.
 
     판별(looks_like_payment) → 사업자통장(has_business_account) → Redis dedup →
     잔액 제거 → 미리보기 파싱 → Redis 보관 → #수금_입력 🔗 인입 카드 게시.
     source: 추적용 라벨('sms:{device}' 또는 'channel:{user_id}'). dedup 키엔 미반영
     (같은 입금이 폰·수동 양쪽으로 와도 본문 동일 → 첫 1건만 카드).
+    allow_cash: '현금' 자유문장 인식 여부 — 폰 문자 경로는 False (2026-11-13).
+    origin: 문자 발신번호(숫자만, 폰 경로만). 카드에 표시·원문 기록에 보관.
+    origin_checked: 발신번호가 허용 목록으로 이미 확인됐는지 (확인 안 됐으면 카드에 경고 가능).
     Returns: {'status': 'ok'|'ignored'|'duplicate'|'card_failed', 'id'?, 'reason'?, 'preview'?}
     """
     # 렌더된 슬랙 메시지 복사·붙여넣기로 각 줄이 '*줄*' 볼드 마크다운으로 딸려온 경우 제거
@@ -140,7 +177,7 @@ def ingest_deposit(text: str, source: str = 'sms', cash_receiver: str = '') -> d
     text = strip_bold_markers(text)
     # 현금 수령 판별 — '현금' + 금액, 사업자계좌 없음 (은행 SMS 아닌 매니저 자유문장).
     # 계좌 있으면 은행 입금이므로 현금으로 오인 안 함. (2026-08 현금 인입 도입)
-    is_cash = looks_like_cash(text) and not has_business_account(text)
+    is_cash = allow_cash and looks_like_cash(text) and not has_business_account(text)
     if not is_cash:
         if not looks_like_payment(text):
             # 회사 계좌 출금 문자 — 슬랙 카드 없이 서버에만 보관 (법인 간 이체 짝짓기·진단용)
@@ -185,12 +222,15 @@ def ingest_deposit(text: str, source: str = 'sms', cash_receiver: str = '') -> d
         preview['converted'] = True   # 카드에 '농협 자동 변환' 배지 표시용
     if is_cash:
         preview['cash'] = True         # 카드에 '현금 수령 변환' 배지 표시용
+    if origin:
+        preview['origin'] = origin                 # 카드에 발신번호 표시 (2026-11-13)
+        preview['origin_checked'] = bool(origin_checked)
 
     # 원문(잔액 제거본) 보관 — 모달 제출 시 시트에 기록할 내용
     if rc is not None:
         try:
             rc.set(f'sms_intake:{intake_id}', json.dumps({
-                'text': clean, 'sender': source, 'device': source,
+                'text': clean, 'sender': source, 'device': source, 'origin': origin,
                 'preview': preview, 'ts': int(time.time()),
             }), ex=_INTAKE_TTL)
         except Exception as exc:
@@ -405,6 +445,24 @@ def _suggest_transfer_async(slack, channel: str, ts: str, intake_id: str,
     threading.Thread(target=_bg, daemon=True).start()
 
 
+def _origin_line(preview: dict) -> str:
+    """폰 문자 카드의 발신번호 줄 (2026-11-13 보안 점검).
+
+    예전엔 진짜 발신번호가 어디에도 안 남아, 경영지원이 은행이 보낸 문자인지 알 수 없었다.
+    허용 목록으로 확인되지 않았고 은행 대표번호 모양도 아니면 경고를 붙인다."""
+    p = preview or {}
+    origin = str(p.get('origin') or '')
+    if not origin:
+        return ''
+    shown = origin if origin != '-' else '알 수 없음'
+    if len(origin) == 8 and origin.isdigit():
+        shown = f'{origin[:4]}-{origin[4:]}'
+    line = f'>📱 발신번호: {shown}'
+    if not p.get('origin_checked') and not looks_like_bank_rep(origin):
+        line += '  ⚠️ *은행 대표번호가 아닙니다. 통장에서 입금을 확인한 뒤 기록하세요.*'
+    return line
+
+
 def _build_intake_blocks(intake_id: str, clean_text: str, preview: dict,
                          transfer: dict = None) -> list:
     """transfer: {'cands': [대기 요청…], 'evidence': bool} — 법인 간 이체 안내·버튼 (2026-10-04)."""
@@ -427,6 +485,9 @@ def _build_intake_blocks(intake_id: str, clean_text: str, preview: dict,
     header = '새 입금 내역 알림' + (f' - {bank_label}' if bank_label else '')
     lines = ["⠀", f">🔔 *{header}*", f">{INTAKE_SEP}",
              *quoted_body(clean_text), f">{INTAKE_SEP}"]
+    origin_line = _origin_line(preview)
+    if origin_line:
+        lines.append(origin_line)
     elements = [
         {
             "type": "button",

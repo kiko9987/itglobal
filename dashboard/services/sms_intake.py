@@ -358,8 +358,11 @@ def _normalize_sms_display(text: str) -> str:
 
     - '입금5,000원' → '입금 5,000원' (하나 무공백 양식 가독성)
     - 마스킹 별표(*) → ∗ (slack 마크다운 오해석 방지)
+    - & < > 이스케이프 — 문자에 '<!channel>'·'<위장 링크|글자>' 가 있어도 그대로 글자로 (2026-11-13
+      보안 점검). intake_text_from_card 가 html.unescape 로 되돌리므로 원문 복원은 그대로.
     """
     s = re.sub(r'(입금)\s*([\d,])', r'\1 \2', (text or '').strip())
+    s = s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
     return s.replace('*', '∗')
 
 

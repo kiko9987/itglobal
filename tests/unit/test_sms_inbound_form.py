@@ -25,7 +25,7 @@ def client(monkeypatch):
     monkeypatch.delenv('SMS_BANK_SENDERS', raising=False)
     calls = []
 
-    def fake_ingest(text, source='sms', cash_receiver=''):
+    def fake_ingest(text, source='sms', cash_receiver='', **kw):
         calls.append((text, source))
         return {'status': 'ignored', 'reason': 'test'}
 
