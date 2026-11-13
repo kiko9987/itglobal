@@ -3,6 +3,7 @@
  * 담당자 뱃지 (CSS 토큰 기반 + 해시 기반 색상)
  */
 import BaseBadge from './BaseBadge.js';
+import { escHtml } from '../../utils/escapeHtml.js';
 
 import logger from '../../utils/logger.js';
 export default class ManagerBadge extends BaseBadge {
@@ -79,7 +80,7 @@ export default class ManagerBadge extends BaseBadge {
     const isResigned = this.resignedTeam.some(user => user.name === name);
 
     if (isResigned) {
-      return this.createBadgeHtml(`${name} (퇴사)`, 'badge manager-badge resigned', {
+      return this.createBadgeHtml(`${escHtml(name)} (퇴사)`, 'badge manager-badge resigned', {
         dataAttributes: {
           'badge-type': 'manager'
         }
@@ -90,7 +91,7 @@ export default class ManagerBadge extends BaseBadge {
     if (this.knownManagers.includes(name)) {
       const safeManagerName = this.sanitizeClassName(name);
       const managerClass = `manager-${safeManagerName}`;
-      return this.createBadgeHtml(name, `badge manager-badge ${managerClass}`, {
+      return this.createBadgeHtml(escHtml(name), `badge manager-badge ${managerClass}`, {
         dataAttributes: {
           'badge-type': 'manager'
         }
@@ -101,7 +102,7 @@ export default class ManagerBadge extends BaseBadge {
     const hashIndex = this.getManagerHash(name);
     const backgroundColor = this.fallbackManagerColors[hashIndex];
 
-    return this.createBadgeHtml(name, 'badge manager-badge', {
+    return this.createBadgeHtml(escHtml(name), 'badge manager-badge', {   // 이스케이프 (2026-11-13)
       style: `background-color: ${backgroundColor};`,
       title: '신규 담당자',
       dataAttributes: {

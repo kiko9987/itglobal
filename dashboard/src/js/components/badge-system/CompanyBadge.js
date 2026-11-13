@@ -3,6 +3,7 @@
  * 유입 구분 뱃지 — 알려진 값은 지정 색상, 나머지는 해시 기반 색상
  */
 import BaseBadge from './BaseBadge.js';
+import { escHtml } from '../../utils/escapeHtml.js';
 
 // 유입 구분 값별 고정 색상 매핑 (플랫폼 정체성 반영)
 const INFLOW_COLORS = {
@@ -60,7 +61,7 @@ export default class CompanyBadge extends BaseBadge {
       style = `background-color: ${this.companyColors[hashIndex]};`;
     }
 
-    return this.createBadgeHtml(name, 'badge company-badge', {
+    return this.createBadgeHtml(escHtml(name), 'badge company-badge', {   // 이스케이프 (2026-11-13)
       style,
       dataAttributes: {
         'badge-type': 'company'

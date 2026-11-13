@@ -1,4 +1,5 @@
 import logger from '../utils/logger.js';
+import { escHtml } from '../utils/escapeHtml.js';
 
 /**
  * Audit Log Modal 컴포넌트 (완전한 레거시 포팅)
@@ -201,13 +202,8 @@ export default class AuditLogModal {
       const oldValueFormatted = this.formatLogValue(log.old_value, log.field_name);
       const newValueFormatted = this.formatLogValue(log.new_value, log.field_name);
 
-      // HTML 이스케이프 함수
-      const escapeHtml = (text) => {
-        if (!text) return '';
-        const div = document.createElement('div');
-        div.textContent = String(text);
-        return div.innerHTML;
-      };
+      // HTML 이스케이프 — 따옴표까지 (값·이름이 그대로 화면 HTML 로 들어가던 문제, 2026-11-13 보안 점검)
+      const escapeHtml = (text) => (text ? escHtml(text) : '');
 
       // 안전하게 속성 추출 (객체가 아닌 경우 대비)
       const oldDisplay = oldValueFormatted?.display || String(oldValueFormatted || '-');
@@ -234,13 +230,13 @@ export default class AuditLogModal {
       return `
         <tr data-row-bg="${rowBgColor}" data-row-hover="${rowHoverColor}">
           <td class="text-center" style="${tdBgStyle}">${formattedTime}</td>
-          <td class="text-center" style="${tdBgStyle}" title="${log.user_email}">${log.user_name}</td>
+          <td class="text-center" style="${tdBgStyle}" title="${escapeHtml(log.user_email)}">${escapeHtml(log.user_name)}</td>
           <td class="text-center" style="${tdBgStyle}">${roleBadge}</td>
           <td class="text-center" style="${tdBgStyle}">${actionBadge}</td>
-          <td class="text-center" style="${tdBgStyle}">${log.project_code || '-'}</td>
-          <td class="text-center" style="${tdBgStyle}">${this.getDisplayFieldName(log.field_name) || '-'}</td>
-          <td class="text-center" style="${tdBgStyle} ${oldValueStyle}" ${oldTruncated ? `title="${escapeHtml(oldOriginal)}"` : ''}>${oldDisplay}</td>
-          <td class="text-center" style="${tdBgStyle} ${newValueStyle}" ${newTruncated ? `title="${escapeHtml(newOriginal)}"` : ''}>${newDisplay}</td>
+          <td class="text-center" style="${tdBgStyle}">${escapeHtml(log.project_code) || '-'}</td>
+          <td class="text-center" style="${tdBgStyle}">${escapeHtml(this.getDisplayFieldName(log.field_name)) || '-'}</td>
+          <td class="text-center" style="${tdBgStyle} ${oldValueStyle}" ${oldTruncated ? `title="${escapeHtml(oldOriginal)}"` : ''}>${escapeHtml(oldDisplay)}</td>
+          <td class="text-center" style="${tdBgStyle} ${newValueStyle}" ${newTruncated ? `title="${escapeHtml(newOriginal)}"` : ''}>${escapeHtml(newDisplay)}</td>
         </tr>
       `;
     }).join('');

@@ -3,6 +3,7 @@
  * 프로젝트 상태 계산 및 뱃지 생성
  */
 import BaseBadge from './BaseBadge.js';
+import { escHtml } from '../../utils/escapeHtml.js';
 
 import logger from '../../utils/logger.js';
 export default class StatusBadge extends BaseBadge {
@@ -49,7 +50,7 @@ export default class StatusBadge extends BaseBadge {
     const statusClass = this.getStatusClass(status);
 
     // 기존 클래스명 사용 (.badge + status-*)
-    return this.createBadgeHtml(status, `badge ${statusClass}`, options);
+    return this.createBadgeHtml(escHtml(status), `badge ${statusClass}`, options);
   }
 
   /**

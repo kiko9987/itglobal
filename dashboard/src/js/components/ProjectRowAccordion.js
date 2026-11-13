@@ -776,7 +776,7 @@ export default class ProjectRowAccordion {
     }
 
     // 쉼표로 분리
-    const names = constructorValue.split(',').map(n => n.trim()).filter(n => n);
+    const names = constructorValue.split(',').map(n => escHtml(n.trim())).filter(n => n);   // 이스케이프 (2026-11-13)
 
     // 3명 이상이면 2명까지는 한 줄, 3번째부터 줄바꿈
     if (names.length >= 3) {
@@ -2286,7 +2286,7 @@ export default class ProjectRowAccordion {
             <div style="padding: 0.25rem 0.75rem 0.5rem 0.75rem;">
               <input type="text" class="form-control form-control-sm accordion-constructor-other-input"
                      id="${dropdownId}-other-input" placeholder="이름 입력"
-                     value="${otherValue}"
+                     value="${escHtml(otherValue)}"
                      style="font-size: 0.875rem;">
             </div>
           </li>
@@ -2327,13 +2327,13 @@ export default class ProjectRowAccordion {
     // 이메일 필드 (레거시 동일 - placeholder 없음)
     if (fieldName.includes('이메일')) {
       return `<input type="email" class="form-control form-control-sm inline-edit-input"
-                     value="${currentValue}">`;
+                     value="${escHtml(currentValue)}">`;
     }
 
     // 연락처 필드 (레거시 동일 - placeholder 없음)
     if (fieldName.includes('연락처')) {
       return `<input type="tel" class="form-control form-control-sm inline-edit-input input-manager"
-                     value="${currentValue}"
+                     value="${escHtml(currentValue)}"
                      pattern="[0-9]{3}-[0-9]{4}-[0-9]{4}">`;
     }
 
@@ -6379,7 +6379,7 @@ export default class ProjectRowAccordion {
       const editableField = collectionCard.querySelector('.editable-value');
       if (editableField) {
         const originalValue = editableField.dataset.originalValue || '';
-        editableField.innerHTML = originalValue || '특이사항이 없습니다.';
+        editableField.innerHTML = originalValue ? escHtml(originalValue) : '특이사항이 없습니다.';   // 이스케이프 (2026-11-13)
       }
       collectionCard.classList.remove('editing');
     }
@@ -6828,7 +6828,7 @@ export default class ProjectRowAccordion {
         // 다른 사용자가 편집 중
         const lockedByName = lockInfo.user_name;
         editBtn.disabled = true;
-        editBtn.innerHTML = `<i class="fas fa-lock me-1"></i>${lockedByName}님이 편집 중...`;
+        editBtn.innerHTML = `<i class="fas fa-lock me-1"></i>${escHtml(lockedByName)}님이 편집 중...`;
         editBtn.title = `${lockedByName}님이 현재 이 프로젝트를 편집하고 있습니다`;
       } else {
         // 잠금 없음 - 편집 가능
@@ -6986,19 +6986,19 @@ export default class ProjectRowAccordion {
 
       return `
         <div class="project-code-badge">
-          <i class="fas fa-tag me-2"></i>${projectCode}${codeCopyButtonHtml(projectCode)}
+          <i class="fas fa-tag me-2"></i>${escHtml(projectCode)}${codeCopyButtonHtml(projectCode)}
         </div>
         <div class="project-manager-info">
-          <i class="fas fa-user me-2"></i>${manager || '담당자 미지정'}
+          <i class="fas fa-user me-2"></i>${escHtml(manager || '담당자 미지정')}
         </div>
         <div class="project-inflow-info" title="유입 구분">
           <i class="fas fa-sign-in-alt me-2"></i>${escHtml(inflow || '유입 구분 없음')}
         </div>
-        <div class="project-address-info" title="${displayAddress}">
-          <i class="fas fa-map-marker-alt me-2"></i>${displayAddress}${codeCopyButtonHtml(address, '주소 복사')}
+        <div class="project-address-info" title="${escHtml(displayAddress)}">
+          <i class="fas fa-map-marker-alt me-2"></i>${escHtml(displayAddress)}${codeCopyButtonHtml(address, '주소 복사')}
         </div>
-        <div class="project-content-info" title="${displayContent}">
-          <i class="fas fa-tools me-2"></i>${displayContent}
+        <div class="project-content-info" title="${escHtml(displayContent)}">
+          <i class="fas fa-tools me-2"></i>${escHtml(displayContent)}
         </div>
       `;
     } else {
@@ -7007,14 +7007,14 @@ export default class ProjectRowAccordion {
 
       return `
         <div class="project-code-badge readonly" id="code-badge-${projectCode}">
-          <i class="fas fa-tag me-2"></i>${projectCode}
+          <i class="fas fa-tag me-2"></i>${escHtml(projectCode)}
         </div>
         <div class="project-manager-info editable">
           <i class="fas fa-user me-2"></i>
-          <select class="header-edit-select" data-field="담당자" data-original-value="${manager}">
+          <select class="header-edit-select" data-field="담당자" data-original-value="${escHtml(manager)}">
             <option value="">담당자 선택</option>
             ${activeManagers.map(m => `
-              <option value="${m}" ${m === manager ? 'selected' : ''}>${m}</option>
+              <option value="${escHtml(m)}" ${m === manager ? 'selected' : ''}>${escHtml(m)}</option>
             `).join('')}
           </select>
         </div>
@@ -7028,16 +7028,16 @@ export default class ProjectRowAccordion {
           <i class="fas fa-map-marker-alt me-2"></i>
           <input type="text" class="header-edit-input"
                  data-field="현장 주소"
-                 data-original-value="${address}"
-                 value="${address}"
+                 data-original-value="${escHtml(address)}"
+                 value="${escHtml(address)}"
                  placeholder="현장 주소를 입력하세요">
         </div>
         <div class="project-content-info editable wide-field">
           <i class="fas fa-tools me-2"></i>
           <input type="text" class="header-edit-input"
                  data-field="공사 내용"
-                 data-original-value="${content}"
-                 value="${content}"
+                 data-original-value="${escHtml(content)}"
+                 value="${escHtml(content)}"
                  placeholder="공사 내용을 입력하세요">
         </div>
       `;

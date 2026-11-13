@@ -18,6 +18,7 @@ import {
 import { payerLine, isSplit, stripPayerLine, bizDisplay } from '../utils/payerSplit.js';
 import { isPartnerName } from '../utils/partnerName.js';
 import { codeCopyButtonHtml, installCodeCopy } from '../utils/codeCopy.js';
+import { escHtml } from '../utils/escapeHtml.js';
 
 /** A/S 컬럼 렌더용 최소 HTML 이스케이프 */
 function _asEsc(v) {
@@ -697,7 +698,8 @@ export default class ProjectTable {
           render: function(data, type) {
             if (data && data.trim() !== '') {
               // 복사 아이콘은 화면 표시용에만 — 코드 칸과 같은 방식 (2026-11-06 직원 의견)
-              return type === 'display' ? `${data}${codeCopyButtonHtml(data, '주소 복사')}` : data;
+              // 주소는 슬랙 /공사확정·편집자 입력 글 — 화면 HTML 로 넣기 전에 이스케이프 (2026-11-13 보안 점검)
+              return type === 'display' ? `${escHtml(data)}${codeCopyButtonHtml(data, '주소 복사')}` : data;
             } else {
               return '<i class="fas fa-exclamation-circle text-danger me-2" title="데이터가 비어 있습니다. 현장 주소를 입력해주세요."></i><span class="text-muted">주소 정보 없음</span>';
             }
@@ -873,7 +875,7 @@ export default class ProjectTable {
             const notes = row['수금 관련 특이사항'] || row['수금특이사항'] || row['수금 특이사항'] || '';
             if (!notes) return '';
             if (type === 'display') {
-              return `<span class="d-inline-block" style="word-break: break-word; white-space: normal;" title="${notes}">${notes}</span>`;
+              return `<span class="d-inline-block" style="word-break: break-word; white-space: normal;" title="${escHtml(notes)}">${escHtml(notes)}</span>`;
             }
             return notes;
           }
