@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from dashboard.utils.logging_config import get_logger
+from dashboard.utils.spreadsheet_safe import sheet_row_safe  # 수식 방지 (2026-11-13 보안 점검 2차)
 
 logger = get_logger(__name__)
 
@@ -243,7 +244,7 @@ def _append_as_row(manager, sheet_id, sheet_name, as_no, project_code, address, 
             range=f'{sheet_name}!A:M',
             valueInputOption='USER_ENTERED',
             insertDataOption='INSERT_ROWS',
-            body={'values': [row_values]},
+            body={'values': [sheet_row_safe(row_values)]},  # 수식 방지 (2026-11-13 보안 점검 2차)
         ).execute()
         # 갱신 range 예: 'A/S 관리'!A3:M3 → 행 번호 추출
         updated_range = resp.get('updates', {}).get('updatedRange', '')

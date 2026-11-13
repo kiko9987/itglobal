@@ -1,4 +1,6 @@
 import os
+from dashboard.utils.spreadsheet_safe import (  # USER_ENTERED 쓰기 공통 수식 방지 (2026-11-13)
+    sheet_cell_safe, sheet_data_safe, sheet_grid_safe, sheet_row_safe)
 import logging
 import pandas as pd
 import time
@@ -1027,7 +1029,7 @@ class GoogleSheetsManager:
             #   범위 끝 = 값 개수만큼 (예전엔 'AS' 고정 → 열을 넣을 때마다 고쳐야 했음, 2026-10-22)
             actual_range = f'{main_sheet_name()}!A{next_row}:{column_letter(len(values) - 1)}{next_row}'
             body = {
-                'values': [values]
+                'values': [sheet_row_safe(values)]  # 수식 방지 (2026-11-13 보안 점검 2차)
             }
             
             result = self._execute_with_retry(
@@ -1067,7 +1069,7 @@ class GoogleSheetsManager:
             actual_range = range_name.format(row=row_number)
             
             body = {
-                'values': [values]
+                'values': [sheet_row_safe(values)]  # 수식 방지 (2026-11-13 보안 점검 2차)
             }
             
             result = self._execute_with_retry(
@@ -1106,7 +1108,7 @@ class GoogleSheetsManager:
             for update in updates:
                 data.append({
                     'range': update['range'],
-                    'values': update['values']
+                    'values': sheet_grid_safe(update['values'])  # 수식 방지 (2026-11-13 보안 점검 2차)
                 })
 
             body = {
@@ -1437,7 +1439,7 @@ class GoogleSheetsManager:
         """
         batch_update_body = {
             'valueInputOption': 'USER_ENTERED',
-            'data': updates
+            'data': sheet_data_safe(updates)  # 수식 방지 (2026-11-13 보안 점검 2차)
         }
         result = self.service.spreadsheets().values().batchUpdate(
             spreadsheetId=sheet_id,
@@ -2025,7 +2027,7 @@ class GoogleSheetsManager:
         with self._lock:
             try:
                 range_name = f"'{sheet_name}'!{cell_address}"
-                body = {'values': [[value]]}
+                body = {'values': [[sheet_cell_safe(value)]]}  # 수식 방지 (2026-11-13 보안 점검 2차)
                 self._execute_with_retry(
                     lambda: self.service.spreadsheets().values().update(
                         spreadsheetId=sheet_id,
@@ -2179,7 +2181,7 @@ class GoogleSheetsManager:
             int: 업데이트된 셀 수
         """
         range_name = f'{sheet_name}!A{row_number}:{self.get_last_column_letter()}{row_number}'  # 마지막 열까지 (잘림 방지)
-        body = {'values': [row_values]}
+        body = {'values': [sheet_row_safe(row_values)]}  # 수식 방지 (2026-11-13 보안 점검 2차)
 
         row_result = self._execute_with_retry(
             lambda: self.service.spreadsheets().values().update(
