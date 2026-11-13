@@ -408,6 +408,13 @@ def _build_repeat_section(lead: dict) -> str:
     if len(prev_feedback) > 200:
         prev_feedback = prev_feedback[:200] + '...'
 
+    # 외부 글은 슬랙 표기 이스케이프 (2026-11-13 보안 점검)
+    from dashboard.services.lead_helpers import slack_esc
+    prev_no, prev_time, prev_inquiry, prev_status = (slack_esc(prev_no), slack_esc(prev_time),
+                                                      slack_esc(prev_inquiry), slack_esc(prev_status))
+    prev_address, prev_feedback, prev_name = slack_esc(prev_address), slack_esc(prev_feedback), slack_esc(prev_name)
+    prev_consultant, prev_sales_rep = slack_esc(prev_consultant), slack_esc(prev_sales_rep)
+
     # 이전 문의 식별: "시간 / 리드No" 형태 (시간 없으면 리드No만)
     prev_label = f"{prev_time} / {prev_no}" if prev_time else prev_no
 
@@ -766,7 +773,7 @@ def _append_leads_to_main_locked(leads: List[Dict[str, Any]], cfg) -> List[str]:
     lead_nos = []
     rows = []
     from dashboard.services.lead_helpers import tidy_phone_for_sheet as _tidy_ph
-    from dashboard.services.lead_helpers import SHEET_FREE_TEXT_FIELDS, sheet_safe_text
+    from dashboard.services.lead_helpers import sheet_safe_row
     for j, lead in enumerate(safe_leads):
         ln = f'L-{_nums[j]:05d}'
         lead['리드 No'] = ln
@@ -774,9 +781,9 @@ def _append_leads_to_main_locked(leads: List[Dict[str, Any]], cfg) -> List[str]:
             lead['고객 연락처'] = _tidy_ph(lead['고객 연락처'])  # 공백 섞인 번호 정리 (ETC-587764)
         lead_nos.append(ln)
         result_nos[safe_pos[j]] = ln
-        # 공개 입력 자유 글은 수식으로 실행 안 되게 (2026-10-29) — lead dict 는 카드용이라 그대로 둠
-        rows.append([sheet_safe_text(lead.get(col, '')) if col in SHEET_FREE_TEXT_FIELDS else lead.get(col, '')
-                     for col in LEAD_COLUMN_ORDER])
+        # 공개 입력은 수식으로 실행 안 되게 — 예전엔 자유 글 6칸만 막아 상담 시간·연락처·gclid 가 뚫려
+        # 있었음 (2026-11-13 보안 점검). 행 전체에 적용. lead dict 는 카드용이라 그대로 둠
+        rows.append(sheet_safe_row([lead.get(col, '') for col in LEAD_COLUMN_ORDER]))
 
     # values.append() 사용 — 자동으로 grid 확장 + 다음 빈 행에 추가
     # range를 헤더 영역(A1:마지막열1)으로 한정 — 마지막 컬럼은 매핑에서 파생(레터 하드코딩 금지).
@@ -1126,8 +1133,9 @@ def _notify_clean_lead_channel(client, lead: dict, lead_no: str,
         except Exception as exc:
             logger.warning(f'[SYNC/세척] permalink 조회 실패 ({lead_no}): {exc}')
 
-        name = (lead.get('고객명') or '').strip() or '-'
-        phone = (lead.get('고객 연락처') or '').strip() or '-'
+        from dashboard.services.lead_helpers import slack_esc
+        name = slack_esc((lead.get('고객명') or '').strip() or '-')        # 외부 글 이스케이프 (2026-11-13)
+        phone = slack_esc((lead.get('고객 연락처') or '').strip() or '-')
         if permalink:
             # 방문 예약 알림과 동일 방식 — text 에 permalink → 슬랙이 온라인 세척 카드를
             #   미리보기로 자동 unfurl(embed). (blocks 대신 text 여야 unfurl 확실히 동작)
@@ -1140,8 +1148,8 @@ def _notify_clean_lead_channel(client, lead: dict, lead_no: str,
                 f":point_down: <{permalink}|아래 카드를 눌러 확인하세요>"
             )
         else:
-            place = re.sub(r'\s*\[[^\]]*\]\s*$', '', (lead.get('_meta_place') or '').strip()).strip() or '-'
-            device = (lead.get('_meta_device') or '').strip() or '-'
+            place = slack_esc(re.sub(r'\s*\[[^\]]*\]\s*$', '', (lead.get('_meta_place') or '').strip()).strip() or '-')
+            device = slack_esc((lead.get('_meta_device') or '').strip() or '-')
             msg = (
                 "⠀\n"
                 f":soap: *신규 세척 문의가 접수되었습니다.* — `{lead_no}`  {name} / {phone}\n"
@@ -1599,6 +1607,13 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     if len(inquiry) > 2400:
         inquiry = inquiry[:2400] + '\n…(내용이 길어 일부만 표시 — 시트 참조)'
 
+    # 외부 글(공개 폼·당근·메일)은 슬랙 표기 이스케이프 — '<!channel>'·위장 링크 차단 (2026-11-13 보안 점검)
+    from dashboard.services.lead_helpers import slack_esc
+    consult_time, name, phone, email = slack_esc(consult_time), slack_esc(name), slack_esc(phone), slack_esc(email)
+    place, device, inquiry = slack_esc(place), slack_esc(device), slack_esc(inquiry)
+    if len(inquiry) > 2600:   # 이스케이프로 길어진 경우 슬랙 3000자 한도 재확인
+        inquiry = inquiry[:2600] + '\n…(내용이 길어 일부만 표시 — 시트 참조)'
+
     # 방문 주소 (자동 추출 또는 시트에 등록된 값) — 신뢰도 레벨에 따라 표시 분기
     address = (lead.get('방문 주소') or '').strip()
     addr_level = (lead.get('_meta_address_level') or '').strip()
@@ -1616,12 +1631,12 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
         #   → 전화번호/오타/문의글이 주소 필드로 들어온 케이스. 매니저 오방문 방지.
         #   (2026-07-21 raw level 도 [주소 확인 필요] 로 통일 — L-03314 사고)
         if addr_level in ('verified', 'level1', 'level2', 'level3', 'level3b', 'level4'):
-            address_display = address
+            address_display = slack_esc(address)
         elif not addr_level or addr_level == 'raw':
             # 2026-07-17 이탤릭 폰트 이질감 제거 → 이모지 + bold 로 강조
-            address_display = f'{address}  ⚠️ *[주소 확인 필요]*'
+            address_display = f'{slack_esc(address)}  ⚠️ *[주소 확인 필요]*'
         else:
-            address_display = f'{address}  ⚠️ *[추정]*'
+            address_display = f'{slack_esc(address)}  ⚠️ *[추정]*'
     else:
         address_display = '-'
 
@@ -1658,7 +1673,7 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
         address_field_lines.append(f">*방문 주소* : {address_display}")
     elif (address_raw and address_raw != '-'
             and _addr_key(address_raw) != _addr_key(address)):
-        address_field_lines.append(f">*원본 주소* : {address_raw}")
+        address_field_lines.append(f">*원본 주소* : {slack_esc(address_raw)}")
         address_field_lines.append(f">*변환 주소* : {address_display}")
     else:
         address_field_lines.append(f">*방문 주소* : {address_display}")
@@ -1672,7 +1687,7 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     # 멀티라인 inquiry는 60자 wrap + 각 줄마다 `>` prefix.
     inquiry_quoted = _wrap_quoted(inquiry.rstrip(), width=60)
     # 네이버 '검색 키워드' / 당근 등 '광고 소재' — 문의시간 바로 아래 (2026-10-06)
-    inflow_line = (f">*{inflow_detail[0]}* : {_oneline(inflow_detail[1])}\n"
+    inflow_line = (f">*{inflow_detail[0]}* : {slack_esc(_oneline(inflow_detail[1]))}\n"
                    if inflow_detail else '')
     main_text = (
         "⠀\n"

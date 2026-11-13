@@ -136,13 +136,33 @@ SHEET_FREE_TEXT_FIELDS = ('고객명', '문의 내용', '상담 내용', '방문
 
 
 def sheet_safe_text(value):
-    """시트에 USER_ENTERED 로 쓸 자유 글 — '=' '+' '@' 로 시작하면 앞에 ' 를 붙여 글자로 저장.
+    """시트에 USER_ENTERED 로 쓸 글 — 수식으로 읽힐 수 있는 첫 글자면 앞에 ' 를 붙여 글자로 저장.
 
     공개 폼의 이름·문의가 '=HYPERLINK(...)' 같은 수식으로 실행돼 시트에 위장 링크·값 오염이 생길 수
-    있었음 (2026-10-29 점검). ' 는 시트에 보이지 않음. '-'(빈 값 표시)는 그대로."""
-    if isinstance(value, str) and value[:1] in ('=', '+', '@'):
+    있었음 (2026-10-29 점검). ' 는 시트에 보이지 않음.
+    2026-11-13 보안 점검: '-' 로 시작하는 글('-' 한 글자=빈 값 표시는 그대로)과 탭·줄바꿈 시작도 막음.
+    글자(str)만 건드림 — 숫자·날짜 문자열('2026.11.13.')은 그대로."""
+    if not isinstance(value, str) or not value:
+        return value
+    if value[0] in _SHEET_FORMULA_LEADS or (value[0] == '-' and value != '-'):
         return "'" + value
     return value
+
+
+_SHEET_FORMULA_LEADS = ('=', '+', '@', '\t', '\r', '\n')
+
+
+def slack_esc(text):
+    """슬랙 mrkdwn 에 넣을 외부 글 — & < > 만 이스케이프 (채널톡 _slack_esc 와 같은 규칙).
+
+    공개 폼 이름·문의에 '<!channel>' '<https://악성|견적서 확인>' 을 넣으면 리드 봇이 채널 전체 호출이나
+    위장 링크를 띄울 수 있었음 (2026-11-13 보안 점검). 슬랙은 &amp; &lt; &gt; 를 원래 글자로 보여 준다."""
+    return str(text if text is not None else '').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+
+def sheet_safe_row(values):
+    """행 전체에 sheet_safe_text 적용 — 리드 시트에는 일부러 넣는 수식 칸이 없다 (2026-11-13)."""
+    return [sheet_safe_text(v) for v in values]
 
 
 def tidy_phone_for_sheet(raw):

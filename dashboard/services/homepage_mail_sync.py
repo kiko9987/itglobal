@@ -248,7 +248,9 @@ def _parse_gclid_field(body: str) -> str:
     if not val or val.startswith(_HIDDEN_FIELD_STOP_LINES):
         return ''
     parts = val.split()
-    return parts[0] if parts else ''
+    tok = parts[0] if parts else ''
+    # 구글 클릭 ID 는 영문·숫자·_- 만 — 그 밖의 값(수식 등)은 버림 (2026-11-13 보안 점검)
+    return tok if re.fullmatch(r'[A-Za-z0-9_-]{1,512}', tok) else ''
 
 
 def parse_mail_body(body: str) -> Dict[str, Any]:

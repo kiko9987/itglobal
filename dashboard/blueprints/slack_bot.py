@@ -11473,10 +11473,11 @@ def _convert_etc_to_regular(client, body, lead_no, channel, metadata, pending) -
             (f"I{sheet_row}", new_address or '-'), # 방문 주소
             (f"K{sheet_row}", new_consultation),   # 상담 내용
         ]
+        from dashboard.services.lead_helpers import sheet_safe_text
         batch = {
             'valueInputOption': 'USER_ENTERED',
             'data': [
-                {'range': f"'{cfg['sheet_name']}'!{r}", 'values': [[v]]}
+                {'range': f"'{cfg['sheet_name']}'!{r}", 'values': [[sheet_safe_text(v)]]}  # 수식 방지 (2026-11-13)
                 for r, v in updates
             ],
         }
@@ -11688,10 +11689,11 @@ def _convert_regular_to_etc(client, body, lead_no, channel, metadata, pending) -
             (f"I{sheet_row}", new_address or '-'), # 방문 주소
             (f"K{sheet_row}", new_consultation),   # 상담 내용
         ]
+        from dashboard.services.lead_helpers import sheet_safe_text
         batch = {
             'valueInputOption': 'USER_ENTERED',
             'data': [
-                {'range': f"'{cfg['sheet_name']}'!{r}", 'values': [[v]]}
+                {'range': f"'{cfg['sheet_name']}'!{r}", 'values': [[sheet_safe_text(v)]]}  # 수식 방지 (2026-11-13)
                 for r, v in updates
             ],
         }
