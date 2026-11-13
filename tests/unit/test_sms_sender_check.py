@@ -86,28 +86,28 @@ def test_sms_path_cash_text_ignored():
     assert r['status'] == 'ignored'
 
 
-@pytest.mark.parametrize('preview,expect_warn,shown', [
-    ({'origin': '15662566', 'origin_checked': False}, False, '1566-2566'),
-    ({'origin': '15662566', 'origin_checked': True}, False, '1566-2566'),
-    ({'origin': '01012345678', 'origin_checked': False}, True, '01012345678'),
-    ({'origin': '01012345678', 'origin_checked': True}, False, '01012345678'),
-    ({'origin': '-', 'origin_checked': False}, True, '알 수 없음'),
+@pytest.mark.parametrize('preview,expect_warn', [
+    ({'origin': '15662566', 'origin_checked': False}, False),      # 은행 대표번호 — 줄 없음
+    ({'origin': '15662566', 'origin_checked': True}, False),
+    ({'origin': '01012345678', 'origin_checked': False}, True),    # 휴대폰 — 경고
+    ({'origin': '01012345678', 'origin_checked': True}, False),    # 허용 목록으로 확인됨
+    ({'origin': '-', 'origin_checked': False}, False),             # 번호 모름 — 소음 막으려 줄 없음
+    ({}, False),                                                    # 채널 붙여넣기
+    ({'cash': True}, False),
 ])
-def test_origin_line(preview, expect_warn, shown):
+def test_origin_line_warning_only(preview, expect_warn):
     line = si._origin_line(preview)
-    assert line.startswith('>📱 발신번호: ' + shown)
-    assert ('은행 대표번호가 아닙니다' in line) is expect_warn
+    assert bool(line) is expect_warn
+    assert '발신번호:' not in line and '01012345678' not in line   # 번호는 카드에 안 보임
 
 
-def test_origin_line_absent_for_channel_paste():
-    assert si._origin_line({}) == ''
-    assert si._origin_line({'cash': True}) == ''
-
-
-def test_card_shows_origin_line():
+def test_card_hides_number_but_warns():
     blocks = si._build_intake_blocks('id1', IBK, {'origin': '01012345678', 'origin_checked': False})
     text = blocks[0]['text']['text']
-    assert '📱 발신번호: 01012345678' in text and '은행 대표번호가 아닙니다' in text
+    assert '01012345678' not in text and '발신번호' not in text
+    assert '은행 대표번호가 아닌 번호에서 온 문자입니다' in text
+    blocks = si._build_intake_blocks('id2', IBK, {'origin': '15662566', 'origin_checked': False})
+    assert '⚠️' not in blocks[0]['text']['text'] and '1566' not in blocks[0]['text']['text']
 
 
 def test_sms_card_text_escaped_and_round_trips():

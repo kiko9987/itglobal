@@ -448,21 +448,16 @@ def _suggest_transfer_async(slack, channel: str, ts: str, intake_id: str,
 
 
 def _origin_line(preview: dict) -> str:
-    """폰 문자 카드의 발신번호 줄 (2026-11-13 보안 점검).
+    """폰 문자 카드의 발신번호 경고 줄 (2026-11-13 보안 점검).
 
-    예전엔 진짜 발신번호가 어디에도 안 남아, 경영지원이 은행이 보낸 문자인지 알 수 없었다.
-    허용 목록으로 확인되지 않았고 은행 대표번호 모양도 아니면 경고를 붙인다."""
+    발신번호 자체는 카드에 보여 주지 않는다(같은 날 사용자 결정 — 굳이 필요 없음). 번호는 원문
+    기록(origin)과 로그에만 남긴다. 휴대폰·일반 전화 같은, 은행 대표번호가 아닌 번호에서 온 문자일
+    때만 경고 한 줄을 붙인다. 허용 목록으로 이미 확인된 번호나 번호를 모르는 경우('-')는 줄 없음."""
     p = preview or {}
     origin = str(p.get('origin') or '')
-    if not origin:
+    if not origin.isdigit() or p.get('origin_checked') or looks_like_bank_rep(origin):
         return ''
-    shown = origin if origin != '-' else '알 수 없음'
-    if len(origin) == 8 and origin.isdigit():
-        shown = f'{origin[:4]}-{origin[4:]}'
-    line = f'>📱 발신번호: {shown}'
-    if not p.get('origin_checked') and not looks_like_bank_rep(origin):
-        line += '  ⚠️ *은행 대표번호가 아닙니다. 통장에서 입금을 확인한 뒤 기록하세요.*'
-    return line
+    return '>⚠️ *은행 대표번호가 아닌 번호에서 온 문자입니다. 통장에서 입금을 확인한 뒤 기록하세요.*'
 
 
 def _build_intake_blocks(intake_id: str, clean_text: str, preview: dict,
