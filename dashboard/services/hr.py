@@ -195,6 +195,13 @@ def list_people(include_resigned: bool = False) -> List[dict]:
         return [_row(r) for r in conn.execute(sql).fetchall()]
 
 
+def same_name_people(name: str) -> List[dict]:
+    """이름이 같은 인사카드(퇴사 포함) — id·생년월일·입사일만. 플렉스 옛 문서 동명이인 구분용 (2026-11-13)."""
+    with _conn() as conn:
+        return [dict(r) for r in conn.execute('SELECT id, name, birth_date, hire_date FROM hr_people WHERE name = ?',
+                                              ((name or '').strip(),)).fetchall()]
+
+
 def get_person(person_id: int) -> Optional[dict]:
     with _conn() as conn:
         r = conn.execute('SELECT * FROM hr_people WHERE id = ?', (person_id,)).fetchone()

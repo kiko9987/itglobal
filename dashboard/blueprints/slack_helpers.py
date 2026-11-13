@@ -493,6 +493,27 @@ def _to_initial(name: str) -> str:
     return name
 
 
+def _is_staff_name(name: str) -> bool:
+    """재직·퇴사 포함 인사카드 이름이거나 PM 사용자 이름·이니셜인지 (표시 이름 사칭 확인용)."""
+    n = (name or '').strip().lower()
+    if not n:
+        return False
+    try:
+        from dashboard.services import hr as _hr
+        if any((p.get('name') or '').strip().lower() == n for p in _hr.list_people(include_resigned=True)):
+            return True
+    except Exception:
+        pass
+    try:
+        if _lookup_initial_by_name(name):
+            return True
+        if n.upper() in {str(v).strip().upper() for v in _load_initials_from_config().values() if v}:
+            return True   # 'JW' 처럼 이니셜을 표시 이름으로 쓴 경우
+    except Exception:
+        pass
+    return False
+
+
 def _slack_user_to_korean_name(client, user_id: str) -> str:
     """슬랙 user_id → SALES_EMAILS 매핑 한국 이름 (fallback: display_name/real_name)"""
     if not user_id:
@@ -512,9 +533,25 @@ def _slack_user_to_korean_name(client, user_id: str) -> str:
             if str(mapped).strip().lower() == email:
                 return name
 
-        return (profile.get("display_name")
-                or profile.get("real_name")
-                or '').strip()
+        # 인사카드에 연결된 슬랙 ID → 그 카드 이름 (2026-11-13 보안 점검 2차 #8).
+        #   예전엔 SALES_EMAILS(4명)에 없으면 슬랙 표시 이름을 그대로 써서, 표시 이름을 다른 직원 이름으로
+        #   바꾸면 공사 담당자·취소/수정자·상담자가 그 사람으로 기록됐다. 인사카드 연결은 인사 관리자만 바꾼다.
+        try:
+            from dashboard.services import hr as _hr
+            _card = _hr.find_by_slack(user_id)
+        except Exception:
+            _card = None
+        if _card and (_card.get('name') or '').strip():
+            return _card['name'].strip()
+
+        shown = (profile.get("display_name")
+                 or profile.get("real_name")
+                 or '').strip()
+        # 연결 안 된 계정이 기존 직원 이름(또는 이니셜)으로 표시 이름을 바꾼 경우는 그 이름을 쓰지 않음
+        if shown and _is_staff_name(shown):
+            logger.warning(f"[SLACK] 인사카드 미연결 계정의 표시 이름이 직원 이름과 같음 → 이름 비움 ({user_id})")
+            return ''
+        return shown
     except Exception as exc:
         logger.warning(f"[SLACK] users_info 실패 ({user_id}): {exc}")
         return ''

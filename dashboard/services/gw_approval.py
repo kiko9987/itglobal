@@ -84,7 +84,23 @@ def viewer(email: str) -> dict:
     executor = bool(sid) and (sid in ea.executor_ids() or sid in ea.n_executor_ids())
     see_all = approver or final or executor or hr.is_hr_admin(email)
     return {'email': email, 'slack_id': sid, 'name': (p or {}).get('name') or '', 'see_all': see_all,
-            'linked': bool(sid)}
+            'linked': bool(sid), 'archive_since': _archive_since(p)}
+
+
+def _archive_since(p: Optional[dict]) -> str:
+    """플렉스 옛 문서는 작성자 이름으로만 묶여 있다 — 생년월일이 다른 동명이인 카드가 있으면 이 사람 입사일
+    이후 문서만 (2026-11-13 보안 점검 2차 #6). 같은 사람 재입사(생년월일 같음)는 예전 문서도 본인 것.
+    입사일을 모르면 아무 문서도 안 보이게 '9999'. 동명이인이 없으면 ''."""
+    if not p or not (p.get('name') or '').strip():
+        return ''
+    me_birth = (p.get('birth_date') or '').strip()
+    try:
+        others = [x for x in hr.same_name_people(p['name']) if x.get('id') != p.get('id')]
+    except Exception:
+        return '9999'
+    if not any(not me_birth or (x.get('birth_date') or '').strip() != me_birth for x in others):
+        return ''
+    return (p.get('hire_date') or '').strip()[:10] or '9999'
 
 
 def _waiting_on(row: dict, sid: str) -> bool:
@@ -399,6 +415,9 @@ def archive_list(v: dict, q: str = '', form: str = '', date_from: str = '', date
             return {'items': [], 'total': 0, 'forms': [], 'page': 1, 'size': size}
         where.append('writer = ?')
         args.append(v['name'])
+        if v.get('archive_since'):
+            where.append('created_at >= ?')
+            args.append(v['archive_since'])
     if form:
         where.append('form = ?')
         args.append(form)
@@ -419,9 +438,13 @@ def archive_list(v: dict, q: str = '', form: str = '', date_from: str = '', date
         rows = conn.execute(f'SELECT doc_no, title, form, status, writer, created_at, amount, project_code, partner, attachments '
                             f'FROM flex_approval_archive {w} ORDER BY created_at DESC, doc_no DESC LIMIT ? OFFSET ?',
                             (*args, size, (page - 1) * size)).fetchall()
-        fw = 'WHERE writer = ?' if not v['see_all'] else ''
+        fw, fa = '', []
+        if not v['see_all']:
+            fw, fa = 'WHERE writer = ?', [v['name']]
+            if v.get('archive_since'):
+                fw, fa = fw + ' AND created_at >= ?', fa + [v['archive_since']]
         forms_ = [r[0] for r in conn.execute(f'SELECT form, COUNT(*) c FROM flex_approval_archive {fw} GROUP BY form '
-                                              f'ORDER BY c DESC', ([v['name']] if fw else [])).fetchall()]
+                                              f'ORDER BY c DESC', fa).fetchall()]
     keys = ('doc_no', 'title', 'form', 'status', 'writer', 'created_at', 'amount', 'project_code', 'partner', 'attachments')
     return {'items': [dict(zip(keys, r)) for r in rows], 'total': total, 'forms': forms_, 'page': page, 'size': size}
 
@@ -435,7 +458,8 @@ def archive_detail(doc_no: str, v: dict) -> Optional[dict]:
     keys = ('doc_no', 'title', 'form', 'status', 'writer', 'created_at', 'updated_at', 'attachments', 'memo', 'fields')
     d = dict(zip(keys, r))
     # 이름이 빈 사람(인사카드 없음)이 작성자 빈 문서를 보는 일 막기 — 목록과 같은 규칙 (2026-11-13)
-    if not v['see_all'] and (not v['name'] or d['writer'] != v['name']):
+    if not v['see_all'] and (not v['name'] or d['writer'] != v['name']
+                             or (v.get('archive_since') and (d['created_at'] or '') < v['archive_since'])):
         return None
     try:
         fields = json.loads(d['fields'] or '{}')

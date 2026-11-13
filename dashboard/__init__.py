@@ -625,6 +625,29 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
                 except Exception as _e:
                     logger.warning(f"[SOCKET] 연결 세션 검사 실패 → 거부: {_e}")
                     return False
+                # 연결 뒤에도 5분마다 세션 재확인 (2026-11-13 보안 점검 2차, utils/socket_session_guard.py)
+                try:
+                    from flask import request as _rq
+                    from dashboard.utils import socket_session_guard as _sg
+                    _sg.register(_rq.sid, _u.get('email'), _ss.get('login_time'))
+                except Exception as _e:
+                    logger.warning(f"[SOCKET] 연결 기록 실패(무시): {_e}")
+
+            @socketio_instance.on('disconnect')
+            def _socket_disconnect_untrack(*_a):
+                try:
+                    from flask import request as _rq
+                    from dashboard.utils import socket_session_guard as _sg
+                    _sg.unregister(_rq.sid)
+                except Exception:
+                    pass
+
+            if not app.config.get('TESTING'):
+                try:
+                    from dashboard.utils import socket_session_guard as _sg
+                    _sg.start(socketio_instance)
+                except Exception as _e:
+                    logger.warning(f"[SOCKET] 세션 재확인 시작 실패: {_e}")
 
             # 전역 socketio 변수에 할당 (블루프린트에서 import 가능)
             global socketio
