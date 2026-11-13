@@ -30,6 +30,10 @@ def db(tmp_path, monkeypatch):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv('GW_HR_KEY', Fernet.generate_key().decode())
     gw_home._mail_cache.clear()
+    # 슬랙 신원 확인(2026-11-13) — 테스트에선 슬랙 디렉터리 = 인사카드 slack_id 로 흉내
+    from dashboard.services import gw_approval as _ga
+    _ga._SID_CACHE.clear()
+    monkeypatch.setattr(_ga, '_lookup_slack_id', lambda email: (hr.find_by_email(email) or {}).get('slack_id') or '')
     gw._invalidate()
     yield d
     gw._invalidate()

@@ -24,6 +24,10 @@ def db(tmp_path, monkeypatch):
             monkeypatch.setattr(mod, '_table_ready', False)
     monkeypatch.setattr(ga, '_db', lambda: d)
     monkeypatch.setattr(ga, '_archive_ready', False)
+    # 슬랙 신원 확인(2026-11-13) — 테스트에선 슬랙 디렉터리 = 인사카드 slack_id 로 흉내
+    from dashboard.services import gw_approval as _ga
+    _ga._SID_CACHE.clear()
+    monkeypatch.setattr(_ga, '_lookup_slack_id', lambda email: (hr.find_by_email(email) or {}).get('slack_id') or '')
     for k in ('EAPPROVAL_EXECUTOR_DM_IDS', 'EAPPROVAL_APPROVER_IDS', 'EAPPROVAL_FINAL_APPROVER_IDS',
               'EAPPROVAL_N_EXECUTOR_IDS', 'SLACK_SETTLEMENT_CHECKER_ID', 'SLACK_SETTLEMENT_CHECKER_EMAIL',
               'EAPPROVAL_FINAL_ENABLED'):

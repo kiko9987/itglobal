@@ -24,10 +24,61 @@ from dashboard.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# ── 슬랙 신원 확인 ────────────────────────────────────────────────────
+# 2026-11-13 보안 점검: 웹 결재는 인사카드의 slack_id 를 그대로 처리자로 썼다. 인사카드는 인사 관리자가
+# 아무 값으로나 고칠 수 있어, 결재권 없는 인사 관리자가 자기 카드에 결재자 ID 를 넣으면 웹에서 승인·최종 승인
+# (그리고 본인 몫인 이체 완료까지) 혼자 할 수 있었다. 이제 로그인 메일로 슬랙에 물어본 그 사람의 ID 와
+# 인사카드 ID 가 같을 때만 인정한다. 슬랙 쪽 신원은 인사 관리자가 바꿀 수 없다.
+_SID_CACHE: Dict[str, tuple] = {}
+_SID_OK_TTL = 6 * 3600
+_SID_FAIL_TTL = 300
+
+
+def _lookup_slack_id(email: str) -> Optional[str]:
+    """로그인 메일 → 슬랙 user ID. 슬랙에 없는 메일이면 '', 조회 자체를 못 하면 None."""
+    from slack_sdk import WebClient
+    # 메일 조회 권한(users:read.email)은 메인 봇에 있음 — 전자결재 봇엔 없음(2026-11-13 확인)
+    for env in ('SLACK_BOT_TOKEN', 'SLACK_PROJECT_BOT_TOKEN', 'SLACK_EAPPROVAL_BOT_TOKEN'):
+        tok = os.getenv(env, '').strip()
+        if not tok:
+            continue
+        try:
+            r = WebClient(token=tok, timeout=5).users_lookupByEmail(email=email)
+            return ((r.get('user') or {}).get('id') or '').strip()
+        except Exception as e:
+            err = str(getattr(getattr(e, 'response', None), 'data', {}) or e)
+            if 'users_not_found' in err:
+                return ''
+            logger.warning(f'[GW결재] 슬랙 신원 조회 실패({env}): {err[:120]}')
+    return None
+
+
+def verified_slack_id(email: str, card_sid: str) -> str:
+    """인사카드 slack_id 를 슬랙이 아는 그 사람의 ID 와 같을 때만 돌려준다. 다르거나 확인 못 하면 ''."""
+    email = (email or '').strip().lower()
+    card_sid = (card_sid or '').strip()
+    if not email or not card_sid:
+        return ''
+    import time
+    now = time.time()
+    hit = _SID_CACHE.get(email)
+    if hit and hit[1] > now:
+        real = hit[0]
+    else:
+        found = _lookup_slack_id(email)
+        real = found or ''
+        _SID_CACHE[email] = (real, now + (_SID_OK_TTL if found is not None else _SID_FAIL_TTL))
+    if real and real == card_sid:
+        return card_sid
+    if real:
+        logger.warning(f'[GW결재] 인사카드 슬랙 ID 가 본인과 다름 — 결재 신원 인정 안 함 ({email})')
+    return ''
+
+
 # ── 보는 사람 ─────────────────────────────────────────────────────────
 def viewer(email: str) -> dict:
     p = hr.find_by_email(email) if email else None
-    sid = ((p or {}).get('slack_id') or '').strip()
+    sid = verified_slack_id(email, (p or {}).get('slack_id') or '')
     approver = bool(sid) and sid in ea.approver_ids()
     final = bool(sid) and sid in ea.final_approver_ids()
     executor = bool(sid) and (sid in ea.executor_ids() or sid in ea.n_executor_ids())
@@ -381,7 +432,8 @@ def archive_detail(doc_no: str, v: dict) -> Optional[dict]:
         return None
     keys = ('doc_no', 'title', 'form', 'status', 'writer', 'created_at', 'updated_at', 'attachments', 'memo', 'fields')
     d = dict(zip(keys, r))
-    if not v['see_all'] and d['writer'] != v['name']:
+    # 이름이 빈 사람(인사카드 없음)이 작성자 빈 문서를 보는 일 막기 — 목록과 같은 규칙 (2026-11-13)
+    if not v['see_all'] and (not v['name'] or d['writer'] != v['name']):
         return None
     try:
         fields = json.loads(d['fields'] or '{}')

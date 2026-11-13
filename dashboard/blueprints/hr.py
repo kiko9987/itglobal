@@ -337,9 +337,12 @@ def api_home():
     except Exception as e:
         logger.warning(f'[GW-HOME] 휴가 요약 실패: {e}')
         out['leave'] = None
+    # 결재·승인 목록은 슬랙이 확인한 본인 ID 로만 (인사카드 slack_id 바꿔치기 방지, 2026-11-13)
+    from dashboard.services.gw_approval import verified_slack_id
+    _sid = '' if _is_field() else verified_slack_id(_me(), (p or {}).get('slack_id') or '')
     if not _is_field():
         try:
-            out['approvals'] = gw_home.approvals((p or {}).get('slack_id') or '')
+            out['approvals'] = gw_home.approvals(_sid)
         except Exception as e:
             logger.warning(f'[GW-HOME] 결재 목록 실패: {e}')
             out['approvals'] = None
@@ -349,7 +352,7 @@ def api_home():
             logger.warning(f'[GW-HOME] 휴가자 실패: {e}')
             out['off'] = None
     try:   # 할 일 카드(11-10) — 현장은 연말정산만
-        out['todos'] = gw_home.todos(p, (p or {}).get('slack_id') or '', _is_field(), _hr_admin(),
+        out['todos'] = gw_home.todos(p, _sid, _is_field(), _hr_admin(),
                                      out.get('approvals'))
     except Exception as e:
         logger.warning(f'[GW-HOME] 할 일 실패: {e}')
