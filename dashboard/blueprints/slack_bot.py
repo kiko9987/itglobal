@@ -4251,6 +4251,29 @@ def _register_project_handlers(app):
 # ─────────────────────────────────────────────────────────────
 # 슬랙 이벤트 핸들러
 # ─────────────────────────────────────────────────────────────
+def _slack_staff_denied(user_id: str) -> Optional[str]:
+    """수금·고객 정보를 보여 주는 슬랙 명령(/수금·/as)을 쓸 수 있는 사람인지 (2026-11-13 보안 점검 2차 #7).
+
+    PM 은 현장·미화 직원(인사카드 access=field)에게 공사·수금 화면을 막는데, 슬랙 명령은 누구나 쓸 수
+    있어 미수금 목록·고객 연락처·공사 금액이 보였다. 재직 중 사무실 직원(access=staff, 인사카드에 슬랙 ID
+    연결)과 경영지원 승인자만 허용. 조회 실패면 막음. 쓸 수 있으면 None, 아니면 안내 문구."""
+    if not user_id:
+        return ':lock: 이 명령은 사무실 직원만 쓸 수 있어요.'
+    try:
+        if user_id in _settlement_checker_ids():
+            return None
+        from dashboard.services import hr as _hr
+        p = _hr.find_by_slack(user_id)
+    except Exception as exc:
+        logger.warning(f"[SLACK/권한] 직원 확인 실패 ({user_id}): {exc}")
+        return ':warning: 직원 확인에 실패했어요. 잠시 후 다시 시도해 주세요.'
+    if p and p.get('access') == _hr.ACCESS_STAFF:
+        return None
+    logger.info(f"[SLACK/권한] 사무실 직원 아님 → 명령 거절 ({user_id})")
+    return (':lock: 이 명령은 사무실 직원만 쓸 수 있어요. 사무실 직원인데 이 안내가 보이면 '
+            '인사카드에 슬랙 계정을 연결해 달라고 경영지원에 요청해 주세요.')
+
+
 def _register_handlers(app):
     """슬래시 명령, 인터랙티브, 이벤트 핸들러 등록"""
 
@@ -4727,12 +4750,16 @@ def _register_handlers(app):
 
     # ⑩ /전화 슬래시 명령 — 전화 문의 등록 모달
     @app.command("/수금")
-    def handle_payment_command(ack, command, client):
+    def handle_payment_command(ack, command, client, respond):
         """수금 관리 봇 — /수금 [코드 또는 '요약' 또는 '미수금']"""
         ack()
         text = command.get("text", "").strip()
         channel = command.get("channel_id", "")
         user_id = command.get("user_id", "")
+        _deny = _slack_staff_denied(user_id)
+        if _deny:
+            respond(text=_deny)
+            return
 
         def _bg():
             try:
@@ -5632,11 +5659,15 @@ def _register_as_handlers(app):
         ack()
 
     @app.command("/as")
-    def handle_as_command(ack, command, client):
+    def handle_as_command(ack, command, client, respond):
         ack()
         trigger_id = command.get("trigger_id", "")
         user_id = command.get("user_id", "")
         if not trigger_id:
+            return
+        _deny = _slack_staff_denied(user_id)  # 고객 연락처·공사 금액이 보이는 창 (2026-11-13 보안 점검 2차)
+        if _deny:
+            respond(text=_deny)
             return
         try:
             _open_as_request_modal(client, trigger_id, user_id, command.get("channel_id", ""))
@@ -5737,6 +5768,9 @@ def _register_as_handlers(app):
         block_id = body.get("block_id", "")
         query = (body.get("value") or "").strip()
         if block_id == "as_project_code":
+            if _slack_staff_denied((body.get("user") or {}).get("id", "")):
+                ack(options=[])
+                return
             try:
                 from dashboard.services.as_service import search_confirmed_projects
                 matched = search_confirmed_projects(query, limit=100)
@@ -5773,6 +5807,8 @@ def _register_as_handlers(app):
         action = (body.get("actions") or [{}])[0]
         bid = action.get("block_id")
         if bid == "as_project_code":
+            if _slack_staff_denied((body.get("user") or {}).get("id", "")):
+                return
             def _bg():
                 try:
                     _update_as_modal_with_project(client, body, action)
