@@ -1643,6 +1643,8 @@ def build_inquiry_blocks(lead: dict, lead_no: str, source: str = '당근') -> tu
     from dashboard.services.lead_helpers import format_inflow_display
     inflow_label = format_inflow_display(source)
     if inflow_src and inflow_src != source:
+        # 유입 값은 문의 글의 '[유입:…]' 줄에서 올 수도 있어 이스케이프 (2026-11-13 보안 점검 2차)
+        inflow_src = slack_esc(inflow_src)
         # 제목 괄호엔 채널만: '온라인 (홈페이지 · 네이버)'. 키워드·소재는 문의시간 아래 별도 줄.
         #   당근 리드폼처럼 플랫폼 = 유입 채널이면 '당근 · 당근' 중복이라 생략.
         inflow_label = (f'{inflow_label[:-1]} · {inflow_src})' if inflow_label.endswith(')')
@@ -2262,7 +2264,7 @@ def _update_existing_lead_from_workflow(
     정책: 빈 값이나 '-' 는 skip (기존값 보존). 워크플로 매니저가 채운 값만 반영.
     상담 내용은 existing_row 가 있으면 덮어쓰지 않고 새 회차로 이어 붙임.
     """
-    from dashboard.services.lead_helpers import extract_keywords_from_sources
+    from dashboard.services.lead_helpers import extract_keywords_from_sources, sheet_safe_text
     # 필드 → 컬럼 매핑
     # 2026-07-27 (L-03406 중복 폭주): '상담 시간'(B) 은 최초 문의 시간이자 당근
     #   dedup 의 식별 키. 전화 워크플로 통화시간으로 덮어쓰면 원래 당근 메시지가
@@ -2305,7 +2307,8 @@ def _update_existing_lead_from_workflow(
             v = extract_keywords_from_sources(v) or v
         elif field == '온라인 상담자' or field == '영업 담당자':
             v = v.lstrip('@').strip()
-        updates.append((f'{col}{existing_sheet_row}', v))
+        # 워크플로 양식 글을 USER_ENTERED 로 다시 쓰므로 수식 방지 (2026-11-13 보안 점검 2차)
+        updates.append((f'{col}{existing_sheet_row}', sheet_safe_text(v)))
 
     if not updates:
         return
@@ -2387,6 +2390,7 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
       5. 행 색 분기 (상태별)
       6. 상태='방문 예약' 시 #방문_일정 카드 발송 (방문 수정/취소 버튼 자동 포함)
     """
+    from dashboard.services.lead_helpers import sheet_safe_text
     result = {'processed': 0, 'visit_notified': 0, 'errors': 0}
 
     # 동시성 방어 (2026-07-15): 매니저 두 명이 거의 동시에 등록 시 sync 가 중복
@@ -2853,7 +2857,8 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
             batch_body = {
                 'valueInputOption': 'USER_ENTERED',
                 'data': [
-                    {'range': f"'{cfg['sheet_name']}'!{r}", 'values': [[v]]}
+                    # 수식 방지 — 읽어 온 글을 USER_ENTERED 로 다시 씀 (2026-11-13 보안 점검 2차)
+                    {'range': f"'{cfg['sheet_name']}'!{r}", 'values': [[sheet_safe_text(v)]]}
                     for r, v in update_cells
                 ],
             }

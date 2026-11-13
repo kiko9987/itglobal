@@ -2604,6 +2604,7 @@ def _intake_warnings(project_code, amount, preview, memo, records=None, stage=No
                             'line': f"부담자 과입금 의심 — {_who} 남은 돈보다 {_ex:,}원 더 들어옴",
                             'note': f"⚠️ 부담자 과입금: {_who} 당시 남은 돈 {_left:,}원 / 초과 {_ex:,}원",
                         })
+                    from dashboard.services.lead_helpers import slack_esc
                     _partner = str((preview or {}).get('partner') or '')
                     _named = [p for p in _payers.values() if name_matches(_partner, p)]
                     if len(_named) == 1 and _named[0]['stage'] != stage:
@@ -2612,7 +2613,8 @@ def _intake_warnings(project_code, amount, preview, memo, records=None, stage=No
                             'kind': 'payer_mismatch', 'field': 'stage',
                             'modal': (f"⚠️ 입금자({_partner})는 {payer_title(_o)}({_o['stage']} 칸)으로 보입니다. "
                                       f"{payer_title(_p)}의 돈이 맞으면 [지정]을 한 번 더 눌러주세요."),
-                            'line': f"부담자 확인 — 입금자 {_partner} / 지정 {payer_title(_p)}",
+                            # line 은 카드·DM mrkdwn — 문자 속 이름이라 이스케이프(2026-11-13 보안 점검 2차)
+                            'line': f"부담자 확인 — 입금자 {slack_esc(_partner)} / 지정 {payer_title(_p)}",
                             'note': f"⚠️ 부담자 확인: 입금자 {_partner} · 지정 {payer_title(_p)}",
                         })
         except Exception as exc:
@@ -2710,6 +2712,7 @@ def _build_intake_warn_dm(items, by_user, acked, deposit=None, link=''):
     acked: 매니저가 모달 경고를 보고 [지정]을 다시 눌렀는지. deposit: 입금 문자 인식값
     {'partner', 'date_md'}.
     """
+    from dashboard.services.lead_helpers import slack_esc
     who = _resolve_manager_initial(by_user) if by_user else '-'
     kinds = {w.get('kind') for it in items for w in it[3]}
     titles = []
@@ -2729,7 +2732,8 @@ def _build_intake_warn_dm(items, by_user, acked, deposit=None, link=''):
     lead = (f"{who} 님이 경고를 확인하고 입금을 지정했습니다." if acked
             else f"{who} 님이 입금을 지정했지만, 시트 조회 지연으로 지정 화면에 경고가 표시되지 않았습니다.")
     dep = deposit or {}
-    dep_bits = ' · '.join(b for b in ((dep.get('partner') or '').strip(), (dep.get('date_md') or '').strip()) if b)
+    # 입금자 이름은 문자에서 읽은 글 — DM mrkdwn 에 넣기 전 이스케이프 (2026-11-13 보안 점검 2차)
+    dep_bits = ' · '.join(b for b in (slack_esc((dep.get('partner') or '').strip()), (dep.get('date_md') or '').strip()) if b)
     codes = '  '.join(f"`{it[0]}`" for it in items)
     lines = ["⠀", f":warning: *{' · '.join(titles)}*  {codes}",
              f"{lead} {' / '.join(asks)}.", _WARN_DM_SEP]

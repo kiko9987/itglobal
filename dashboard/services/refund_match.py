@@ -27,6 +27,8 @@ import time
 from datetime import date, datetime
 from typing import Dict, List, Optional
 
+from dashboard.services.lead_helpers import slack_esc  # 문자 속 이름(입금자·출금 상대) mrkdwn 이스케이프 (2026-11-13 보안 점검 2차)
+
 logger = logging.getLogger(__name__)
 
 MAX_DAYS = 90
@@ -298,7 +300,7 @@ def _deposit_line(c: Dict) -> str:
     amt = int(c['amount'])
     dep = int(c.get('dep_amount') or amt)
     extra = f"  ({amt:,}원 과입금)" if dep - amt > 1 else ''
-    return f">입금 : {_fmt_md(c['dep_date'])}  {c['dep_bank']}  {dep:,}원  {c['dep_partner']}{extra}"
+    return f">입금 : {_fmt_md(c['dep_date'])}  {c['dep_bank']}  {dep:,}원  {slack_esc(c['dep_partner'])}{extra}"
 
 
 def build_processing_blocks(outflow: Dict, c: Dict) -> list:
@@ -335,14 +337,14 @@ def build_candidate_blocks(oid: str, outflow: Dict, c: Dict) -> list:
         head = f">↩️ *반환 후보 — 기록 확인 필요*  `{c['code']}`  ·  *{c['stage']}*  ·  *{amt:,}원*"
         check = [f">금액 검증 : {c['reason']}"]
     if c.get('name_typo'):
-        check.append(f">이름 확인 : 입금 {c['dep_partner']} / 출금 {outflow.get('partner', '')} — 한 글자 다름")
+        check.append(f">이름 확인 : 입금 {slack_esc(c['dep_partner'])} / 출금 {slack_esc(outflow.get('partner', ''))} — 한 글자 다름")
     lines = [
         "⠀",
         head,
         f">{INTAKE_SEP}",
         _deposit_line(c),
         f">출금 : {_fmt_md(outflow.get('ts'))}  {outflow.get('bank', '')}  {amt:,}원  "
-        f"{outflow.get('partner', '')}",
+        f"{slack_esc(outflow.get('partner', ''))}",
         *check,
         f">{INTAKE_SEP}",
         *quoted_body(outflow.get('text') or ''),
@@ -385,7 +387,7 @@ def build_done_blocks(outflow: Dict, c: Dict, old: int, new: int, checker: str) 
         f">{INTAKE_SEP}",
         _deposit_line(c),
         f">출금 : {_fmt_md(outflow.get('ts'))}  {outflow.get('bank', '')}  {c['amount']:,}원  "
-        f"{outflow.get('partner', '')}",
+        f"{slack_esc(outflow.get('partner', ''))}",
         f">{INTAKE_SEP}",
         *quoted_body(outflow.get('text') or ''),
         f">{INTAKE_SEP}",

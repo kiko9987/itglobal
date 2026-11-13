@@ -727,7 +727,9 @@ def sync_biz_cell(mgr, sid: str, sn: str, row: int, f2l: dict, plan: Dict[str, d
     want = split_biz_value(plan) if plan else ('-' if is_split_biz_value(cur) else cur)
     if not want or want == cur:
         return {}
-    if not mgr.update_cell_value(sid, sn, f'{bcol}{row}', want):
+    # 부담자 이름은 계산서 OCR 에서도 옴 — USER_ENTERED 칸이라 수식 방지 (2026-11-13 보안 점검 2차)
+    from dashboard.services.lead_helpers import sheet_safe_text
+    if not mgr.update_cell_value(sid, sn, f'{bcol}{row}', sheet_safe_text(want)):
         raise RuntimeError('사업자명 기록 실패')
     out = {'사업자명': want}
     if vcol:
