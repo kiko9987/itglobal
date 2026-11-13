@@ -381,6 +381,11 @@ class SecurityMiddleware:
                 if not self._validate_api_auth():
                     self._log_security_event('API_AUTH_FAILED', request.remote_addr)
                     return jsonify({'error': 'Authentication required'}), 401
+                # 다른 사이트(같은 회사 도메인의 다른 주소 포함)에서 보낸 변경 요청 거절 (2026-11-13 보안 점검)
+                #   — 예전엔 쿠키(SameSite=Lax)만 믿어, 홈페이지 같은 같은-사이트 주소에서 보낸 요청은 막지 못했다.
+                if not self._same_origin_request():
+                    self._log_security_event('API_CROSS_ORIGIN', request.remote_addr)
+                    return jsonify({'error': '다른 사이트에서 보낸 요청은 처리하지 않습니다.'}), 403
             else:
                 # 폼 요청: CSRF 토큰 검증
                 if not self._check_csrf_token():
@@ -508,6 +513,19 @@ class SecurityMiddleware:
 
         session_id = session.get('session_id', '')
         return self.csrf_protection.validate_token(csrf_token, session_id)
+
+    @staticmethod
+    def _same_origin_request() -> bool:
+        """이 사이트 화면에서 보낸 요청인지. 브라우저가 붙이는 Sec-Fetch-Site·Origin 으로 판단.
+        두 머리말이 다 없으면(브라우저가 아닌 호출) 통과 — 이런 공격은 브라우저로만 가능하다."""
+        sfs = (request.headers.get('Sec-Fetch-Site') or '').lower()
+        if sfs:
+            return sfs in ('same-origin', 'none')
+        origin = request.headers.get('Origin') or ''
+        if origin:
+            from urllib.parse import urlparse
+            return urlparse(origin).netloc.lower() == (request.host or '').lower()
+        return True
 
     def _validate_api_auth(self) -> bool:
         """API 인증 검증"""

@@ -67,7 +67,7 @@ h1{font-size:1.15rem;margin:0 0 8px}p{color:#475569;line-height:1.6;margin:0}</s
 def field_login(token):
     """슬랙 휴가 봇이 준 1회용 링크 → 현장 세션."""
     from dashboard.services import gw_login
-    ip = (request.headers.get('X-Forwarded-For') or request.remote_addr or '').split(',')[0].strip()
+    ip = request.remote_addr or ''   # 프록시 처리된 실제 주소 — 손님이 보낸 X-Forwarded-For 첫 값은 믿지 않음 (2026-11-13)
     p = gw_login.consume(token, ip)
     if not p:
         logger.warning(f'[GW-LOGIN] 링크 거절(만료·사용함·없음) ip={ip}')
@@ -77,6 +77,8 @@ def field_login(token):
     session['login_time'] = datetime.now().isoformat()
     session['session_id'] = str(uuid.uuid4())
     session.permanent = True
+    from dashboard.auth import rotate_session_id
+    rotate_session_id()   # 세션 ID 새로 발급 (2026-11-13)
     logger.info(f'[GW-LOGIN] 현장 로그인 #{p["id"]} ip={ip}')
     return redirect('/home')
 

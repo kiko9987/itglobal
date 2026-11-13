@@ -133,6 +133,8 @@ def google_callback():
         session['login_time'] = datetime.now().isoformat()
         session['session_id'] = str(uuid.uuid4())  # CSRF 토큰 생성을 위한 세션 ID
         session.permanent = True
+        from dashboard.auth import rotate_session_id
+        rotate_session_id()   # 세션 ID 새로 발급 (2026-11-13)
 
         # 세션 타임아웃 설정 (프론트엔드와 동기화)
         session_timeout_hours = int(os.getenv('SESSION_TIMEOUT_HOURS', 4))

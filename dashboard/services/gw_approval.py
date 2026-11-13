@@ -291,9 +291,11 @@ def export_xlsx(v: dict, **filters) -> bytes:
     ws.append(['번호', '양식', '제목', '상태', '요청자', '현장 코드', '무엇', '금액', '긴급', '올린 때', '마지막 변경'])
     for c in ws[1]:
         c.font = Font(bold=True)
+    from dashboard.utils.spreadsheet_safe import xlsx_append_text   # 요청자가 쓴 글이 수식으로 안 되게 (2026-11-13)
     for it in data['items']:
-        ws.append([it['id'], it['form_label'], it['title'], it['status_label'], it['requester'], it['project_code'],
-                   it['what'], it['amount'], '긴급' if it['urgent'] else '', it['created_at'], it['updated_at']])
+        xlsx_append_text(ws, [it['id'], it['form_label'], it['title'], it['status_label'], it['requester'],
+                              it['project_code'], it['what'], it['amount'], '긴급' if it['urgent'] else '',
+                              it['created_at'], it['updated_at']])
     for col, w in zip('ABCDEFGHIJK', (7, 14, 26, 12, 10, 12, 30, 14, 6, 17, 17)):
         ws.column_dimensions[col].width = w
     buf = io.BytesIO()

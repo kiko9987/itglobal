@@ -24,7 +24,8 @@ class _FakeRedis:
 def env():
     app = Flask(__name__)
     fake = _FakeRedis()
-    with patch('dashboard.utils.redis_client.get_redis_client') as g:
+    # 서명 확인은 test_security_low_fixes 에서 따로 — 여기선 중복 처리만 본다 (2026-11-13)
+    with patch('dashboard.utils.redis_client.get_redis_client') as g,          patch.object(sb, '_slack_signature_ok', return_value=True):
         g.return_value.redis = fake
         yield app, fake
 

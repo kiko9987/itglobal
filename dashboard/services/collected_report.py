@@ -250,8 +250,9 @@ def to_xlsx(report: dict) -> bytes:
     ws = wb.active
     ws.title = '수금 완료'
     ws.append(COLUMNS)
+    from dashboard.utils.spreadsheet_safe import xlsx_append_text   # 시트 글이 수식으로 안 되게 (2026-11-13)
     for row in report['rows']:
-        ws.append([('✓' if row[c] else '') if c in CHECKS else row[c] for c in COLUMNS])
+        xlsx_append_text(ws, [('✓' if row[c] else '') if c in CHECKS else row[c] for c in COLUMNS])
     bold = Font(bold=True)
     head_fill = PatternFill('solid', fgColor='E9ECEF')
     for cell in ws[1]:

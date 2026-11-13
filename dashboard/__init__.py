@@ -585,7 +585,9 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
             # eventlet의 greenlet 메모리 관리 버그를 우회
             socketio_instance = SocketIO(
                 app,
-                cors_allowed_origins="*",
+                # 같은 출처만 (기본값) — '*' 는 같은-사이트 다른 주소가 직원 쿠키로 실시간 방송을 읽을 수 있었음
+                #   (2026-11-13 보안 점검). 기본값은 프록시가 붙인 X-Forwarded-Proto/Host 도 인정한다.
+                cors_allowed_origins=None,
                 ping_timeout=SOCKETIO_PING_TIMEOUT,
                 ping_interval=SOCKETIO_PING_INTERVAL,
                 async_mode='threading',  # threading 모드로 강제 (메모리 크래시 방지)

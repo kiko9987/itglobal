@@ -177,7 +177,8 @@ class GoogleOAuthManager:
             authorization_url, state = flow.authorization_url(
                 access_type='offline',
                 include_granted_scopes='true',
-                prompt=prompt
+                prompt=prompt,
+                hd=self.allowed_domain,   # 계정 선택 화면을 회사 도메인으로 (2026-11-13)
             )
             return authorization_url, state
         except Exception as e:
@@ -224,6 +225,19 @@ class GoogleOAuthManager:
         if not email.endswith(f'@{self.allowed_domain}'):
             logger.warning(f"허용되지 않은 도메인: {email}")
             return None
+
+        # 2026-11-13 보안 점검: 메일 끝자리만 보면 회사 Workspace 밖 계정(확인 안 된 메일 등)도 통과할 수 있었다.
+        #   구글이 '확인 안 된 메일'이라고 하면 거절, 회사 도메인(hd)이 다르면 거절.
+        #   hd 가 아예 없으면 지금은 경고만 남긴다(직원 계정이 hd 를 주는지 로그로 확인한 뒤 거절로 바꿀 것).
+        if user_info.get('verified_email') is False:
+            logger.warning(f"확인 안 된 메일로 로그인 시도 거절: {email}")
+            return None
+        hd = (user_info.get('hd') or '').lower()
+        if hd and hd != self.allowed_domain.lower():
+            logger.warning(f"회사 도메인이 아닌 계정 거절: {email} (hd={hd})")
+            return None
+        if not hd:
+            logger.warning(f"[OAUTH] 회사 도메인(hd) 정보 없는 로그인: {email}")
         
         return {
             'email': email,

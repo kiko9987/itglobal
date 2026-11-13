@@ -189,6 +189,21 @@ def _validate_session(require_admin=False):
     
     return None
 
+def rotate_session_id():
+    """로그인 직후 세션 ID 를 새로 발급 (세션 고정 방지, 2026-11-13 보안 점검).
+
+    session.clear() 만으로는 Flask-Session 이 같은 ID 를 계속 써서, 로그인 전 받아 둔 쿠키를
+    심어 두면 로그인 후 그 쿠키가 직원 세션이 될 수 있었다. 값을 다 넣은 뒤 불러야 한다
+    (빈 세션이면 regenerate 가 아무것도 안 함)."""
+    try:
+        from flask import current_app
+        si = current_app.session_interface
+        if hasattr(si, 'regenerate') and getattr(session, 'sid', None):
+            si.regenerate(session)
+    except Exception as e:
+        logger.warning(f"세션 ID 재발급 실패(로그인은 계속): {e}")
+
+
 def login_required(f):
     """로그인 필수 데코레이터"""
     @wraps(f)

@@ -1510,10 +1510,11 @@ def _maybe_update_business_name(code: str, ocr_name: str) -> tuple:
     if not (sheet_id and sheet_name):
         logger.warning('[LICENSE/OCR] GOOGLE_SHEET_ID/NAME 미설정')
         return 'error', ''
+    from dashboard.services.lead_helpers import sheet_safe_text
     manager = get_sheets_manager()
     result = manager.batch_update_fields(
         sheet_id, sheet_name, target_row,
-        {'사업자명': ocr_name},
+        {'사업자명': sheet_safe_text(ocr_name)},   # 사진 속 글이 수식으로 안 되게 (2026-11-13 보안 점검)
         project_code=code,
     )
     if not result.get('success'):

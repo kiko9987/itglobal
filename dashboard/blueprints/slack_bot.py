@@ -7570,6 +7570,25 @@ def _run_bg_with_notify(client, body, action_label: str, work_fn) -> None:
     threading.Thread(target=_run, daemon=True).start()
 
 
+def _slack_signature_ok() -> bool:
+    """요청이 우리 슬랙 앱 중 하나의 서명 비밀값으로 서명됐는지 (시간 5분 이내). Bolt 와 같은 방식."""
+    try:
+        from slack_sdk.signature import SignatureVerifier
+    except Exception:
+        return False
+    body = request.get_data(cache=True, as_text=True)
+    ts = request.headers.get('X-Slack-Request-Timestamp', '')
+    sig = request.headers.get('X-Slack-Signature', '')
+    if not ts or not sig:
+        return False
+    for secret in (_SIGNING_SECRET, _PROJECT_SIGNING_SECRET, _VISIT_SIGNING_SECRET, _AS_SIGNING_SECRET,
+                   _INVOICE_SIGNING_SECRET, _PAYMENT_SIGNING_SECRET, _DOCVIEW_SIGNING_SECRET,
+                   _EAPPROVAL_SIGNING_SECRET, _LEAVE_SIGNING_SECRET):
+        if secret and SignatureVerifier(secret).is_valid(body=body, timestamp=ts, signature=sig):
+            return True
+    return False
+
+
 def _is_slack_retry_duplicate() -> bool:
     """같은 Slack 이벤트(event_id)가 다시 들어왔는지 — 이미 처리한 것이면 True(건너뜀).
 
@@ -7592,6 +7611,11 @@ def _is_slack_retry_duplicate() -> bool:
         if retry_num:
             # slash command 재시도 케이스는 상황상 매우 드묾. 로그만 남기고 계속 진행
             logger.info(f'[SLACK/RETRY] event_id 없는 재시도 (reason={retry_reason}) — 계속 진행')
+        return False
+    # 서명이 맞는 요청만 '처리함' 표시를 남긴다 (2026-11-13 보안 점검) — 예전엔 서명 확인(Bolt) 전에
+    #   본문의 event_id 로 표시를 남겨, 서명 없는 가짜 요청이 진짜 이벤트를 '이미 처리'로 만들어 버릴 수 있었음.
+    #   서명이 틀리면 표시 없이 넘기고 Bolt 가 401 로 거절한다.
+    if not _slack_signature_ok():
         return False
     try:
         from dashboard.utils.redis_client import get_redis_client as _grc
@@ -8176,6 +8200,11 @@ def _migrate_visit_card_buttons(days: int = 30, dry_run: bool = True) -> dict:
 
             # 이미 새 버튼 (visit_edit_info) 이면 스킵
             elements = actions_blk.get('elements', []) or []
+            # 취소된 카드(되돌리기 버튼만 있음)는 원래 카드 글을 품고 있어 '새 방문 일정'으로 잡혔다 →
+            #   활성 카드로 다시 그려 취소 기록이 지워지던 버그 (2026-11-13 보안 점검에서 발견)
+            if any(e.get('action_id') == 'visit_uncancel' for e in elements):
+                stats['cancelled_skip'] = stats.get('cancelled_skip', 0) + 1
+                continue
             if any(e.get('action_id') == 'visit_edit_info' for e in elements):
                 stats['already_new'] += 1
                 continue
@@ -8296,11 +8325,27 @@ def _migrate_visit_card_buttons(days: int = 30, dry_run: bool = True) -> dict:
 def _manual_trigger_denied():
     """수동 동기화 주소는 PM 관리자 로그인만 (2026-10-28 5차: /slack/ 경로라 인증·rate limit 을 모두 건너뛰어
     누구나 부를 수 있었음. 부르는 자동 경로는 없음 — 관리자가 브라우저로 여는 용도)."""
-    from flask import session
-    u = session.get('user') or {}
-    if u.get('permission_level') in ('admin', 'super_admin'):
-        return None
-    return jsonify({"ok": False, "error": "관리자 로그인 필요"}), 403
+    # 2026-11-13 보안 점검:
+    #  ① 다른 사이트의 링크·자동 이동으로 관리자 브라우저가 이 주소를 열면(쿠키가 같이 감) 그대로 실행됐음 →
+    #    주소창에 직접 치거나 같은 사이트에서 연 요청만 받는다(Sec-Fetch-Site: none·same-origin).
+    #  ② 세션의 권한 값만 보고 시간 초과·퇴사·권한 회수를 안 봤음 → 다른 관리자 화면과 같은 세션 검사.
+    from flask import request as _rq
+    sfs = (_rq.headers.get('Sec-Fetch-Site') or '').lower()
+    if sfs and sfs not in ('none', 'same-origin'):
+        logger.warning(f"[SLACK/관리] 다른 사이트에서 온 관리용 주소 요청 거부: {_rq.path} (Sec-Fetch-Site={sfs})")
+        return jsonify({"ok": False, "error": "주소창에 직접 입력해 여세요"}), 403
+    from flask import session as _ss
+    if not (_ss.get('user') or {}).get('email'):
+        return jsonify({"ok": False, "error": "관리자 로그인 필요"}), 403
+    try:
+        from dashboard.auth import _validate_session
+        denied = _validate_session(require_admin=True) is not None
+    except Exception as e:
+        logger.warning(f"[SLACK/관리] 세션 검사 실패 → 거부: {e}")
+        denied = True
+    if denied:
+        return jsonify({"ok": False, "error": "관리자 로그인 필요"}), 403
+    return None
 
 
 @slack_bp.route("/sync-karrot", methods=["GET", "POST"])

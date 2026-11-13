@@ -308,8 +308,9 @@ def roster_xlsx(year: int, by: str) -> bytes:
             except Exception:
                 ssn = '(읽기 실패)'
         m = _sub(year, p['id'])['method']
-        ws.append([p['name'], ssn, p.get('hire_date') or '',
-                   {'bulk': '일괄제공', 'pdf': 'PDF 업로드'}.get(m or '', '')])
+        from dashboard.utils.spreadsheet_safe import xlsx_append_text   # (2026-11-13)
+        xlsx_append_text(ws, [p['name'], ssn, p.get('hire_date') or '',
+                              {'bulk': '일괄제공', 'pdf': 'PDF 업로드'}.get(m or '', '')])
     for col, w in zip('ABCD', (12, 18, 12, 12)):
         ws.column_dimensions[col].width = w
     buf = io.BytesIO()
@@ -329,11 +330,12 @@ def bundle_zip(year: int, by: str) -> bytes:
                 '간소화 PDF', '추가 증빙', '제출 시각'])
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
         for r in admin_rows(year):
-            w.writerow([r['name'], r['department'], r['status_label'],
+            from dashboard.utils.spreadsheet_safe import csv_safe_row   # 직원 메모가 수식으로 안 되게 (2026-11-13)
+            w.writerow(csv_safe_row([r['name'], r['department'], r['status_label'],
                         {'bulk': '일괄제공', 'pdf': 'PDF 업로드'}.get(r['method'] or '', ''),
                         '예' if r['bulk_consent'] else '', '예' if r['family_consent'] else '',
                         {'none': '없음', 'changed': '있음'}.get(r['family_status'] or '', ''),
-                        r['family_note'] or '', r['note'] or '', r['simple'], r['extra'], r['submitted_at'] or ''])
+                        r['family_note'] or '', r['note'] or '', r['simple'], r['extra'], r['submitted_at'] or '']))
             for d in hr.documents(r['person_id'], tag=tag(year)):
                 if d['doc_type'] == KIND_TYPES['result']:
                     continue
