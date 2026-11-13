@@ -7763,22 +7763,26 @@ def slack_list_assignee():
         "assignee": "고광일"        # 한국 이름 또는 슬랙 user_id
       }
 
-    보안: Workflow 웹훅 URL 자체가 시크릿 역할. 추가로 SLACK_LIST_WEBHOOK_SECRET
-    환경변수 설정 시 X-Auth 헤더로 이중 검증 (선택).
+    보안 (2026-11-13 보안 점검): SLACK_LIST_WEBHOOK_SECRET 이 반드시 있어야 하고,
+    호출 쪽이 X-Auth 헤더로 같은 값을 보내야 한다. 비밀값이 없으면 503 으로 막는다.
+    예전에는 비밀값이 없으면 검사 없이 받아서, 주소만 알면 누구나 모든 리드의
+    영업 담당자를 바꾸거나 지울 수 있었다 (/slack/ 는 세션·CSRF·속도 제한도 없음).
+    다시 '선택 검증'으로 되돌리지 말 것.
     """
     try:
-        # 선택 검증 — .env에 SLACK_LIST_WEBHOOK_SECRET 있으면 헤더 확인
         expected = os.getenv('SLACK_LIST_WEBHOOK_SECRET', '').strip()
-        if expected:
-            if request.headers.get('X-Auth', '') != expected:
-                logger.warning("[SLACK/LIST] list-assignee: 인증 헤더 불일치")
-                return jsonify({"ok": False, "error": "unauthorized"}), 401
+        if not expected:
+            logger.warning("[SLACK/LIST] list-assignee: SLACK_LIST_WEBHOOK_SECRET 미설정 — 호출 거부")
+            return jsonify({"ok": False, "error": "not configured"}), 503
+        if not secrets.compare_digest(request.headers.get('X-Auth', '').encode('utf-8'),
+                                      expected.encode('utf-8')):
+            logger.warning("[SLACK/LIST] list-assignee: 인증 헤더 불일치")
+            return jsonify({"ok": False, "error": "unauthorized"}), 401
 
         data = request.get_json(silent=True) or {}
         lead_no = str(data.get('lead_no') or '').strip()
         assignee_raw = str(data.get('assignee') or '').strip()
-        logger.info(f"[SLACK/LIST] 담당자 배정 수신: lead={lead_no}, assignee={assignee_raw!r}"
-                    + ('' if expected else ' (비밀값 없이 호출)'))
+        logger.info(f"[SLACK/LIST] 담당자 배정 수신: lead={lead_no}, assignee={assignee_raw!r}")
 
         if not lead_no:
             return jsonify({"ok": False, "error": "lead_no 누락"}), 400
@@ -7810,9 +7814,13 @@ def slack_list_assignee():
                 from dashboard.utils.user_database import get_user_database
                 _staff = {(u.get('name') or '').strip() for u in (get_user_database().get_all_users() or [])
                           if not u.get('is_resigned') and u.get('is_active', True)}
-            except Exception:
+            except Exception as exc:
+                logger.warning(f"[SLACK/LIST] list-assignee: 직원 명단 조회 실패 — 거부 ({exc})")
                 _staff = set()
-            if _staff and new_value not in _staff:
+            # 명단을 못 읽으면 아무 이름이나 시트에 써지지 않게 막는다 (2026-11-13)
+            if not _staff:
+                return jsonify({"ok": False, "error": "직원 명단 확인 불가"}), 503
+            if new_value not in _staff:
                 logger.warning(f"[SLACK/LIST] list-assignee: 재직 직원 이름 아님 {new_value!r} ({lead_no})")
                 return jsonify({"ok": False, "error": "담당자 이름 확인 필요"}), 400
 
