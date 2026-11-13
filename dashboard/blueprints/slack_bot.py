@@ -5504,7 +5504,7 @@ def _register_invoice_handlers(app):
                     # 발행한 계산서 읽기 — 같은 법인 발행이면 자금 이동 요청 정리, 공급받는자는 거래처 탭에
                     #   (현금영수증은 세금계산서 OCR 대상이 아님)
                     if meta.get('doc') != 'cash':
-                        _learn_from_issued_invoice(client, event, meta)
+                        _learn_if_checker_upload(client, event, meta)
             except Exception as exc:
                 logger.error(f"[SLACK/계산서] 자동 완료 예외: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
@@ -17371,6 +17371,19 @@ def _close_fund_moves_by_invoice(client, channel, thread_ts, meta, inv) -> int:
         except Exception as exc:
             logger.warning(f"[SLACK/계산서] 자금 이동 정리 안내 실패(기록은 됨) ({code}): {exc}")
     return len(done)
+
+
+def _learn_if_checker_upload(client, event: dict, meta: dict) -> int:
+    """계산서 스레드 첨부 읽기는 올린 사람이 경영지원(정산 승인자)일 때만 — [이동 없이 처리] 버튼과 같은 권한.
+
+    다른 사람이 올린 사진(다른 공사 계산서·만든 사진)으로 자금 이동 요청이 닫히고 거래처 탭·부담자 칸이
+    채워지던 문제(2026-11-13 보안 점검 2차 #9). 건너뛰면 요청은 그대로 남아 리마인드·버튼으로 경영지원이 정리.
+    카드 발행 완료·시트 '발행' 기록은 이 함수와 무관하게 그대로 진행된다."""
+    if event.get('user') in _SETTLEMENT_CHECKER_IDS:
+        return _learn_from_issued_invoice(client, event, meta)
+    logger.info(f"[SLACK/계산서] 경영지원 아닌 업로드 → 계산서 읽기(자금 이동 정리·거래처 학습) 건너뜀 "
+                f"({meta.get('code')}, {event.get('user')})")
+    return 0
 
 
 def _learn_from_issued_invoice(client, event: dict, meta: dict) -> int:

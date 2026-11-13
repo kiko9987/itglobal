@@ -599,12 +599,19 @@ def cut_rest(rid: int, uid: str, actor_name: str, today: Optional[date] = None) 
         return _row(conn, rid)
 
 
-def transition(rid: int, action: str, uid: str, actor_name: str, reason: str = '') -> Optional[dict]:
-    """상태 바꾸기(두 번 눌러도 한 번만). 반려·취소면 잡아 둔 연차를 돌려놓는다."""
+def transition(rid: int, action: str, uid: str, actor_name: str, reason: str = '',
+               today: Optional[date] = None) -> Optional[dict]:
+    """상태 바꾸기(두 번 눌러도 한 번만). 반려·취소면 잡아 둔 연차를 돌려놓는다.
+
+    권한은 여기서 '지금 상태' 기준으로 다시 본다(2026-11-13 보안 점검 2차 #11): 1차 승인자가 승인을 빠르게
+    두 번 누르면 두 번째 클릭이 화면을 띄울 때의 상태(1차 대기)로 권한을 통과한 뒤, 이미 2차 대기로 바뀐 행에서
+    2차 승인까지 처리할 수 있었다. 같은 연결에서 다시 확인 + UPDATE 의 상태 조건으로 한 번만 바뀐다."""
     now = _now()
     with _conn() as conn:
         row = _row(conn, rid)
         if not row:
+            return None
+        if not can_act(action, row, uid, today):
             return None
         appr = approver_ids()
         if action == 'approve':

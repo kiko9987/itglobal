@@ -313,3 +313,14 @@ def test_bno_pattern_ignores_approval_number():
     assert io_._BNO_RE.search('20261011-10261016-11365625') is None
     assert ''.join(io_._BNO_RE.search('884-81-01425').groups()) == '8848101425'
     assert ''.join(io_._BNO_RE.search('등록번호 4140262330').groups()) == '4140262330'
+
+
+def test_learn_only_for_settlement_checker_upload(monkeypatch):
+    """보안 점검 2차 #9 (2026-11-13): 경영지원이 아닌 사람이 올린 사진으로는 자금 이동 요청을 닫거나 거래처를 채우지 않는다."""
+    import dashboard.blueprints.slack_bot as sb
+    called = []
+    monkeypatch.setattr(sb, '_learn_from_issued_invoice', lambda c, e, m: called.append(e['user']) or 1)
+    monkeypatch.setattr(sb, '_SETTLEMENT_CHECKER_IDS', ('U_SB',))
+    assert sb._learn_if_checker_upload(None, {'user': 'U_SALES'}, {'code': 'G1-AA'}) == 0
+    assert sb._learn_if_checker_upload(None, {'user': 'U_SB'}, {'code': 'G1-AA'}) == 1
+    assert called == ['U_SB']

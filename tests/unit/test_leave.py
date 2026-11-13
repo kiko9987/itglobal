@@ -118,7 +118,8 @@ def test_cancel_rules(db):
     assert lv.cancel_mode(r, MW, today=date(2026, 11, 9)) == 'all'
     assert not lv.can_act('cancel', r, MW, today=date(2026, 11, 10))      # 끝난 휴가는 본인 취소 불가
     assert lv.can_act('cancel', r, KIKO, today=date(2026, 11, 20))        # 경영지원은 됨
-    r = lv.transition(r['id'], 'cancel', MW, '박민우')
+    # 상태 변경도 권한을 다시 본다(11-13) — 휴가 전날(11/8) 본인 취소
+    r = lv.transition(r['id'], 'cancel', MW, '박민우', today=date(2026, 11, 8))
     assert r['status'] == lv.CANCELLED and lv.balance('박민우', date(2026, 11, 9)) == 3
 
 
@@ -333,3 +334,19 @@ def test_leave_app_handlers_registered():
     for fn in ('handle_open_leave_step', 'handle_leave_submit', 'handle_leave_reject_open', 'handle_leave_mine',
                'handle_leave_home', 'handle_leave_view_closed'):
         assert fn in names
+
+
+def test_first_approver_double_click_cannot_final_approve(db):
+    """보안 점검 2차 #11 (2026-11-13): 1차 승인자가 승인을 두 번 눌러도 2차(대표) 단계는 처리되지 않는다.
+
+    두 번째 클릭은 화면을 띄울 때의 상태(1차 대기)로 권한을 통과했지만, 상태 변경은 지금 상태로 다시 확인한다."""
+    _seed(left=3)
+    r = lv.create('박민우', MW, MW, '박민우', lv.ANNUAL, '', date(2026, 11, 20), date(2026, 11, 20))
+    stale = dict(r)                                     # 두 번째 클릭이 본 옛 상태
+    assert lv.can_act('approve', stale, JW)
+    r = lv.transition(r['id'], 'approve', JW, '박정우')
+    assert r['status'] == lv.WAIT_2
+    assert lv.transition(r['id'], 'approve', JW, '박정우') is None      # 두 번째 클릭
+    assert lv.get(r['id'])['status'] == lv.WAIT_2
+    assert lv.transition(r['id'], 'reject', JW, '박정우') is None       # 반려도 지금 단계 승인자만
+    assert lv.transition(r['id'], 'approve', YG, '박용구')['status'] == lv.APPROVED
