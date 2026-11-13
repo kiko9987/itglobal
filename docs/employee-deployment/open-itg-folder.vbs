@@ -32,6 +32,16 @@ If Len(folderId) = 0 Then
     WScript.Quit 1
 End If
 
+' 폴더 ID 형식(영문·숫자·_- 20~100자)만 허용 — 다른 사이트·메일이 itgfolder:// 로
+' 하위 경로·파일(.bat 등)을 열게 하는 것 막기 (2026-11-13 보안 점검)
+Dim idCheck
+Set idCheck = New RegExp
+idCheck.Pattern = "^[A-Za-z0-9_-]{20,100}$"
+If Not idCheck.Test(folderId) Then
+    MsgBox "올바른 폴더 링크가 아닙니다.", vbExclamation, "ITG Folder"
+    WScript.Quit 1
+End If
+
 drivePath = "G:\.shortcut-targets-by-id\" & folderId
 
 Set shell = CreateObject("WScript.Shell")
