@@ -547,8 +547,11 @@ def _slack_user_to_korean_name(client, user_id: str) -> str:
         shown = (profile.get("display_name")
                  or profile.get("real_name")
                  or '').strip()
-        # 연결 안 된 계정이 기존 직원 이름(또는 이니셜)으로 표시 이름을 바꾼 경우는 그 이름을 쓰지 않음
-        if shown and _is_staff_name(shown):
+        # 연결 안 된 계정이 기존 직원 이름(또는 이니셜)으로 표시 이름을 바꾼 경우는 그 이름을 쓰지 않음.
+        #   '박용구,미정'·'박용구/외부' 처럼 묶어 써도 이니셜 변환(_to_initial)이 칸마다 나눠 YG 로 기록하므로
+        #   나눈 칸도 하나하나 확인(2026-11-14 보안 점검 3차 #6)
+        _parts = [shown] + [x.strip() for x in re.split(r'[,/]', shown) if x.strip()]
+        if shown and any(_is_staff_name(x) for x in _parts):
             logger.warning(f"[SLACK] 인사카드 미연결 계정의 표시 이름이 직원 이름과 같음 → 이름 비움 ({user_id})")
             return ''
         return shown

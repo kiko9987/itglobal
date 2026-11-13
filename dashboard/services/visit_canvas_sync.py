@@ -186,6 +186,9 @@ def _render_item(lead: Dict, initial_map: Dict[str, str]) -> str:
     inquiry = re.sub(r'\s*\n\s*', ' ', inquiry_raw)
     if len(inquiry) > 200:
         inquiry = inquiry[:200] + '...'
+    # 고객 글(연락처·주소·문의) — 캔버스 마크다운 링크·멘션·줄바꿈 중화(2026-11-14 보안 점검 3차 #3)
+    from dashboard.services.lead_helpers import canvas_md_safe
+    phone, address, inquiry = canvas_md_safe(phone), canvas_md_safe(address), canvas_md_safe(inquiry)
 
     if is_online:
         # 온라인 방문 — 이니셜 생략 (2026-07-16 요청)

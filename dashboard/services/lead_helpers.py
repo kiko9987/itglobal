@@ -160,6 +160,18 @@ def slack_esc(text):
     return str(text if text is not None else '').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
 
+def canvas_md_safe(text) -> str:
+    """방문 일정 캔버스(마크다운)에 넣을 고객 글 — 링크·멘션·줄바꿈이 동작하지 않게 (2026-11-14 보안 점검 3차 #3).
+
+    캔버스는 마크다운이라 주소·문의에 '[견적서](https://악성)'·'![](@U123)'·'<https://…|…>' 를 넣으면 위장 링크나
+    멘션이 됐다. 링크 문법('](' '![')만 끊고 < > 는 전각으로 — 보통 주소·괄호는 보이는 모양 그대로.
+    줄바꿈류(CR·LF·U+0085·U+2028·U+2029)는 새 목록 줄을 만들 수 있어 공백으로."""
+    s = re.sub(r'[\r\n\u0085  ]+', ' ', str(text if text is not None else ''))
+    s = s.replace('<', '＜').replace('>', '＞')
+    s = s.replace('](', '] (').replace('![', '! [')
+    return s
+
+
 def sheet_safe_row(values):
     """행 전체에 sheet_safe_text 적용 — 리드 시트에는 일부러 넣는 수식 칸이 없다 (2026-11-13)."""
     return [sheet_safe_text(v) for v in values]

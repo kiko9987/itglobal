@@ -16,7 +16,7 @@ import json
 import os
 import re
 from contextlib import contextmanager
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from dashboard.services import e_approval as ea
 from dashboard.services import hr
@@ -84,23 +84,72 @@ def viewer(email: str) -> dict:
     executor = bool(sid) and (sid in ea.executor_ids() or sid in ea.n_executor_ids())
     see_all = approver or final or executor or hr.is_hr_admin(email)
     return {'email': email, 'slack_id': sid, 'name': (p or {}).get('name') or '', 'see_all': see_all,
-            'linked': bool(sid), 'archive_since': _archive_since(p)}
+            'linked': bool(sid), 'archive_windows': _archive_windows(p)}
 
 
-def _archive_since(p: Optional[dict]) -> str:
-    """플렉스 옛 문서는 작성자 이름으로만 묶여 있다 — 생년월일이 다른 동명이인 카드가 있으면 이 사람 입사일
-    이후 문서만 (2026-11-13 보안 점검 2차 #6). 같은 사람 재입사(생년월일 같음)는 예전 문서도 본인 것.
-    입사일을 모르면 아무 문서도 안 보이게 '9999'. 동명이인이 없으면 ''."""
+_ALL_TIME = ('0000-00-00', '9999-12-31')
+
+
+def _work_window(x: dict) -> Optional[Tuple[str, str]]:
+    """인사카드 근무 기간 (입사일, 퇴사일·마지막 근무일 중 늦은 날 — 재직이면 9999-12-31). 입사일 모르면 None."""
+    start = (x.get('hire_date') or '').strip()[:10]
+    if not start:
+        return None
+    end = max((x.get('resign_date') or '').strip()[:10], (x.get('last_work_date') or '').strip()[:10])
+    return start, end or '9999-12-31'
+
+
+def _archive_windows(p: Optional[dict]) -> Optional[dict]:
+    """플렉스 옛 문서는 작성자 '이름'만 남아 있다(내보내기에 사람 번호 없음) — 이름 + 본인 근무 기간으로 묶는다
+    (2026-11-14 보안 점검 3차 #5. 11-13 은 동명이인이 있을 때만 입사일 하한).
+    mine = 본인 카드와 같은 사람 카드(생년월일 같음 = 재입사)의 근무 기간, others = 생년월일이 다른 동명이인의 근무
+    기간(겹치는 날은 누구 문서인지 모르니 숨김). 근무 기간을 모르는 동명이인이 있으면 전부 숨김.
+    11-14 실데이터: 플렉스 문서 1,305건 모두 작성자 근무 기간 안 — 지금 보이던 문서는 그대로 보인다."""
     if not p or not (p.get('name') or '').strip():
-        return ''
+        return None
     me_birth = (p.get('birth_date') or '').strip()
     try:
-        others = [x for x in hr.same_name_people(p['name']) if x.get('id') != p.get('id')]
+        cards = hr.same_name_people(p['name'])
     except Exception:
-        return '9999'
-    if not any(not me_birth or (x.get('birth_date') or '').strip() != me_birth for x in others):
-        return ''
-    return (p.get('hire_date') or '').strip()[:10] or '9999'
+        return {'mine': [], 'others': []}
+    if not any(x.get('id') == p.get('id') for x in cards):
+        cards = [p] + list(cards)
+
+    def same(x):
+        return x.get('id') == p.get('id') or (bool(me_birth) and (x.get('birth_date') or '').strip() == me_birth)
+    mine = [w for x in cards if same(x) for w in [_work_window(x)] if w]
+    others = []
+    for x in cards:
+        if same(x):
+            continue
+        w = _work_window(x)
+        others.append(w or _ALL_TIME)
+    return {'mine': mine, 'others': others}
+
+
+def _window_sql(w: Optional[dict]) -> Tuple[str, list]:
+    """근무 기간 창 → SQL 조건(created_at 'YYYY-MM-DD HH:MM' 비교, 끝 날은 그날 끝까지)."""
+    if w is None:
+        return '', []
+    if not w['mine']:
+        return '0', []
+    inc = ' OR '.join(['(created_at >= ? AND created_at <= ?)'] * len(w['mine']))
+    args = [a for s, e in w['mine'] for a in (s, e + ' 99')]
+    sql = f'({inc})'
+    if w['others']:
+        sql += ' AND NOT (' + ' OR '.join(['(created_at >= ? AND created_at <= ?)'] * len(w['others'])) + ')'
+        args += [a for s, e in w['others'] for a in (s, e + ' 99')]
+    return sql, args
+
+
+def _in_windows(created_at: str, w: Optional[dict]) -> bool:
+    if w is None:
+        return True
+    at = (created_at or '')[:10]
+
+    def _hit(ws):
+        return any(s <= at <= e for s, e in ws)
+    return bool(at) and _hit(w['mine']) and not _hit(w['others'])
 
 
 def _waiting_on(row: dict, sid: str) -> bool:
@@ -423,9 +472,10 @@ def archive_list(v: dict, q: str = '', form: str = '', date_from: str = '', date
             return {'items': [], 'total': 0, 'forms': [], 'page': 1, 'size': size}
         where.append('writer = ?')
         args.append(v['name'])
-        if v.get('archive_since'):
-            where.append('created_at >= ?')
-            args.append(v['archive_since'])
+        _ws, _wa = _window_sql(v.get('archive_windows'))
+        if _ws:
+            where.append(_ws)
+            args += _wa
     if form:
         where.append('form = ?')
         args.append(form)
@@ -449,8 +499,9 @@ def archive_list(v: dict, q: str = '', form: str = '', date_from: str = '', date
         fw, fa = '', []
         if not v['see_all']:
             fw, fa = 'WHERE writer = ?', [v['name']]
-            if v.get('archive_since'):
-                fw, fa = fw + ' AND created_at >= ?', fa + [v['archive_since']]
+            _ws, _wa = _window_sql(v.get('archive_windows'))
+            if _ws:
+                fw, fa = f'{fw} AND {_ws}', fa + _wa
         forms_ = [r[0] for r in conn.execute(f'SELECT form, COUNT(*) c FROM flex_approval_archive {fw} GROUP BY form '
                                               f'ORDER BY c DESC', fa).fetchall()]
     keys = ('doc_no', 'title', 'form', 'status', 'writer', 'created_at', 'amount', 'project_code', 'partner', 'attachments')
@@ -467,7 +518,7 @@ def archive_detail(doc_no: str, v: dict) -> Optional[dict]:
     d = dict(zip(keys, r))
     # 이름이 빈 사람(인사카드 없음)이 작성자 빈 문서를 보는 일 막기 — 목록과 같은 규칙 (2026-11-13)
     if not v['see_all'] and (not v['name'] or d['writer'] != v['name']
-                             or (v.get('archive_since') and (d['created_at'] or '') < v['archive_since'])):
+                             or not _in_windows(d['created_at'], v.get('archive_windows'))):
         return None
     try:
         fields = json.loads(d['fields'] or '{}')

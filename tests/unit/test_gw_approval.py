@@ -119,6 +119,10 @@ def test_flex_archive_import_mask_and_scope(db, tmp_path):
     out = ga.import_flex_export(str(exp))
     assert out['count'] == 3 and out['by_status'] == {'완료': 1, '반려': 1, '진행 중(플렉스)': 1}
     ga.import_flex_export(str(exp))                                          # 다시 돌려도 3건
+    # 옛 문서는 이름 + 본인 근무 기간으로 묶는다(11-14) — 입사일 있는 카드여야 본인 문서가 보인다
+    with db._get_connection() as conn:
+        conn.execute("UPDATE hr_people SET hire_date='2024-01-02' WHERE name='박민우'")
+        conn.commit()
     k, m = ga.viewer('kiko@itg-aircon.com'), ga.viewer('mw@itg-aircon.com')
     all_ = ga.archive_list(k)
     assert all_['total'] == 3 and set(all_['forms']) == {'자금집행요청(전자계산서용)', '법인카드 지출결의', '계약서 작성 요청'}

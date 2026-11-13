@@ -2,7 +2,7 @@
 """보안 점검 2차 남은 항목 (2026-11-13).
 
 #8 슬랙 작성자 이름: 인사카드 연결(슬랙 ID) 우선, 미연결 계정이 직원 이름·이니셜을 표시 이름으로 쓰면 비움
-#6 플렉스 옛 결재 문서: 생년월일이 다른 동명이인이 있으면 입사일 이후 문서만
+#6 플렉스 옛 결재 문서: 이름 + 본인 근무 기간(11-14, 동명이인 근무 기간은 숨김)
 #5 실시간 소켓: 연결 뒤에도 세션 재확인 → 끝난 세션의 연결은 끊음
 """
 import sys
@@ -58,19 +58,25 @@ def _p(**k):
     return dict({'id': 1, 'name': '홍길동', 'birth_date': '1990-01-01', 'hire_date': '2025-03-01'}, **k)
 
 
-@pytest.mark.parametrize('others,expected', [
-    ([], ''),                                                                   # 동명이인 없음
-    ([{'id': 2, 'name': '홍길동', 'birth_date': '1990-01-01'}], ''),            # 같은 사람 재입사
-    ([{'id': 2, 'name': '홍길동', 'birth_date': '1985-05-05'}], '2025-03-01'),  # 다른 사람 → 입사일 이후만
+@pytest.mark.parametrize('others,mine,blocked', [
+    ([], [('2025-03-01', '9999-12-31')], []),                                    # 동명이인 없음 → 본인 근무 기간
+    ([{'id': 2, 'name': '홍길동', 'birth_date': '1990-01-01', 'hire_date': '2020-01-01', 'resign_date': '2021-12-31'}],
+     [('2025-03-01', '9999-12-31'), ('2020-01-01', '2021-12-31')], []),          # 같은 사람 재입사 → 예전 기간도 본인
+    ([{'id': 2, 'name': '홍길동', 'birth_date': '1985-05-05', 'hire_date': '2019-01-01', 'last_work_date': '2024-12-31'}],
+     [('2025-03-01', '9999-12-31')], [('2019-01-01', '2024-12-31')]),             # 다른 사람 → 그 사람 기간은 숨김
+    ([{'id': 2, 'name': '홍길동', 'birth_date': '1985-05-05'}],
+     [('2025-03-01', '9999-12-31')], [('0000-00-00', '9999-12-31')]),             # 기간 모르는 동명이인 → 전부 숨김
 ])
-def test_archive_since(monkeypatch, others, expected):
+def test_archive_windows(monkeypatch, others, mine, blocked):
     monkeypatch.setattr(hr, 'same_name_people', lambda n: [_p()] + others)
-    assert ga._archive_since(_p()) == expected
+    assert ga._archive_windows(_p()) == {'mine': mine, 'others': blocked}
 
 
-def test_archive_since_without_hire_date_hides_all(monkeypatch):
-    monkeypatch.setattr(hr, 'same_name_people', lambda n: [{'id': 2, 'birth_date': '1985-05-05'}])
-    assert ga._archive_since(_p(hire_date='')) == '9999'
+def test_archive_windows_without_hire_date_hides_all(monkeypatch):
+    monkeypatch.setattr(hr, 'same_name_people', lambda n: [])
+    w = ga._archive_windows(_p(hire_date=''))
+    assert w == {'mine': [], 'others': []} and ga._window_sql(w) == ('0', [])
+    assert not ga._in_windows('2025-06-01 10:00', w)
 
 
 class _Cur:
@@ -81,16 +87,25 @@ class _Cur:
         return self.row
 
 
-def test_archive_detail_respects_since(monkeypatch):
-    row = ('F-1', 't', 'form', '완료', '홍길동', '2024-06-01 10:00', '', '', '', '{}')
+def _detail(monkeypatch, created_at, w):
+    row = ('F-1', 't', 'form', '완료', '홍길동', created_at, '', '', '', '{}')
 
     @contextmanager
     def fake():
         yield type('C', (), {'execute': lambda _s, *a: _Cur(row)})()
     monkeypatch.setattr(ga, '_aconn', fake)
-    v = {'see_all': False, 'name': '홍길동', 'archive_since': '2025-03-01'}
-    assert ga.archive_detail('F-1', v) is None                 # 동명이인의 입사 전 문서
-    assert ga.archive_detail('F-1', dict(v, archive_since=''))['doc_no'] == 'F-1'
+    return ga.archive_detail('F-1', {'see_all': False, 'name': '홍길동', 'archive_windows': w})
+
+
+def test_archive_detail_respects_windows(monkeypatch):
+    w = {'mine': [('2025-03-01', '9999-12-31')], 'others': []}
+    assert _detail(monkeypatch, '2024-06-01 10:00', w) is None             # 입사 전 = 같은 이름의 옛 작성자
+    assert _detail(monkeypatch, '2025-03-01 09:00', w)['doc_no'] == 'F-1'  # 입사 당일부터
+    w2 = {'mine': [('2020-01-01', '9999-12-31')], 'others': [('2023-01-01', '2023-12-31')]}
+    assert _detail(monkeypatch, '2023-06-01 10:00', w2) is None            # 동명이인 근무 기간과 겹침
+    assert _detail(monkeypatch, '2024-06-01 10:00', w2)['doc_no'] == 'F-1'
+    w3 = {'mine': [('2020-01-01', '2021-12-31')], 'others': []}
+    assert _detail(monkeypatch, '2021-12-31 18:00', w3)['doc_no'] == 'F-1'  # 퇴사일 그날까지
 
 
 # ── #5 소켓 세션 재확인 ────────────────────────────────────

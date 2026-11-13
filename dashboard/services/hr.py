@@ -196,9 +196,11 @@ def list_people(include_resigned: bool = False) -> List[dict]:
 
 
 def same_name_people(name: str) -> List[dict]:
-    """이름이 같은 인사카드(퇴사 포함) — id·생년월일·입사일만. 플렉스 옛 문서 동명이인 구분용 (2026-11-13)."""
+    """이름이 같은 인사카드(퇴사 포함) — id·생년월일·근무 기간만. 플렉스 옛 문서를 사람·근무 기간으로 묶는 데 씀
+    (2026-11-13, 11-14 퇴사일 추가)."""
     with _conn() as conn:
-        return [dict(r) for r in conn.execute('SELECT id, name, birth_date, hire_date FROM hr_people WHERE name = ?',
+        return [dict(r) for r in conn.execute('SELECT id, name, birth_date, hire_date, resign_date, last_work_date '
+                                              'FROM hr_people WHERE name = ?',
                                               ((name or '').strip(),)).fetchall()]
 
 
