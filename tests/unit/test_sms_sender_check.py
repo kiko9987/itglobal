@@ -67,7 +67,6 @@ def test_allowlist_accepts_listed(client, monkeypatch, sender):
     assert len(client.calls) == 1
     call = client.calls[0]
     assert call['origin'] == si._normalize_sender(sender)
-    assert call['origin_checked'] is True
     assert call['allow_cash'] is False
 
 
@@ -76,7 +75,6 @@ def test_no_allowlist_still_passes_origin_unchecked(client, monkeypatch):
     client.post('/sms/inbound', data={'token': 'secretSB', 'sender': '010-1234-5678', 'text': IBK})
     call = client.calls[0]
     assert call['origin'] == '01012345678'
-    assert call['origin_checked'] is False
     assert call['allow_cash'] is False
 
 
@@ -86,28 +84,11 @@ def test_sms_path_cash_text_ignored():
     assert r['status'] == 'ignored'
 
 
-@pytest.mark.parametrize('preview,expect_warn', [
-    ({'origin': '15662566', 'origin_checked': False}, False),      # 은행 대표번호 — 줄 없음
-    ({'origin': '15662566', 'origin_checked': True}, False),
-    ({'origin': '01012345678', 'origin_checked': False}, True),    # 휴대폰 — 경고
-    ({'origin': '01012345678', 'origin_checked': True}, False),    # 허용 목록으로 확인됨
-    ({'origin': '-', 'origin_checked': False}, False),             # 번호 모름 — 소음 막으려 줄 없음
-    ({}, False),                                                    # 채널 붙여넣기
-    ({'cash': True}, False),
-])
-def test_origin_line_warning_only(preview, expect_warn):
-    line = si._origin_line(preview)
-    assert bool(line) is expect_warn
-    assert '발신번호:' not in line and '01012345678' not in line   # 번호는 카드에 안 보임
-
-
-def test_card_hides_number_but_warns():
-    blocks = si._build_intake_blocks('id1', IBK, {'origin': '01012345678', 'origin_checked': False})
-    text = blocks[0]['text']['text']
-    assert '01012345678' not in text and '발신번호' not in text
-    assert '은행 대표번호가 아닌 번호에서 온 문자입니다' in text
-    blocks = si._build_intake_blocks('id2', IBK, {'origin': '15662566', 'origin_checked': False})
-    assert '⚠️' not in blocks[0]['text']['text'] and '1566' not in blocks[0]['text']['text']
+def test_card_never_shows_sender_or_warning():
+    # 2026-11-13 사용자 결정: 카드엔 발신번호도 경고도 없음 — 은행 확인은 서버 허용 목록이 맡음
+    for preview in ({'origin': '01012345678'}, {'origin': '15662566'}, {}):
+        text = si._build_intake_blocks('id1', IBK, preview)[0]['text']['text']
+        assert '01012345678' not in text and '1566' not in text and '⚠️' not in text
 
 
 def test_sms_card_text_escaped_and_round_trips():

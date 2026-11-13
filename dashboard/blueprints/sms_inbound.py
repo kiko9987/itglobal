@@ -149,7 +149,7 @@ def sms_inbound():
     # 폰 문자에는 '현금' 자유문장 경로를 열지 않는다 — 현금은 직원이 #입금_관리 에 붙여넣는 경로 전용.
     #   폰으로 아무나 '현금 100만원' 문자를 보내 입금 카드를 만들 수 있었음 (2026-11-13 보안 점검).
     result = ingest_deposit(text, source=f'sms:{device}', allow_cash=False,
-                            origin=sender_digits or '-', origin_checked=bool(senders))
+                            origin=sender_digits or '-')
     if result.get('status') == 'ok':
         logger.info(f"[SMS_INBOUND] 인입 카드 게시: id={result.get('id')} device={device} "
                     f"sender={_mask_sender(sender_digits)!r} "
@@ -161,7 +161,7 @@ def sms_inbound():
 
 
 def ingest_deposit(text: str, source: str = 'sms', cash_receiver: str = '',
-                   allow_cash: bool = True, origin: str = '', origin_checked: bool = False) -> dict:
+                   allow_cash: bool = True, origin: str = '') -> dict:
     """은행 입금 문자 1건 처리 — 폰 포워딩과 채널 붙여넣기 공통 코어.
 
     판별(looks_like_payment) → 사업자통장(has_business_account) → Redis dedup →
@@ -169,8 +169,7 @@ def ingest_deposit(text: str, source: str = 'sms', cash_receiver: str = '',
     source: 추적용 라벨('sms:{device}' 또는 'channel:{user_id}'). dedup 키엔 미반영
     (같은 입금이 폰·수동 양쪽으로 와도 본문 동일 → 첫 1건만 카드).
     allow_cash: '현금' 자유문장 인식 여부 — 폰 문자 경로는 False (2026-11-13).
-    origin: 문자 발신번호(숫자만, 폰 경로만). 카드에 표시·원문 기록에 보관.
-    origin_checked: 발신번호가 허용 목록으로 이미 확인됐는지 (확인 안 됐으면 카드에 경고 가능).
+    origin: 문자 발신번호(숫자만, 폰 경로만). 원문 기록에만 보관 — 카드엔 안 보임(2026-11-13 사용자 결정).
     Returns: {'status': 'ok'|'ignored'|'duplicate'|'card_failed', 'id'?, 'reason'?, 'preview'?}
     """
     # 렌더된 슬랙 메시지 복사·붙여넣기로 각 줄이 '*줄*' 볼드 마크다운으로 딸려온 경우 제거
@@ -224,9 +223,6 @@ def ingest_deposit(text: str, source: str = 'sms', cash_receiver: str = '',
         preview['converted'] = True   # 카드에 '농협 자동 변환' 배지 표시용
     if is_cash:
         preview['cash'] = True         # 카드에 '현금 수령 변환' 배지 표시용
-    if origin:
-        preview['origin'] = origin                 # 카드에 발신번호 표시 (2026-11-13)
-        preview['origin_checked'] = bool(origin_checked)
 
     # 원문(잔액 제거본) 보관 — 모달 제출 시 시트에 기록할 내용
     if rc is not None:
@@ -447,19 +443,6 @@ def _suggest_transfer_async(slack, channel: str, ts: str, intake_id: str,
     threading.Thread(target=_bg, daemon=True).start()
 
 
-def _origin_line(preview: dict) -> str:
-    """폰 문자 카드의 발신번호 경고 줄 (2026-11-13 보안 점검).
-
-    발신번호 자체는 카드에 보여 주지 않는다(같은 날 사용자 결정 — 굳이 필요 없음). 번호는 원문
-    기록(origin)과 로그에만 남긴다. 휴대폰·일반 전화 같은, 은행 대표번호가 아닌 번호에서 온 문자일
-    때만 경고 한 줄을 붙인다. 허용 목록으로 이미 확인된 번호나 번호를 모르는 경우('-')는 줄 없음."""
-    p = preview or {}
-    origin = str(p.get('origin') or '')
-    if not origin.isdigit() or p.get('origin_checked') or looks_like_bank_rep(origin):
-        return ''
-    return '>⚠️ *은행 대표번호가 아닌 번호에서 온 문자입니다. 통장에서 입금을 확인한 뒤 기록하세요.*'
-
-
 def _build_intake_blocks(intake_id: str, clean_text: str, preview: dict,
                          transfer: dict = None) -> list:
     """transfer: {'cands': [대기 요청…], 'evidence': bool} — 법인 간 이체 안내·버튼 (2026-10-04)."""
@@ -482,9 +465,6 @@ def _build_intake_blocks(intake_id: str, clean_text: str, preview: dict,
     header = '새 입금 내역 알림' + (f' - {bank_label}' if bank_label else '')
     lines = ["⠀", f">🔔 *{header}*", f">{INTAKE_SEP}",
              *quoted_body(clean_text), f">{INTAKE_SEP}"]
-    origin_line = _origin_line(preview)
-    if origin_line:
-        lines.append(origin_line)
     elements = [
         {
             "type": "button",
