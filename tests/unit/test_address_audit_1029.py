@@ -367,5 +367,25 @@ def test_visit_modal_address_memo_moves_to_consultation():
     assert S('방배로 83 3층 오전 9시 방문', '오전 9시 방문 확정')[1] == '오전 9시 방문 확정'
 
 
+def test_branch_and_coffee_signal_l04558():
+    assert ar._extract_building_tail(
+        '김포 통진읍 율마로 339-43 메가커피 김포마송가현점') == '메가커피 김포마송가현점'
+    # '시점'·'관점'처럼 앞이 한 글자인 일반어는 신호 아님
+    assert not ar._TAIL_SIGNAL.search('그 시점')
+    # '공실'(성씨 '공'+1자)은 사람 이름 아님
+    assert ar._strip_personal_name('메가커피 김포마송가현점 옆 공실') == '메가커피 김포마송가현점 옆 공실'
+    assert ar._strip_personal_name('그로브리조트 정승종') == '그로브리조트'
+
+
+def test_visit_modal_keeps_typed_tail():
+    from dashboard.blueprints.slack_bot import _keep_typed_tail as K
+    assert K('김포 통진읍 율마로 339-43 메가커피 김포마송가현점', '김포 통진읍 율마로 339-43') == (
+        '김포 통진읍 율마로 339-43 메가커피 김포마송가현점')
+    # 낱말이 하나라도 결과에 있으면(정식명으로 바뀐 경우) 그대로
+    assert K('서초구 강남대로 213 엘타워 산들해 양재점',
+             '서초구 강남대로 213 엘타워 산들해 양재동점') == '서초구 강남대로 213 엘타워 산들해 양재동점'
+    assert K('김포 통진읍 율마로 339-43', '김포 통진읍 율마로 339-43') == '김포 통진읍 율마로 339-43'
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))

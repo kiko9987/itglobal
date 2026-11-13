@@ -13639,6 +13639,29 @@ def _split_visit_address_memo(raw_addr: str, consultation: str) -> tuple:
     return _clean, consult, _memo
 
 
+def _keep_typed_tail(raw: str, norm: str) -> str:
+    """매니저가 모달에 직접 적은 번지 뒤 내용이 변환 결과에 하나도 없으면 그대로 다시 붙임.
+
+    2026-11-13 L-04558: [정보 수정]에 '율마로 339-43 메가커피 김포마송가현점'을 넣었는데 건물
+    신호가 없어 '율마로 339-43'만 저장됨("입력한 정보대로 수정이 안 됨"). 직접 입력은 지우지 않는다.
+    낱말이 하나라도 결과에 있으면(카카오·POI 정식명으로 바뀐 경우) 겹칠 수 있어 건드리지 않음.
+    """
+    try:
+        from dashboard.services.address_resolver import (
+            _extract_building_tail, _flatten_paren_tail)
+        tail = _flatten_paren_tail(_extract_building_tail(raw, require_signal=False)).strip()
+    except Exception:
+        return norm
+    if not tail:
+        return norm
+    norm_ns = re.sub(r'\s', '', norm or '').lower()
+    words = [w for w in tail.split() if len(w) >= 2]
+    if not words or any(w.lower() in norm_ns for w in words):
+        return norm
+    logger.info(f"[SLACK/방문주소] 입력한 번지 뒤 내용 유지: '{norm}' + '{tail}'")
+    return f'{norm} {tail}'
+
+
 def _normalize_visit_address_if_verified(raw_addr: str) -> tuple:
     """방문 모달 입력 주소를 카카오 verified 면 정규화값, 아니면 raw 유지 + 미검증 배지.
 
@@ -13666,6 +13689,7 @@ def _normalize_visit_address_if_verified(raw_addr: str) -> tuple:
             raw, _rx[0] if _rx else None, _rx[1] if _rx else '',
         )
         if _lv == 'verified' and _norm:
+            _norm = _keep_typed_tail(raw, _norm)
             if _norm != raw:
                 # verified & 정정됨 → 원본/변환 2줄 + 등록자 ephemeral (2026-08-01):
                 #   워크플로(전화/거래처) 경로와 동일하게 매니저가 "내 입력 → 카카오
