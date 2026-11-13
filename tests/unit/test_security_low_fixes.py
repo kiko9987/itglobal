@@ -201,6 +201,7 @@ def test_login_paths_rotate_session():
     ({'Sec-Fetch-Site': 'cross-site'}, False),
     ({'Origin': 'https://pm.itg-aircon.com'}, True),
     ({'Origin': 'https://www.itg-aircon.com'}, False),
+    ({'Origin': 'https://pm.itg-aircon.com'}, True),
     ({}, True),                                     # 브라우저 아닌 호출
 ])
 def test_same_origin_request(app, headers, ok):
@@ -209,10 +210,36 @@ def test_same_origin_request(app, headers, ok):
         assert SecurityMiddleware._same_origin_request() is ok
 
 
-def test_socketio_cors_not_wildcard():
+def test_socketio_cors_explicit_public_origin():
     import dashboard
     src = inspect.getsource(dashboard)
-    assert 'cors_allowed_origins="*"' not in src and 'cors_allowed_origins=None' in src
+    assert 'cors_allowed_origins="*"' not in src and 'cors_allowed_origins=None' not in src
+    from dashboard.utils.allowed_origins import allowed_origins
+    assert 'https://pm.itg-aircon.com' in allowed_origins()
+
+
+def test_engineio_accepts_public_origin_behind_proxy():
+    # 실제 증상(2026-11-13 재시작): Caddy 뒤에서 https://pm.itg-aircon.com 이 거절됨 → 명시 목록이면 통과
+    import engineio
+    from dashboard.utils.allowed_origins import allowed_origins
+    srv = engineio.Server(cors_allowed_origins=allowed_origins(), async_mode='threading', transports=['polling'])
+    env = {'REQUEST_METHOD': 'GET', 'PATH_INFO': '/socket.io/', 'QUERY_STRING': 'EIO=4&transport=polling',
+           'wsgi.url_scheme': 'http', 'HTTP_HOST': '127.0.0.1:5000', 'HTTP_ORIGIN': 'https://pm.itg-aircon.com',
+           'wsgi.input': io.BytesIO(b'')}
+    out = {}
+    srv.handle_request(env, lambda status, headers: out.setdefault('status', status))
+    assert not out['status'].startswith('400'), out
+    env2 = dict(env, HTTP_ORIGIN='https://www.itg-aircon.com', **{'wsgi.input': io.BytesIO(b'')})
+    out2 = {}
+    srv.handle_request(env2, lambda status, headers: out2.setdefault('status', status))
+    assert out2['status'].startswith('400'), out2
+
+
+def test_allowed_origins_env_override(monkeypatch):
+    from dashboard.utils.allowed_origins import allowed_origins, allowed_hosts
+    monkeypatch.setenv('ALLOWED_ORIGINS', 'https://a.example/, http://b.example:8080')
+    assert allowed_origins() == ['https://a.example', 'http://b.example:8080']
+    assert allowed_hosts() == {'a.example', 'b.example:8080'}
 
 
 # ── 엑셀·CSV·OCR 수식 ────────────────────────────────────────────────

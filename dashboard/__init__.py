@@ -583,11 +583,13 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
             # 긴급 조치: eventlet 메모리 크래시 방지 (SIGSEGV 해결)
             # threading 모드로 강제 설정하여 안정성 확보
             # eventlet의 greenlet 메모리 관리 버그를 우회
+            from dashboard.utils.allowed_origins import allowed_origins as _allowed_origins
             socketio_instance = SocketIO(
                 app,
-                # 같은 출처만 (기본값) — '*' 는 같은-사이트 다른 주소가 직원 쿠키로 실시간 방송을 읽을 수 있었음
-                #   (2026-11-13 보안 점검). 기본값은 프록시가 붙인 X-Forwarded-Proto/Host 도 인정한다.
-                cors_allowed_origins=None,
+                # 이 사이트 주소만 — '*' 는 같은-사이트 다른 주소가 직원 쿠키로 실시간 방송을 읽을 수 있었음
+                #   (2026-11-13 보안 점검). 라이브러리 기본값(None)은 Caddy 뒤라 공개 주소를 못 알아봐 전부 거절했음
+                #   → 공개 주소를 명시 (utils/allowed_origins.py, .env ALLOWED_ORIGINS).
+                cors_allowed_origins=_allowed_origins(),
                 ping_timeout=SOCKETIO_PING_TIMEOUT,
                 ping_interval=SOCKETIO_PING_INTERVAL,
                 async_mode='threading',  # threading 모드로 강제 (메모리 크래시 방지)

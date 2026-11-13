@@ -524,7 +524,9 @@ class SecurityMiddleware:
         origin = request.headers.get('Origin') or ''
         if origin:
             from urllib.parse import urlparse
-            return urlparse(origin).netloc.lower() == (request.host or '').lower()
+            from dashboard.utils.allowed_origins import allowed_hosts
+            host = urlparse(origin).netloc.lower()
+            return host == (request.host or '').lower() or host in allowed_hosts()
         return True
 
     def _validate_api_auth(self) -> bool:
