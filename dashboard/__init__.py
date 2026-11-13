@@ -606,7 +606,20 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
             @socketio_instance.on('connect')
             def _socket_connect_auth(auth=None):
                 from flask import session as _ss
-                if not (_ss.get('user') or {}).get('email'):
+                _u = _ss.get('user') or {}
+                if not _u.get('email'):
+                    return False
+                # 2026-11-13 보안 점검: 이메일만 보면 현장 직원 링크 세션·시간 초과·퇴사·비활성 세션도
+                #   공사 행(연락처·주소·금액) 방송을 받았다. 현장 세션은 막고, HTTP 화면과 같은 세션 검사를 한다.
+                #   (소켓 처리는 before_request 를 안 거쳐 그룹웨어 문지기도 안 돈다)
+                if _u.get('gw_field'):
+                    return False
+                try:
+                    from dashboard.auth import _validate_session
+                    if _validate_session() is not None:
+                        return False
+                except Exception as _e:
+                    logger.warning(f"[SOCKET] 연결 세션 검사 실패 → 거부: {_e}")
                     return False
 
             # 전역 socketio 변수에 할당 (블루프린트에서 import 가능)

@@ -96,6 +96,10 @@ class CalendarSyncScheduler:
         웹 UI에서 '캘린더 동기화' 버튼을 클릭할 때 호출됩니다.
         """
         logger.info("[CALENDAR_SYNC] 수동 동기화 요청 - run_sync_once() 호출")
+        from dashboard.services.calendar_service import is_calendar_enabled
+        if not is_calendar_enabled():   # 연동 스위치를 끈 동안엔 수동 실행도 안 함 (2026-11-13)
+            logger.info("[CALENDAR_SYNC] 캘린더 연동 꺼짐 — 수동 동기화 건너뜀")
+            return
         self._sync_deleted_events()
 
     def _sync_deleted_events(self):

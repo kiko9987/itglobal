@@ -141,13 +141,10 @@ def google_callback():
         # OAuth state 정리
         session.pop('oauth_state', None)
 
-        # 캘린더 credentials 저장 (로그인과 동시에 캘린더 연동)
-        if credentials:
-            try:
-                save_calendar_credentials(credentials)
-                logger.info(f"[Calendar] 로그인 시 캘린더 토큰 저장 완료: {user['email']}")
-            except Exception as e:
-                logger.warning(f"[Calendar] 토큰 저장 실패 (로그인은 성공): {e}")
+        # 로그인할 때 캘린더 토큰을 저장하지 않는다 (2026-11-13 보안 점검).
+        #   예전엔 누가 로그인하든 그 직원 토큰이 회사 공용 캘린더 토큰을 덮어써, 캘린더를 못 보는 계정이면
+        #   동기화가 일정을 '삭제됨'으로 읽고 공사 시작·종료일을 지울 수 있었다.
+        #   캘린더 연결은 관리자가 /auth/google/calendar 로 따로 한다.
 
         logger.info(f"Google OAuth 로그인 성공: {user['email']}")
         return redirect(url_for('projects.project_list'))
@@ -198,7 +195,7 @@ def refresh_session():
 
 
 @auth_bp.route('/auth/google/calendar')
-@login_required
+@admin_required   # 회사 공용 캘린더 토큰을 바꾸는 연결 — 관리자만 (2026-11-13)
 def google_calendar_auth():
     """Google Calendar OAuth 시작"""
     try:
@@ -221,7 +218,7 @@ def google_calendar_auth():
 
 
 @auth_bp.route('/auth/google/calendar/callback')
-@login_required
+@admin_required   # 회사 공용 캘린더 토큰을 바꾸는 연결 — 관리자만 (2026-11-13)
 def google_calendar_callback():
     """Google Calendar OAuth 콜백"""
     error = request.args.get('error')

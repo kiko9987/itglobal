@@ -125,6 +125,8 @@ def sms_inbound():
     # 발신번호 — 은행이 보낸 문자인지는 이것뿐 (기기 토큰은 '어느 폰이 넘겼나'만 증명).
     #   허용 목록이 있으면 정확히 같은 번호만 받는다 (2026-11-13 보안 점검).
     sender_digits = _normalize_sender(sender)
+    # 허용 목록(SMS_BANK_SENDERS) 만들 근거 — 모든 수신 문자의 발신번호를 남김 (휴대폰은 가운데 가림, 2026-11-13)
+    logger.info(f'[SMS_INBOUND] 수신 device={device} sender={_mask_sender(sender_digits)!r}')
     senders = _bank_senders()
     if senders and sender_digits not in senders:
         logger.info(f'[SMS_INBOUND] 발신번호 미허용 skip: {_mask_sender(sender_digits)!r} (device={device})')

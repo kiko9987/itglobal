@@ -1806,7 +1806,7 @@ def _save_memo_and_audit(manager, sheet_id, sheet_name, cell_address, memo, proj
 
 # ===== 메인 함수: save_field_memo (리팩토링됨) =====
 @projects_bp.route('/api/projects/field-memo', methods=['POST'])
-@editor_required
+@admin_required   # 입금 원장 메모 = 관리자 전용 칸 (2026-11-13 보안 점검 — 편집자가 API 로 입금 기록을 넣고 지울 수 있었음)
 @track_business_operation("api_field_memo_save")
 def save_field_memo():
     """
@@ -2169,7 +2169,7 @@ def _finalize_batch_memo_save(audit_actions, sheet_id, success_count):
 
 # ===== 메인 함수: save_field_memos_batch (리팩토링됨) =====
 @projects_bp.route('/api/projects/field-memos/batch', methods=['POST'])
-@editor_required
+@admin_required   # 입금 원장 메모 = 관리자 전용 칸 (2026-11-13 보안 점검 — 편집자가 API 로 입금 기록을 넣고 지울 수 있었음)
 @track_business_operation("api_field_memo_batch_save")
 def save_field_memos_batch():
     """
@@ -3984,9 +3984,13 @@ def resume_project_api():
 
 
 @projects_bp.route('/api/projects/calendar/sync', methods=['POST'])
-@login_required
+@admin_required   # 공사 날짜를 지울 수 있는 동작 — 관리자만 (2026-11-13 보안 점검, 예전엔 로그인만)
 def manual_calendar_sync():
     """수동 캘린더 동기화 API"""
+    from dashboard.services.calendar_service import is_calendar_enabled
+    if not is_calendar_enabled():
+        # 연동을 꺼 둔 동안엔 버튼으로도 돌지 않게 (예전엔 스위치가 5분 동기화만 막았음)
+        return jsonify({'success': False, 'error': '캘린더 연동이 꺼져 있어 동기화하지 않습니다.'}), 400
     try:
         logger.info(f"[CALENDAR_SYNC] 수동 동기화 시작 - 사용자: {session.get('user', {}).get('email', 'unknown')}")
 
