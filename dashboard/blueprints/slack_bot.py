@@ -33,7 +33,6 @@ from dashboard.blueprints.slack_helpers import (
     _to_initial,
     _slack_user_to_initial,
     _slack_user_to_korean_name,
-    _human_duration,
     SALES_INITIALS,
     slack_truncate,
 )
@@ -3642,24 +3641,6 @@ def _register_visit_handlers(app):
             return (':lock: 이 명령은 박정우·박용구·고광일만 실행할 수 있습니다.')
         return None
 
-    @app.command("/일정확인")
-    def handle_visit_assignment_dryrun(ack, command, respond):
-        ack()
-        deny = _check_visit_cmd_permission(command)
-        if deny:
-            respond({'response_type': 'ephemeral', 'text': deny})
-            return
-        def _bg():
-            try:
-                from dashboard.services.visit_assignment_sync import dry_run
-                result = dry_run()
-                respond(_format_assignment_result(result, committed=False))
-            except Exception as exc:
-                logger.error(f"[일정확인] 예외: {exc}", exc_info=True)
-                respond({'response_type': 'ephemeral',
-                         'text': f':x: 일정 확인 실패: {exc}'})
-        threading.Thread(target=_bg, daemon=True).start()
-
     @app.command("/일정확정")
     def handle_visit_assignment_commit(ack, command, respond):
         ack()
@@ -4294,35 +4275,6 @@ def _register_handlers(app):
                 logger.error(f"[ECOUNT] [넣음] 처리 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
-    # ① 슬래시 명령: /상태 (사이트 헬스체크)
-    @app.command("/상태")
-    def handle_status(ack, command, respond):
-        ack()
-        try:
-            from dashboard.services.lead_service import load_leads_data
-            df = load_leads_data()
-            lead_count = len(df) if df is not None else 0
-            respond({
-                "response_type": "ephemeral",
-                "blocks": [
-                    {
-                        "type": "header",
-                        "text": {"type": "plain_text", "text": "📊 ITG 시스템 상태"},
-                    },
-                    {
-                        "type": "section",
-                        "fields": [
-                            {"type": "mrkdwn", "text": f"*리드 데이터:*\n{lead_count}건"},
-                            {"type": "mrkdwn", "text": f"*사이트:*\n✅ 정상"},
-                            {"type": "mrkdwn", "text": f"*봇:*\n✅ 동작 중"},
-                        ],
-                    },
-                ],
-            })
-        except Exception as exc:
-            logger.error(f"[SLACK] /상태 실패: {exc}", exc_info=True)
-            respond({"text": f"❌ 상태 조회 실패: {exc}"})
-
     # ①-1 서버 재시작 승인 카드 [지금 재시작] [취소] (2026-10-28) — 승인만 기록하고,
     #   실제 재시작은 SYSTEM 워치독(watchdog.ps1)이 1분 안에 한다(이 프로세스는 자기 자신을 못 죽임).
     def _handle_restart_decision(body, client, approve: bool):
@@ -4749,51 +4701,6 @@ def _register_handlers(app):
         except Exception as exc:
             logger.error(f"[SLACK] submit_price 실패: {exc}", exc_info=True)
 
-    # ⑩ /전화 슬래시 명령 — 전화 문의 등록 모달
-    @app.command("/수금")
-    def handle_payment_command(ack, command, client, respond):
-        """수금 관리 봇 — /수금 [코드 또는 '요약' 또는 '미수금']"""
-        ack()
-        text = command.get("text", "").strip()
-        channel = command.get("channel_id", "")
-        user_id = command.get("user_id", "")
-        _deny = _slack_staff_denied(user_id)
-        if _deny:
-            respond(text=_deny)
-            return
-
-        def _bg():
-            try:
-                from dashboard.services.payment_sync import (
-                    search_project, daily_payment_summary, build_overdue_message,
-                )
-                if not text or text.lower() in ('도움', 'help', '안내'):
-                    msg = (
-                        "*수금 관리 봇 사용법*\n"
-                        "• `/수금 G3491-YG` — 특정 프로젝트 history 조회\n"
-                        "• `/수금 요약` — 오늘 발송 일일 요약\n"
-                        "• `/수금 미수금` — 30일 이상 경과 미수금 리스트\n"
-                        "• `/수금 미수금 60` — N일 이상 경과 (커스텀)"
-                    )
-                elif text.lower() == '요약':
-                    msg = daily_payment_summary() or "오늘 발송 이력 없음"
-                elif text.lower().startswith('미수금'):
-                    parts = text.split()
-                    days = 30
-                    if len(parts) > 1:
-                        try:
-                            days = int(parts[1])
-                        except Exception:
-                            pass
-                    msg = build_overdue_message(days=days) or f"{days}일 이상 경과한 미수금 없음"
-                else:
-                    msg = search_project(text) or f"`{text}` 검색 결과 없음"
-                client.chat_postEphemeral(channel=channel, user=user_id, text=msg)
-            except Exception as exc:
-                logger.error(f"[SLACK] /수금 처리 실패: {exc}", exc_info=True)
-        import threading
-        threading.Thread(target=_bg, daemon=True).start()
-
     # 2026-07-12 전화 문의 등록 기능 전체 제거 — 사용 안 함.
     #   전화 문의는 별도 슬랙 워크플로 앱 '전화문의 등록하기' 로 이관.
     #   제거: /전화 슬래시 · button_phone 버튼 · phone_inquiry_shortcut App Shortcut
@@ -4803,106 +4710,12 @@ def _register_handlers(app):
     # #방문_일정 카드의 [✏️ 방문일 수정] / [🗑️ 방문 취소] 액션은
     # 방문 일정 알림 봇(_visit_slack_app)이 처리 — _register_visit_handlers 참조
 
-    # ⑬ /청소 슬래시 명령 — 채널 메시지 일괄 청소 (봇이 보낸 메시지만)
-    # 권한 — SLACK_ADMIN_CHANNEL(=admin user ID) 만 실행 가능
-    @app.command("/청소")
-    def handle_sweep_command(ack, command, client, respond):
-        ack()
-        user_id = command.get("user_id", "")
-        admin_uid = os.getenv('SLACK_ADMIN_CHANNEL', '').strip()
-        if admin_uid and admin_uid.startswith('U') and user_id != admin_uid:
-            respond({
-                "response_type": "ephemeral",
-                "text": ":no_entry: `/청소` 명령은 관리자만 실행할 수 있습니다.",
-            })
-            return
-
-        text = command.get("text", "").strip()
-        channel = command.get("channel_id", "")
-
-        parsed = _parse_sweep_args(text)
-        if not parsed["valid"]:
-            respond({"response_type": "ephemeral", "text": parsed["error"]})
-            return
-
-        if parsed["mode"] == "all":
-            mode_desc = "*전체* 메시지"
-        elif parsed["mode"] == "count":
-            mode_desc = f"최근 *{parsed['value']}개* 메시지"
-        else:
-            mode_desc = f"최근 *{_human_duration(parsed['value'])}* 이내 메시지"
-
-        private_meta = json.dumps({
-            "channel": channel,
-            "mode": parsed["mode"],
-            "value": parsed.get("value", 0),
-        })
-
-        respond({
-            "response_type": "ephemeral",
-            "text": f"🧹 {mode_desc}를 청소합니다.",
-            "blocks": [
-                {"type": "section", "text": {"type": "mrkdwn", "text": (
-                    f"🧹 {mode_desc}를 청소합니다.\n"
-                    "_• 봇이 보낸 메시지만 삭제됩니다 (Slack 정책)_\n"
-                    "_• 1초당 1개 속도 (rate limit) — 100개 약 2분_"
-                )}},
-                {"type": "actions", "elements": [
-                    {"type": "button", "text": {"type": "plain_text", "text": "✅ 시작"},
-                     "style": "danger", "action_id": "sweep_confirm",
-                     "value": private_meta},
-                    {"type": "button", "text": {"type": "plain_text", "text": "취소"},
-                     "action_id": "sweep_cancel"},
-                ]},
-            ],
-        })
-
-    # ⑭ [시작] 버튼 - 청소 백그라운드 실행
-    @app.action("sweep_confirm")
-    def handle_sweep_confirm(ack, body, client, respond):
-        ack()
-        try:
-            meta = json.loads(body["actions"][0].get("value", "{}"))
-        except Exception:
-            respond({"response_type": "ephemeral", "text": "❌ 인자 디코딩 실패"})
-            return
-
-        response_url = body.get("response_url", "")
-        channel = meta.get("channel", "")
-        mode = meta.get("mode", "")
-        value = meta.get("value", 0)
-
-        respond({
-            "response_type": "ephemeral",
-            "replace_original": True,
-            "text": "🧹 청소 시작... (50개마다 진행 보고)",
-        })
-
-        def _bg():
-            try:
-                _run_sweep(client, channel, response_url, mode, value)
-            except Exception as exc:
-                logger.error(f"[SWEEP] 실패: {exc}", exc_info=True)
-                _sweep_update(response_url, f"❌ 청소 실패: {type(exc).__name__}: {exc}")
-        threading.Thread(target=_bg, daemon=True).start()
-
-    # ⑮ [취소] 버튼
-    @app.action("sweep_cancel")
-    def handle_sweep_cancel(ack, body, respond):
-        ack()
-        respond({
-            "response_type": "ephemeral",
-            "replace_original": True,
-            "text": "_청소 취소됨._",
-        })
-
     # /공사확정 + submit_project는 별도 공사 봇이 처리 (_init_project_slack_app)
     # /as + 사후 관리 흐름은 별도 A/S 봇이 처리 (_init_as_slack_app)
 
     logger.info(
-        "[SLACK] 메인 봇 핸들러 등록 완료: /상태, /청소, app_mention, message(DM), "
-        "button_visit, button_price, submit_visit, submit_price, "
-        "sweep_confirm, sweep_cancel"
+        "[SLACK] 메인 봇 핸들러 등록 완료: app_mention, message(DM), "
+        "button_visit, button_price, submit_visit, submit_price"
     )
 
 
@@ -5900,68 +5713,6 @@ def _get_bot_info(client) -> dict:
         except Exception as exc:
             logger.warning(f"[SWEEP] auth.test 실패: {exc}")
     return _BOT_INFO
-
-
-def _parse_sweep_args(text: str) -> dict:
-    """/청소 인자 파싱.
-
-    반환:
-        {"valid": True, "mode": "count", "value": 100}
-        {"valid": True, "mode": "duration", "value": 86400}  # 초
-        {"valid": True, "mode": "all"}
-        {"valid": False, "error": "..."}
-    """
-    import re as _re
-    text = text.strip().lower()
-
-    if not text or text in ("help", "도움말", "?"):
-        return {"valid": False, "error": (
-            "*사용법*\n"
-            "`/청소 100` — 최근 100개 메시지 청소\n"
-            "`/청소 24h` — 24시간 이내 메시지 청소\n"
-            "`/청소 7d` — 7일 이내 메시지 청소\n"
-            "`/청소 all` — 전체 청소 (위험)\n\n"
-            "_※ 봇이 보낸 메시지만 삭제됩니다 (Slack 정책)_"
-        )}
-
-    if text == "all":
-        return {"valid": True, "mode": "all"}
-
-    # 시간 단위 (60m, 24h, 7d)
-    m = _re.match(r'^(\d+)([mhd])$', text)
-    if m:
-        n = int(m.group(1))
-        unit_secs = {"m": 60, "h": 3600, "d": 86400}[m.group(2)]
-        return {"valid": True, "mode": "duration", "value": n * unit_secs}
-
-    # 숫자 (최근 N개)
-    m = _re.match(r'^(\d+)$', text)
-    if m:
-        n = int(m.group(1))
-        if n <= 0 or n > 10000:
-            return {"valid": False, "error": "개수는 1~10000 사이"}
-        return {"valid": True, "mode": "count", "value": n}
-
-    return {"valid": False, "error": f"인식 못 함: `{text}`. `/청소 help`로 사용법 확인"}
-
-
-def _sweep_update(response_url: str, text: str):
-    """response_url로 ephemeral 갱신 (실패해도 무시)."""
-    if not response_url:
-        return
-    try:
-        req = urllib.request.Request(
-            response_url,
-            data=json.dumps({
-                "response_type": "ephemeral",
-                "replace_original": True,
-                "text": text,
-            }).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-        )
-        urllib.request.urlopen(req, timeout=5)
-    except Exception as exc:
-        logger.warning(f"[SWEEP] response_url 갱신 실패: {exc}")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -7115,84 +6866,6 @@ def _process_as_complete_submission(client, body, view) -> None:
     except Exception as exc:
         logger.error(f'[SLACK/AS] chat.update 실패 ({as_no}): {exc}', exc_info=True)
 
-
-def _run_sweep(client, channel: str, response_url: str, mode: str, value: int):
-    """채널 청소 백그라운드 워커.
-
-    - conversations.history로 페이지네이션
-    - 봇 user_id 또는 bot_id 매칭 시 chat.delete (1초당 1개)
-    - 50개마다 진행 보고, 완료 시 결과 보고
-    """
-    import time as _time
-    bot = _get_bot_info(client)
-    bot_uid = bot.get("user_id", "")
-    bot_bid = bot.get("bot_id", "")
-    if not bot_uid and not bot_bid:
-        _sweep_update(response_url, "❌ 봇 정보 확인 실패 (auth.test 실패)")
-        return
-
-    deleted = 0
-    skipped_not_ours = 0
-    delete_failed = 0
-    cursor = None
-    oldest = ""
-    target_count = value if mode == "count" else None
-    if mode == "duration":
-        oldest = str(_time.time() - value)
-
-    while True:
-        try:
-            params = {"channel": channel, "limit": 100}
-            if cursor:
-                params["cursor"] = cursor
-            if oldest:
-                params["oldest"] = oldest
-            res = client.conversations_history(**params)
-        except Exception as exc:
-            _sweep_update(response_url, f"❌ history 조회 실패: {exc}")
-            return
-
-        msgs = res.get("messages", []) or []
-        for m in msgs:
-            if target_count is not None and deleted >= target_count:
-                break
-
-            is_ours = (m.get("user") == bot_uid) or (m.get("bot_id") == bot_bid)
-            if not is_ours:
-                skipped_not_ours += 1
-                continue
-
-            ts = m.get("ts")
-            if not ts:
-                continue
-
-            try:
-                client.chat_delete(channel=channel, ts=ts)
-                deleted += 1
-                _time.sleep(1.1)  # Slack tier-3 rate limit (50/min) 안전 대기
-            except Exception as exc:
-                delete_failed += 1
-                logger.warning(f"[SWEEP] chat.delete 실패 ({ts}): {exc}")
-                _time.sleep(1.1)
-
-            if deleted > 0 and deleted % 50 == 0:
-                _sweep_update(response_url, f"🧹 진행 중... 삭제 {deleted}개")
-
-        if target_count is not None and deleted >= target_count:
-            break
-        cursor = (res.get("response_metadata") or {}).get("next_cursor", "")
-        if not cursor:
-            break
-
-    _sweep_update(
-        response_url,
-        (
-            f"✅ 청소 완료\n"
-            f"• 삭제: {deleted}개\n"
-            f"• 봇 메시지 아님 (스킵): {skipped_not_ours}개\n"
-            f"• 삭제 실패: {delete_failed}개"
-        ),
-    )
 
 
 # ─────────────────────────────────────────────────────────────

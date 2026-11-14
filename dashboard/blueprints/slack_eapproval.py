@@ -7,7 +7,7 @@
 
 입구:
   ① 계산서봇 [📍 현장 지정] 모달의 「이체 필요」 → start_from_invoice()   (slack_bot.py 에서 호출)
-  ② #전자_결재 메뉴 [💸 자금집행 요청] / `/자금집행` → 새 요청 모달(전자결재 봇)
+  ② #전자_결재 메뉴 [💸 자금집행 요청] → 새 요청 모달(전자결재 봇)
   ③ 공사확정 카드 [💸 자금집행 요청] → 새 요청 모달(공사봇이 열고, 제출도 공사봇이 받아 여기로)
 
 장부·상태·카드 모양: services/e_approval.py. 설계: docs/e_approval_design.md
@@ -1946,14 +1946,6 @@ def register_eapproval_handlers(app) -> None:
                            origin='shortcut' if push else 'menu', push=push)
         except Exception as exc:
             logger.error(f'{_LOG} 새 요청 창 열기 실패: {exc}', exc_info=True)
-
-    @app.command('/자금집행')
-    def handle_new_command(ack, body, client):
-        ack()
-        try:
-            open_new_modal(client, body['trigger_id'], body.get('user_id', ''), origin='command')
-        except Exception as exc:
-            logger.error(f'{_LOG} /자금집행 실패: {exc}', exc_info=True)
 
     @app.options(ea.A_PROJECT)
     def handle_project_options(ack, body):

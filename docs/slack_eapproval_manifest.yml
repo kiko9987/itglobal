@@ -22,11 +22,6 @@ features:
       type: global
       callback_id: eap_sc_hub
       description: 자금집행, 비품 신청, 다른 결재 요청, 내 요청을 엽니다
-  slash_commands:
-    - command: /자금집행
-      url: https://pm.itg-aircon.com/slack/eapproval-events
-      description: 자금집행(이체) 요청 창을 엽니다
-      should_escape: false
 oauth_config:
   scopes:
     bot:
