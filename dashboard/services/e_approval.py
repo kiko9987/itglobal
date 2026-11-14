@@ -389,15 +389,54 @@ def find_unlinked_match(grn: str, amount: int, partner: str) -> Optional[dict]:
     key = partner_key(partner)
     if not key or not amount:
         return None
+    # 이체 완료된 선입금은 최근 것만 — 기간 없이 두면 반년 전 선입금이 같은 금액의 새 계산서를 목록에서 계속 뺐다
+    #   (11-14 보안 점검 4차). LIMIT 은 거래처 필터 뒤에서 걸리게 뺐다(흔한 금액이면 후보를 놓쳤다).
+    since = (datetime.now() - timedelta(days=DUP_WINDOW_DAYS)).strftime('%Y-%m-%d %H:%M:%S')
     with _db()._get_connection() as conn:
         _ensure_tables(conn)
         rows = conn.execute(
             '''SELECT * FROM approvals WHERE form=? AND origin_ts IS NULL AND amount=? AND grn=?
-               AND status IN (?,?,?,?,?) ORDER BY id DESC LIMIT 20''',
+               AND status IN (?,?,?,?,?) AND (status != ? OR updated_at >= ?) ORDER BY id DESC''',
             # 수정 요청 중인 결재도 후보 — 빼면 같은 건으로 결재를 또 올려 두 번 이체할 수 있다(11-05)
-            (FORM_FUND, int(amount), grn, PENDING, FINAL, APPROVED, REVISE, DONE)).fetchall()
+            (FORM_FUND, int(amount), grn, PENDING, FINAL, APPROVED, REVISE, DONE, DONE, since)).fetchall()
     hits = [dict(r) for r in rows if partner_key(r['partner']) == key]
     return hits[0] if len(hits) == 1 else None
+
+
+DUP_WINDOW_DAYS = 90
+
+
+def find_recent_fund_dups(amount, partner: str, exclude_id: Optional[int] = None,
+                          days: int = DUP_WINDOW_DAYS) -> List[dict]:
+    """최근 N일 같은 거래처·금액 자금집행(반려·취소 제외) — 계산서 유무·글 연결과 상관없이(11-14 보안 점검 4차).
+
+    예전 중복 검사는 계산서를 고른 경우에만, 그것도 글에 안 묶인 선입금 한 건만 봤다 → 「계산서 없음」으로 다시 올리기·
+    같은 계산서 글 재게시는 경고 없이 두 번 결재됐다. G/R 은 보지 않는다(사업자를 잘못 고른 같은 건도 잡게)."""
+    key = partner_key(partner)
+    try:
+        amount = int(amount or 0)
+    except (TypeError, ValueError):
+        amount = 0
+    if not key or amount <= 0:
+        return []
+    since = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        rows = conn.execute(
+            '''SELECT * FROM approvals WHERE form=? AND amount=? AND status IN (?,?,?,?,?) AND created_at >= ?
+               ORDER BY id DESC''',
+            (FORM_FUND, amount, PENDING, FINAL, APPROVED, REVISE, DONE, since)).fetchall()
+    return [dict(r) for r in rows
+            if partner_key(r['partner']) == key and (exclude_id is None or r['id'] != int(exclude_id))]
+
+
+def dup_warning(dups: List[dict]) -> str:
+    """제출 창 경고 — 같은 창에서 한 번 더 누르면 통과(정말 같은 금액을 또 보내는 경우도 있어서)."""
+    shown = ', '.join(f"{title(d)}({initial(d.get('requester_name'))}·{STATUS_LABELS.get(d['status'], ('', d['status']))[1]})"
+                      for d in dups[:2])
+    more = f' 외 {len(dups) - 2}건' if len(dups) > 2 else ''
+    return (f'⚠️ 최근 {DUP_WINDOW_DAYS}일 안에 같은 거래처·금액 결재가 있어요: {shown}{more}. '
+            '같은 건이면 올리지 말고, 다른 건이면 [요청]을 한 번 더 눌러 주세요.')
 
 
 def link_origin(aid: int, channel: str, ts: str) -> None:
@@ -448,6 +487,10 @@ def create(form: str, requester_id: str, requester_name: str, fields: Dict) -> d
     x = dict(fields.get('extra') or {})
     if fields.get('_job'):   # 제출 기록 id — 재시작 뒤 이어서 처리할 때 같은 결재를 또 만들지 않게(11-11)
         x['job'] = fields['_job']
+    if form == FORM_FUND:   # 같은 거래처·금액 결재 — 카드에 ⚠️ 로 남겨 승인자·이체 담당이 보게(11-14)
+        _dups = find_recent_fund_dups(fields.get('amount'), fields.get('partner') or '')
+        if _dups:
+            x['dup_of'] = [d['id'] for d in _dups[:3]]
     vals[cols.index('extra')] = json.dumps(x, ensure_ascii=False)
     with _db()._get_connection() as conn:
         _ensure_tables(conn)
@@ -524,6 +567,9 @@ def requester_can_cancel(row: dict) -> bool:
     return st == APPROVED and row.get('form') in TASK_FORMS
 
 
+# extra 중 시스템이 붙이는 표시 칸 — 수정 기록('바뀐 칸')에 넣지 않는다
+_SYSTEM_EXTRA = ('f', 'payee_saved', 'payee_changed', 'dup_of', 'inv_by', 'inv_by_other', 'job')
+
 # 다시 올릴 때 고칠 수 있는 장부 칸(양식 값 전부는 extra 에)
 EDIT_COLUMNS = ('project_code', 'cost_category', 'content', 'evidence', 'grn', 'partner', 'payee_name',
                 'bank', 'account', 'amount', 'urgency', 'memo')
@@ -559,14 +605,21 @@ def resubmit(aid: int, actor_id: str, actor_name: str, fields: Dict) -> Optional
                 changed[c] = (old.get(c), v)
             sets.append(f'{c}=?')
             vals.append(v)
+        if old['form'] == FORM_FUND and ('amount' in fields or 'partner' in fields):
+            # 금액·거래처를 고치면 같은 거래처·금액 결재를 다시 찾는다(11-14)
+            _amt = fields.get('amount') if 'amount' in fields else old.get('amount')
+            _ptn = fields.get('partner') if 'partner' in fields else old.get('partner')
+            _dups = find_recent_fund_dups(_amt, _ptn or '', exclude_id=aid)
+            fields = {**fields, 'extra': {**extra(old), **(fields.get('extra') or {}),
+                                          'dup_of': [d['id'] for d in _dups[:3]]}}
         if 'extra' in fields:
             new_x = dict(fields.get('extra') or {})   # 결재 이름도 고친 값으로(G→R 현장·지출결의 달, 11-05 점검)
             old_x = extra(old)
             ex = {**old_x, **new_x}
-            # 바뀐 칸 — 양식 값(f) + 비품 칸(link·qty·unit_price·reason)
+            # 바뀐 칸 — 양식 값(f) + 비품 칸(link·qty·unit_price·reason). 시스템이 붙이는 표시 칸은 뺀다
             pairs = [(old_x.get('f') or {}, new_x.get('f') or {})] if 'f' in new_x else []
-            pairs.append(({k: v for k, v in old_x.items() if k not in ('f', 'payee_saved')},
-                          {k: v for k, v in new_x.items() if k not in ('f', 'payee_saved')}))
+            pairs.append(({k: v for k, v in old_x.items() if k not in _SYSTEM_EXTRA},
+                          {k: v for k, v in new_x.items() if k not in _SYSTEM_EXTRA}))
             for a, b in pairs:
                 for k in b:
                     if str(a.get(k) or '') != str(b.get(k) or '') and k not in changed:
@@ -994,6 +1047,7 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
         # 예금주가 '(주)컴퓨존'이면 괄호가 겹쳐 '((주)컴퓨존)' — 예금주는 · 뒤로(11-06)
         lines.append(f"계좌: {row.get('bank') or '-'} {row.get('account') or '-'} · 예금주 {row.get('payee_name') or '-'}"
                      + (' · 예전 계좌 자동 채움' if extra(row).get('payee_saved') else ''))
+        lines += fund_warning_lines(row)
         lines.append(f"증빙: {row.get('evidence') or '-'} (VAT 포함 금액)")
         if quote_amount:
             # 공사현황 「총액 1」 = 공사 전체 금액 — '고객 견적'이라 쓰면 항목 견적으로 오해(11-06 검수)
@@ -1010,6 +1064,43 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
     if closed:
         return _greyed(row, step_rows, emoji, label, body)
     return '\n'.join(f'>{ln}' for ln in '\n'.join(body).split('\n'))
+
+
+def fund_warning_lines(row: dict) -> List[str]:
+    """자금집행 카드 경고 줄(11-14 보안 점검 4차) — 승인자·이체 담당이 눈으로만 막던 것을 카드에 띄운다.
+    ① 기억해 둔 거래처 계좌와 다른 계좌 ② 최근 같은 거래처·금액 결재 ③ 계산서 글 작성자(경영지원 외면 ⚠️)."""
+    if row.get('form') != FORM_FUND:
+        return []
+    x = extra(row)
+    out = []
+    if x.get('payee_changed'):
+        out.append(f"⚠️ 예전에 보낸 계좌({x['payee_changed']})와 달라요 — 이체 전에 거래처에 확인해 주세요")
+    ids = [i for i in (x.get('dup_of') or []) if i != row.get('id')]
+    if ids:
+        names = []
+        for i in ids[:3]:
+            d = get(int(i))
+            if d and d.get('status') not in (REJECTED, CANCELLED):
+                names.append(f"{title(d)}({initial(d.get('requester_name'))}·{status_label(d)[1]})")
+        if names:
+            out.append(f"⚠️ 최근 같은 거래처·금액 결재: {', '.join(names)} — 두 번 이체가 아닌지 확인해 주세요")
+    if row.get('origin_ts') and 'inv_by' in x:
+        who = x.get('inv_by') or '작성자 확인 안 됨'
+        out.append(f"계산서 글: {who} 작성" + (' ⚠️ 경영지원이 올린 글이 아니에요' if x.get('inv_by_other') else ''))
+    return out
+
+
+def set_extra(aid: int, **kv) -> Optional[dict]:
+    """extra 칸 몇 개만 덮어쓴다(카드 표시용, 11-14). 다른 스레드의 첨부 기록과 겹치지 않게 같은 잠금."""
+    with _EXTRA_LOCK, _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        r = _row(conn, aid)
+        if not r:
+            return None
+        x = {**extra(r), **kv}
+        conn.execute('UPDATE approvals SET extra=? WHERE id=?', (json.dumps(x, ensure_ascii=False), aid))
+        conn.commit()
+        return _row(conn, aid)
 
 
 def _greyed(row: dict, step_rows: List[dict], emoji: str, label: str, body: List[str]) -> str:
@@ -1088,8 +1179,10 @@ def buttons(row: dict, role: str = 'all') -> List[dict]:
         out.append(_btn('🛒 구매 완료', A_TRANSFER, rv, 'primary', _confirm(
             '구매 완료', f"{row.get('content') or '비품'} ({amt})\n구매를 마쳤나요?", '구매 완료')))
     elif st == APPROVED and role in ('all', 'executor'):
+        _chg = extra(row).get('payee_changed') if form == FORM_FUND else ''
         out.append(_btn('💸 이체 완료', A_TRANSFER, rv, 'primary', _confirm(
-            '이체 완료', f"{row.get('bank')} {row.get('account')} · 예금주 {row.get('payee_name')}\n{amt} 이체를 마쳤나요?",
+            '이체 완료', f"{row.get('bank')} {row.get('account')} · 예금주 {row.get('payee_name')}\n{amt} 이체를 마쳤나요?"
+            + (f"\n⚠️ 예전에 보낸 계좌({_chg})와 달라요." if _chg else ''),
             '이체 완료')))
     # 순서: 처리하는 사람 버튼 → [보완 요청](돌려보내기) → 요청자 버튼 [수정하기]·[취소하기] 붙여서 맨 뒤(11-11 KiKO)
     if st in (PENDING, FINAL, APPROVED) and role == 'all':   # 고칠 게 있으면 반려 대신 돌려보내기(11-05)
@@ -1742,9 +1835,18 @@ def complete_new_request(f: Dict) -> Dict[str, str]:
 def mark_payee_saved(f: Dict) -> None:
     """기억해 둔 계좌와 같은 계좌로 보내면 카드에 표시(경영지원이 이체 전에 한 번 더 보게)."""
     saved = lookup_payee(f.get('partner', ''))
-    if (saved and normalize_account(saved.get('account')) == normalize_account(f.get('account'))
-            and (saved.get('bank') or '') == (f.get('bank') or '')):   # 은행만 바뀐 것도 '다른 계좌'(11-11)
-        f['extra'] = {**(f.get('extra') or {}), 'payee_saved': True}
+    same = bool(saved and normalize_account(saved.get('account')) == normalize_account(f.get('account'))
+                and (saved.get('bank') or '') == (f.get('bank') or ''))   # 은행만 바뀐 것도 '다른 계좌'(11-11)
+    x = dict(f.get('extra') or {})
+    if same:
+        x['payee_saved'] = True
+    # 이체한 적 있는 거래처인데 계좌가 다르면 카드·이체 확인 창에 ⚠️ — 계좌 바꿔치기·오타(11-14 보안 점검 4차)
+    if saved and not same and normalize_account(f.get('account')):
+        acct = normalize_account(saved.get('account'))
+        x['payee_changed'] = f"{saved.get('bank') or ''} …{acct[-4:]}".strip()
+    else:
+        x.pop('payee_changed', None)
+    f['extra'] = x
 
 
 # ── 비품 신청 모달 (11-01) ────────────────────────────────────────────

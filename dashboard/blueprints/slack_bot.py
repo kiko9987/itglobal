@@ -5173,6 +5173,35 @@ def _maybe_post_pinv_prompt(client, channel: str, ts: str, text: str) -> None:
         logger.warning(f'[SLACK/현장지정] 버튼 게시 실패 (ts={ts}): {exc}')
 
 
+def _pinv_deny(body: dict, view: Optional[dict] = None) -> str:
+    """[📍 현장 지정]·[✏️ 다시 지정] 막을 이유(문구), 괜찮으면 ''.
+
+    11-14 보안 점검 4차: 기능을 꺼도(PURCHASE_INVOICE_ASSIGN_ENABLED=false) 자금집행 창에서 계산서를 고르면 글 스레드에
+    [✏️ 다시 지정]이 붙고, 누구나 눌러 결재와 다른 현장으로 장부를 덮거나 반려된 글로 새 결재를 올릴 수 있었다."""
+    if not _pinv_enabled():
+        return '계산서 글의 현장 지정은 지금 쓰지 않아요. 현장이 틀렸으면 자금집행 결재의 [✏️ 수정하기]나 경영지원에 말씀해 주세요.'
+    uid = (body.get('user') or {}).get('id', '')
+    from dashboard.services import e_approval as ea
+    allowed = set(ea.approver_ids()) | set(ea.final_approver_ids()) | set(ea.executor_ids()) | set(_SETTLEMENT_CHECKER_IDS)
+    if uid in allowed:
+        return ''
+    try:
+        from dashboard.services import purchase_invoice_assign as pinv
+        if view is not None:
+            meta = json.loads(view.get('private_metadata') or '{}')
+        else:
+            meta = json.loads(((body.get('actions') or [{}])[0]).get('value') or '{}')
+        cur = pinv.get_assignment(meta.get('ch', ''), meta.get('ts', ''))
+    except Exception as exc:
+        logger.warning(f'[SLACK/현장지정] 지정 기록 확인 실패: {exc}')
+        return '지정 기록을 확인하지 못했어요. 잠시 뒤 다시 눌러 주세요.'
+    if not cur:   # 처음 지정은 매니저 누구나(켜져 있을 때)
+        return ''
+    if cur.get('assigned_by') == uid:
+        return ''
+    return '다시 지정은 처음 지정한 사람이나 경영지원만 할 수 있어요.'
+
+
 def _pinv_project_rec(code: str):
     """프로젝트 코드 → 공사현황 레코드(없으면 None). 프로젝트0·공통비는 None."""
     from dashboard.services import purchase_invoice_assign as pinv
@@ -5576,8 +5605,17 @@ def _register_invoice_handlers(app):
     # ── 매입 계산서 현장 지정 (전자결재 1단계, 2026-10-30) ─────────────────
     @app.action("pinv_assign_open")
     def handle_pinv_assign_open(ack, body, client):
-        """[📍 현장 지정] / [✏️ 다시 지정] — 매니저 누구나."""
+        """[📍 현장 지정] / [✏️ 다시 지정] — 켜져 있을 때만, 처음 지정한 사람·경영지원·승인자만(11-14 보안 점검 4차)."""
         ack()
+        deny = _pinv_deny(body)
+        if deny:
+            try:
+                ch = ((body.get('channel') or {}).get('id')) or ''
+                client.chat_postEphemeral(channel=ch, user=(body.get('user') or {}).get('id', ''),
+                                          thread_ts=(body.get('message') or {}).get('thread_ts'), text=deny)
+            except Exception as exc:
+                logger.warning(f'[SLACK/현장지정] 안내 실패: {exc}')
+            return
 
         def _bg():
             try:
@@ -5624,6 +5662,10 @@ def _register_invoice_handlers(app):
 
     @app.view("submit_pinv_assign")
     def handle_pinv_assign_submit(ack, body, view, client):
+        deny = _pinv_deny(body, view)
+        if deny:
+            ack(response_action='errors', errors={'project': deny[:150]})
+            return
         errs = _validate_pinv_submit(view)
         if errs:
             ack(response_action='errors', errors=errs)

@@ -439,24 +439,54 @@ def _post_files_bg(row: dict, files: list, who: str) -> None:
         threading.Thread(target=post_files, args=(row, files, who), daemon=True).start()
 
 
-def invoice_post_files(ch: str, ts: str) -> list:
-    """#영업_관리 계산서 글에 붙은 파일(계산서 사진) [{name, url}] — 계산서 봇으로 읽는다."""
+def _invoice_post(ch: str, ts: str) -> Optional[dict]:
+    """#영업_관리 계산서 글 원문 — 계산서 봇으로 읽는다. 못 읽으면 None."""
     c = _invoice_client()
     if not (c and ch and ts):
-        return []
+        return None
     try:
         msgs = c.conversations_history(channel=ch, latest=ts, inclusive=True, limit=1).get('messages') or []
     except Exception as exc:
         logger.warning(f'{_LOG} 계산서 글 읽기 실패 ({ch} {ts}): {exc}')
-        return []
-    m = next((x for x in msgs if x.get('ts') == ts), None) or {}
+        return None
+    return next((x for x in msgs if x.get('ts') == ts), None)
+
+
+def _post_files_of(m: Optional[dict]) -> list:
     return [{'name': f.get('name') or 'invoice', 'url': f.get('url_private_download') or f.get('url_private') or ''}
-            for f in m.get('files') or [] if f.get('url_private') or f.get('url_private_download')]
+            for f in (m or {}).get('files') or [] if f.get('url_private') or f.get('url_private_download')]
+
+
+def invoice_post_files(ch: str, ts: str) -> list:
+    """#영업_관리 계산서 글에 붙은 파일(계산서 사진) [{name, url}]."""
+    return _post_files_of(_invoice_post(ch, ts))
+
+
+def _invoice_writers() -> set:
+    """계산서 글을 올리는 사람 — 경영지원(이체 담당·정산 승인자). 이 밖의 사람이 쓴 글이면 카드에 ⚠️."""
+    ids = set(ea.executor_ids()) | set(ea.n_executor_ids())
+    try:
+        from dashboard.services.settlement_checkers import checker_ids
+        ids |= set(checker_ids())
+    except Exception:
+        pass
+    return {i for i in ids if i}
 
 
 def post_invoice_files(row: dict) -> int:
-    """자금집행 — 고른 계산서 글의 사진을 카드 스레드에 그대로 붙인다(요청자가 따로 첨부 안 해도, 11-05)."""
-    files = invoice_post_files(row.get('origin_channel') or '', row.get('origin_ts') or '')
+    """자금집행 — 고른 계산서 글의 사진을 카드 스레드에 그대로 붙이고(11-05), 그 글을 누가 썼는지 카드에 남긴다
+    (11-14 보안 점검 4차 — 아무 직원 글도 '경영지원 계산서'처럼 보였다)."""
+    m = _invoice_post(row.get('origin_channel') or '', row.get('origin_ts') or '')
+    if m is not None:
+        author = m.get('user') or ''
+        try:
+            new = ea.set_extra(row['id'], inv_by=ea.initial(_name(author)) if author else '',
+                               inv_by_other=(not author) or author not in _invoice_writers())
+            if new:
+                refresh(new)
+        except Exception as exc:
+            logger.warning(f'{_LOG} 계산서 글 작성자 기록 실패 ({ea.title(row)}): {exc}')
+    files = _post_files_of(m)
     return post_files(row, files, '', label='📄 계산서 (#영업_관리 계산서 글에서)') if files else 0
 
 
@@ -793,6 +823,24 @@ def _grn_warn_once(view_id: str, code: str, grn: str) -> bool:
     return True
 
 
+def _invoice_screen_mismatch(view: dict, f: dict) -> str:
+    """새 요청 창의 「계산서」 고르기 값과 실제로 쓰일 계산서(f.origin_ts)가 다르면 안내 문구, 같으면 ''."""
+    if f.get('_edit'):
+        return ''
+    blk = (view.get('state', {}).get('values', {}).get('invoice') or {}).get(ea.A_INVOICE)
+    if blk is None:
+        return ''
+    sel = (blk.get('selected_option') or {}).get('value') or ''
+    try:
+        shown = (ea.invoice_from_value(sel) or {}).get('ts', '') if sel else ''
+    except (ValueError, KeyError, TypeError):
+        shown = ''
+    used = f.get('origin_ts') or ''
+    if shown != used:
+        return '고른 계산서가 화면과 맞지 않아요. 「계산서」를 다시 골라 주세요.'
+    return ''
+
+
 def validate_new_submit(view: dict):
     """(fields, errors) — 제출 직후 동기 검사(ack 에 errors 를 실어야 해서)."""
     f = ea.read_new_request(view)
@@ -807,6 +855,19 @@ def validate_new_submit(view: dict):
         if msg and _grn_warn_once(view.get('id', ''), f.get('project_code'), f.get('grn')):
             bid = 'grn' if 'grn' in values else ('invoice' if 'invoice' in values else 'project')
             errs[bid] = msg
+    if not errs:
+        # 화면에 고른 계산서와 실제로 올라갈 계산서가 다르면 다시 고르게 — 빠르게 두 번 고르면 창 갱신이 하나
+        #   실패해 다른 계산서 금액으로 올라갈 수 있었다(11-14 보안 점검 4차)
+        msg = _invoice_screen_mismatch(view, f)
+        if msg:
+            errs['invoice'] = msg
+    if not errs:
+        # 같은 거래처·금액 결재가 최근에 있으면 한 번 묻는다 — 계산서 유무와 상관없이(11-14 보안 점검 4차).
+        #   예전엔 계산서를 고른 경우만 봐서 「계산서 없음」으로 다시 올리거나 같은 글을 다시 올리면 두 번 결재됐다
+        dups = ea.find_recent_fund_dups(f.get('amount'), f.get('partner') or '', exclude_id=f.get('_edit'))
+        if dups and _grn_warn_once(view.get('id', ''), 'dup', ','.join(str(d['id']) for d in dups)):
+            bid = 'amount' if 'amount' in values else ('invoice' if 'invoice' in values else 'content')
+            errs[bid] = ea.dup_warning(dups)
     # 오류는 화면에 있는 block_id 로(계좌 칸은 다시 채우면 payee_name_2 처럼 바뀐다)
     errs = {ea.field_block_id(values, k) if k in ('payee_name', 'bank', 'account') else k: m
             for k, m in errs.items()}
