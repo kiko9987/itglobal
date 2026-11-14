@@ -30,6 +30,20 @@ def register(sid: str, email: str, login_time: Optional[str]) -> None:
         _conns[sid] = {'email': email, 'login_time': login_time or ''}
 
 
+def touch(email: str, login_time: Optional[str]) -> int:
+    """화면이 세션을 연장하면(/api/auth/ping) 그 사람 연결의 기준 시각도 같이 — 안 하면 연결한 지 4시간이 지난
+    탭은 세션이 살아 있어도 끊겨, 새로고침 전까지 실시간 갱신이 조용히 멈췄다(11-15). Returns 갱신한 연결 수."""
+    if not email or not login_time:
+        return 0
+    n = 0
+    with _lock:
+        for c in _conns.values():
+            if c.get('email') == email and (c.get('login_time') or '') < login_time:
+                c['login_time'] = login_time
+                n += 1
+    return n
+
+
 def unregister(sid: str) -> None:
     with _lock:
         _conns.pop(sid, None)

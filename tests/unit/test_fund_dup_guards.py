@@ -188,3 +188,119 @@ def test_cancel_without_invoice_post_logs_nothing_there(se):
     row = se.process_new_submit(MGR, dict(FIELDS))
     assert se.apply_action('cancel', row['id'], MGR) is None
     assert not [kw for kw in se._inv.of('chat_postMessage') if '요청 취소' in kw.get('text', '')]
+
+
+# ── 11-15 수정 뒤 점검: 나빠진 곳 ────────────────────────────────
+
+def test_edit_to_correct_account_clears_payee_changed(se):
+    ea.remember_payee(FIELDS['partner'], '김강원', '신한', '110-511-825643')
+    f = dict(FIELDS, account='999-888-777666')
+    assert ea.complete_new_request(f) == {}
+    row = se.process_new_submit(MGR, f)
+    assert ea.extra(row).get('payee_changed')
+    g = dict(FIELDS, _edit=row['id'], extra=dict(ea.extra(row)))   # 수정 창은 예전 extra 를 들고 온다
+    g['extra'].pop('payee_changed', None)
+    g['extra'].pop('payee_saved', None)
+    assert ea.complete_new_request(g) == {}
+    new = se.process_new_submit(MGR, g)
+    x = ea.extra(ea.get(row['id']))
+    assert not x.get('payee_changed') and x.get('payee_saved')
+    assert '예전에 보낸 계좌' not in ea.card_text(ea.get(row['id']), ea.steps(row['id']), 'G4049-JW')
+
+
+def _age(aid, days):
+    t = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+    with ea._db()._get_connection() as conn:
+        conn.execute('UPDATE approvals SET updated_at=?, created_at=? WHERE id=?', (t, t, aid))
+        conn.commit()
+
+
+def test_old_prepaid_warns_once_on_invoice_submit(se):
+    p = se.process_new_submit(KIKO, dict(FIELDS))
+    se.apply_action('transfer', p['id'], SB)
+    _age(p['id'], ea.DUP_WINDOW_DAYS + 30)
+    assert ea.find_unlinked_match('G', FIELDS['amount'], FIELDS['partner']) is None   # 목록은 안 가림
+    assert ea.find_old_prepaid('G', FIELDS['amount'], FIELDS['partner'])['id'] == p['id']
+    f_inv = dict(FIELDS, origin_channel='CINV', origin_ts='1700000000.000900')
+    import dashboard.services.e_approval as _ea
+    orig = _ea.read_new_request
+    _ea.read_new_request = lambda view: dict(f_inv)
+    try:
+        view = {'id': 'V9', 'state': {'values': {'amount': {}}}}
+        f, errs = se.validate_new_submit(view)
+        assert set(errs) == {'amount'} and ea.title(p) in errs['amount'] and '선입금' in errs['amount']
+        f, errs = se.validate_new_submit(view)             # 같은 창에서 한 번 더 → 통과
+        assert errs == {}
+        f, errs = se.validate_new_submit(dict(view, id='V10'))
+        assert set(errs) == {'amount'}                      # 다른 창은 다시 물음
+    finally:
+        _ea.read_new_request = orig
+
+
+def test_old_prepaid_window(tmp_db):
+    a = ea.create(ea.FORM_FUND, MGR, '강성환', dict(FIELDS))
+    with ea._db()._get_connection() as conn:
+        conn.execute('UPDATE approvals SET status=? WHERE id=?', (ea.DONE, a['id']))
+        conn.commit()
+    _age(a['id'], 10)
+    assert ea.find_old_prepaid('G', FIELDS['amount'], FIELDS['partner']) is None      # 90일 안은 기존 검사가
+    _age(a['id'], 200)
+    hit = ea.find_old_prepaid('G', FIELDS['amount'], '강원포장')
+    assert hit['id'] == a['id'] and '선입금' in ea.old_prepaid_warning(hit)
+    assert ea.find_old_prepaid('R', FIELDS['amount'], FIELDS['partner']) is None     # 사업자 다름
+    _age(a['id'], ea.OLD_PREPAID_DAYS + 5)
+    assert ea.find_old_prepaid('G', FIELDS['amount'], FIELDS['partner']) is None      # 1년 넘음
+
+
+def test_socket_touch_keeps_active_tab_connected(monkeypatch):
+    from dashboard.utils import socket_session_guard as sg
+    monkeypatch.setattr(sg, '_conns', {})
+    start = datetime(2026, 11, 15, 9, 0, 0)
+    sg.register('s1', 'a@x.com', start.isoformat())
+    sg.register('s2', 'b@x.com', start.isoformat())
+    later = start + timedelta(hours=3)
+    assert sg.touch('a@x.com', later.isoformat()) == 1
+    assert sg.touch('a@x.com', start.isoformat()) == 0          # 더 옛 시각으로 되돌리지 않음
+
+    class _DB:
+        def get_user_by_email(self, e):
+            return {'is_active': True}
+    cut = sg.sweep(lambda sid: None, now=start + timedelta(hours=5), db=_DB())
+    assert cut == ['s2']                                         # 화면을 쓴 a 는 유지, 4시간 넘게 연장 없던 b 만 끊음
+
+
+@pytest.mark.parametrize('raw, shown', [
+    ('<@U0ABC123> 확인 부탁', '@직원 확인 부탁'),
+    ('<@U0ABC123|sb> 확인', '@sb 확인'),
+    ('견적 <https://drive.google.com/x?a=1&amp;b=2|드라이브> 참고', '견적 드라이브 참고'),
+    ('<#C0123ABC|영업관리> 에 올림', '#영업관리 에 올림'),
+    ('<!channel> 11/14 G 150,000원 강원포장', '11/14 G 150,000원 강원포장'),
+])
+def test_pin_summary_makes_slack_tokens_readable(raw, shown):
+    from dashboard.services import pin_remind as pr
+    import dashboard.services.hr as hr
+    orig = hr.find_by_slack
+    hr.find_by_slack = lambda uid: None
+    try:
+        line = pr._esc_from_slack(pr._summary_line(raw))
+    finally:
+        hr.find_by_slack = orig
+    assert line == shown and '<' not in line and '&lt;' not in line
+
+
+def test_login_never_forces_consent(monkeypatch):
+    from dashboard import google_oauth as go
+    seen = {}
+
+    class _Flow:
+        def authorization_url(self, **kw):
+            seen.update(kw)
+            return 'https://accounts.google.com/x', 'st'
+    m = go.GoogleOAuthManager.__new__(go.GoogleOAuthManager) if hasattr(go, 'GoogleOAuthManager') else None
+    if m is None:
+        pytest.skip('클래스 이름이 다름')
+    m.allowed_domain = 'itg-aircon.com'
+    monkeypatch.setattr(m, 'create_flow', lambda redirect_uri=None: _Flow(), raising=False)
+    monkeypatch.setattr(m, '_has_valid_refresh_token', lambda: False, raising=False)
+    m.get_authorization_url()
+    assert seen['prompt'] == 'select_account'

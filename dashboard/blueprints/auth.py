@@ -171,6 +171,11 @@ def refresh_session():
         session['login_time'] = datetime.now().isoformat()
         session.modified = True
         logger.debug(f"세션 연장: {session.get('user', {}).get('email', 'unknown')}")
+        try:   # 열린 실시간 연결도 같이 연장(11-15 — 4시간 지나면 세션이 살아 있어도 끊기던 것)
+            from dashboard.utils import socket_session_guard as _sg
+            _sg.touch((session.get('user') or {}).get('email'), session['login_time'])
+        except Exception as _e:
+            logger.debug(f"실시간 연결 연장 실패(무시): {_e}")
 
         # 세션 타임아웃 정보를 프론트엔드에 전달
         session_timeout_minutes = session.get('session_timeout_minutes')

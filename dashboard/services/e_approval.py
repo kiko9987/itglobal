@@ -404,6 +404,35 @@ def find_unlinked_match(grn: str, amount: int, partner: str) -> Optional[dict]:
 
 
 DUP_WINDOW_DAYS = 90
+OLD_PREPAID_DAYS = 365
+
+
+def find_old_prepaid(grn: str, amount: int, partner: str) -> Optional[dict]:
+    """계산서 없이 먼저 보낸(선입금) 같은 G/R·금액·거래처 결재 중 이체 완료 90일~1년 지난 것 — 가장 최근 한 건.
+
+    find_unlinked_match 는 90일 지난 선입금을 보지 않는다(새 계산서를 가리지 않게). 늦게 온 계산서면 두 번 이체될 수
+    있어, 제출 창에서 한 번 묻는 데만 쓴다(11-15)."""
+    key = partner_key(partner)
+    if not key or not amount:
+        return None
+    now = datetime.now()
+    recent = (now - timedelta(days=DUP_WINDOW_DAYS)).strftime('%Y-%m-%d %H:%M:%S')
+    oldest = (now - timedelta(days=OLD_PREPAID_DAYS)).strftime('%Y-%m-%d %H:%M:%S')
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        rows = conn.execute(
+            '''SELECT * FROM approvals WHERE form=? AND origin_ts IS NULL AND amount=? AND grn=? AND status=?
+               AND updated_at < ? AND updated_at >= ? ORDER BY id DESC''',
+            (FORM_FUND, int(amount), grn, DONE, recent, oldest)).fetchall()
+    hits = [dict(r) for r in rows if partner_key(r['partner']) == key]
+    return hits[0] if hits else None
+
+
+def old_prepaid_warning(row: dict) -> str:
+    when = str(row.get('updated_at') or '')[:10]
+    return (f"⚠️ 사업자·거래처·금액이 같은 선입금이 있어요: {title(row)}"
+            f"({initial(row.get('requester_name'))}·{when} 이체 완료, 계산서 없이 보냄). "
+            "그 선입금의 계산서면 올리지 말고, 다른 건이면 [요청]을 한 번 더 눌러 주세요.")
 
 
 def find_recent_fund_dups(amount, partner: str, exclude_id: Optional[int] = None,

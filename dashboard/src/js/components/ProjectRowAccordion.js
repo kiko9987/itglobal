@@ -3787,8 +3787,11 @@ export default class ProjectRowAccordion {
       const data = await response.json();
 
       if (data.success && typeof data.url === 'string' && data.url.startsWith('https://drive.google.com/')) {
-        const win = window.open(data.url, '_blank', 'noopener');
-        if (!win) {
+        // 'noopener' 를 넘기면 창이 열려도 null 이 돌아와 매번 '팝업이 막혀' 경고가 떴다(11-15) — 열고 나서 끊는다
+        const win = window.open(data.url, '_blank');
+        if (win) {
+          win.opener = null;
+        } else {
           this.showMessage('팝업이 막혀 폴더를 열지 못했습니다. 브라우저에서 이 사이트의 팝업을 허용해 주세요.', 'warning');
         }
         return;

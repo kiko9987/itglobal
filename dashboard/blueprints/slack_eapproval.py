@@ -870,6 +870,11 @@ def validate_new_submit(view: dict):
         if dups and _grn_warn_once(view.get('id', ''), 'dup', ','.join(str(d['id']) for d in dups)):
             bid = 'amount' if 'amount' in values else ('invoice' if 'invoice' in values else 'content')
             errs[bid] = ea.dup_warning(dups)
+    if not errs and f.get('origin_ts') and not f.get('_edit'):
+        # 이체 완료 90일 지난 선입금은 목록에서 계산서를 가리지 않는 대신, 같은 건이면 여기서 한 번 묻는다(11-15)
+        old = ea.find_old_prepaid(f.get('grn') or '', int(f.get('amount') or 0), f.get('partner') or '')
+        if old and _grn_warn_once(view.get('id', ''), 'old_prepaid', str(old['id'])):
+            errs['invoice' if 'invoice' in values else 'amount'] = ea.old_prepaid_warning(old)
     # 오류는 화면에 있는 block_id 로(계좌 칸은 다시 채우면 payee_name_2 처럼 바뀐다)
     errs = {ea.field_block_id(values, k) if k in ('payee_name', 'bank', 'account') else k: m
             for k, m in errs.items()}
@@ -880,7 +885,9 @@ def process_new_submit(uid: str, f: dict) -> dict:
     name = _name(uid)   # 거래처 계좌 기억은 이체 완료 때(apply_action) — 승인 전 계좌가 기억되지 않게(11-11)
     if f.get('_edit'):   # [✏️ 수정하기] 로 고친 것 — 같은 결재·카드(계산서 글 현장 지정은 처음에 끝났다)
         # '예전 계좌 자동 채움' 표시는 고친 계좌 기준으로 다시 — 다른 계좌로 고쳤는데 표시가 남지 않게(11-05 점검)
-        f['extra'] = {**(f.get('extra') or {}), 'payee_saved': bool((f.get('extra') or {}).get('payee_saved'))}
+        # '예전 계좌와 달라요' ⚠️ 도 마찬가지 — 수정은 옛 extra 에 덮어 합쳐서, 맞는 계좌로 고쳐도 경고가 남았다(11-15)
+        _x = f.get('extra') or {}
+        f['extra'] = {**_x, 'payee_saved': bool(_x.get('payee_saved')), 'payee_changed': _x.get('payee_changed') or None}
         return process_edit(uid, f['_edit'], f, f.get('_files') or [])
     row = ea.create(ea.FORM_FUND, uid, name, f)
     _audit(row, 'request', name)

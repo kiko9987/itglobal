@@ -167,12 +167,9 @@ class GoogleOAuthManager:
         try:
             flow = self.create_flow(redirect_uri)
 
-            # 토큰 파일에 refresh_token이 있는지 체크 (UX 개선)
-            has_refresh_token = self._has_valid_refresh_token()
-
-            # refresh_token이 없으면 select_account + consent
-            # 있으면 select_account만 (권한 승인 화면 스킵)
-            prompt = 'select_account' if has_refresh_token else 'select_account consent'
+            # 로그인은 계정 선택만 — 11-13 부터 로그인 때 캘린더 토큰을 저장하지 않으므로, 공용 캘린더 토큰이
+            #   풀렸다고 모든 직원 로그인에 권한 승인 화면을 띄울 이유가 없다(11-15). 처음 쓰는 계정은 구글이 알아서 묻는다.
+            prompt = 'select_account'
 
             authorization_url, state = flow.authorization_url(
                 access_type='offline',

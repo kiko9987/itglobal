@@ -101,9 +101,36 @@ def is_settlement_message(text: str) -> bool:
 _is_deposit = is_deposit
 
 
+def _slack_user_label(uid: str) -> str:
+    try:
+        from dashboard.services import hr
+        card = hr.find_by_slack(uid)
+        if card and (card.get('name') or '').strip():
+            return card['name'].strip()
+    except Exception:
+        pass
+    return '직원'
+
+
+def _readable_tokens(s: str) -> str:
+    """슬랙 원문 표기(<@U…>·<#C…|이름>·<주소|글자>·<!channel>) → 사람이 읽는 글자.
+
+    리마인드는 원문을 다시 이스케이프해 멘션·링크가 살아나지 않게 하는데(11-14), 그러면 '<@U0ABC…>' 같은 글자가
+    그대로 보였다. 요약 전에 글자로 바꿔 둔다(11-15). 멘션은 다시 불리지 않게 '@이름' 글자로만."""
+    s = re.sub(r'<@([UW][A-Z0-9]+)(?:\|([^>]*))?>', lambda m: '@' + (m.group(2) or _slack_user_label(m.group(1))), s)
+    s = re.sub(r'<#C[A-Z0-9]+\|([^>]*)>', r'#\1', s)
+    s = re.sub(r'<#C[A-Z0-9]+>', '#채널', s)
+    s = re.sub(r'<!subteam\^[A-Z0-9]+(?:\|([^>]*))?>', lambda m: m.group(1) or '@그룹', s)
+    s = re.sub(r'<!(here|channel|everyone)(?:\|[^>]*)?>', '', s)
+    s = re.sub(r'<!date\^[^|>]*\|([^>]*)>', r'\1', s)
+    s = re.sub(r'<(?:https?|mailto|tel):[^|>]*\|([^>]*)>', r'\1', s)
+    s = re.sub(r'<((?:https?|mailto|tel):[^|>]*)>', r'\1', s)
+    return s
+
+
 def _summary_line(text: str) -> str:
     """한 줄 요약 — 계좌번호·마크다운·개행·꼬리 문구 제거."""
-    s = text.replace('[Web발신]', '')
+    s = _readable_tokens(text).replace('[Web발신]', '')
     s = re.sub(r'(?:452|255)[\d*\-]{5,}', '', s)   # 계좌번호 제거 (마스킹 깨짐·노이즈 방지)
     # bold/italic 마크다운 제거 — 이모지 코드(:white_check_mark:)의 '_'는 보존
     s = re.sub(r'(:[a-z0-9_+\-]+:)|[*_]', lambda m: m.group(1) or '', s)
