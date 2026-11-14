@@ -104,6 +104,11 @@
         $('apCntMine').textContent = j.counts.mine;
         if (j.see_all) { $('apTabAll').hidden = false; $('apCntAll').textContent = j.counts.all; }
         $('apUnlinked').hidden = j.linked;
+        if (!j.linked) {
+          $('apUnlinked').textContent = j.sid_unavailable
+            ? '슬랙 확인이 잠시 안 돼요. 잠시 뒤 새로 고쳐 주세요.'
+            : '인사카드에 슬랙 계정이 연결되지 않아 결재함을 쓸 수 없어요. 경영지원에 말씀해 주세요.';
+        }
         if (!state.loaded) {
           var sel = $('apForm');
           j.forms.forEach(function (x) { var o = document.createElement('option'); o.value = x.key; o.textContent = x.label; sel.appendChild(o); });

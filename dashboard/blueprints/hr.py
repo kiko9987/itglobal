@@ -338,11 +338,13 @@ def api_home():
         logger.warning(f'[GW-HOME] 휴가 요약 실패: {e}')
         out['leave'] = None
     # 결재·승인 목록은 슬랙이 확인한 본인 ID 로만 (인사카드 slack_id 바꿔치기 방지, 2026-11-13)
-    from dashboard.services.gw_approval import verified_slack_id
-    _sid = '' if _is_field() else verified_slack_id(_me(), (p or {}).get('slack_id') or '')
+    from dashboard.services.gw_approval import slack_id_status
+    _sid, _sid_state = ('', 'unlinked') if _is_field() else slack_id_status(_me(), (p or {}).get('slack_id') or '')
     if not _is_field():
         try:
             out['approvals'] = gw_home.approvals(_sid)
+            if out['approvals'] is not None and _sid_state == 'unavailable':
+                out['approvals']['unavailable'] = True   # 연결 안 됨이 아니라 슬랙 확인이 잠깐 안 됨(11-15)
         except Exception as e:
             logger.warning(f'[GW-HOME] 결재 목록 실패: {e}')
             out['approvals'] = None

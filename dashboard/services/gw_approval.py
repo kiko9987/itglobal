@@ -29,14 +29,17 @@ logger = get_logger(__name__)
 # 아무 값으로나 고칠 수 있어, 결재권 없는 인사 관리자가 자기 카드에 결재자 ID 를 넣으면 웹에서 승인·최종 승인
 # (그리고 본인 몫인 이체 완료까지) 혼자 할 수 있었다. 이제 로그인 메일로 슬랙에 물어본 그 사람의 ID 와
 # 인사카드 ID 가 같을 때만 인정한다. 슬랙 쪽 신원은 인사 관리자가 바꿀 수 없다.
+# 값: (슬랙이 아는 ID, 만료 시각, 상태, 마지막으로 확인한 ID, 그 시각)
 _SID_CACHE: Dict[str, tuple] = {}
 _SID_OK_TTL = 6 * 3600
 _SID_FAIL_TTL = 300
+_SID_LAST_OK_TTL = 24 * 3600   # 슬랙 조회가 안 될 때 전에 확인한 ID 를 쓰는 기간(11-15)
 
 
 def _lookup_slack_id(email: str) -> Optional[str]:
     """로그인 메일 → 슬랙 user ID. 슬랙에 없는 메일이면 '', 조회 자체를 못 하면 None."""
     from slack_sdk import WebClient
+    from slack_sdk.errors import SlackApiError
     # 메일 조회 권한(users:read.email)은 메인 봇에 있음 — 전자결재 봇엔 없음(2026-11-13 확인)
     for env in ('SLACK_BOT_TOKEN', 'SLACK_PROJECT_BOT_TOKEN', 'SLACK_EAPPROVAL_BOT_TOKEN'):
         tok = os.getenv(env, '').strip()
@@ -45,46 +48,71 @@ def _lookup_slack_id(email: str) -> Optional[str]:
         try:
             r = WebClient(token=tok, timeout=5).users_lookupByEmail(email=email)
             return ((r.get('user') or {}).get('id') or '').strip()
-        except Exception as e:
+        except SlackApiError as e:   # 슬랙이 답은 했다 — 권한 없는 봇이면 다음 봇으로
             err = str(getattr(getattr(e, 'response', None), 'data', {}) or e)
             if 'users_not_found' in err:
                 return ''
             logger.warning(f'[GW결재] 슬랙 신원 조회 실패({env}): {err[:120]}')
+        except Exception as e:
+            # 연결·시간 초과 — 다른 봇도 같은 슬랙이라 기다려 봐야 같다(봇마다 5초씩 최대 15초 멈추던 것, 11-15)
+            logger.warning(f'[GW결재] 슬랙 연결 실패({env}): {str(e)[:120]}')
+            return None
     return None
 
 
-def verified_slack_id(email: str, card_sid: str) -> str:
-    """인사카드 slack_id 를 슬랙이 아는 그 사람의 ID 와 같을 때만 돌려준다. 다르거나 확인 못 하면 ''."""
+def slack_id_status(email: str, card_sid: str) -> Tuple[str, str]:
+    """(인정한 슬랙 ID, 상태). 상태 = 'ok' | 'unlinked'(카드에 없음·슬랙에 없음·서로 다름) |
+    'unavailable'(슬랙 확인이 안 되고 전에 확인한 값도 없음 — 화면에 '잠시 뒤 다시' 안내).
+
+    슬랙이 잠깐 안 되면 하루 안에 확인해 둔 ID 를 쓴다 — 예전엔 5분 동안 '슬랙 계정이 연결되지 않아'로 보이고
+    웹 승인이 막혔다(11-15). 그 ID 도 인사카드와 다시 맞춰 보므로 카드 바꿔치기 방지는 그대로."""
     email = (email or '').strip().lower()
     card_sid = (card_sid or '').strip()
     if not email or not card_sid:
-        return ''
+        return '', 'unlinked'
     import time
     now = time.time()
     hit = _SID_CACHE.get(email)
     if hit and hit[1] > now:
-        real = hit[0]
+        real, state = hit[0], hit[2]
     else:
+        last_id, last_at = (hit[3], hit[4]) if hit else ('', 0.0)
         found = _lookup_slack_id(email)
-        real = found or ''
-        _SID_CACHE[email] = (real, now + (_SID_OK_TTL if found is not None else _SID_FAIL_TTL))
+        if found is not None:
+            real, state, exp = found, 'ok', now + _SID_OK_TTL
+            if found:
+                last_id, last_at = found, now
+        elif last_id and now - last_at < _SID_LAST_OK_TTL:
+            real, state, exp = last_id, 'ok', now + _SID_FAIL_TTL
+            logger.info(f'[GW결재] 슬랙 확인 실패 — 전에 확인한 ID 사용 ({email})')
+        else:
+            real, state, exp = '', 'unavailable', now + _SID_FAIL_TTL
+        _SID_CACHE[email] = (real, exp, state, last_id, last_at)
+    if state == 'unavailable':
+        return '', 'unavailable'
     if real and real == card_sid:
-        return card_sid
+        return card_sid, 'ok'
     if real:
         logger.warning(f'[GW결재] 인사카드 슬랙 ID 가 본인과 다름 — 결재 신원 인정 안 함 ({email})')
-    return ''
+    return '', 'unlinked'
+
+
+def verified_slack_id(email: str, card_sid: str) -> str:
+    """인사카드 slack_id 를 슬랙이 아는 그 사람의 ID 와 같을 때만 돌려준다. 다르거나 확인 못 하면 ''."""
+    return slack_id_status(email, card_sid)[0]
 
 
 # ── 보는 사람 ─────────────────────────────────────────────────────────
 def viewer(email: str) -> dict:
     p = hr.find_by_email(email) if email else None
-    sid = verified_slack_id(email, (p or {}).get('slack_id') or '')
+    sid, sid_state = slack_id_status(email, (p or {}).get('slack_id') or '')
     approver = bool(sid) and sid in ea.approver_ids()
     final = bool(sid) and sid in ea.final_approver_ids()
     executor = bool(sid) and (sid in ea.executor_ids() or sid in ea.n_executor_ids())
     see_all = approver or final or executor or hr.is_hr_admin(email)
     return {'email': email, 'slack_id': sid, 'name': (p or {}).get('name') or '', 'see_all': see_all,
-            'linked': bool(sid), 'archive_windows': _archive_windows(p)}
+            'linked': bool(sid), 'sid_unavailable': sid_state == 'unavailable',
+            'archive_windows': _archive_windows(p)}
 
 
 _ALL_TIME = ('0000-00-00', '9999-12-31')
@@ -229,7 +257,7 @@ def list_docs(v: dict, box: str = 'todo', q: str = '', form: str = '', status: s
         'box': box, 'counts': {k: len(b) for k, b in boxes.items()},
         'items': [_summary(r, v) for r in pick],
         'forms': [{'key': f, 'label': ea.FORM_LABELS.get(f, f)} for f in forms_seen],
-        'see_all': v['see_all'], 'linked': v['linked'],
+        'see_all': v['see_all'], 'linked': v['linked'], 'sid_unavailable': v.get('sid_unavailable', False),
     }
 
 

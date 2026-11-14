@@ -48,7 +48,9 @@
     if (!box) return;
     if (!A) { fail('homeApprovals', '결재를 불러오지 못했습니다.'); return; }
     if (!A.linked) {
-      box.innerHTML = '<div class="gw-empty">인사카드에 슬랙 계정이 연결되지 않아 결재를 찾지 못했습니다.</div>';
+      box.innerHTML = '<div class="gw-empty">' + (A.unavailable
+        ? '슬랙 확인이 잠시 안 돼요. 잠시 뒤 새로 고쳐 주세요.'
+        : '인사카드에 슬랙 계정이 연결되지 않아 결재를 찾지 못했습니다.') + '</div>';
       return;
     }
     function list(rows, empty) {
