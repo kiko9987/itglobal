@@ -220,6 +220,17 @@ _DDL = [
         account TEXT,
         last_used TIMESTAMP
     )''',
+    # 11-15 거래처가 확인해 준 계좌 목록 — 하이엠솔루텍처럼 센터마다 계좌가 따로인 거래처.
+    # 목록에 있으면 '예전 계좌와 달라요' ⚠️ 를 띄우지 않고 어느 센터인지 붙이고, 없으면 ⚠️(account=숫자만)
+    '''CREATE TABLE IF NOT EXISTS payee_known_accounts (
+        partner_key TEXT NOT NULL,
+        partner TEXT,
+        bank TEXT,
+        account TEXT NOT NULL,
+        label TEXT,
+        added_at TIMESTAMP,
+        PRIMARY KEY (partner_key, account)
+    )''',
     # 11-11 제출 기록 — 창 제출(ack) 뒤 백그라운드에서 결재를 만드는데, 그 사이 서버가 꺼지면 요청이 사라지고
     # 요청자도 몰랐다. 제출 내용을 먼저 남기고, 끝나지 않은 것은 재시작 뒤 이어서 처리한다(recover_jobs)
     '''CREATE TABLE IF NOT EXISTS approval_jobs (
@@ -607,7 +618,7 @@ def requester_can_cancel(row: dict) -> bool:
 
 
 # extra 중 시스템이 붙이는 표시 칸 — 수정 기록('바뀐 칸')에 넣지 않는다
-_SYSTEM_EXTRA = ('f', 'payee_saved', 'payee_changed', 'dup_of', 'inv_by', 'inv_by_other', 'job')
+_SYSTEM_EXTRA = ('f', 'payee_saved', 'payee_changed', 'payee_known', 'payee_unlisted', 'dup_of', 'inv_by', 'inv_by_other', 'job')
 
 # 다시 올릴 때 고칠 수 있는 장부 칸(양식 값 전부는 extra 에)
 EDIT_COLUMNS = ('project_code', 'cost_category', 'content', 'evidence', 'grn', 'partner', 'payee_name',
@@ -802,6 +813,58 @@ def remember_payee(partner: str, payee_name: str, bank: str, account: str) -> No
                  bank=excluded.bank, account=excluded.account, last_used=excluded.last_used''',
             (key, partner, payee_name, bank, account, _now()))
         conn.commit()
+
+
+def _acct_digits(s: str) -> str:
+    return re.sub(r'\D', '', s or '')
+
+
+def _bank_key(s: str) -> str:
+    """'우리은행'·'우리 은행'·'우리' 를 같게."""
+    return re.sub(r'\s|은행$', '', (s or '').strip()).replace('은행', '')
+
+
+def add_known_accounts(partner: str, rows: List[Tuple[str, str, str]]) -> int:
+    """거래처 확인 계좌 넣기 — rows=[(은행, 계좌, 이름표)]. 같은 계좌는 은행·이름표만 고친다. 넣은 수."""
+    key = partner_key(partner)
+    if not key:
+        return 0
+    n = 0
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        for bank, account, label in rows:
+            digits = _acct_digits(account)
+            if len(digits) < 8:
+                continue
+            conn.execute(
+                '''INSERT INTO payee_known_accounts (partner_key, partner, bank, account, label, added_at)
+                   VALUES (?,?,?,?,?,?)
+                   ON CONFLICT(partner_key, account) DO UPDATE SET partner=excluded.partner, bank=excluded.bank,
+                     label=excluded.label''',
+                (key, partner, (bank or '').strip(), digits, (label or '').strip(), _now()))
+            n += 1
+        conn.commit()
+    return n
+
+
+def known_accounts(partner: str) -> List[dict]:
+    key = partner_key(partner)
+    if not key:
+        return []
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        return [dict(r) for r in conn.execute(
+            'SELECT * FROM payee_known_accounts WHERE partner_key=? ORDER BY account', (key,)).fetchall()]
+
+
+def match_known_account(partner: str, bank: str, account: str) -> Tuple[bool, Optional[dict]]:
+    """(이 거래처에 확인 계좌 목록이 있는가, 맞는 계좌 행 또는 None). 은행이 다르면 다른 계좌로 본다."""
+    rows = known_accounts(partner)
+    digits = _acct_digits(account)
+    for r in rows:
+        if r['account'] == digits and (not r.get('bank') or _bank_key(r['bank']) == _bank_key(bank)):
+            return True, r
+    return bool(rows), None
 
 
 def personal_memory(uid: str) -> dict:
@@ -1085,7 +1148,8 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
             lines.append(f'내용: {content}')
         # 예금주가 '(주)컴퓨존'이면 괄호가 겹쳐 '((주)컴퓨존)' — 예금주는 · 뒤로(11-06)
         lines.append(f"계좌: {row.get('bank') or '-'} {row.get('account') or '-'} · 예금주 {row.get('payee_name') or '-'}"
-                     + (' · 예전 계좌 자동 채움' if extra(row).get('payee_saved') else ''))
+                     + (' · 예전 계좌 자동 채움' if extra(row).get('payee_saved') else '')
+                     + (f" · ✅ 확인된 계좌({extra(row)['payee_known']})" if extra(row).get('payee_known') else ''))
         lines += fund_warning_lines(row)
         lines.append(f"증빙: {row.get('evidence') or '-'} (VAT 포함 금액)")
         if quote_amount:
@@ -1114,6 +1178,10 @@ def fund_warning_lines(row: dict) -> List[str]:
     out = []
     if x.get('payee_changed'):
         out.append(f"⚠️ 예전에 보낸 계좌({x['payee_changed']})와 달라요 — 이체 전에 거래처에 확인해 주세요")
+    if x.get('payee_unlisted'):
+        out.append('⚠️ 거래처가 알려 준 계좌 목록에 없는 계좌예요 — 이체 전에 거래처에 확인해 주세요')
+    if '어음' in str(x.get('payee_known') or ''):
+        out.append('⚠️ 어음 계좌예요 — 이체할 계좌가 맞는지 확인해 주세요')
     ids = [i for i in (x.get('dup_of') or []) if i != row.get('id')]
     if ids:
         names = []
@@ -1218,10 +1286,13 @@ def buttons(row: dict, role: str = 'all') -> List[dict]:
         out.append(_btn('🛒 구매 완료', A_TRANSFER, rv, 'primary', _confirm(
             '구매 완료', f"{row.get('content') or '비품'} ({amt})\n구매를 마쳤나요?", '구매 완료')))
     elif st == APPROVED and role in ('all', 'executor'):
-        _chg = extra(row).get('payee_changed') if form == FORM_FUND else ''
+        _x = extra(row) if form == FORM_FUND else {}
+        _chg, _known = _x.get('payee_changed'), str(_x.get('payee_known') or '')
         out.append(_btn('💸 이체 완료', A_TRANSFER, rv, 'primary', _confirm(
             '이체 완료', f"{row.get('bank')} {row.get('account')} · 예금주 {row.get('payee_name')}\n{amt} 이체를 마쳤나요?"
-            + (f"\n⚠️ 예전에 보낸 계좌({_chg})와 달라요." if _chg else ''),
+            + (f"\n⚠️ 예전에 보낸 계좌({_chg})와 달라요." if _chg else '')
+            + ('\n⚠️ 거래처가 알려 준 계좌 목록에 없어요.' if _x.get('payee_unlisted') else '')
+            + ((f"\n✅ 확인된 계좌({_known})" + (' — ⚠️ 어음 계좌예요.' if '어음' in _known else '')) if _known else ''),
             '이체 완료')))
     # 순서: 처리하는 사람 버튼 → [보완 요청](돌려보내기) → 요청자 버튼 [수정하기]·[취소하기] 붙여서 맨 뒤(11-11 KiKO)
     if st in (PENDING, FINAL, APPROVED) and role == 'all':   # 고칠 게 있으면 반려 대신 돌려보내기(11-05)
@@ -1879,6 +1950,19 @@ def mark_payee_saved(f: Dict) -> None:
     x = dict(f.get('extra') or {})
     if same:
         x['payee_saved'] = True
+    # 거래처가 확인해 준 계좌 목록이 있으면 그 목록으로 판단(11-15 하이엠솔루텍 — 센터마다 계좌가 달라
+    # 다른 센터로 보낼 때마다 '예전 계좌와 달라요'가 떠 보완 요청이 났다, #25)
+    has_list, hit = match_known_account(f.get('partner', ''), f.get('bank', ''), f.get('account', ''))
+    x.pop('payee_known', None)
+    x.pop('payee_unlisted', None)
+    if has_list and normalize_account(f.get('account')):
+        x.pop('payee_changed', None)
+        if hit:
+            x['payee_known'] = hit.get('label') or '확인된 계좌'
+        else:
+            x['payee_unlisted'] = True
+        f['extra'] = x
+        return
     # 이체한 적 있는 거래처인데 계좌가 다르면 카드·이체 확인 창에 ⚠️ — 계좌 바꿔치기·오타(11-14 보안 점검 4차)
     if saved and not same and normalize_account(f.get('account')):
         acct = normalize_account(saved.get('account'))

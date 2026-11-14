@@ -887,7 +887,8 @@ def process_new_submit(uid: str, f: dict) -> dict:
         # '예전 계좌 자동 채움' 표시는 고친 계좌 기준으로 다시 — 다른 계좌로 고쳤는데 표시가 남지 않게(11-05 점검)
         # '예전 계좌와 달라요' ⚠️ 도 마찬가지 — 수정은 옛 extra 에 덮어 합쳐서, 맞는 계좌로 고쳐도 경고가 남았다(11-15)
         _x = f.get('extra') or {}
-        f['extra'] = {**_x, 'payee_saved': bool(_x.get('payee_saved')), 'payee_changed': _x.get('payee_changed') or None}
+        f['extra'] = {**_x, 'payee_saved': bool(_x.get('payee_saved')), 'payee_changed': _x.get('payee_changed') or None,
+                      'payee_known': _x.get('payee_known') or None, 'payee_unlisted': _x.get('payee_unlisted') or None}
         return process_edit(uid, f['_edit'], f, f.get('_files') or [])
     row = ea.create(ea.FORM_FUND, uid, name, f)
     _audit(row, 'request', name)
