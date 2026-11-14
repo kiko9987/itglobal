@@ -87,6 +87,59 @@ def test_first_time_partner_has_no_change_flag(tmp_db):
     assert 'payee_changed' not in f['extra']
 
 
+def test_known_accounts_list_replaces_changed_warning(se):
+    """11-15 하이엠솔루텍 — 센터마다 계좌가 달라 다른 센터로 보낼 때마다 '예전 계좌와 달라요'가 떴다(#25)."""
+    p = '하이엠솔루텍㈜'
+    ea.remember_payee(p, '하이엠솔루텍', '우리은행', '1005-401-790194')            # 예전에 천안으로 보냄
+    assert ea.add_known_accounts(p, [('우리은행', '1005-401-790194', '천안'), ('우리은행', '1005-201-085715', '강남'),
+                                     ('우리은행', '1005-101-247544', '어음'), ('우리은행', '12-3', '짧음')]) == 3
+    f = dict(FIELDS, partner='하이엠솔루텍', payee_name='하이엠솔루텍', bank='우리', account='1005201085715')
+    ea.mark_payee_saved(f)                                # 다른 센터(강남) — 표기가 달라도(우리·하이픈 없음) 같은 계좌
+    x = f['extra']
+    assert x['payee_known'] == '강남' and 'payee_changed' not in x and 'payee_unlisted' not in x
+    row = se.process_new_submit(KIKO, f)
+    card = ea.card_text(row, ea.steps(row['id']), 'G4049-JW')
+    assert '✅ 확인된 계좌(강남)' in card and '⚠️' not in card
+    btn = next(b for b in ea.buttons(row) if b['action_id'] == ea.A_TRANSFER)
+    assert '확인된 계좌(강남)' in btn['confirm']['text']['text']
+
+    g = dict(f, account='1005-999-000000', extra={})     # 목록에 없는 계좌
+    ea.mark_payee_saved(g)
+    assert g['extra']['payee_unlisted'] and 'payee_known' not in g['extra'] and 'payee_changed' not in g['extra']
+    row = se.process_new_submit(KIKO, g)
+    assert '계좌 목록에 없는 계좌예요' in ea.card_text(row, ea.steps(row['id']), 'G4049-JW')
+
+    h = dict(f, bank='국민', extra={})                    # 번호가 같아도 은행이 다르면 다른 계좌
+    ea.mark_payee_saved(h)
+    assert h['extra'].get('payee_unlisted')
+
+    k = dict(f, account='1005-101-247544', extra={})     # 어음 계좌
+    ea.mark_payee_saved(k)
+    row = se.process_new_submit(KIKO, k)
+    assert '어음 계좌예요' in ea.card_text(row, ea.steps(row['id']), 'G4049-JW')
+    assert '어음 계좌예요' in next(b for b in ea.buttons(row) if b['action_id'] == ea.A_TRANSFER)['confirm']['text']['text']
+
+    # 목록 없는 거래처는 예전처럼
+    other = dict(FIELDS, account='999-888-777666', extra={})
+    ea.remember_payee(FIELDS['partner'], '김강원', '신한', '110-511-825643')
+    ea.mark_payee_saved(other)
+    assert other['extra']['payee_changed'] and 'payee_unlisted' not in other['extra']
+
+
+def test_edit_to_listed_account_clears_unlisted_warning(se):
+    ea.add_known_accounts('하이엠솔루텍', [('우리은행', '1005-201-085715', '강남')])
+    base = dict(FIELDS, partner='하이엠솔루텍', payee_name='하이엠솔루텍', bank='우리은행')
+    f = dict(base, account='1005-999-000000')
+    ea.mark_payee_saved(f)
+    row = se.process_new_submit(MGR, f)
+    assert ea.extra(row).get('payee_unlisted')
+    g = dict(base, account='1005-201-085715', _edit=row['id'])
+    ea.mark_payee_saved(g)
+    se.process_new_submit(MGR, g)
+    x = ea.extra(ea.get(row['id']))
+    assert not x.get('payee_unlisted') and x.get('payee_known') == '강남'
+
+
 # ── ③ 계산서 글 작성자 ──────────────────────────────────────────
 
 @pytest.mark.parametrize('author,other', [(SB, False), (MGR, True), ('', True)])
