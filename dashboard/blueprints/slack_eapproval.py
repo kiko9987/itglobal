@@ -322,7 +322,9 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '',
         _notify(client, new.get('requester_id'), f'❌ {t} 반려됐어요. 사유: {reason}')
         _origin_log(new, f'❌ {t} 반려 ({who}) — {reason}')
     elif action == 'cancel':
-        _thread_log(new, f'⚪ {ini if uid == new.get("requester_id") else who} 요청 취소')
+        by = ini if uid == new.get('requester_id') else who
+        _thread_log(new, f'⚪ {by} 요청 취소')
+        _origin_log(new, f'⚪ {t} 요청 취소 ({by})')   # 계산서 글만 보는 사람도 알게(11-15)
         if uid != new.get('requester_id'):
             _notify(client, new.get('requester_id'), f'⚪ {t} 요청이 취소됐어요 ({ini}).')
     elif action == 'revise':

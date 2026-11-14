@@ -468,6 +468,9 @@ def add_extra_files(aid: int, files: List[dict]) -> None:
         conn.commit()
 
 
+_CREATE_LOCK = threading.Lock()   # 결재 생성(중복 확인 + 저장) — 서버는 프로세스 하나(waitress)
+
+
 def create(form: str, requester_id: str, requester_name: str, fields: Dict) -> dict:
     """결재 생성. 승인자가 직접 요청하면 ① 자동 통과(바로 이체 대기). 업무요청형은 승인 없이 바로 처리 대기."""
     task = form in TASK_FORMS
@@ -487,11 +490,18 @@ def create(form: str, requester_id: str, requester_name: str, fields: Dict) -> d
     x = dict(fields.get('extra') or {})
     if fields.get('_job'):   # 제출 기록 id — 재시작 뒤 이어서 처리할 때 같은 결재를 또 만들지 않게(11-11)
         x['job'] = fields['_job']
-    if form == FORM_FUND:   # 같은 거래처·금액 결재 — 카드에 ⚠️ 로 남겨 승인자·이체 담당이 보게(11-14)
-        _dups = find_recent_fund_dups(fields.get('amount'), fields.get('partner') or '')
-        if _dups:
-            x['dup_of'] = [d['id'] for d in _dups[:3]]
-    vals[cols.index('extra')] = json.dumps(x, ensure_ascii=False)
+    # 같은 거래처·금액 결재 — 카드에 ⚠️ 로 남겨 승인자·이체 담당이 보게(11-14).
+    # 확인과 저장을 한 잠금 안에서: 두 사람이 몇 초 차이로 올려도 뒤 카드에는 ⚠️ 가 붙는다(11-15)
+    with _CREATE_LOCK:
+        if form == FORM_FUND:
+            _dups = find_recent_fund_dups(fields.get('amount'), fields.get('partner') or '')
+            if _dups:
+                x['dup_of'] = [d['id'] for d in _dups[:3]]
+        vals[cols.index('extra')] = json.dumps(x, ensure_ascii=False)
+        return _insert_new(form, status, requester_id, requester_name, cols, vals, now, auto, auto_final)
+
+
+def _insert_new(form, status, requester_id, requester_name, cols, vals, now, auto, auto_final) -> dict:
     with _db()._get_connection() as conn:
         _ensure_tables(conn)
         cur = conn.execute(

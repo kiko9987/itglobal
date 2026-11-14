@@ -151,3 +151,40 @@ def test_pinv_deny_reassign_only_owner_or_office(tmp_db, monkeypatch):
     assert '처음 지정한 사람' in sb._pinv_deny(_body('UANY'))
     view = {'private_metadata': json.dumps({'ch': 'CINV', 'ts': '1700000000.000100'})}
     assert '처음 지정한 사람' in sb._pinv_deny({'user': {'id': 'UANY'}}, view)   # 제출 때도
+
+
+# ── 11-15 낮음 2건: 동시 제출 · 취소 기록 ──────────────────────────
+
+def test_concurrent_creates_second_card_still_gets_dup_mark(tmp_db, monkeypatch):
+    import threading
+    import time
+    orig = ea.find_recent_fund_dups
+
+    def slow(*a, **k):          # 확인과 저장 사이를 벌려 두 제출이 겹치게
+        r = orig(*a, **k)
+        time.sleep(0.2)
+        return r
+    monkeypatch.setattr(ea, 'find_recent_fund_dups', slow)
+    out = []
+    ts = [threading.Thread(target=lambda: out.append(ea.create(ea.FORM_FUND, MGR, '강성환', dict(FIELDS))))
+          for _ in range(2)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    marks = sorted(bool(ea.extra(r).get('dup_of')) for r in out)
+    assert marks == [False, True]          # 잠금 없으면 둘 다 False
+
+
+def test_cancel_is_logged_in_invoice_post_thread(se):
+    row = se.process_new_submit(MGR, dict(FIELDS, origin_channel='CINV', origin_ts='1700000000.000100'))
+    assert se.apply_action('cancel', row['id'], MGR) is None
+    logs = [kw for kw in se._inv.of('chat_postMessage')
+            if kw.get('thread_ts') == '1700000000.000100' and '요청 취소' in kw.get('text', '')]
+    assert len(logs) == 1 and ea.title(row) in logs[0]['text'] and logs[0]['channel'] == 'CINV'
+
+
+def test_cancel_without_invoice_post_logs_nothing_there(se):
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    assert se.apply_action('cancel', row['id'], MGR) is None
+    assert not [kw for kw in se._inv.of('chat_postMessage') if '요청 취소' in kw.get('text', '')]
