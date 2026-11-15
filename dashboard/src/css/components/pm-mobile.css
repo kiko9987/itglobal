@@ -1,0 +1,1025 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   프로젝트 화면 휴대폰 리뉴얼 1단계 (2026-11-15)
+   - 넓은 화면(PC)은 그대로: 아래 '넓은 화면' 묶음은 새로 만든 단추·시트만 숨긴다.
+     나머지는 전부 @media (max-width: 767.98px) 안.
+   - 모양 기준은 그룹웨어(당근 비즈니스 따라가기): 카드 1px #dcdee3·둥글기 12px·그림자 없음,
+     주 단추 #2a3038, 누를 자리 44px, 입력칸 글자 16px(아이폰 확대 방지), 글자 대비 4.5:1 이상.
+   - 그룹웨어 CSS(static/css/groupware-shell.css, 이 파일보다 뒤에 읽힘)와 우선순위가 같으면 그쪽이 이기므로
+     휴대폰 규칙은 `html body.pm-projects-page ...` 로 한 단계 높인다.
+   - JS: components/MobileCardView.js(카드·상세 시트), components/ProjectMobileChrome.js(⋯ 메뉴·필터 접기)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 넓은 화면: 휴대폰용으로 새로 만든 것만 숨김 ── */
+.pmm-kebab-wrap,
+.pmm-more-slot {
+  display: none;
+}
+
+.pmm-sheet[hidden] {
+  display: none !important;
+}
+
+/* ── 상세 시트(휴대폰에서만 열림) ── */
+.pmm-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 1045; /* 머리글 위, 부트스트랩 창(1055)·포털 메뉴(9999) 아래 */
+  display: flex;
+  flex-direction: column;
+  background: #f7f8f9;
+  color: #1a1c20;
+  color-scheme: light;
+}
+
+.pmm-sheet-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  height: 56px;
+  padding: 0 8px;
+  padding-top: env(safe-area-inset-top);
+  box-sizing: content-box;
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.pmm-sheet-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 9999px;
+  background: transparent;
+  color: #1a1c20;
+  font-size: 18px;
+}
+
+.pmm-sheet-back:active {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.pmm-sheet-back:focus-visible {
+  outline: 2px solid #2a3038;
+  outline-offset: 2px;
+}
+
+.pmm-sheet-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #1a1c20;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pmm-sheet-title:focus {
+  outline: none;
+}
+
+.pmm-sheet-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px 12px calc(32px + env(safe-area-inset-bottom));
+}
+
+.pmm-sheet-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.pmm-sheet-quick:empty {
+  display: none;
+}
+
+/* 시트 맨 위 요약: 상태 · 총액 · 미수금 */
+.pmm-sheet-sum {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  width: 100%;
+  padding: 12px 16px;
+  background: #ffffff;
+  border: 1px solid #dcdee3;
+  border-radius: 12px;
+  font-size: 13px;
+  color: #555d6d;
+  font-variant-numeric: tabular-nums;
+}
+
+.pmm-sheet-sum .pmm-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1c20;
+}
+
+.pmm-sheet-sum .pmm-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #8b919c;
+}
+
+.pmm-sheet-sum .pmm-st-run .pmm-dot,
+.pmm-sheet-sum.pmm-st-run .pmm-dot { background: #2f80ed; }
+.pmm-sheet-sum .pmm-st-due .pmm-dot { background: #fa342c; }
+.pmm-sheet-sum .pmm-st-check .pmm-dot { background: #f5a524; }
+.pmm-sheet-sum .pmm-st-done .pmm-dot { background: #1aa174; }
+.pmm-sheet-sum .pmm-st-cancel .pmm-dot { background: #b0b5bd; }
+
+.pmm-sum-money b {
+  margin-left: 2px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1a1c20;
+}
+
+.pmm-sum-money.pmm-due b {
+  color: #c9241b;
+}
+
+.pmm-sum-money.pmm-due-zero b {
+  color: #555d6d;
+  font-weight: 500;
+}
+
+.pmm-quick-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid #dcdee3;
+  border-radius: 9999px;
+  background: #ffffff;
+  color: #1a1c20 !important;
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none !important;
+}
+
+.pmm-quick-btn i {
+  color: #555d6d;
+}
+
+.pmm-quick-btn:active {
+  background: #f1f2f4;
+}
+
+.pmm-quick-btn:focus-visible {
+  outline: 2px solid #2a3038;
+  outline-offset: 2px;
+}
+
+/* 시트 안의 표 껍데기(펼침 코드가 '행 다음'에 붙기 때문) — 블록으로 풀어 화면 폭에 맞춤 */
+.pmm-sheet-table,
+.pmm-sheet-table > tbody,
+.pmm-sheet-table > tbody > tr,
+.pmm-sheet-table > tbody > tr > td {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.pmm-sheet-table > tbody > tr.pmm-sheet-anchor {
+  display: none;
+}
+
+html.pmm-sheet-open,
+html.pmm-sheet-open body {
+  overflow: hidden !important;
+}
+
+/* ══════════════════════════════ 휴대폰 ══════════════════════════════ */
+@media (max-width: 767.98px) {
+
+  /* 페이지가 옆으로 넘치지 않게 + 바깥 흰 상자를 걷어 카드가 화면 폭을 쓰게(회색 바탕 위 흰 카드) */
+  html body.pm-projects-page .content-container {
+    max-width: 100%;
+    overflow-x: clip;
+    padding: 4px 0 16px !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  html body.pm-projects-page .filter-section-sticky {
+    margin-bottom: 0 !important;
+    padding-top: 0 !important;
+    background: transparent !important;
+  }
+
+  html body.pm-projects-page .table-wrapper {
+    border: 0 !important;
+    background: transparent !important;
+  }
+
+  html body.pm-projects-page #mobileCardContainer {
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+    border: 0 !important;
+  }
+
+  /* ── 1. 머리: 제목 한 줄 + ⋯ + [새 프로젝트] ── */
+  html body.pm-projects-page .pmm-head {
+    margin-bottom: 12px !important;
+  }
+
+  html body.pm-projects-page .pmm-head > .col-12 {
+    flex-wrap: nowrap;
+    gap: 8px;
+    min-height: 44px !important;
+  }
+
+  html body.pm-projects-page .pmm-head > .col-12 > .d-flex:first-child {
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  html body.pm-projects-page .pmm-head h4 {
+    font-size: 20px;
+    white-space: nowrap;
+  }
+
+  html body.pm-projects-page #headerAlertContainer {
+    flex-basis: 100%;
+    height: auto !important;
+    margin: 4px 0 0 !important;
+  }
+
+  html body.pm-projects-page #headerAlertContainer:empty {
+    display: none !important;
+  }
+
+  html body.pm-projects-page #fullRefreshBtn,
+  html body.pm-projects-page #calendarSyncBtn {
+    display: none !important;
+  }
+
+  html body.pm-projects-page .pmm-head .btn {
+    min-width: 0 !important;
+    height: 44px;
+    display: inline-flex;
+    align-items: center;
+    font-size: 15px;
+  }
+
+  html body.pm-projects-page .pmm-kebab-wrap {
+    display: block;
+    position: relative;
+  }
+
+  .pmm-kebab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border: 1px solid #dcdee3;
+    border-radius: 9999px;
+    background: #ffffff;
+    color: #1a1c20;
+    font-size: 16px;
+  }
+
+  .pmm-kebab:focus-visible,
+  .pmm-menu-item:focus-visible {
+    outline: 2px solid #2a3038;
+    outline-offset: 2px;
+  }
+
+  .pmm-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 1030;
+    min-width: 180px;
+    padding: 6px;
+    background: #ffffff;
+    border: 1px solid #dcdee3;
+    border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  }
+
+  .pmm-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: #1a1c20;
+    font-size: 15px;
+    text-align: left;
+  }
+
+  .pmm-menu-item i {
+    width: 18px;
+    color: #555d6d;
+  }
+
+  .pmm-menu-item:active {
+    background: #f1f2f4;
+  }
+
+  /* ── 2. 상태 칸: 한 줄 가로로 밀기, 글자 안 잘리게 ── */
+  html body.gw-shell.pm-projects-page .gw-stats {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    scroll-snap-type: x proximity;
+    padding-bottom: 2px;
+  }
+
+  html body.gw-shell.pm-projects-page .gw-stats::-webkit-scrollbar {
+    display: none;
+  }
+
+  html body.gw-shell.pm-projects-page .gw-stat {
+    flex: 0 0 auto;
+    height: 44px;
+    padding: 0 14px;
+    scroll-snap-align: start;
+  }
+
+  html body.gw-shell.pm-projects-page .gw-stat-label {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+
+  html body.gw-shell.pm-projects-page .gw-stat-go {
+    display: none;
+  }
+
+  /* ── 3. 필터: 검색 + [필터 n], 펼치면 칩 두 칸씩 ── */
+  html body.pm-projects-page .filter-section-sticky {
+    position: static !important;
+    top: auto !important;
+  }
+
+  html body.pm-projects-page .pmm-filters > .row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+  }
+
+  html body.pm-projects-page .pmm-filters > .row > [class*="col-"] {
+    padding: 0;
+  }
+
+  html body.pm-projects-page .pmm-filters > .row > .pmm-col-search {
+    order: -3;
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
+    max-width: none;
+  }
+
+  html body.pm-projects-page .pmm-filters > .row > .pmm-more-slot {
+    display: block;
+    order: -2;
+    flex: 0 0 auto;
+    width: auto; /* 부트스트랩 .row > * { width: 100% } 를 풀어 검색 칸과 한 줄에 */
+    padding: 0;
+  }
+
+  html body.pm-projects-page .pmm-filters > .row > * {
+    margin-bottom: 0 !important;
+  }
+
+  html body.pm-projects-page .pmm-filters > .row > .pmm-col-actions {
+    order: -1;
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: none;
+  }
+
+  html body.pm-projects-page .pmm-filters #searchInput {
+    width: 100% !important;
+    height: 44px !important;
+    font-size: 16px !important;
+  }
+
+  .pmm-filter-more {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 44px;
+    padding: 0 16px;
+    border: 0;
+    border-radius: 9999px;
+    background: rgba(0, 0, 0, 0.047);
+    color: #1a1c20;
+    font-size: 15px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .pmm-filter-more.on {
+    background: #2a3038;
+    color: #ffffff;
+  }
+
+  .pmm-filter-more:focus-visible {
+    outline: 2px solid #2a3038;
+    outline-offset: 2px;
+  }
+
+  .pmm-filter-n {
+    min-width: 20px;
+    padding: 0 6px;
+    border-radius: 9999px;
+    background: #ff6f0f;
+    color: #ffffff;
+    font-size: 12px;
+    line-height: 20px;
+    text-align: center;
+  }
+
+  /* [필터 n] 이 이미 수를 보여 주므로 PC 의 'n개 활성' 배지는 숨김 */
+  html body.pm-projects-page .pmm-filters .active-filter-badge {
+    display: none !important;
+  }
+
+  /* 접힌 상태: 검색·[필터]·건수(+필터가 걸렸으면 [초기화])만 */
+  html body.pm-projects-page .pmm-filters:not(.pmm-open) > .row > [class*="col-"]:not(.pmm-col-search):not(.pmm-col-actions) {
+    display: none !important;
+  }
+
+  html body.pm-projects-page .pmm-filters:not(.pmm-open) .pmm-col-actions .btn,
+  html body.pm-projects-page .pmm-filters:not(.pmm-open) #filterPresetsContainer {
+    display: none !important;
+  }
+
+  html body.pm-projects-page .pmm-filters.has-active-filters:not(.pmm-open) .pmm-col-actions .btn[onclick*="resetFilters"] {
+    display: inline-flex !important;
+  }
+
+  html body.pm-projects-page .pmm-filters .pmm-col-actions .filter-actions-row {
+    margin-top: 0 !important;
+    gap: 8px !important;
+  }
+
+  html body.pm-projects-page .pmm-filters .pmm-col-actions > label.form-label {
+    display: none;
+  }
+
+  html body.pm-projects-page .pmm-filters .pmm-col-actions .btn {
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    font-size: 14px;
+  }
+
+  /* 펼친 상태: 고르기 칸 두 칸씩, 글자 16px */
+  html body.pm-projects-page .pmm-filters.pmm-open > .row > [class*="col-"]:not(.pmm-col-search):not(.pmm-col-actions) {
+    flex: 1 1 calc(50% - 4px);
+    width: auto;
+    min-width: 0;
+    max-width: none;
+  }
+
+  html body.pm-projects-page .pmm-filters.pmm-open .form-select {
+    width: 100% !important;
+    max-width: none !important;
+    height: 44px !important;
+    font-size: 16px !important;
+  }
+
+  /* 표 위 줄(내 프로젝트만·취소 제외·수금/A/S 관리 모드): 한 줄 가로 밀기, '개씩 보기'는 카드라 숨김 */
+  html body.pm-projects-page .table-section {
+    min-height: 0 !important;
+    margin-top: 8px;
+  }
+
+  html body.pm-projects-page #tableLoadingOverlay {
+    position: relative !important;
+    min-height: 160px;
+  }
+
+  html body.pm-projects-page .table-wrapper {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  html body.pm-projects-page .dt-container > table,
+  html body.pm-projects-page .dt-container > .bottom,
+  html body.pm-projects-page .dt-container > .clear {
+    display: none !important;
+  }
+
+  html body.pm-projects-page .dt-container > .top .dt-length > select,
+  html body.pm-projects-page .dt-container > .top .dt-length > label {
+    display: none !important;
+  }
+
+  html body.pm-projects-page .dt-container > .top {
+    margin: 0 !important;
+    padding: 0 4px !important;
+    border: 0 !important;
+    background: transparent !important;
+  }
+
+  html body.pm-projects-page .dt-container > .top .dt-length .my-projects-filter,
+  html body.pm-projects-page .dt-container > .top .dt-length .form-switch {
+    border: 0 !important;
+    padding-left: 0 !important;
+  }
+
+  html body.pm-projects-page .dt-container > .top .dt-length {
+    display: flex !important;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 16px !important;
+    overflow-x: auto;
+    scrollbar-width: none;
+    white-space: nowrap;
+  }
+
+  html body.pm-projects-page .dt-container > .top .dt-length::-webkit-scrollbar {
+    display: none;
+  }
+
+  html body.pm-projects-page .dt-container > .top .dt-length > * {
+    flex: 0 0 auto;
+    min-height: 44px;
+    margin: 0 !important;
+    display: flex !important;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+  }
+
+  html body.pm-projects-page .dt-container > .top .dt-length input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    margin: 0;
+  }
+
+  /* ── 4. 카드 목록 ── */
+  .pmm-list {
+    margin-top: 8px;
+  }
+
+  .pmm-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .pmm-card {
+    display: block;
+    padding: 14px 16px;
+    background: #ffffff;
+    border: 1px solid #dcdee3;
+    border-radius: 12px;
+    color: #1a1c20;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .pmm-card:active {
+    background: #f7f8f9;
+  }
+
+  .pmm-card:focus-visible {
+    outline: 2px solid #2a3038;
+    outline-offset: 2px;
+  }
+
+  .pmm-card.is-cancelled {
+    background: #f7f8f9;
+  }
+
+  .pmm-card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .pmm-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #1a1c20;
+  }
+
+  .pmm-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #8b919c;
+  }
+
+  .pmm-st-run .pmm-dot { background: #2f80ed; }
+  .pmm-st-due .pmm-dot { background: #fa342c; }
+  .pmm-st-check .pmm-dot { background: #f5a524; }
+  .pmm-st-done .pmm-dot { background: #1aa174; }
+  .pmm-st-cancel .pmm-dot { background: #b0b5bd; }
+  .pmm-st-cancel { color: #555d6d; }
+
+  .pmm-code {
+    font-size: 13px;
+    color: #555d6d;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .pmm-addr {
+    margin-top: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+  }
+
+  .pmm-partner {
+    margin-top: 2px;
+    font-size: 14px;
+    color: #555d6d;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .pmm-money {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 14px;
+    margin-top: 10px;
+    font-size: 13px;
+    color: #555d6d;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .pmm-money b {
+    margin-left: 2px;
+    font-size: 15px;
+    font-weight: 600;
+    color: #1a1c20;
+  }
+
+  .pmm-money .pmm-due b {
+    color: #c9241b; /* 흰 바탕 대비 5.6:1 */
+  }
+
+  .pmm-money .pmm-due-zero b {
+    color: #555d6d;
+    font-weight: 500;
+  }
+
+  .pmm-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+    font-size: 13px;
+    color: #555d6d;
+  }
+
+  .pmm-empty {
+    margin: 24px 0;
+    text-align: center;
+    color: #555d6d;
+    font-size: 15px;
+  }
+
+  .pmm-more-btn {
+    display: block;
+    width: 100%;
+    height: 44px;
+    margin-top: 12px;
+    border: 1px solid #dcdee3;
+    border-radius: 9999px;
+    background: #ffffff;
+    color: #1a1c20;
+    font-size: 15px;
+    font-weight: 500;
+  }
+
+  .pmm-more-btn[hidden] {
+    display: none;
+  }
+
+  .pmm-more-btn:focus-visible {
+    outline: 2px solid #2a3038;
+    outline-offset: 2px;
+  }
+
+  /* ── 5. 상세 시트 안 펼침: 한 열, 단추 44px, 입력 16px ── */
+  .pmm-sheet .accordion-content,
+  .pmm-sheet .project-accordion-container,
+  .pmm-sheet .accordion-shell,
+  .pmm-sheet .row-details {
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: 100%;
+  }
+
+  /* 시트 자체가 상세 화면이라 PC 펼침의 바깥 띠·카드 테두리·여백(왼쪽 16+12+12px)을 걷음 */
+  .pmm-sheet .accordion-row,
+  .pmm-sheet .accordion-row > td,
+  .pmm-sheet .row-details {
+    background: transparent !important;
+  }
+
+  .pmm-sheet .row-details::before {
+    display: none !important;
+  }
+
+  .pmm-sheet .row-details > .card {
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+
+  .pmm-sheet .row-details > .card > .card-body {
+    padding: 0 !important;
+  }
+
+  .pmm-sheet .all-info-container .row > *,
+  .pmm-sheet .row-details .mt-3 > .row > * {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  .pmm-sheet .info-card,
+  .pmm-sheet .legacy-card,
+  .pmm-sheet .project-title-section {
+    border-radius: 12px !important;
+    box-shadow: none !important;
+  }
+
+  .pmm-sheet .info-card {
+    padding: 14px 16px !important;
+  }
+
+  .pmm-sheet .project-title-flex {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 10px;
+  }
+
+  .pmm-sheet .project-actions-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-start !important;
+  }
+
+  .pmm-sheet .project-actions-container .btn,
+  .pmm-sheet .as-action-slot .btn {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    font-size: 14px;
+  }
+
+  .pmm-sheet .all-info-container .row,
+  .pmm-sheet .row-details .mt-3 > .row {
+    --bs-gutter-x: 0;
+    row-gap: 10px;
+  }
+
+  .pmm-sheet .info-card-column {
+    width: 100%;
+    max-width: 100%;
+    flex: 0 0 100%;
+  }
+
+  /* 보기 상태의 칸: 이름표(왼쪽 96px)·값을 한 줄에 — 두 줄씩이라 상세가 3,200px 넘게 길던 것.
+     편집 중(입력칸이 들어간 칸)은 PC 처럼 위아래 그대로 */
+  html .pmm-sheet .project-accordion-container .compact-item:not(:has(input, select, textarea)) {
+    flex-direction: row !important;
+    align-items: baseline !important;
+    gap: 12px !important;
+    min-height: 44px !important;
+    padding: 8px 0 !important;
+  }
+
+  html .pmm-sheet .project-accordion-container .compact-item:not(:has(input, select, textarea)) > small {
+    flex: 0 0 96px !important;
+    width: 96px;
+    font-size: 13px;
+    color: #555d6d;
+  }
+
+  html .pmm-sheet .project-accordion-container .compact-item:not(:has(input, select, textarea)) > div {
+    flex: 1 1 auto !important;
+    flex-wrap: wrap !important;
+    font-size: 15px !important;
+    color: #1a1c20 !important;
+    overflow-wrap: anywhere;
+  }
+
+  /* 입력칸: 글자 16px(아이폰 확대 방지 — 펼침 CSS 의 .inline-edit-input 0.85rem !important 를 이기게),
+     폭은 칸 너비만큼, 높이 44px */
+  html body .pmm-sheet input:not([type="checkbox"]):not([type="radio"]),
+  html body .pmm-sheet select,
+  html body .pmm-sheet textarea,
+  html body .pmm-sheet .form-control,
+  html body .pmm-sheet .form-select,
+  html body .pmm-sheet .inline-edit-input {
+    font-size: 16px !important;
+  }
+
+  html body .pmm-sheet .project-accordion-container .compact-item:has(input, select, textarea) > div,
+  html body .pmm-sheet .project-accordion-container .compact-item .inline-edit-input,
+  html body .pmm-sheet .project-accordion-container .compact-item select,
+  html body .pmm-sheet .project-title-info input,
+  html body .pmm-sheet .project-title-info select {
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  html body .pmm-sheet .project-accordion-container .inline-edit-input,
+  html body .pmm-sheet .project-accordion-container select,
+  html body .pmm-sheet .project-title-info input,
+  html body .pmm-sheet .project-title-info select {
+    min-height: 44px !important;
+  }
+
+  html body .pmm-sheet .project-title-info {
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+  }
+
+  html body .pmm-sheet .project-title-info > * {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  html body .pmm-sheet .project-title-info .header-edit-input {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+  }
+
+  /* 금액·수금 칸도 휴대폰에선 한 열(두 칸이면 금액 글자가 한 글자씩 꺾였음) */
+  html body .pmm-sheet .card-grid,
+  html body .pmm-sheet .compact-card[data-card-type] .card-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  /* 수금정보: PC 두 칸(왼쪽 계약·중도·잔금, 오른쪽 미수금·수금확인·수금날짜)을 한 열로 접으면
+     계약금→미수금→중도금… 으로 섞여서, 왼쪽 칸(홀수)을 먼저 */
+  html body .pmm-sheet .compact-card[data-card-type="collection"] .card-grid > :nth-child(even) {
+    order: 2;
+  }
+
+  /* 작은 단추(코드 복사 19×17px·메모 24×24px)를 누를 자리 44px 로 */
+  html body .pmm-sheet .code-copy-btn,
+  html body .pmm-sheet .field-memo-btn {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px !important;
+    min-height: 44px !important;
+  }
+
+  /* 카드 제목 글자: 노랑(금액정보 1.63:1)·하늘(손익정보 1.96:1) → 글자는 진한 색, 아이콘만 색 유지 */
+  html body .pmm-sheet .info-card h6 {
+    color: #1a1c20 !important;
+  }
+
+  html body .pmm-sheet .badge,
+  html body .pmm-sheet .form-check-label {
+    white-space: nowrap;
+  }
+
+  /* ── 6. 새 프로젝트·수정 창: 화면 가득 ── */
+  html body.pm-projects-page #modernProjectModal .modal-dialog {
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    margin: 0;
+  }
+
+  html body.pm-projects-page #modernProjectModal .modal-content {
+    height: 100%;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+  }
+
+  html body.pm-projects-page #modernProjectModal .modal-body {
+    flex: 1 1 auto;
+    max-height: none !important; /* PC 는 화면 60% — 휴대폰에선 머리·바닥 사이를 다 씀 */
+    padding: 16px !important;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  html body.pm-projects-page #modernProjectModal .modal-header {
+    padding: 12px 8px 12px 16px !important;
+    padding-top: calc(12px + env(safe-area-inset-top)) !important;
+  }
+
+  html body.pm-projects-page #modernProjectModal .modal-footer {
+    padding: 12px 16px !important;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom)) !important;
+  }
+
+  html body.pm-projects-page #modernProjectModal .modal-body .card-body {
+    padding: 12px !important;
+  }
+
+  /* 칸 1열: 고르기·입력칸을 칸 폭만큼(고정 120px 이라 '사업자 선택' 글자가 잘렸음) */
+  html body.pm-projects-page #modernProjectModal .modal-body select,
+  html body.pm-projects-page #modernProjectModal .modal-body .form-select,
+  html body.pm-projects-page #modernProjectModal .modal-body input.form-control {
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 44px;
+  }
+
+  html body.pm-projects-page #modernProjectModal input,
+  html body.pm-projects-page #modernProjectModal select,
+  html body.pm-projects-page #modernProjectModal textarea {
+    font-size: 16px !important;
+  }
+
+  html body.pm-projects-page #modernProjectModal .modal-footer .btn,
+  html body.pm-projects-page #modernProjectModal .btn-close {
+    min-height: 44px;
+  }
+}
+
+/* 다크 모드: 시트는 그룹웨어처럼 밝은 화면으로 고정(color-scheme: light). 예전 펼침 CSS 의 다크 규칙
+   (제목 칸 남색 그라데이션 + 회색 글자 → 대비 3:1 미만, 아래 문서 칸 어두운 회색)이 시트 안에선 안 먹게 */
+@media (max-width: 767.98px) and (prefers-color-scheme: dark) {
+  html body .pmm-sheet .project-title-section {
+    background: #ffffff !important;
+  }
+
+  html body .pmm-sheet .accordion-row td {
+    background: transparent !important;
+  }
+
+  html body .pmm-sheet .legacy-card,
+  html body .pmm-sheet .folder-path,
+  html body .pmm-sheet .collection-notes,
+  html body .pmm-sheet .legacy-card-value {
+    background: #ffffff !important;
+    border-color: #dcdee3 !important;
+    color: #1a1c20 !important;
+  }
+
+  /* 새 프로젝트 창도 밝게(예전 창 다크 규칙이 바탕만 어둡게 해 글자 대비가 깨짐 — 그룹웨어 창과 같은 처리) */
+  html body.pm-projects-page #modernProjectModal .modal-content,
+  html body.pm-projects-page #modernProjectModal .modal-body {
+    background: #ffffff !important;
+    color: #1a1c20 !important;
+  }
+
+  html body.pm-projects-page #modernProjectModal .modal-header,
+  html body.pm-projects-page #modernProjectModal .modal-footer {
+    background: #ffffff !important;
+    border-color: #e5e7eb !important;
+  }
+
+  html body.pm-projects-page #modernProjectModal {
+    color-scheme: light;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pmm-sheet,
+  .pmm-card {
+    transition: none !important;
+    animation: none !important;
+  }
+}

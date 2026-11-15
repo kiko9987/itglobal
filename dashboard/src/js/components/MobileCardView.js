@@ -1,873 +1,402 @@
 import logger from '../utils/logger.js';
 import { partnerDisplayName } from '../utils/partnerName.js';
 import { escHtml } from '../utils/escapeHtml.js';
+import ProjectStatusCalculator from '../utils/ProjectStatusCalculator.js';
 
 /**
- * MobileCardView 컴포넌트
- * 모바일 및 작은 화면을 위한 카드 기반 프로젝트 뷰
- * 반응형 디자인과 터치 친화적 인터페이스 제공
+ * 휴대폰 프로젝트 카드 목록 + 상세 화면 (2026-11-15 휴대폰 리뉴얼 1단계).
+ *
+ * - 휴대폰 폭(767.98px 이하)에서만 켜진다. 넓은 화면에선 컨테이너를 숨겨 PC 표 그대로.
+ * - 목록은 페이지 필터(ModernProjectFilters)가 거른 결과를 그대로 받는다(따로 검색·정렬 안 함).
+ *   예전 이 파일은 템플릿과 다른 id(#mobile-card-container)를 찾아 컨테이너를 따로 만들고, DataTables 2 의
+ *   바깥 틀(.dt-container)을 몰라 표를 못 숨겼고, 카드도 0장이었다(updateUI 가 빈 배열로 덮어씀) → 다시 씀.
+ * - 카드를 누르면 기존 펼침(ProjectRowAccordion)을 화면 가득 시트 안에서 연다. 펼침 코드는 그대로 쓰고,
+ *   '표 행 다음에 붙이기'만 시트 안의 빈 행에 붙게 바꾼다(휴대폰일 때만). 편집·저장·취소도 PC 와 같은 코드.
+ * - 휴대폰 뒤로 가기 = 시트 닫기(history 한 칸).
  */
+const MOBILE_MQ = '(max-width: 767.98px)';
+const PAGE_SIZE = 30;
+
+const STATUS_TONE = {
+  공사대기: 'wait',
+  공사진행: 'run',
+  수금필요: 'due',
+  확인필요: 'check',
+  공사완료: 'done',
+  공사취소: 'cancel',
+};
+
+function won(n) {
+  return `${Math.round(n).toLocaleString('ko-KR')}원`;
+}
+
+function num(v) {
+  const n = parseFloat(String(v ?? '').replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function shortDate(s) {
+  const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? { y: m[1], md: `${m[2]}.${m[3]}` } : null;
+}
+
+/** 공사일: 2026.11.16 / 2026.11.16 ~ 11.30 / 2026.12.30 ~ 2027.01.05 / 미정 */
+function workPeriod(start, end) {
+  const a = shortDate(start);
+  const b = shortDate(end);
+  if (!a && !b) return '공사일 미정';
+  if (!a || !b) return (a || b).y + '.' + (a || b).md;
+  if (a.y === b.y && a.md === b.md) return `${a.y}.${a.md}`;
+  return a.y === b.y ? `${a.y}.${a.md} ~ ${b.md}` : `${a.y}.${a.md} ~ ${b.y}.${b.md}`;
+}
+
+function telHref(raw) {
+  const digits = String(raw || '').replace(/[^0-9+]/g, '');
+  return digits.length >= 8 ? `tel:${digits}` : '';
+}
+
 export default class MobileCardView {
-  constructor(options = {}) {
-    // 설정
-    this.config = {
-      containerSelector: '#mobile-card-container',
-      breakpoint: 768, // px 이하에서 모바일 뷰 활성화
-      cardsPerRow: {
-        xs: 1,   // < 576px
-        sm: 2,   // 576px - 768px
-        md: 3    // 768px - 992px
-      },
-      enableSwipe: true,
-      enableInfiniteScroll: false,
-      cardAnimation: 'slideIn',
-      sortBy: '프로젝트 코드',
-      sortOrder: 'desc',
-      showFilters: true,
-      enableSearch: true,
-      ...options
-    };
-
-    // 상태 관리
-    this.container = null;
-    this.isActive = false;
+  constructor() {
+    this.mq = window.matchMedia(MOBILE_MQ);
     this.currentData = [];
-    this.filteredData = [];
-    this.currentSort = { field: this.config.sortBy, order: this.config.sortOrder };
+    this.shown = PAGE_SIZE;
+    this.sheetOpen = false;
+    this.lastCardCode = null;
 
-    // 검색 및 필터
-    this.searchTerm = '';
-    this.activeFilters = new Set();
-
-    // 컴포넌트
-    this.badgeSystem = null;
-
-    // 터치 이벤트
-    this.touchStartX = 0;
-    this.touchStartY = 0;
-    this.swipeThreshold = 50;
-
-    // 무한 스크롤
-    this.currentPage = 1;
-    this.itemsPerPage = 20;
-    this.isLoading = false;
-
-    this.init();
-  }
-
-  /**
-   * 컴포넌트 초기화
-   */
-  async init() {
     this.createContainer();
-    await this.initializeComponents();
-    this.setupEventListeners();
-    this.checkViewportAndToggle();
+    this.createSheet();
+    this.bindEvents();
+    this.sync();
   }
 
-  /**
-   * 컨테이너 생성
-   */
+  /** 휴대폰 폭인지 (바깥에서 쓰던 이름 유지) */
+  get isActive() {
+    return this.mq.matches;
+  }
+
   createContainer() {
-    // 기존 컨테이너 확인
-    this.container = document.querySelector(this.config.containerSelector);
-
-    if (!this.container) {
-      // 새 컨테이너 생성
-      this.container = document.createElement('div');
-      this.container.id = 'mobile-card-container';
-      this.container.className = 'mobile-card-view d-none';
-
-      // 테이블 컨테이너 다음에 삽입
-      const tableContainer = document.querySelector('.table-responsive, #projectsTable')?.parentNode;
-      if (tableContainer) {
-        tableContainer.parentNode.insertBefore(this.container, tableContainer.nextSibling);
-      } else {
-        document.body.appendChild(this.container);
-      }
+    let el = document.getElementById('mobileCardContainer');
+    if (!el) {
+      el = document.createElement('section');
+      el.id = 'mobileCardContainer';
+      const section = document.querySelector('.table-section');
+      (section?.parentNode || document.body).insertBefore(el, section?.nextSibling || null);
     }
-
-    this.createLayout();
+    el.classList.add('pmm-list');
+    el.setAttribute('aria-label', '프로젝트 목록');
+    el.innerHTML = `
+      <h2 class="visually-hidden">프로젝트 목록</h2>
+      <div class="pmm-cards" role="list"></div>
+      <p class="pmm-empty" hidden>조건에 맞는 공사가 없어요. 검색어나 필터를 바꿔 보세요.</p>
+      <button type="button" class="pmm-more-btn" hidden></button>`;
+    this.container = el;
+    this.listEl = el.querySelector('.pmm-cards');
+    this.emptyEl = el.querySelector('.pmm-empty');
+    this.moreBtn = el.querySelector('.pmm-more-btn');
   }
 
-  /**
-   * 레이아웃 생성
-   */
-  createLayout() {
-    this.container.innerHTML = `
-      <div class="mobile-view-header">
-        <div class="mobile-search-bar">
-          <div class="input-group">
-            <input type="text"
-                   class="form-control mobile-search-input"
-                   placeholder="프로젝트 검색..."
-                   aria-label="프로젝트 검색">
-            <button class="btn btn-outline-secondary mobile-search-btn" type="button">
-              <i class="fas fa-search"></i>
-            </button>
-          </div>
-        </div>
-
-        <div class="mobile-controls">
-          <div class="mobile-sort-controls">
-            <select class="form-select form-select-sm mobile-sort-select">
-              <option value="프로젝트 코드">프로젝트 코드</option>
-              <option value="공사 시작">공사 시작일</option>
-              <option value="공사상태">상태별</option>
-              <option value="총액2">금액별</option>
-              <option value="미수금">미수금별</option>
-            </select>
-            <button class="btn btn-sm btn-outline-secondary mobile-sort-order"
-                    data-order="desc" title="정렬 순서">
-              <i class="fas fa-sort-amount-down"></i>
-            </button>
-          </div>
-
-          <div class="mobile-filter-controls">
-            <button class="btn btn-sm btn-outline-primary mobile-filter-toggle"
-                    data-bs-toggle="collapse"
-                    data-bs-target="#mobile-quick-filters">
-              <i class="fas fa-filter"></i>
-              <span class="filter-count d-none">0</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div class="collapse" id="mobile-quick-filters">
-        <div class="mobile-quick-filters p-3 bg-light">
-          <div class="quick-filter-group">
-            <h6 class="mb-2">빠른 필터</h6>
-            <div class="btn-group-vertical w-100" role="group">
-              <button type="button" class="btn btn-outline-secondary btn-sm quick-filter"
-                      data-filter="completed">
-                <i class="fas fa-check-circle me-2"></i>완료된 프로젝트
-              </button>
-              <button type="button" class="btn btn-outline-warning btn-sm quick-filter"
-                      data-filter="outstanding">
-                <i class="fas fa-exclamation-triangle me-2"></i>미수금 있는 프로젝트
-              </button>
-              <button type="button" class="btn btn-outline-primary btn-sm quick-filter"
-                      data-filter="in-progress">
-                <i class="fas fa-play-circle me-2"></i>진행 중인 프로젝트
-              </button>
-              <button type="button" class="btn btn-outline-danger btn-sm quick-filter"
-                      data-filter="urgent">
-                <i class="fas fa-exclamation-circle me-2"></i>수금필요 프로젝트
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="mobile-stats">
-        <div class="row text-center">
-          <div class="col-4">
-            <div class="stat-item">
-              <div class="stat-number" id="mobile-total-count">0</div>
-              <div class="stat-label">총 프로젝트</div>
-            </div>
-          </div>
-          <div class="col-4">
-            <div class="stat-item">
-              <div class="stat-number" id="mobile-filtered-count">0</div>
-              <div class="stat-label">필터 결과</div>
-            </div>
-          </div>
-          <div class="col-4">
-            <div class="stat-item">
-              <div class="stat-number" id="mobile-outstanding-sum">0원</div>
-              <div class="stat-label">총 미수금</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="mobile-cards-container">
-        <div class="row" id="mobile-cards-grid">
-          <!-- 카드들이 여기에 동적으로 생성됩니다 -->
-        </div>
-      </div>
-
-      <div class="mobile-load-more text-center" style="display: none;">
-        <button class="btn btn-outline-primary load-more-btn">
-          <i class="fas fa-chevron-down me-2"></i>더 보기
+  createSheet() {
+    const sheet = document.createElement('div');
+    sheet.className = 'pmm-sheet';
+    sheet.id = 'pmmSheet';
+    sheet.setAttribute('role', 'dialog');
+    sheet.setAttribute('aria-modal', 'true');
+    sheet.setAttribute('aria-labelledby', 'pmmSheetTitle');
+    sheet.hidden = true;
+    sheet.innerHTML = `
+      <div class="pmm-sheet-bar">
+        <button type="button" class="pmm-sheet-back" aria-label="목록으로 돌아가기">
+          <i class="fas fa-arrow-left" aria-hidden="true"></i>
         </button>
+        <h2 class="pmm-sheet-title" id="pmmSheetTitle" tabindex="-1"></h2>
       </div>
-
-      <div class="mobile-loading text-center" style="display: none;">
-        <div class="spinner-border text-primary" role="status">
-          <span class="visually-hidden">로딩중...</span>
-        </div>
-      </div>
-    `;
+      <div class="pmm-sheet-scroll">
+        <div class="pmm-sheet-quick"></div>
+        <table class="pmm-sheet-table" role="presentation">
+          <tbody><tr class="pmm-sheet-anchor"><td></td></tr></tbody>
+        </table>
+      </div>`;
+    document.body.appendChild(sheet);
+    this.sheet = sheet;
+    this.sheetTitle = sheet.querySelector('.pmm-sheet-title');
+    this.sheetQuick = sheet.querySelector('.pmm-sheet-quick');
+    this.sheetScroll = sheet.querySelector('.pmm-sheet-scroll');
+    this.anchorRow = sheet.querySelector('.pmm-sheet-anchor');
   }
 
-  /**
-   * 하위 컴포넌트 초기화
-   */
-  async initializeComponents() {
-    try {
-      // UnifiedBadgeSystem 컴포넌트 초기화 (모듈형 뱃지 시스템)
-      const { default: UnifiedBadgeSystem } = await import('./UnifiedBadgeSystem.js');
-      this.badgeSystem = new UnifiedBadgeSystem();
+  bindEvents() {
+    const onMq = () => this.sync();
+    if (this.mq.addEventListener) this.mq.addEventListener('change', onMq);
+    else this.mq.addListener(onMq);
 
-      // 하위 컴포넌트 초기화 완료
-    } catch (error) {
-      logger.error('[ERROR] MobileCardView 컴포넌트 초기화 실패:', error);
-    }
-  }
-
-  /**
-   * 이벤트 리스너 설정
-   */
-  setupEventListeners() {
-    // projectUpdated 이벤트 구독 (필드 메모 업데이트 등)
-    document.addEventListener('projectUpdated', (e) => {
-      const { projectCode, memoKey, memo, updateType } = e.detail || {};
-
-      if (updateType === 'fieldMemo' && projectCode && memoKey) {
-        // currentData에서 해당 프로젝트 찾아서 메모 업데이트
-        const targetProject = this.currentData.find(p => p['프로젝트 코드'] === projectCode);
-
-        if (targetProject) {
-          targetProject[memoKey] = memo;
-          logger.debug(`[MobileCardView] 메모 동기화 완료: ${projectCode} / ${memoKey}`);
-
-          // 활성화된 상태라면 카드 다시 렌더링
-          if (this.isActive) {
-            this.applyFiltersAndSort();
-            this.renderCards();
-          }
-        }
-      }
+    this.listEl.addEventListener('click', (e) => {
+      const card = e.target.closest('.pmm-card');
+      if (card) this.openDetail(card.dataset.code);
+    });
+    this.listEl.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const card = e.target.closest('.pmm-card');
+      if (!card) return;
+      e.preventDefault();
+      this.openDetail(card.dataset.code);
+    });
+    this.moreBtn.addEventListener('click', () => {
+      this.shown += PAGE_SIZE;
+      this.render();
     });
 
-    // 뷰포트 크기 변경 감지
-    window.addEventListener('resize', this.debounce(() => {
-      this.checkViewportAndToggle();
-    }, 250));
+    this.sheet.querySelector('.pmm-sheet-back').addEventListener('click', () => this.requestClose());
+    // 포커스 가두기: 시트가 열려 있는 동안 Tab 으로 뒤 화면에 가지 않게. 시트 위에 뜬 창(메모·사유 입력 등
+    //   부트스트랩 창, 몸통으로 옮겨 띄운 체크 메뉴)은 그대로 둔다. 뒤 화면 inert 는 그 창들이 본문 안에 있어 못 씀
+    document.addEventListener('focusin', (e) => {
+      if (!this.sheetOpen || this.sheet.contains(e.target)) return;
+      if (e.target.closest?.('.modal, .dropdown-menu, [data-portal], .ts-dropdown, .tooltip, .popover')) return;
+      this.sheetTitle.focus({ preventScroll: true });
+    });
+    window.addEventListener('popstate', () => {
+      if (this.sheetOpen) this.requestClose(true);
+    });
 
-    // 컨테이너 내 이벤트 위임
-    if (this.container) {
-      // 검색
-      this.container.addEventListener('input', (e) => {
-        if (e.target.matches('.mobile-search-input')) {
-          this.handleSearch(e.target.value);
-        }
-      });
+    // 메모 저장 등 부분 갱신 → 같은 객체를 고친 경우가 많아 카드만 다시 그림
+    document.addEventListener('projectUpdated', () => {
+      if (this.isActive) this.render();
+    });
+  }
 
-      // 정렬
-      this.container.addEventListener('change', (e) => {
-        if (e.target.matches('.mobile-sort-select')) {
-          this.handleSort(e.target.value);
-        }
-      });
-
-      this.container.addEventListener('click', (e) => {
-        if (e.target.matches('.mobile-sort-order') || e.target.closest('.mobile-sort-order')) {
-          this.toggleSortOrder(e.target.closest('.mobile-sort-order'));
-        }
-      });
-
-      // 빠른 필터
-      this.container.addEventListener('click', (e) => {
-        if (e.target.matches('.quick-filter') || e.target.closest('.quick-filter')) {
-          this.handleQuickFilter(e.target.closest('.quick-filter'));
-        }
-      });
-
-      // 카드 클릭
-      this.container.addEventListener('click', (e) => {
-        const card = e.target.closest('.project-card');
-        if (card && !e.target.closest('.card-actions')) {
-          this.handleCardClick(card);
-        }
-      });
-
-      // 터치 이벤트 (스와이프)
-      if (this.config.enableSwipe) {
-        this.container.addEventListener('touchstart', this.handleTouchStart.bind(this));
-        this.container.addEventListener('touchmove', this.handleTouchMove.bind(this));
-        this.container.addEventListener('touchend', this.handleTouchEnd.bind(this));
-      }
-
-      // 더 보기 버튼
-      this.container.addEventListener('click', (e) => {
-        if (e.target.matches('.load-more-btn')) {
-          this.loadMoreCards();
-        }
-      });
+  /** 휴대폰 ↔ 넓은 화면 전환 */
+  sync() {
+    if (this.isActive) {
+      this.container.style.display = '';
+      this.render();
+    } else {
+      this.container.style.display = 'none';
+      if (this.sheetOpen) this.requestClose();
     }
   }
 
-  /**
-   * 뷰포트 크기 확인 및 뷰 전환
-   */
-  checkViewportAndToggle() {
-    const isMobileSize = window.innerWidth <= this.config.breakpoint;
-
-    if (isMobileSize && !this.isActive) {
-      this.activate();
-    } else if (!isMobileSize && this.isActive) {
-      this.deactivate();
-    }
-  }
-
-  /**
-   * 모바일 뷰 활성화
-   */
-  activate() {
-    this.isActive = true;
-
-    // 테이블 숨기기
-    const tableContainer = document.querySelector('.table-responsive, .dataTables_wrapper');
-    if (tableContainer) {
-      tableContainer.style.display = 'none';
-    }
-
-    // 모바일 뷰 표시
-    this.container.classList.remove('d-none');
-    this.container.classList.add('d-block');
-
-    // 현재 데이터로 카드 렌더링
-    if (this.currentData.length > 0) {
-      this.updateCards(this.currentData);
-    }
-
-    logger.debug('📱 모바일 카드 뷰 활성화');
-  }
-
-  /**
-   * 모바일 뷰 비활성화
-   */
-  deactivate() {
-    this.isActive = false;
-
-    // 모바일 뷰 숨기기
-    this.container.classList.remove('d-block');
-    this.container.classList.add('d-none');
-
-    // 테이블 표시
-    const tableContainer = document.querySelector('.table-responsive, .dataTables_wrapper');
-    if (tableContainer) {
-      tableContainer.style.display = '';
-    }
-
-    logger.debug('🖥️ 데스크톱 테이블 뷰 활성화');
-  }
-
-  /**
-   * 카드 데이터 업데이트
-   */
+  /** 필터 결과가 바뀔 때마다 project-list.js 가 부른다 */
   updateCards(data) {
     this.currentData = Array.isArray(data) ? data : [];
-    this.applyFiltersAndSort();
-    this.renderCards();
-    this.updateStats();
+    this.shown = PAGE_SIZE;
+    if (this.isActive) this.render();
   }
 
-  /**
-   * 필터 및 정렬 적용
-   */
-  applyFiltersAndSort() {
-    let filtered = [...this.currentData];
-
-    // 검색어 적용
-    if (this.searchTerm) {
-      filtered = filtered.filter(item => {
-        const searchFields = ['프로젝트 코드', '담당자', '유입 구분', '거래처명', '사업자명', '현장 주소', '공사 내용'];
-        return searchFields.some(field =>
-          String(item[field] || '').toLowerCase().includes(this.searchTerm.toLowerCase())
-        );
-      });
-    }
-
-    // 빠른 필터 적용
-    this.activeFilters.forEach(filter => {
-      switch (filter) {
-        case 'completed':
-          filtered = filtered.filter(item => item['공사상태'] === '공사완료');
-          break;
-        case 'outstanding':
-          filtered = filtered.filter(item => {
-            const outstanding = parseFloat(item['미수금'] || 0);
-            return outstanding > 0;
-          });
-          break;
-        case 'in-progress':
-          filtered = filtered.filter(item => item['공사상태'] === '공사진행');
-          break;
-        case 'urgent':
-          filtered = filtered.filter(item => item['공사상태'] === '수금필요');
-          break;
-      }
-    });
-
-    // 정렬 적용
-    filtered.sort((a, b) => {
-      let aVal = a[this.currentSort.field] || '';
-      let bVal = b[this.currentSort.field] || '';
-
-      // 프로젝트 코드의 경우 숫자만 추출하여 비교
-      if (this.currentSort.field === '프로젝트 코드') {
-        const aMatch = aVal.match(/[RG](\d+)/);
-        const bMatch = bVal.match(/[RG](\d+)/);
-        aVal = aMatch ? parseInt(aMatch[1], 10) : 0;
-        bVal = bMatch ? parseInt(bMatch[1], 10) : 0;
-      }
-
-      let comparison = 0;
-      if (aVal < bVal) comparison = -1;
-      if (aVal > bVal) comparison = 1;
-
-      return this.currentSort.order === 'desc' ? -comparison : comparison;
-    });
-
-    this.filteredData = filtered;
+  render() {
+    if (!this.isActive) return;
+    const rows = this.currentData;
+    const list = rows.slice(0, this.shown);
+    this.listEl.innerHTML = list.map((r) => this.cardHtml(r)).join('');
+    this.emptyEl.hidden = rows.length > 0;
+    const rest = rows.length - list.length;
+    this.moreBtn.hidden = rest <= 0;
+    if (rest > 0) this.moreBtn.textContent = `더 보기 (${rest.toLocaleString('ko-KR')}건 남음)`;
   }
 
-  /**
-   * 카드 렌더링
-   */
-  renderCards() {
-    const grid = this.container.querySelector('#mobile-cards-grid');
-    if (!grid) return;
-
-    // 기존 카드 제거
-    grid.innerHTML = '';
-
-    // 페이지네이션 적용
-    const startIndex = 0;
-    const endIndex = this.currentPage * this.itemsPerPage;
-    const cardsToShow = this.filteredData.slice(startIndex, endIndex);
-
-    cardsToShow.forEach((item, index) => {
-      const card = this.createCard(item, index);
-      grid.appendChild(card);
-    });
-
-    // 더 보기 버튼 표시/숨기기
-    const loadMoreBtn = this.container.querySelector('.mobile-load-more');
-    if (loadMoreBtn) {
-      const hasMore = this.filteredData.length > endIndex;
-      loadMoreBtn.style.display = hasMore ? 'block' : 'none';
-    }
-
-    // 애니메이션 적용
-    this.animateCards();
-  }
-
-  /**
-   * 개별 카드 생성
-   */
-  createCard(data, index) {
-    const projectCode = data['프로젝트 코드'] || '';
-    const status = data['공사상태'] || '';
-    const totalAmount = parseFloat(data['총액 2'] || data['총액2'] || 0);
-    const outstanding = parseFloat(data['미수금'] || 0);
-
-    // 컬럼 클래스 결정
-    const colClass = this.getColumnClass();
-
-    const cardDiv = document.createElement('div');
-    cardDiv.className = `col-${colClass} mb-3`;
-    cardDiv.innerHTML = `
-      <div class="card project-card h-100"
-           data-project-code="${projectCode}"
-           data-index="${index}">
-        <div class="card-header d-flex justify-content-between align-items-center">
-          <h6 class="card-title mb-0">
-            <i class="fas fa-folder-open me-2 text-primary"></i>
-            ${projectCode}
-          </h6>
-          <div class="card-status">
-            ${this.renderStatusBadge(status)}
-          </div>
-        </div>
-
-        <div class="card-body">
-          <div class="project-info">
-            <div class="info-row">
-              <span class="info-label">
-                <i class="fas fa-user me-1"></i>담당자
-              </span>
-              <span class="info-value">${this.badgeSystem ? this.badgeSystem.createManagerBadge(data['담당자']) : (data['담당자'] || '-')}</span>
-            </div>
-
-            <div class="info-row">
-              <span class="info-label">
-                <i class="fas fa-building me-1"></i>유입 구분
-              </span>
-              <span class="info-value">${this.badgeSystem ? this.badgeSystem.createCompanyBadge(data['유입 구분']) : (data['유입 구분'] || '-')}</span>
-            </div>
-
-            <div class="info-row">
-              <span class="info-label">
-                <i class="fas fa-handshake me-1"></i>거래처
-              </span>
-              <span class="info-value text-truncate" title="거래처명 (없으면 사업자명)">${escHtml(partnerDisplayName(data))}</span>
-            </div>
-
-            <div class="info-row">
-              <span class="info-label">
-                <i class="fas fa-map-marker-alt me-1"></i>현장
-              </span>
-              <span class="info-value text-truncate" title="${escHtml(data['현장 주소'] || '-')}">
-                ${escHtml(data['현장 주소'] || '-')}
-              </span>
-            </div>
-
-            <div class="info-row">
-              <span class="info-label">
-                <i class="fas fa-tools me-1"></i>내용
-              </span>
-              <span class="info-value text-truncate" title="${escHtml(data['공사 내용'] || '-')}">
-                ${escHtml(data['공사 내용'] || '-')}
-              </span>
-            </div>
-
-            <div class="info-row">
-              <span class="info-label">
-                <i class="fas fa-calendar me-1"></i>기간
-              </span>
-              <span class="info-value">
-                ${this.formatDate(data['공사 시작'])} ~ ${this.formatDate(data['공사 종료'])}
-              </span>
-            </div>
-          </div>
-
-          <div class="amount-info mt-3">
-            <div class="row">
-              <div class="col-6">
-                <div class="amount-item">
-                  <small class="text-muted">총액</small>
-                  <div class="amount-value text-primary">
-                    ${totalAmount > 0 ? totalAmount.toLocaleString() + '원' : '-'}
-                  </div>
-                </div>
-              </div>
-              <div class="col-6">
-                <div class="amount-item">
-                  <small class="text-muted">미수금</small>
-                  <div class="amount-value ${outstanding > 0 ? 'text-warning' : 'text-success'}">
-                    ${outstanding > 0 ? outstanding.toLocaleString() + '원' : '0원'}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="card-footer">
-          <div class="card-actions">
-            ${this.renderActionButtons(data, projectCode)}
-          </div>
-        </div>
-      </div>
-    `;
-
-    return cardDiv;
-  }
-
-  /**
-   * 상태 뱃지 렌더링
-   */
-  renderStatusBadge(status) {
-    if (this.badgeSystem && status) {
-      return this.badgeSystem.createStatusBadge(status);
-    }
-    return `<span class="badge status-waiting">미설정</span>`;
-  }
-
-  /**
-   * 액션 버튼 렌더링
-   */
-  renderActionButtons(data, projectCode) {
-    // 기본 버튼들만 표시 (ActionButtons 제거됨)
-    return `
-      <div class="btn-group btn-group-sm w-100" role="group">
-        <button type="button" class="btn btn-outline-primary btn-edit flex-fill"
-                data-project-code="${projectCode}">
-          <i class="fas fa-edit"></i>
-        </button>
-        <button type="button" class="btn btn-outline-info btn-view flex-fill"
-                data-project-code="${projectCode}">
-          <i class="fas fa-eye"></i>
-        </button>
-        <button type="button" class="btn btn-outline-secondary btn-copy flex-fill"
-                data-project-code="${projectCode}">
-          <i class="fas fa-copy"></i>
-        </button>
-      </div>
-    `;
-  }
-
-  /**
-   * 컬럼 클래스 결정 (반응형)
-   */
-  getColumnClass() {
-    const width = window.innerWidth;
-    if (width < 576) return this.config.cardsPerRow.xs === 1 ? '12' : '6';
-    if (width < 768) return this.config.cardsPerRow.sm === 1 ? '12' : '6';
-    return this.config.cardsPerRow.md === 1 ? '12' : this.config.cardsPerRow.md === 2 ? '6' : '4';
-  }
-
-  /**
-   * 날짜 포맷팅
-   */
-  formatDate(dateStr) {
-    if (!dateStr) return '-';
-
+  cardHtml(r) {
+    const code = String(r['프로젝트 코드'] || '');
+    let status = '';
     try {
-      if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-        return dateStr;
+      status = ProjectStatusCalculator.calculateStatus(r) || '';
+    } catch (err) {
+      logger.warn('[MobileCardView] 상태 계산 실패:', err);
+    }
+    const tone = STATUS_TONE[status] || 'wait';
+    const total = num(r['총액 2'] ?? r['총액2']);
+    const due = num(r['미수금']);
+    const partner = partnerDisplayName(r);
+    const addr = String(r['현장 주소'] || '').trim();
+    const manager = String(r['담당자'] || '').trim();
+    const cancelled = status === '공사취소';
+
+    return `
+      <div class="pmm-card${cancelled ? ' is-cancelled' : ''}" role="listitem" tabindex="0"
+           data-code="${escHtml(code)}" aria-label="${escHtml(`${code} ${status} ${addr}`)} 상세 보기">
+        <div class="pmm-card-top">
+          <span class="pmm-status pmm-st-${tone}"><span class="pmm-dot" aria-hidden="true"></span>${escHtml(status || '상태 없음')}</span>
+          <span class="pmm-code">${escHtml(code)}</span>
+        </div>
+        <div class="pmm-addr">${escHtml(addr || '현장 주소 없음')}</div>
+        ${partner && partner !== '-' ? `<div class="pmm-partner">${escHtml(partner)}</div>` : ''}
+        <div class="pmm-money">
+          <span>총액 <b>${total > 0 ? won(total) : '-'}</b></span>
+          <span class="${due > 0 ? 'pmm-due' : 'pmm-due-zero'}">미수금 <b>${won(due)}</b></span>
+        </div>
+        <div class="pmm-meta">
+          <span>${escHtml(manager || '담당 미정')}</span>
+          <span aria-hidden="true">·</span>
+          <span>${escHtml(workPeriod(r['공사 시작'], r['공사 종료']))}</span>
+        </div>
+      </div>`;
+  }
+
+  findProject(code) {
+    return this.currentData.find((p) => p['프로젝트 코드'] === code)
+      || (window.projectsData || []).find((p) => p['프로젝트 코드'] === code);
+  }
+
+  /**
+   * 실제로 쓰는 펼침 = 표(ProjectTable)가 만든 것(window.projectRowAccordion).
+   * ⚠️ projectListApp.components.accordion 은 따로 만들어지기만 하고 init 되지 않은 객체라 쓰면 안 됨.
+   */
+  liveAccordion() {
+    return window.projectRowAccordion || window.projectListApp?.components?.table?.accordion || null;
+  }
+
+  accordion() {
+    const acc = this.liveAccordion();
+    if (acc) this.patchAccordion(acc);
+    return acc;
+  }
+
+  /**
+   * 펼침이 표 행 대신 시트 안의 빈 행에 붙게 — 휴대폰일 때만. 인스턴스 메서드만 감싸서 PC 동작은 그대로.
+   * (코드가 바뀌어 다시 열 때 reopenAccordion 도 openAccordion 을 거치므로 시트 안으로 온다)
+   */
+  patchAccordion(acc) {
+    if (acc.__pmmPatched) return;
+    acc.__pmmPatched = true;
+
+    const open = acc.openAccordion.bind(acc);
+    acc.openAccordion = (row, data) => {
+      if (this.isActive && data && row !== this.anchorRow) {
+        this.showSheet(data);
+        return open(this.anchorRow, data);
       }
+      if (this.isActive && data) this.showSheet(data);
+      return open(row, data);
+    };
 
-      const date = new Date(dateStr);
-      if (isNaN(date.getTime())) return '-';
-
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    } catch {
-      return '-';
-    }
-  }
-
-  /**
-   * 카드 애니메이션
-   */
-  animateCards() {
-    if (this.config.cardAnimation === 'slideIn') {
-      const cards = this.container.querySelectorAll('.project-card');
-      cards.forEach((card, index) => {
-        card.style.opacity = '0';
-        card.style.transform = 'translateY(20px)';
-
-        setTimeout(() => {
-          card.style.transition = 'all 0.3s ease-out';
-          card.style.opacity = '1';
-          card.style.transform = 'translateY(0)';
-        }, index * 50);
-      });
-    }
-  }
-
-  /**
-   * 통계 업데이트
-   */
-  updateStats() {
-    const totalCount = this.currentData.length;
-    const filteredCount = this.filteredData.length;
-    const totalOutstanding = this.filteredData.reduce((sum, item) => {
-      return sum + (parseFloat(item['미수금'] || 0) || 0);
-    }, 0);
-
-    // DOM 업데이트
-    const totalEl = this.container.querySelector('#mobile-total-count');
-    const filteredEl = this.container.querySelector('#mobile-filtered-count');
-    const outstandingEl = this.container.querySelector('#mobile-outstanding-sum');
-
-    if (totalEl) totalEl.textContent = totalCount.toLocaleString();
-    if (filteredEl) filteredEl.textContent = filteredCount.toLocaleString();
-    if (outstandingEl) outstandingEl.textContent = totalOutstanding.toLocaleString() + '원';
-
-    // 필터 카운트 업데이트
-    const filterCountEl = this.container.querySelector('.filter-count');
-    if (filterCountEl) {
-      if (this.activeFilters.size > 0) {
-        filterCountEl.textContent = this.activeFilters.size;
-        filterCountEl.classList.remove('d-none');
-      } else {
-        filterCountEl.classList.add('d-none');
+    const close = acc.closeAccordion.bind(acc);
+    acc.closeAccordion = (...args) => {
+      const wasInSheet = this.sheetOpen;
+      const r = close(...args);
+      if (wasInSheet) {
+        // 닫기 정리는 원래 '닫힘 애니메이션 끝(animationend)' 또는 1초 뒤에 .accordion-row 를 '전부' 지운다.
+        // 시트는 바로 숨겨져 애니메이션이 안 끝나므로 1초를 기다리게 되고, 그 안에 다른 카드를 열면
+        // 새 상세까지 지워져 빈 시트가 됐다(11-15 점검) → 정리를 지금 바로 돌린다(뒤의 1초 정리는 할 일 없음).
+        acc.accordionContainer?.dispatchEvent(new Event('animationend'));
+        this.hideSheet();
       }
-    }
-  }
+      return r;
+    };
 
-  /**
-   * 검색 처리
-   */
-  handleSearch(searchTerm) {
-    this.searchTerm = searchTerm.trim();
-    this.currentPage = 1;
-    this.applyFiltersAndSort();
-    this.renderCards();
-    this.updateStats();
-  }
+    const reset = acc.hardResetAccordionState.bind(acc);
+    acc.hardResetAccordionState = (...args) => {
+      const r = reset(...args);
+      if (this.sheetOpen) this.hideSheet();
+      return r;
+    };
 
-  /**
-   * 정렬 처리
-   */
-  handleSort(field) {
-    this.currentSort.field = field;
-    this.applyFiltersAndSort();
-    this.renderCards();
-  }
-
-  /**
-   * 정렬 순서 토글
-   */
-  toggleSortOrder(button) {
-    const currentOrder = button.dataset.order;
-    const newOrder = currentOrder === 'desc' ? 'asc' : 'desc';
-
-    button.dataset.order = newOrder;
-    this.currentSort.order = newOrder;
-
-    // 아이콘 업데이트
-    const icon = button.querySelector('i');
-    if (icon) {
-      icon.className = newOrder === 'desc' ? 'fas fa-sort-amount-down' : 'fas fa-sort-amount-up';
-    }
-
-    this.applyFiltersAndSort();
-    this.renderCards();
-  }
-
-  /**
-   * 빠른 필터 처리
-   */
-  handleQuickFilter(button) {
-    const filter = button.dataset.filter;
-
-    if (this.activeFilters.has(filter)) {
-      this.activeFilters.delete(filter);
-      button.classList.remove('active');
-    } else {
-      this.activeFilters.add(filter);
-      button.classList.add('active');
-    }
-
-    this.currentPage = 1;
-    this.applyFiltersAndSort();
-    this.renderCards();
-    this.updateStats();
-  }
-
-  /**
-   * 카드 클릭 처리
-   */
-  handleCardClick(card) {
-    const projectCode = card.dataset.projectCode;
-
-    // 테이블의 아코디언 열기와 동일한 효과
-    if (window.projectsTable && window.projectsTable.accordion) {
-      const projectData = this.currentData.find(item => item['프로젝트 코드'] === projectCode);
-      if (projectData) {
-        // 데스크톱 뷰로 전환하고 아코디언 열기
-        this.deactivate();
-        setTimeout(() => {
-          window.projectsTable.accordion.openAccordion(null, projectData);
-        }, 100);
+    // 코드가 바뀌면 PC 는 펼침을 새 표 행 아래로 옮긴다 → 시트에선 그 자리에 두고 제목만 바꿈
+    const move = acc.moveAccordionRow.bind(acc);
+    acc.moveAccordionRow = (newCode) => {
+      if (this.sheetOpen) {
+        const row = acc.accordionContainer?.closest('.accordion-row');
+        if (row && this.sheet.contains(row)) {
+          row.dataset.projectCode = newCode;
+          acc.accordionContainer.classList.add('show');
+          acc.isOpen = true;
+          this.sheetTitle.textContent = newCode;
+          return true;
+        }
       }
-    }
-  }
-
-  /**
-   * 터치 이벤트 처리
-   */
-  handleTouchStart(e) {
-    this.touchStartX = e.touches[0].clientX;
-    this.touchStartY = e.touches[0].clientY;
-  }
-
-  handleTouchMove(e) {
-    // 스크롤 방지는 하지 않음 (필요시 구현)
-  }
-
-  handleTouchEnd(e) {
-    if (!this.touchStartX || !this.touchStartY) return;
-
-    const touchEndX = e.changedTouches[0].clientX;
-    const touchEndY = e.changedTouches[0].clientY;
-
-    const deltaX = touchEndX - this.touchStartX;
-    const deltaY = touchEndY - this.touchStartY;
-
-    // 스와이프 제스처 감지 (좌우)
-    if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > this.swipeThreshold) {
-      if (deltaX > 0) {
-        // 오른쪽 스와이프 - 이전
-        this.handleSwipeRight();
-      } else {
-        // 왼쪽 스와이프 - 다음
-        this.handleSwipeLeft();
-      }
-    }
-
-    this.touchStartX = 0;
-    this.touchStartY = 0;
-  }
-
-  handleSwipeRight() {
-    // NOTE: 미구현 - 이전 페이지/필터 변경 기능 (추후 구현 예정)
-    logger.debug('오른쪽 스와이프');
-  }
-
-  handleSwipeLeft() {
-    // NOTE: 미구현 - 다음 페이지/필터 변경 기능 (추후 구현 예정)
-    logger.debug('왼쪽 스와이프');
-  }
-
-  /**
-   * 더 보기 카드 로드
-   */
-  loadMoreCards() {
-    if (this.isLoading) return;
-
-    this.isLoading = true;
-    this.currentPage++;
-
-    // 로딩 표시
-    const loadingEl = this.container.querySelector('.mobile-loading');
-    if (loadingEl) loadingEl.style.display = 'block';
-
-    // 시뮬레이션된 지연 (실제로는 즉시 렌더링)
-    setTimeout(() => {
-      this.renderCards();
-      this.isLoading = false;
-
-      if (loadingEl) loadingEl.style.display = 'none';
-    }, 300);
-  }
-
-  /**
-   * 디바운스 유틸리티
-   */
-  debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-      const later = () => {
-        clearTimeout(timeout);
-        func(...args);
-      };
-      clearTimeout(timeout);
-      timeout = setTimeout(later, wait);
+      return move(newCode);
     };
   }
 
-  /**
-   * 컴포넌트 정리
-   */
+  openDetail(code) {
+    const data = this.findProject(code);
+    const acc = this.accordion();
+    if (!data || !acc) {
+      logger.warn('[MobileCardView] 상세를 열 수 없음:', code, !!data, !!acc);
+      return;
+    }
+    this.lastCardCode = code;
+    acc.openAccordion(this.anchorRow, data);
+  }
+
+  showSheet(data) {
+    const code = String(data['프로젝트 코드'] || '');
+    this.sheetTitle.textContent = code;
+    this.sheetQuick.innerHTML = this.quickHtml(data);
+    this.sheetScroll.scrollTop = 0;
+    if (!this.sheetOpen) {
+      this.sheetOpen = true;
+      this.sheet.hidden = false;
+      document.documentElement.classList.add('pmm-sheet-open');
+      try {
+        history.pushState({ ...(history.state || {}), pmmSheet: code }, '');
+      } catch (_) { /* 기록을 못 남겨도 닫기 단추로 닫힘 */ }
+      requestAnimationFrame(() => this.sheetTitle.focus({ preventScroll: true }));
+    }
+  }
+
+  /** 시트 위: 요약(상태·총액·미수금 — 상세 아래쪽까지 안 내려가도 보이게) + 바로 하기(발주처 전화, 현장 지도) */
+  quickHtml(data) {
+    const tel = telHref(data['발주처 연락처']);
+    const who = String(data['발주처 담당자'] || '').trim();
+    const addr = String(data['현장 주소'] || '').trim();
+    let status = '';
+    try { status = ProjectStatusCalculator.calculateStatus(data) || ''; } catch (_) { /* 요약만 빠짐 */ }
+    const total = num(data['총액 2'] ?? data['총액2']);
+    const due = num(data['미수금']);
+    const parts = [`
+      <div class="pmm-sheet-sum">
+        <span class="pmm-status pmm-st-${STATUS_TONE[status] || 'wait'}"><span class="pmm-dot" aria-hidden="true"></span>${escHtml(status || '상태 없음')}</span>
+        <span class="pmm-sum-money">총액 <b>${total > 0 ? won(total) : '-'}</b></span>
+        <span class="pmm-sum-money ${due > 0 ? 'pmm-due' : 'pmm-due-zero'}">미수금 <b>${won(due)}</b></span>
+      </div>`];
+    if (tel) {
+      parts.push(`<a class="pmm-quick-btn" href="${escHtml(tel)}">
+        <i class="fas fa-phone" aria-hidden="true"></i>${who ? `발주처 전화 · ${escHtml(who)}` : '발주처 전화'}</a>`);
+    }
+    if (addr) {
+      const url = `https://map.kakao.com/link/search/${encodeURIComponent(addr)}`;
+      parts.push(`<a class="pmm-quick-btn" href="${escHtml(url)}" target="_blank" rel="noopener">
+        <i class="fas fa-map-marker-alt" aria-hidden="true"></i>지도에서 보기</a>`);
+    }
+    return parts.join('');
+  }
+
+  /** 닫기 요청(뒤로 단추·휴대폰 뒤로 가기). 고치던 내용이 있으면 먼저 묻는다 */
+  requestClose(fromPop = false) {
+    const acc = this.liveAccordion();
+    if (acc?.modeManager?.isEditMode?.() && acc.editState?.isActive) {
+      let changed = false;
+      try {
+        changed = Object.keys(acc.editState.collectChanges() || {}).length > 0;
+      } catch (_) { /* 못 세면 묻지 않음 */ }
+      if (changed && !confirm('저장하지 않은 내용이 있어요.\n닫으면 고친 것이 사라져요. 닫을까요?')) {
+        if (fromPop) {
+          try { history.pushState({ ...(history.state || {}), pmmSheet: this.sheetTitle.textContent }, ''); } catch (_) { /* noop */ }
+        }
+        return;
+      }
+    }
+    this.closingFromPop = fromPop;
+    if (acc?.isOpen) acc.closeAccordion();
+    if (this.sheetOpen) this.hideSheet();
+    this.closingFromPop = false;
+  }
+
+  hideSheet() {
+    if (!this.sheetOpen) return;
+    this.sheetOpen = false;
+    this.sheet.hidden = true;
+    document.documentElement.classList.remove('pmm-sheet-open');
+    if (!this.closingFromPop && history.state && history.state.pmmSheet) {
+      try { history.back(); } catch (_) { /* noop */ }
+    }
+    // 보던 카드로 포커스 되돌리기
+    const code = this.lastCardCode;
+    if (code && this.isActive) {
+      const card = [...this.listEl.querySelectorAll('.pmm-card')].find((c) => c.dataset.code === code);
+      if (card) card.focus({ preventScroll: true });
+    }
+  }
+
   destroy() {
-    // 이벤트 리스너 제거
-    window.removeEventListener('resize', this.checkViewportAndToggle);
-
-    // 하위 컴포넌트 정리
-    this.badgeSystem = null;
-
-    // 컨테이너 제거
-    if (this.container) {
-      this.container.remove();
-      this.container = null;
-    }
-
-    // 데스크톱 뷰 복원
-    const tableContainer = document.querySelector('.table-responsive, .dataTables_wrapper');
-    if (tableContainer) {
-      tableContainer.style.display = '';
-    }
+    this.sheet?.remove();
+    this.container.innerHTML = '';
   }
 }

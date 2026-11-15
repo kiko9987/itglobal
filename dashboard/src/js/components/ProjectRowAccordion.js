@@ -14,7 +14,7 @@ import AmountCalculator from '../utils/AmountCalculator.js';
 import { escHtml } from '../utils/escapeHtml.js';
 import { codeCopyButtonHtml, installCodeCopy } from '../utils/codeCopy.js';
 import {
-  renderItgfolderLink, bindItgfolderProtocolHandler as bindItgfolderProtocolHandlerShared,
+  renderItgfolderLink, bindItgfolderProtocolHandler as bindItgfolderProtocolHandlerShared, FOLDER_ID_RE,
 } from '../utils/itgfolder.js';
 
 // 🆕 ModeManager import
@@ -1405,6 +1405,12 @@ export default class ProjectRowAccordion {
    */
   renderFolderLink(localPath, projectCode) {
     if (!localPath) return '폴더 경로가 설정되지 않았습니다.';
+    // 휴대폰: itgfolder:// 는 윈도우 PC 탐색기 전용이라 안 열림 → 폴더 ID 면 구글 드라이브 웹으로 (2026-11-15)
+    if (FOLDER_ID_RE.test(String(localPath).trim()) && window.matchMedia?.('(max-width: 767.98px)').matches) {
+      const id = escHtml(String(localPath).trim());
+      return `<a href="https://drive.google.com/drive/folders/${id}" target="_blank" rel="noopener"
+                 class="text-decoration-none" style="color: #0d6efd;">구글 드라이브에서 열기</a>`;
+    }
     // 폴더 ID 패턴이면 itgfolder:// (탐색기 직접 열기) — 리드 페이지와 공용 유틸
     const itgLink = renderItgfolderLink(localPath);
     if (itgLink) return itgLink;
