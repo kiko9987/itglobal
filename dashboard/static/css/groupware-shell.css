@@ -1290,3 +1290,9 @@ body.gw-shell .gw-notify-empty {
     width: auto;
   }
 }
+
+/* 사용자 메뉴 [앱으로 설치] 안내 창(11-15) */
+#gwInstallModal .gw-install-body ol { padding-left: 20px; margin: 0 0 8px; }
+#gwInstallModal .gw-install-body li { padding: 3px 0; line-height: 1.55; }
+#gwInstallModal .gw-install-note { color: #64748b; font-size: 0.85rem; margin: 0; }
+#gwInstallModal [hidden] { display: none; }

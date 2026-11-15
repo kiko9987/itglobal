@@ -131,6 +131,45 @@
     </div>
 </div>
 
+{# 앱으로 설치 안내 — 브라우저가 설치 창을 못 띄울 때(아이폰 등) 기기별로 할 일 #}
+<div class="modal fade" id="gwInstallModal" tabindex="-1" aria-labelledby="gwInstallTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="gwInstallTitle">앱으로 설치</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
+            </div>
+            <div class="modal-body gw-install-body">
+                <p class="mb-2">홈 화면에 <strong>아이티글로벌</strong> 아이콘을 만들어 두면 주소를 치지 않고 앱처럼 열 수 있어요.</p>
+                <div data-os="ios" hidden>
+                    <ol>
+                        <li>사파리 아래쪽(또는 ⋯ 메뉴)의 <strong>공유</strong> 버튼을 누르세요.</li>
+                        <li><strong>홈 화면에 추가</strong>를 누르고 오른쪽 위 <strong>추가</strong>를 누르세요.</li>
+                    </ol>
+                    <p class="gw-install-note">슬랙 안에서 열린 화면이면 먼저 사파리로 열어 주세요.</p>
+                </div>
+                <div data-os="android" hidden>
+                    <ol>
+                        <li>크롬 오른쪽 위 <strong>⋮</strong> 메뉴를 누르세요.</li>
+                        <li><strong>홈 화면에 추가</strong> 또는 <strong>앱 설치</strong>를 누르세요.</li>
+                    </ol>
+                    <p class="gw-install-note">슬랙 안에서 열린 화면이면 먼저 ⋮ 메뉴의 <strong>Chrome에서 열기</strong>를 눌러 주세요.</p>
+                </div>
+                <div data-os="pc" hidden>
+                    <ol>
+                        <li>크롬·엣지 주소창 오른쪽의 <strong>설치</strong> 아이콘을 누르세요.</li>
+                        <li>아이콘이 없으면 브라우저 메뉴에서 <strong>앱 설치</strong>(엣지는 <strong>앱 → 이 사이트를 앱으로 설치</strong>)를 고르세요.</li>
+                    </ol>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" data-bs-dismiss="modal">확인</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="{{ gw_asset('js/groupware-shell.js') }}" defer></script>
+<script src="{{ gw_asset('js/gw-install.js') }}" defer></script>
 <script src="{{ gw_asset('js/gw-search.js') }}" defer></script>
 <script src="{{ gw_asset('js/gw-notify.js') }}" defer></script>

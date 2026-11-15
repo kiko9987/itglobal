@@ -328,3 +328,19 @@ def test_web_app_head_only_in_groupware_layout_and_login():
     part = open(os.path.join(root, 'components', '_web_app_head.html'), encoding='utf-8').read()
     assert 'rel="manifest"' in part and 'apple-mobile-web-app-capable' in part
     assert 'serviceWorker' not in part                                  # 서비스 워커는 다시 켜지 않는다
+
+
+def test_install_menu_in_groupware_layout_only(tmp_path):
+    """사용자 메뉴 [앱으로 설치](다우오피스처럼, 11-15) — 새 틀에만, 안내 창·스크립트·설치 신호 받기가 같이 있다."""
+    import os
+    root = os.path.join(os.path.dirname(__file__), '..', '..', 'dashboard')
+    menu = open(os.path.join(root, 'templates', 'components', '_user_menu.html'), encoding='utf-8').read()
+    assert '{% if gw_layout %}' in menu and menu.index('{% if gw_layout %}') < menu.index('id="gwInstallBtn"')
+    shell = open(os.path.join(root, 'templates', 'components', '_gw_shell.html'), encoding='utf-8').read()
+    assert 'id="gwInstallModal"' in shell and "gw_asset('js/gw-install.js')" in shell
+    for osname in ('ios', 'android', 'pc'):
+        assert f'data-os="{osname}"' in shell
+    head = open(os.path.join(root, 'templates', 'components', '_web_app_head.html'), encoding='utf-8').read()
+    assert 'beforeinstallprompt' in head and '__gwInstallEvt' in head
+    js = open(os.path.join(root, 'static', 'js', 'gw-install.js'), encoding='utf-8').read()
+    assert '__gwInstallEvt' in js and 'display-mode: standalone' in js and 'serviceWorker' not in js

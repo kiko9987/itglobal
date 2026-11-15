@@ -52,6 +52,14 @@
                 </a>
             </li>
             {% endif %}
+            {% if gw_layout %}
+            {# 다우오피스처럼 사용자 메뉴에서 앱 설치(11-15). 이미 앱으로 열었으면 gw-install.js 가 숨김 #}
+            <li id="gwInstallItem">
+                <a class="dropdown-item" href="#" id="gwInstallBtn">
+                    <i class="fas fa-mobile-alt me-2"></i>앱으로 설치
+                </a>
+            </li>
+            {% endif %}
             <li>
                 <a class="dropdown-item logout-item" href="/logout">
                     <i class="fas fa-sign-out-alt me-2"></i>로그아웃
