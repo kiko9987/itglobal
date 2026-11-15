@@ -38,22 +38,40 @@ SEO 화면 하나에 robots.txt, llms.txt, Header Code 가 전부 들어 있다.
 **그런데도** Claude-SearchBot · PerplexityBot · ChatGPT-User · GPTBot 은 여전히 403을 받는다.
 → 아임웹 관리자에서 끌 수 있는 설정이 아니라 **아임웹 플랫폼 쪽 차단**으로 보인다. 고객센터에 문의해야 한다.
 
+**왜 막혔는지 (2026-11-15 조사)**
+아임웹 **자사 홈페이지(imweb.me)도 똑같이 403** 이다. 플랫폼 전체 정책이 확실하고, 우리 사이트만 풀어줄 가능성은 낮다.
+허용/차단 패턴을 보면 의도는 **'검색 인용은 허용, 학습·에이전트는 차단'** 으로 보인다(OAI-SearchBot 허용, GPTBot 차단).
+2026년 하반기 업계 흐름과도 맞는다 — Cloudflare 가 9/15부터 학습·에이전트 크롤러를 기본 차단하기 시작했고,
+네이버도 블로그에서 주요 AI 봇을 막았다.
+
+그런데 **Claude-SearchBot 은 학습 봇이 아니라 OAI-SearchBot 과 같은 검색 인용 봇이다**(학습용은 ClaudeBot 으로 따로 있다).
+Common Crawl(CCBot)은 학습 데이터인데 오히려 허용돼 있다. 차단 목록의 분류가 완전하지 않다는 뜻이다.
+그래서 '전부 풀어달라'가 아니라 **'Claude-SearchBot 을 OAI-SearchBot 과 같은 분류로 봐 달라'** 로 요청하는 편이 통할 가능성이 높다.
+
 **문의 내용 (복사해서 쓰시면 됩니다)**
 ```
 안녕하세요. itg-aircon.com 운영자입니다.
 
+AI 크롤러 접근에 대해 확인 부탁드립니다.
+
 [설정 → SEO]의 '검색 엔진과 AI에 검색 허용'이 켜져 있고 robots.txt 에도 제한이 없는데,
-아래 크롤러가 사이트 접속 시 403(접근 제한) 페이지를 받습니다.
+아래 크롤러는 사이트 접속 시 403(접근 제한) 페이지를 받습니다.
 
 - Claude-SearchBot
 - PerplexityBot
 - ChatGPT-User
 
-Googlebot, 네이버 Yeti, Bingbot, OAI-SearchBot 은 정상(200)입니다.
+반면 Googlebot, 네이버 Yeti, Bingbot, OAI-SearchBot 은 정상(200)입니다.
 403 응답은 CloudFront 를 통해 전달되는 '접근 제한' 페이지이며 Last-Modified 는 2026-08-28 입니다.
+아임웹 공식 홈페이지(imweb.me)에서도 같은 결과라 플랫폼 정책으로 이해하고 있습니다.
 
-AI 검색 결과에 저희 페이지가 인용되어야 해서 위 세 크롤러의 접근 허용을 요청드립니다.
-플랫폼 차원의 차단이라면 해제 방법을 확인 부탁드립니다.
+학습 목적 크롤러(GPTBot, ClaudeBot 등)를 막는 정책이라면 저희도 같은 입장입니다.
+다만 Claude-SearchBot 은 학습용이 아니라 검색 결과 인용에 쓰이는 크롤러이고,
+Anthropic 은 학습용 ClaudeBot 과 별도 토큰으로 구분해 운영하고 있습니다.
+허용돼 있는 OAI-SearchBot 과 같은 성격입니다.
+
+Claude-SearchBot 을 검색 인용 크롤러로 분류해 허용해 주실 수 있는지 확인 부탁드립니다.
+사이트별로 설정할 수 있는 방법이 있다면 그 방법도 함께 안내 부탁드립니다.
 ```
 
 답을 받으시면 알려 주세요. 봇별로 다시 접근해 403이 풀렸는지 바로 확인해 드린다.
