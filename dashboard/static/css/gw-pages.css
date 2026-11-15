@@ -2013,9 +2013,10 @@ body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7
     border-bottom: 1px solid #eeeff1;
   }
   #lvTeamTable tbody tr[data-id] td { display: block; padding: 0; border: 0; white-space: nowrap; font-size: 0.88rem; }
-  #lvTeamTable tbody tr[data-id] td:nth-child(1) { font-size: 1rem; }
-  #lvTeamTable tbody tr[data-id] td:nth-child(2) { color: #475569; flex: 1 0 70%; }
-  #lvTeamTable tbody tr[data-id] td:nth-child(3) { order: 9; color: #6b7079; font-size: 0.82rem; }
+  /* 1줄 이름(+배지) / 2줄 남은·쓴·병가·대기 / 3줄 다음 휴가 / 4줄 부서·입사 — 부서 이름 길이와 상관없이 같은 모양 */
+  #lvTeamTable tbody tr[data-id] td:nth-child(1) { font-size: 1rem; flex-basis: 100%; }
+  #lvTeamTable tbody tr[data-id] td:nth-child(2) { order: 9; color: #6b7079; font-size: 0.82rem; }
+  #lvTeamTable tbody tr[data-id] td:nth-child(3) { order: 10; color: #6b7079; font-size: 0.82rem; }
   #lvTeamTable tbody tr[data-id] td:nth-child(3)::before { content: '입사 '; }
   #lvTeamTable tbody tr[data-id] td:nth-child(4) { flex-basis: auto; order: 2; }
   #lvTeamTable tbody tr[data-id] td:nth-child(4)::before { content: '남은 '; color: #6b7079; }
