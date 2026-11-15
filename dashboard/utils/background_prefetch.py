@@ -15,6 +15,16 @@ from .smart_cache_manager import get_smart_cache, CacheStrategy, smart_get, smar
 
 logger = logging.getLogger(__name__)
 
+# 시트 미리 받기 시점 — 전체 TTL 의 이만큼 지나면 다시 받는다(CRITICAL_DATA 300초 × 0.6 = 3분)
+PREFETCH_THRESHOLD = 0.6
+
+
+def _full_ttl(strategy) -> int:
+    """전략의 전체 TTL(초). 모르면 CRITICAL_DATA(300초)."""
+    from .smart_cache_manager import SimpleCache
+    ttl = SimpleCache.TTL_MAP.get(strategy) or SimpleCache.TTL_MAP.get(CacheStrategy.CRITICAL_DATA) or 300
+    return max(1, int(ttl))
+
 def classify_error(error: Exception) -> str:
     """
     에러를 분류하여 적절한 재시도 전략을 결정
@@ -201,10 +211,12 @@ class BackgroundPrefetch:
                     continue
 
                 # TTL 기반 프리패치 판단
-                ttl = cache_info.get('ttl', 300)
-                created_time = cache_info.get('created', time.time())
-
-                elapsed_ratio = (current_time - created_time) / ttl
+                # 2026-11-15: cache_info['ttl'] 은 Redis 의 '남은' TTL 이다. 예전엔 이것을 전체 TTL 로 보고
+                #   created = now - 남은 TTL 로 계산해 경과 비율이 늘 1.0 → 30초 확인마다 시트 4천 행을 통째로
+                #   다시 받았다(45초마다 10~15초, 그동안 사이트 전체 응답 0.5~5초로 느려짐). 전체 TTL 은 전략표에서.
+                full_ttl = _full_ttl(job_info.get('strategy'))
+                remaining = cache_info.get('ttl', 0) or 0
+                elapsed_ratio = max(0.0, full_ttl - remaining) / full_ttl
                 threshold = job_info['prefetch_threshold']
 
                 if elapsed_ratio >= threshold:
@@ -476,12 +488,12 @@ def register_sheets_prefetch():
         cache_key="current_sheet_data",
         data_fetcher=get_fresh_data,
         strategy=CacheStrategy.CRITICAL_DATA,
-        # 2026-07-09 매니저는 관리 사이트만 사용 → Google 지연이 UX에 영향 없도록
-        # 공격적으로 미리 갱신. CRITICAL_DATA TTL 20분 기준 0.15 = 약 3분 시점에 리프레시.
-        # 시트가 실질적으로 절대 만료되지 않도록 유지.
-        prefetch_threshold=0.15,
+        # 2026-07-09 매니저는 관리 사이트만 사용 → Google 지연이 UX에 영향 없도록 만료 전에 미리 갱신.
+        # 2026-11-15: TTL 이 5분(300초)으로 바뀐 뒤 0.15 는 45초 → 원래 뜻(약 3분)대로 0.6 = 180초.
+        #   남은 2분 안에 가져오기(10~30초)가 끝나므로 시트가 만료되지는 않는다.
+        prefetch_threshold=PREFETCH_THRESHOLD,
     )
-    logger.info("[PREFETCH] Google Sheets 프리패치 등록 완료 (threshold=0.15, ≈3분 주기)")
+    logger.info(f"[PREFETCH] Google Sheets 프리패치 등록 완료 (threshold={PREFETCH_THRESHOLD}, ≈3분 주기)")
 
     # 2026-07-09 리드 시트도 함께 프리페치 (슬랙 리드 조회 시 캐시 신선도 유지)
     def get_fresh_leads():
@@ -492,6 +504,6 @@ def register_sheets_prefetch():
         cache_key="online_leads_sheet_data",
         data_fetcher=get_fresh_leads,
         strategy=CacheStrategy.CRITICAL_DATA,
-        prefetch_threshold=0.15,
+        prefetch_threshold=PREFETCH_THRESHOLD,
     )
-    logger.info("[PREFETCH] 리드 시트 프리패치 등록 완료 (threshold=0.15)")
+    logger.info(f"[PREFETCH] 리드 시트 프리패치 등록 완료 (threshold={PREFETCH_THRESHOLD})")
