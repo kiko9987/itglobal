@@ -53,3 +53,51 @@ def test_longer_ttl_than_strategy_counts_as_fresh(monkeypatch):
 
 def test_threshold_means_about_three_minutes():
     assert bp._full_ttl(CacheStrategy.CRITICAL_DATA) * bp.PREFETCH_THRESHOLD == 180
+
+
+# ── 리드 시트: TEMPORARY(60초) 기준 ──────────────────────────────────
+def _run_leads(monkeypatch, remaining):
+    pf = bp.BackgroundPrefetch()
+    pf.register_prefetch_job('online_leads_sheet_data', lambda: None, CacheStrategy.TEMPORARY,
+                             bp.LEADS_PREFETCH_THRESHOLD)
+    calls = []
+    monkeypatch.setattr(bp, 'get_smart_cache', lambda: _FakeCache(remaining))
+    monkeypatch.setattr(pf, '_execute_prefetch', lambda key, info: calls.append(key))
+    pf._check_and_prefetch()
+    return calls
+
+
+def test_leads_fresh_waits(monkeypatch):
+    assert _run_leads(monkeypatch, 50) == []          # 10/60 경과
+
+
+def test_leads_refetched_before_expiry(monkeypatch):
+    assert _run_leads(monkeypatch, 30) == ['online_leads_sheet_data']   # 30/60 경과 ≥ 0.4
+
+
+# ── 캐시 워밍 주기 갱신: 미리 받기가 맡은 공사현황 시트는 건너뜀 ─────────
+def _covers_with(monkeypatch, running=True, job=True, disabled=False, backoff=None):
+    from dashboard.utils import cache_preloader as cp
+    pf = bp.BackgroundPrefetch()
+    pf._running = running
+    if job:
+        pf.register_prefetch_job('current_sheet_data', lambda: None)
+        pf._prefetch_jobs['current_sheet_data']['is_disabled'] = disabled
+        pf._prefetch_jobs['current_sheet_data']['backoff_until'] = backoff
+    monkeypatch.setattr(bp, 'get_background_prefetch', lambda: pf)
+    return cp._prefetch_covers('current_sheet_data')
+
+
+def test_preloader_skips_when_prefetch_running(monkeypatch):
+    assert _covers_with(monkeypatch) is True
+
+
+def test_preloader_refreshes_when_prefetch_stopped(monkeypatch):
+    assert _covers_with(monkeypatch, running=False) is False
+    assert _covers_with(monkeypatch, job=False) is False
+    assert _covers_with(monkeypatch, disabled=True) is False
+
+
+def test_preloader_refreshes_when_prefetch_backing_off(monkeypatch):
+    import time
+    assert _covers_with(monkeypatch, backoff=time.time() + 120) is False

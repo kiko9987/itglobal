@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 # 시트 미리 받기 시점 — 전체 TTL 의 이만큼 지나면 다시 받는다(CRITICAL_DATA 300초 × 0.6 = 3분)
 PREFETCH_THRESHOLD = 0.6
+# 리드 시트(TEMPORARY 60초 TTL) — 30초 확인 주기 안에서 만료 전에 받도록
+LEADS_PREFETCH_THRESHOLD = 0.4
 
 
 def _full_ttl(strategy) -> int:
@@ -500,10 +502,13 @@ def register_sheets_prefetch():
         from ..services.lead_service import load_leads_data
         return load_leads_data(force_refresh=True)
 
+    # 2026-11-15: 리드 캐시는 lead_service 가 TEMPORARY(60초)로 저장한다 — 예전 등록(CRITICAL_DATA 300초)은
+    #   전략이 달라 경과 계산이 틀렸다. 60초 TTL·30초 확인 주기에서 만료 전에 받으려면 0.4(24초 경과부터).
+    #   리드는 슬랙·홈페이지·당근 등 여러 곳이 쓰며 중복 확인에 쓰여서 TTL 을 늘리지 않는다(약 30초마다 2초, 가벼움).
     prefetch.register_prefetch_job(
         cache_key="online_leads_sheet_data",
         data_fetcher=get_fresh_leads,
-        strategy=CacheStrategy.CRITICAL_DATA,
-        prefetch_threshold=PREFETCH_THRESHOLD,
+        strategy=CacheStrategy.TEMPORARY,
+        prefetch_threshold=LEADS_PREFETCH_THRESHOLD,
     )
-    logger.info(f"[PREFETCH] 리드 시트 프리패치 등록 완료 (threshold={PREFETCH_THRESHOLD})")
+    logger.info(f"[PREFETCH] 리드 시트 프리패치 등록 완료 (threshold={LEADS_PREFETCH_THRESHOLD}, TTL 60초)")

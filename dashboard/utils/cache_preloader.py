@@ -154,7 +154,13 @@ class CachePreloader:
                 logger.info(f"주기적 캐시 갱신 시작 ({datetime.now().isoformat()})")
                 try:
                     # 우선순위 1, 2만 주기적 갱신 (핵심 데이터만)
-                    self.warmup_cache(priority_filter=1)
+                    # 2026-11-15: 우선순위 1(공사현황 시트 4천 행, 13초)은 백그라운드 미리 받기가 3분마다 이미 받는다.
+                    #   여기서 4분마다 또 받으면 그 13초 동안 사이트 전체가 0.5~1초씩 느려졌다(중복).
+                    #   미리 받기가 멈췄거나 꺼졌을 때만 여기서 받는다.
+                    if _prefetch_covers("current_sheet_data"):
+                        logger.debug("공사현황 시트는 백그라운드 미리 받기가 갱신 중 — 주기 워밍에서 건너뜀")
+                    else:
+                        self.warmup_cache(priority_filter=1)
                     self.warmup_cache(priority_filter=2)
                 except Exception as e:
                     logger.error(f"캐시 갱신 중 오류: {e}")
@@ -164,6 +170,19 @@ class CachePreloader:
 
         finally:
             logger.info("캐시 갱신 루프 종료")
+
+
+def _prefetch_covers(cache_key: str) -> bool:
+    """백그라운드 미리 받기가 이 키를 지금 맡고 있나(돌고 있음·작업 있음·꺼지지 않음·대기 중 아님)."""
+    try:
+        from .background_prefetch import get_background_prefetch
+        bp = get_background_prefetch()
+        job = bp._prefetch_jobs.get(cache_key)
+        if not (bp._running and job) or job.get('is_disabled'):
+            return False
+        return (job.get('backoff_until') or 0) <= time.time()
+    except Exception:
+        return False
 
 
 # 싱글톤 인스턴스
