@@ -1284,7 +1284,7 @@ body.gw-shell .gw-notify-empty {
 @media (max-width: 767.98px) {
   body.gw-shell .gw-notify-panel {
     position: fixed;
-    top: 56px;
+    top: calc(var(--header-height) + 4px);
     left: 8px;
     right: 8px;
     width: auto;
@@ -1438,5 +1438,35 @@ body.gw-shell .gw-subnav {
   body.gw-shell .gw-topbar .btn-user-menu > span {
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+}
+
+/* 휴대폰 하위 메뉴(11-15 부장님 제보: '내 휴가·전사 현황'이 막 움직임) — 위쪽 줄 한 칸(124px)에 메뉴(167px)를
+   밀어 넣어 가로로 밀리는 띠가 됐고, 화면마다 밀린 위치가 달라 움직이는 것처럼 보였다.
+   → 휴대폰에선 메뉴가 둘 이상일 때만 위쪽 줄 아래 두 번째 줄(폭 전체)로. 하나뿐이면(홈·현장 '내 휴가') 첫 줄 그대로 */
+@media (max-width: 767.98px) {
+  body.gw-shell:has(.gw-topbar .gw-subnav > .gw-subnav-item + .gw-subnav-item) {
+    --header-height: 92px;
+  }
+
+  body.gw-shell .gw-topbar:has(.gw-subnav > .gw-subnav-item + .gw-subnav-item) {
+    align-items: flex-start;
+    padding-top: 4px;
+  }
+
+  body.gw-shell .gw-topbar .gw-subnav:has(> .gw-subnav-item + .gw-subnav-item) {
+    position: absolute;
+    top: 52px;
+    left: 0;
+    right: 0;
+    height: 40px;
+    padding: 0 8px;
+    border-top: 1px solid #eeeff1;
+    background: #ffffff;
+    overscroll-behavior-x: contain;
+  }
+
+  body.gw-shell .gw-subnav-item {
+    transition: none;
   }
 }
