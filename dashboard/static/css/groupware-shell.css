@@ -1470,3 +1470,15 @@ body.gw-shell .gw-subnav {
     transition: none;
   }
 }
+
+/* 휴대폰 ☰ 메뉴를 열면 뒤 화면을 어둡게 — 메뉴와 화면 경계가 흐리고 바깥을 누르면 닫힌다는 단서가 없던 것(11-15 점검).
+   누르면 document click 이 메뉴 밖이라 닫음(groupware-shell.js) */
+@media (max-width: 767.98px) {
+  body.gw-shell.gw-peek::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 1040;
+    background: rgba(15, 23, 42, 0.35);
+  }
+}

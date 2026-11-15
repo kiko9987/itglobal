@@ -9,6 +9,13 @@
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
+  // 구글 메일 미리보기(snippet)는 &#39; 처럼 이미 HTML 기호로 와서 esc 하면 기호가 그대로 보였다(11-15 점검) → 먼저 글자로 되돌림
+  function unent(v) {
+    var t = document.createElement('textarea');
+    t.innerHTML = String(v == null ? '' : v);
+    return t.value;
+  }
+
   function api(url) {
     return fetch(url, { credentials: 'same-origin' }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) {
@@ -127,7 +134,7 @@
         return '<li' + (m.unread ? ' class="unread"' : '') + '><a href="' + esc(m.link) + '" target="_blank" rel="noopener">' +
           '<span class="gw-home-mail-top"><span class="gw-home-li-main">' + esc(m.from) + '</span><span class="gw-home-when">' + esc(m.when) + '</span></span>' +
           '<span class="gw-home-mail-subj">' + esc(m.subject) + '</span>' +
-          '<span class="gw-home-li-sub">' + esc(m.snippet) + '</span></a></li>';
+          '<span class="gw-home-li-sub">' + esc(unent(m.snippet)) + '</span></a></li>';
       }).join('') + '</ul>';
     }
     box.innerHTML = h;
@@ -231,7 +238,9 @@
       }
       var p = d.date.split('-'), dd = Number(p[2]);
       if (i === n - 1 || (i % 5 === 0 && i < n - 3)) {
-        svg += '<text x="' + (x + bw / 2) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="11" fill="#868b94">' + Number(p[1]) + '/' + dd + '</text>';
+        // 마지막 날짜는 오른쪽 끝에 맞춰 — 가운데 정렬이면 휴대폰에서 '11/15'가 잘렸다(11-15 점검)
+        var last = i === n - 1;
+        svg += '<text x="' + (last ? x + bw : x + bw / 2) + '" y="' + (H - 6) + '" text-anchor="' + (last ? 'end' : 'middle') + '" font-size="11" fill="#6b7079">' + Number(p[1]) + '/' + dd + '</text>';
       }
       svg += '<rect class="hit" data-i="' + i + '" x="' + (L + i * slot) + '" y="' + T + '" width="' + slot + '" height="' + ph + '" fill="transparent"/>';
     });

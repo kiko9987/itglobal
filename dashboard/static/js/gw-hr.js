@@ -507,7 +507,13 @@
   if (CFG.mode === 'people') {
     listEl.addEventListener('click', function (e) {
       var btn = e.target.closest('.gw-list-item');
-      if (btn) select(parseInt(btn.getAttribute('data-id'), 10));
+      if (!btn) return;
+      select(parseInt(btn.getAttribute('data-id'), 10));
+      // 휴대폰은 목록 아래에 카드가 나오므로 카드로 내려 줌(고른 게 화면 밖이라 안 바뀐 것처럼 보였다, 11-15 점검)
+      if (window.matchMedia('(max-width: 767.98px)').matches) {
+        var card = document.getElementById('hrCard');
+        if (card) card.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      }
     });
     document.getElementById('hrSearch').addEventListener('input', function (e) {
       state.query = e.target.value;

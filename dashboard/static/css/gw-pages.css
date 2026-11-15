@@ -1987,3 +1987,59 @@ body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7
   #arRows tr[data-doc] td:nth-child(9) { order: 5; font-size: 0.82rem; color: #6b7079; white-space: nowrap; }
   #arRows tr:not([data-doc]) td { display: block; }
 }
+
+/* ── 11-15 휴대폰 전체 점검(부장님: "전체적으로 한번 봐봐") ─────────────────────── */
+@media (max-width: 767.98px) {
+  /* 홈 차트 제목 줄: 제목·점선 설명·합계가 한 줄에 끼어 꺾이던 것 → 설명은 아래 줄 */
+  .gw-sales-chart-head { flex-wrap: wrap; row-gap: 2px; }
+  .gw-sales-chart-head .gw-sales-goal { display: block; margin-left: 0; }
+
+  /* 표(내 정보 발령·서류, 연말정산): 좁은 폭에 눌려 글자가 한 자씩 세로로 쌓이던 것 → 줄바꿈 없이 옆으로 밀어 보기 */
+  .gw-appt-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .gw-appt-table th,
+  .gw-appt-table td { white-space: nowrap; }
+
+  /* 휴가 직원별: 8칸 표 → 줄마다 카드(이름·부서 / 남은·쓴·병가·대기 / 다음 휴가·입사) */
+  #lvTeamTable { min-width: 0; }
+  #lvTeamTable thead { display: none; }
+  #lvTeamTable,
+  #lvTeamTable tbody { display: block; }
+  #lvTeamTable tbody tr[data-id] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 12px;
+    padding: 12px 14px;
+    border-bottom: 1px solid #eeeff1;
+  }
+  #lvTeamTable tbody tr[data-id] td { display: block; padding: 0; border: 0; white-space: nowrap; font-size: 0.88rem; }
+  #lvTeamTable tbody tr[data-id] td:nth-child(1) { font-size: 1rem; }
+  #lvTeamTable tbody tr[data-id] td:nth-child(2) { color: #475569; flex: 1 1 auto; }
+  #lvTeamTable tbody tr[data-id] td:nth-child(3) { order: 9; color: #6b7079; font-size: 0.82rem; }
+  #lvTeamTable tbody tr[data-id] td:nth-child(3)::before { content: '입사 '; }
+  #lvTeamTable tbody tr[data-id] td:nth-child(4) { flex-basis: auto; order: 2; }
+  #lvTeamTable tbody tr[data-id] td:nth-child(4)::before { content: '남은 '; color: #6b7079; }
+  #lvTeamTable tbody tr[data-id] td:nth-child(5) { order: 3; }
+  #lvTeamTable tbody tr[data-id] td:nth-child(5)::before { content: '쓴 '; color: #6b7079; }
+  #lvTeamTable tbody tr[data-id] td:nth-child(6) { order: 4; }
+  #lvTeamTable tbody tr[data-id] td:nth-child(6)::before { content: '병가 '; color: #6b7079; }
+  #lvTeamTable tbody tr[data-id] td:nth-child(7) { order: 5; }
+  #lvTeamTable tbody tr[data-id] td:nth-child(7)::before { content: '대기 '; color: #6b7079; }
+  #lvTeamTable tbody tr[data-id] td:nth-child(8) { order: 8; flex-basis: 100%; font-size: 0.85rem; white-space: normal; }
+  #lvTeamTable tbody tr[data-id] td:nth-child(8)::before { content: '다음 휴가 '; color: #6b7079; }
+  #lvTeamTable tbody tr[data-id] td:nth-child(1)::after { content: ''; }
+  #lvTeamTable tbody tr:not([data-id]) td { display: block; }
+
+  /* 휴가 달력: 이름 칩이 '권태…'처럼 잘리던 것 → 칸 안쪽 여백·칩 여백 줄임 */
+  .gw-cal-day { padding: 3px 2px; }
+  .gw-cal-chip { padding: 0 2px; letter-spacing: -0.02em; }
+
+  /* 구성원: 목록이 320px 안쪽 스크롤 상자라 답답 → 목록은 그대로 펼치고, 고르면 카드로 내려감(gw-hr.js) */
+  .gw-split-list { max-height: none; }
+  .gw-split-detail { scroll-margin-top: calc(var(--header-height, 52px) + 8px); }
+
+  /* 연말정산 현황 설정 칸: 200·320px 고정이라 글자가 잘리던 것 → 폭 전체 */
+  .gw-page .gw-ye-season-form .form-select-sm,
+  .gw-page .gw-ye-season-form .form-control-sm,
+  .gw-page .gw-ye-season-form .gw-ye-wide .form-control-sm { width: 100%; }
+}
