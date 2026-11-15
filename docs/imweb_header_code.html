@@ -677,3 +677,30 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
   ]
 }
 </script>
+
+<!-- 후기 카드 링크 교정 (2026-11-15) ================================
+     홈 '최신글' 위젯이 글 링크를 옛 페이지(/35)로 보내는데, 그 페이지에서는
+     게시판이 화면에 그려지지 않아 글을 눌러도 빈 화면이 떴다. 같은 글이므로
+     고객 후기 페이지(/review)로 보낸다.
+     위젯 설정에서 연결 게시판을 '고객 후기'로 바꾸면 이 코드는 지워도 된다. -->
+<script>
+(function(){
+  function fix(){
+    var list = document.querySelectorAll('a[href*="/35/?idx="],a[href*="/35?idx="]');
+    for (var i = 0; i < list.length; i++) {
+      var h = list[i].getAttribute('href');
+      if (h) list[i].setAttribute('href', h.replace(/\/35\/?\?/, '/review/?'));
+    }
+  }
+  function start(){
+    fix();
+    try {
+      var t;
+      new MutationObserver(function(){ clearTimeout(t); t = setTimeout(fix, 200); })
+        .observe(document.body, { childList: true, subtree: true });
+    } catch (e) {}
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
+})();
+</script>
