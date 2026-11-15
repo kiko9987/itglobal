@@ -1720,6 +1720,13 @@ def post_reminders(kind: str, now=None) -> int:
     return len(targets)
 
 
+def _staff_denied(uid: str) -> Optional[str]:
+    """전자결재는 사무실 직원만(2026-11-15 5차 점검 #1) — 거래처 계좌·계산서 글·공사 연락처가 창에 채워진다.
+    버튼·창·목록은 앱 입구 문지기(slack_bot.install_staff_gate)가 막고, 이건 이벤트(홈 탭·워크플로)용."""
+    from dashboard.blueprints.slack_bot import _slack_staff_denied
+    return _slack_staff_denied(uid, '전자결재')
+
+
 def _ephemeral(client, body, text: str) -> None:
     uid = (body.get('user') or {}).get('id', '')
     ch = (body.get('channel') or {}).get('id', '')
@@ -2064,9 +2071,16 @@ def register_eapproval_handlers(app) -> None:
         단계가 끝나면 슬랙이 그 창의 버튼을 막는다(⚠ 만 뜨고 무반응) → 여기서 끝내지 않고,
         창을 닫거나(view_closed) 제출에 성공할 때(_ack_completing_step) 끝낸다."""
         from slack_sdk import WebClient
-        pointer = ((inputs or {}).get('interactivity') or {}).get('interactivity_pointer', '')
+        inter = (inputs or {}).get('interactivity') or {}
+        pointer = inter.get('interactivity_pointer', '')
         token = (body.get('event') or {}).get('bot_access_token', '')
         try:
+            deny = _staff_denied((inter.get('interactor') or {}).get('id', ''))   # 5차 점검 — 워크플로 버튼도
+            if deny:
+                from dashboard.blueprints.slack_bot import _locked_modal
+                WebClient(token=token).views_open(interactivity_pointer=pointer, view=_locked_modal(deny))
+                fail(error='사무실 직원만 쓸 수 있어요.')
+                return
             WebClient(token=token).views_open(interactivity_pointer=pointer, view=ea.hub_view())
             logger.info(f'{_LOG} 워크플로 단계(전자결재 열기) 창 열림')
         except Exception as exc:
@@ -2089,7 +2103,10 @@ def register_eapproval_handlers(app) -> None:
         if event.get('tab') != 'home':
             return
         try:
-            client.views_publish(user_id=event['user'], view=ea.home_view())
+            deny = _staff_denied(event['user'])   # 버튼은 앱 입구 문지기가 막지만 메뉴 자체도 안 보이게(5차 점검)
+            view = ({'type': 'home', 'blocks': [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': deny}}]}
+                    if deny else ea.home_view())
+            client.views_publish(user_id=event['user'], view=view)
         except Exception as exc:
             logger.error(f'{_LOG} 홈 탭 게시 실패: {exc}', exc_info=True)
 

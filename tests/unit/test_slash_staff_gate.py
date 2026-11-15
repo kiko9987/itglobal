@@ -14,6 +14,11 @@ import dashboard.blueprints.slack_bot as sb
 from dashboard.services import hr
 
 
+@pytest.fixture(autouse=True)
+def _fresh_cache(monkeypatch):
+    monkeypatch.setattr(sb, '_STAFF_CACHE', {})
+
+
 @pytest.fixture
 def people(monkeypatch):
     cards = {'U_STAFF': {'access': 'staff'}, 'U_FIELD': {'access': 'field'}}

@@ -1613,3 +1613,16 @@
     width: 100%;
   }
 }
+
+/* 결재함 ⚠️ 경고 줄 — 슬랙 카드와 같은 내용(2026-11-15 5차 점검) */
+.gw-ap-warn {
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #f5c26b;
+  border-radius: 8px;
+  background: #fff8e6;
+  color: #7a4b00;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.gw-ap-warn > div + div { margin-top: 4px; }

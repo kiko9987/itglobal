@@ -419,10 +419,11 @@ OLD_PREPAID_DAYS = 365
 
 
 def find_old_prepaid(grn: str, amount: int, partner: str) -> Optional[dict]:
-    """계산서 없이 먼저 보낸(선입금) 같은 G/R·금액·거래처 결재 중 이체 완료 90일~1년 지난 것 — 가장 최근 한 건.
+    """계산서 없이 먼저 보낸(선입금) 같은 금액·거래처 결재 중 이체 완료 90일~1년 지난 것 — 가장 최근 한 건.
 
     find_unlinked_match 는 90일 지난 선입금을 보지 않는다(새 계산서를 가리지 않게). 늦게 온 계산서면 두 번 이체될 수
-    있어, 제출 창에서 한 번 묻는 데만 쓴다(11-15)."""
+    있어, 제출 창에서 한 번 묻고 카드에도 ⚠️ 로 남긴다(11-15). 사업자(G/R)는 보지 않는다 — 사업자를 잘못 고른 같은
+    건도 잡게(최근 중복 검사와 같은 기준, 11-15 5차 점검). grn 인자는 호출 호환용."""
     key = partner_key(partner)
     if not key or not amount:
         return None
@@ -432,16 +433,16 @@ def find_old_prepaid(grn: str, amount: int, partner: str) -> Optional[dict]:
     with _db()._get_connection() as conn:
         _ensure_tables(conn)
         rows = conn.execute(
-            '''SELECT * FROM approvals WHERE form=? AND origin_ts IS NULL AND amount=? AND grn=? AND status=?
+            '''SELECT * FROM approvals WHERE form=? AND origin_ts IS NULL AND amount=? AND status=?
                AND updated_at < ? AND updated_at >= ? ORDER BY id DESC''',
-            (FORM_FUND, int(amount), grn, DONE, recent, oldest)).fetchall()
+            (FORM_FUND, int(amount), DONE, recent, oldest)).fetchall()
     hits = [dict(r) for r in rows if partner_key(r['partner']) == key]
     return hits[0] if hits else None
 
 
 def old_prepaid_warning(row: dict) -> str:
     when = str(row.get('updated_at') or '')[:10]
-    return (f"⚠️ 사업자·거래처·금액이 같은 선입금이 있어요: {title(row)}"
+    return (f"⚠️ 거래처·금액이 같은 선입금이 있어요: {title(row)}"
             f"({initial(row.get('requester_name'))}·{when} 이체 완료, 계산서 없이 보냄). "
             "그 선입금의 계산서면 올리지 말고, 다른 건이면 [요청]을 한 번 더 눌러 주세요.")
 
@@ -537,6 +538,11 @@ def create(form: str, requester_id: str, requester_name: str, fields: Dict) -> d
             _dups = find_recent_fund_dups(fields.get('amount'), fields.get('partner') or '')
             if _dups:
                 x['dup_of'] = [d['id'] for d in _dups[:3]]
+            if fields.get('origin_ts'):   # 늦게 온 계산서 — 신청자 창에서만 묻던 것을 카드에도(5차 점검 #7)
+                _old = find_old_prepaid(fields.get('grn') or '', int(fields.get('amount') or 0),
+                                        fields.get('partner') or '')
+                if _old:
+                    x['old_prepaid'] = _old['id']
         vals[cols.index('extra')] = json.dumps(x, ensure_ascii=False)
         return _insert_new(form, status, requester_id, requester_name, cols, vals, now, auto, auto_final)
 
@@ -618,7 +624,7 @@ def requester_can_cancel(row: dict) -> bool:
 
 
 # extra 중 시스템이 붙이는 표시 칸 — 수정 기록('바뀐 칸')에 넣지 않는다
-_SYSTEM_EXTRA = ('f', 'payee_saved', 'payee_changed', 'payee_known', 'payee_unlisted', 'dup_of', 'inv_by', 'inv_by_other', 'job')
+_SYSTEM_EXTRA = ('f', 'payee_saved', 'payee_changed', 'payee_known', 'payee_unlisted', 'dup_of', 'old_prepaid', 'inv_by', 'inv_by_other', 'job')
 
 # 다시 올릴 때 고칠 수 있는 장부 칸(양식 값 전부는 extra 에)
 EDIT_COLUMNS = ('project_code', 'cost_category', 'content', 'evidence', 'grn', 'partner', 'payee_name',
@@ -1191,6 +1197,12 @@ def fund_warning_lines(row: dict) -> List[str]:
                 names.append(f"{title(d)}({initial(d.get('requester_name'))}·{status_label(d)[1]})")
         if names:
             out.append(f"⚠️ 최근 같은 거래처·금액 결재: {', '.join(names)} — 두 번 이체가 아닌지 확인해 주세요")
+    if x.get('old_prepaid'):
+        d = get(int(x['old_prepaid']))
+        if d:
+            out.append(f"⚠️ 계산서 없이 먼저 보낸 같은 거래처·금액 선입금: {title(d)}"
+                       f"({initial(d.get('requester_name'))}·{str(d.get('updated_at') or '')[:10]} 이체 완료)"
+                       " — 그 선입금의 계산서면 다시 이체하지 마세요")
     if row.get('origin_ts') and 'inv_by' in x:
         who = x.get('inv_by') or '작성자 확인 안 됨'
         out.append(f"계산서 글: {who} 작성" + (' ⚠️ 경영지원이 올린 글이 아니에요' if x.get('inv_by_other') else ''))

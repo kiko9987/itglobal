@@ -358,7 +358,12 @@ def detail(aid: int, v: dict) -> Optional[dict]:
             name = f'{ea.step2_word(row)} 완료'
         steps.append({'step': name, 'result': name, 'actor': s.get('actor_name') or '',
                       'reason': s.get('reason') or '', 'at': (s.get('at') or '')[:16]})
+    # 계좌 바뀜·목록에 없는 계좌·어음·최근 같은 거래처·금액·선입금·계산서 글 작성자 ⚠️ — 슬랙 카드와 같은 줄(5차 점검 #2).
+    # 예전 계좌번호가 들어가므로 계좌를 볼 수 있는 사람(결재선·요청자)에게만
+    show_secret = v['see_all'] or (v['slack_id'] and row.get('requester_id') == v['slack_id'])
+    warnings = ea.fund_warning_lines(row) if show_secret else []
     return dict(_summary(row, v), fields=_fields(row, v), steps=steps, actions=actions_for(row, v),
+                warnings=warnings,
                 rev=ea.revision(aid),   # 처리 단추가 이 회차를 같이 보낸다 — 화면을 연 뒤 고쳐진 결재 막기(11-14)
                 slack_link=_card_link(row), requester_id_is_me=row.get('requester_id') == v['slack_id'])
 

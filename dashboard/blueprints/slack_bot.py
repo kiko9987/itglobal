@@ -135,6 +135,7 @@ def _init_slack_app():
         _slack_handler = SlackRequestHandler(_slack_app)
 
         # 핸들러 등록
+        install_staff_gate(_slack_app, '메인봇', '이 기능')   # 5차 점검 #3 — 상담·리드 카드
         _register_handlers(_slack_app)
 
         # 토큰 유효성 health check — 시작 시 즉시 인지 (2026-07-10)
@@ -208,6 +209,7 @@ def _init_project_slack_app():
         )
         _project_slack_handler = SlackRequestHandler(_project_slack_app)
 
+        install_staff_gate(_project_slack_app, '공사봇', '이 기능')   # 5차 점검 #3·#4 — /공사확정·공사 카드
         _register_project_handlers(_project_slack_app)
         _verify_bot_token(_project_slack_app.client, '공사봇')
         logger.info("[SLACK/공사봇] 초기화 완료 ✅")
@@ -303,6 +305,7 @@ def _init_eapproval_slack_app():
             process_before_response=True,
         )
         _eapproval_slack_handler = SlackRequestHandler(_eapproval_slack_app)
+        install_staff_gate(_eapproval_slack_app, '전자결재', '전자결재')   # 5차 점검 #1 — 거래처 계좌·계산서 글
         register_eapproval_handlers(_eapproval_slack_app)
         _verify_bot_token(_eapproval_slack_app.client, '전자결재봇')
         logger.info("[SLACK/전자결재] 초기화 완료 ✅")
@@ -385,6 +388,7 @@ def _init_as_slack_app():
         )
         _as_slack_handler = SlackRequestHandler(_as_slack_app)
 
+        install_staff_gate(_as_slack_app, 'AS봇', '이 기능')
         _register_as_handlers(_as_slack_app)
         _verify_bot_token(_as_slack_app.client, 'A/S봇')
         logger.info("[SLACK/AS봇] 초기화 완료 ✅")
@@ -418,6 +422,7 @@ def _init_invoice_slack_app():
         )
         _invoice_slack_handler = SlackRequestHandler(_invoice_slack_app)
 
+        install_staff_gate(_invoice_slack_app, '계산서봇', '이 기능')   # 5차 점검 #3 — 계산서 요청·발행 완료
         _register_invoice_handlers(_invoice_slack_app)
         _verify_bot_token(_invoice_slack_app.client, '계산서봇')
         logger.info("[SLACK/계산서봇] 초기화 완료 ✅")
@@ -455,6 +460,7 @@ def _init_payment_slack_app():
         )
         _payment_slack_handler = SlackRequestHandler(_payment_slack_app)
 
+        install_staff_gate(_payment_slack_app, '수금봇', '이 기능')
         _register_payment_handlers(_payment_slack_app)
         _verify_bot_token(_payment_slack_app.client, '수금봇')
         logger.info("[SLACK/수금봇] 초기화 완료 ✅")
@@ -3984,6 +3990,9 @@ def _register_project_handlers(app):
             return
         if subtype == 'bot_message' or event.get('bot_id'):
             return
+        if _slack_staff_denied(event.get('user', ''), '이 기능'):   # 2026-11-15 5차 점검
+            logger.info(f"[LICENSE/EVT] 사무실 직원 아님 → 처리 안 함 ({_uploader})")
+            return
 
         # 2026-07-10 UX 개선 — 파일 첨부 즉시 시각 피드백.
         #   기존엔 Drive 저장·검증까지 3-10초 걸리는 동안 매니저 관점에선 봇이 아무
@@ -4233,27 +4242,95 @@ def _register_project_handlers(app):
 # ─────────────────────────────────────────────────────────────
 # 슬랙 이벤트 핸들러
 # ─────────────────────────────────────────────────────────────
-def _slack_staff_denied(user_id: str) -> Optional[str]:
-    """수금·고객 정보를 보여 주는 슬랙 명령(/수금·/as)을 쓸 수 있는 사람인지 (2026-11-13 보안 점검 2차 #7).
+_STAFF_CACHE: dict = {}      # user_id → (사무실 직원인가, 시각) — 버튼·목록마다 DB 를 다시 읽지 않게
+_STAFF_CACHE_SEC = 60
 
-    PM 은 현장·미화 직원(인사카드 access=field)에게 공사·수금 화면을 막는데, 슬랙 명령은 누구나 쓸 수
-    있어 미수금 목록·고객 연락처·공사 금액이 보였다. 재직 중 사무실 직원(access=staff, 인사카드에 슬랙 ID
-    연결)과 경영지원 승인자만 허용. 조회 실패면 막음. 쓸 수 있으면 None, 아니면 안내 문구."""
+
+def _slack_staff_denied(user_id: str, what: str = '이 명령') -> Optional[str]:
+    """수금·고객 정보를 보여 주는 슬랙 기능을 쓸 수 있는 사람인지 (2026-11-13 보안 점검 2차 #7, 11-15 5차 #1·#3·#4).
+
+    PM 은 현장·미화 직원(인사카드 access=field)에게 공사·수금 화면을 막는데, 슬랙은 누구나 쓸 수 있어
+    미수금 목록·고객 연락처·공사 금액·거래처 계좌가 보였다. 재직 중 사무실 직원(access=staff, 인사카드에 슬랙 ID
+    연결)과 경영지원 승인자만 허용 — 퇴사(인사카드 '퇴사')·연결 안 된 계정도 막힌다. 조회 실패면 막음(캐시 안 함).
+    쓸 수 있으면 None, 아니면 안내 문구."""
+    last = what[-1:] or '령'
+    subj = what + ('은' if '가' <= last <= '힣' and (ord(last) - 0xAC00) % 28 else '는')
     if not user_id:
-        return ':lock: 이 명령은 사무실 직원만 쓸 수 있어요.'
-    try:
-        if user_id in _settlement_checker_ids():
-            return None
-        from dashboard.services import hr as _hr
-        p = _hr.find_by_slack(user_id)
-    except Exception as exc:
-        logger.warning(f"[SLACK/권한] 직원 확인 실패 ({user_id}): {exc}")
-        return ':warning: 직원 확인에 실패했어요. 잠시 후 다시 시도해 주세요.'
-    if p and p.get('access') == _hr.ACCESS_STAFF:
+        return f':lock: {subj} 사무실 직원만 쓸 수 있어요.'
+    now = time.time()
+    hit = _STAFF_CACHE.get(user_id)
+    ok = hit[0] if hit and now - hit[1] < _STAFF_CACHE_SEC else None
+    if ok is None:
+        try:
+            if user_id in _settlement_checker_ids():
+                ok = True
+            else:
+                from dashboard.services import hr as _hr
+                p = _hr.find_by_slack(user_id)
+                ok = bool(p and p.get('access') == _hr.ACCESS_STAFF)
+        except Exception as exc:
+            logger.warning(f"[SLACK/권한] 직원 확인 실패 ({user_id}): {exc}")
+            return ':warning: 직원 확인에 실패했어요. 잠시 후 다시 시도해 주세요.'
+        _STAFF_CACHE[user_id] = (ok, now)
+    if ok:
         return None
-    logger.info(f"[SLACK/권한] 사무실 직원 아님 → 명령 거절 ({user_id})")
-    return (':lock: 이 명령은 사무실 직원만 쓸 수 있어요. 사무실 직원인데 이 안내가 보이면 '
+    logger.info(f"[SLACK/권한] 사무실 직원 아님 → 거절 ({user_id}, {what})")
+    return (f':lock: {subj} 사무실 직원만 쓸 수 있어요. 사무실 직원인데 이 안내가 보이면 '
             '인사카드에 슬랙 계정을 연결해 달라고 경영지원에 요청해 주세요.')
+
+
+_GATED_REQUEST_TYPES = ('block_actions', 'view_submission', 'block_suggestion', 'shortcut', 'message_action')
+
+
+def _locked_modal(text: str) -> dict:
+    return {'type': 'modal', 'title': {'type': 'plain_text', 'text': '사무실 직원 전용'},
+            'close': {'type': 'plain_text', 'text': '닫기'},
+            'blocks': [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}}]}
+
+
+def install_staff_gate(app, bot_label: str, what: str) -> None:
+    """이 봇의 버튼·창·목록·바로가기·슬래시 명령을 사무실 직원만 쓰게 하는 앱 전체 문지기 (2026-11-15 5차 점검).
+
+    핸들러마다 확인을 넣으면 새 버튼을 만들 때 빠뜨린다(5차 #1·#3·#4 가 그렇게 생김) → 앱 입구에서 한 번.
+    메시지·파일 이벤트는 여기서 막지 않는다(핸들러가 직접 확인). 창 닫힘(view_closed)도 통과."""
+
+    @app.middleware
+    def _staff_gate(body, next, ack, client):
+        if not isinstance(body, dict):
+            return next()
+        rtype = body.get('type')
+        is_cmd = bool(body.get('command'))
+        if rtype not in _GATED_REQUEST_TYPES and not is_cmd:
+            return next()
+        uid = body.get('user_id', '') if is_cmd else (body.get('user') or {}).get('id', '')
+        msg = _slack_staff_denied(uid, what)
+        if not msg:
+            return next()
+        logger.info(f"[SLACK/{bot_label}] 사무실 직원 아님 → {rtype or body.get('command')} 막음 ({uid})")
+        if rtype == 'block_suggestion':
+            return ack(options=[])
+        if rtype == 'view_submission':
+            return ack(response_action='update', view=_locked_modal(msg))
+        if is_cmd:
+            return ack(text=msg)
+        resp = ack()
+        trigger = body.get('trigger_id', '')
+
+        def _tell():
+            try:
+                if rtype in ('shortcut', 'message_action') and trigger:
+                    client.views_open(trigger_id=trigger, view=_locked_modal(msg))
+                    return
+                ch = (body.get('channel') or {}).get('id', '')
+                if ch:
+                    client.chat_postEphemeral(channel=ch, user=uid, text=msg)
+                else:
+                    dm = client.conversations_open(users=uid)['channel']['id']
+                    client.chat_postMessage(channel=dm, text=msg)
+            except Exception as exc:
+                logger.warning(f"[SLACK/{bot_label}] 막음 안내 실패 ({uid}): {exc}")
+        threading.Thread(target=_tell, daemon=True).start()
+        return resp
 
 
 def _register_handlers(app):
@@ -4342,6 +4419,10 @@ def _register_handlers(app):
             thread_ts = event.get("thread_ts")
             if not thread_ts:
                 return  # thread가 아닌 일반 채널 메시지는 무시
+            # 사무실 직원 글만 — 리드 상태 바꾸기·고객 채널톡 전달 (2026-11-15 5차 점검 #3)
+            if _slack_staff_denied(event.get("user", ""), '이 기능'):
+                logger.info(f"[SLACK/msg] 사무실 직원 아님 → 스레드 글 처리 안 함 ({event.get('user')})")
+                return
 
             # ③-2-a. lead 카드 스레드 자동 감지 (부재중/드랍) — 2026-07-26
             # 매니저가 짧은 텍스트만 남겨도 시트·카드 자동 갱신. 매칭 X 시 forward 로 계속.
@@ -5334,6 +5415,10 @@ def _register_invoice_handlers(app):
             )
         except Exception as exc:
             logger.warning(f"[SLACK/계산서] 스레드 metadata 조회 실패: {exc}")
+            return
+        # 사무실 직원이 올린 파일만 '발행 완료'·시트 '발행' 기록 (2026-11-15 5차 점검 #3)
+        if _slack_staff_denied(event.get('user', ''), '이 기능'):
+            logger.info(f"[SLACK/계산서] 사무실 직원 아님 → 스레드 파일 처리 안 함 ({event.get('user')})")
             return
 
         def _bg():

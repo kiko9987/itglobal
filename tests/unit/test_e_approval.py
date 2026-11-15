@@ -812,11 +812,22 @@ def test_workflow_step_opens_hub_and_completes(monkeypatch):
     import slack_sdk
     monkeypatch.setattr(slack_sdk, 'WebClient', _WC)
     se.register_eapproval_handlers(_App())
+    import dashboard.blueprints.slack_bot as sb
+    monkeypatch.setattr(sb, '_STAFF_CACHE', {})
+    monkeypatch.setattr(sb, '_settlement_checker_ids', lambda: ())
+    from dashboard.services import hr
+    monkeypatch.setattr(hr, 'find_by_slack', lambda uid: {'U_STAFF': {'access': 'staff'},
+                                                         'U_FIELD': {'access': 'field'}}.get(uid))
     fns[ea.FN_OPEN_MENU](body={'event': {'bot_access_token': 'xwfp-1'}},
-                         inputs={'interactivity': {'interactivity_pointer': 'P1'}},
+                         inputs={'interactivity': {'interactivity_pointer': 'P1', 'interactor': {'id': 'U_STAFF'}}},
                          fail=lambda error: done.append(error))
     # 창을 연 직후엔 단계를 끝내지 않는다 — 끝내면 슬랙이 창 버튼을 막는다
     assert opened == [('xwfp-1', 'P1', '전자결재')] and done == []
+    # 사무실 직원이 아니면 안내 창만 열고 단계를 끝낸다(5차 점검)
+    fns[ea.FN_OPEN_MENU](body={'event': {'bot_access_token': 'xwfp-1'}},
+                         inputs={'interactivity': {'interactivity_pointer': 'P2', 'interactor': {'id': 'U_FIELD'}}},
+                         fail=lambda error: done.append(error))
+    assert opened[-1] == ('xwfp-1', 'P2', '사무실 직원 전용') and len(done) == 1
     assert ea.hub_view().get('notify_on_close') is True
     path = os.path.join(os.path.dirname(__file__), '..', '..', 'docs', 'slack_eapproval_manifest.yml')
     with open(path, encoding='utf-8') as fh:

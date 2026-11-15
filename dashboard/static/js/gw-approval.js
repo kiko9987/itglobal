@@ -176,6 +176,11 @@
         (d.urgent ? ' <span class="gw-badge gw-badge-urgent">긴급</span>' : '') +
         '<span class="gw-ap-doc-meta">' + esc(d.form_label) + ' · ' + esc(d.requester) + ' · ' + esc(when(d.created_at)) + '</span></div>';
       if (d.amount) h += '<div class="gw-ap-amount">' + won(d.amount) + '</div>';
+      // 슬랙 카드와 같은 ⚠️ 줄 — 결재함으로 처리해도 계좌 바뀜·중복을 놓치지 않게(5차 점검)
+      var warns = d.warnings || [];
+      if (warns.length) {
+        h += '<div class="gw-ap-warn" role="alert">' + warns.map(function (w) { return '<div>' + esc(w) + '</div>'; }).join('') + '</div>';
+      }
 
       if (d.actions && d.actions.length) {
         h += '<div class="gw-ap-actions" id="apActions">' + d.actions.map(function (a) {
@@ -225,7 +230,10 @@
           return;
         }
         var label = b.textContent;
-        if (!window.confirm(d.title + '\n「' + label + '」 처리할까요? 슬랙 카드도 같이 바뀌어요.')) return;
+        var warnText = (d.warnings || []).filter(function (w) { return w.indexOf('⚠️') !== -1; });
+        var ask = d.title + '\n' + (warnText.length ? '\n' + warnText.join('\n') + '\n\n' : '') +
+          '「' + label + '」 처리할까요? 슬랙 카드도 같이 바뀌어요.';
+        if (!window.confirm(ask)) return;
         send(act, '');
       });
       $('apReasonCancel').addEventListener('click', function () { $('apReason').hidden = true; pending = null; });

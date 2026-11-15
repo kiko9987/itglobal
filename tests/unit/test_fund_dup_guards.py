@@ -300,7 +300,7 @@ def test_old_prepaid_window(tmp_db):
     _age(a['id'], 200)
     hit = ea.find_old_prepaid('G', FIELDS['amount'], '강원포장')
     assert hit['id'] == a['id'] and '선입금' in ea.old_prepaid_warning(hit)
-    assert ea.find_old_prepaid('R', FIELDS['amount'], FIELDS['partner']) is None     # 사업자 다름
+    assert ea.find_old_prepaid('R', FIELDS['amount'], FIELDS['partner'])['id'] == a['id']   # 사업자를 잘못 골라도(5차)
     _age(a['id'], ea.OLD_PREPAID_DAYS + 5)
     assert ea.find_old_prepaid('G', FIELDS['amount'], FIELDS['partner']) is None      # 1년 넘음
 
