@@ -228,17 +228,82 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
-  "@type": "Organization",
-  "name": "아이티글로벌",
-  "url": "https://www.itg-aircon.com",
-  "logo": "https://cdn.imweb.me/thumbnail/20250821/2b805c12024a3.png",
-  "contactPoint": {
-    "@type": "ContactPoint",
-    "telephone": "+82-1899-1377",
-    "contactType": "customer service",
-    "areaServed": "KR",
-    "availableLanguage": "Korean"
-  }
+  "@graph": [
+    {
+      "@type": ["Organization", "HVACBusiness"],
+      "@id": "https://www.itg-aircon.com/#organization",
+      "name": "(주)아이티글로벌",
+      "alternateName": ["아이티글로벌", "IT GLOBAL"],
+      "url": "https://www.itg-aircon.com/",
+      "logo": {
+        "@type": "ImageObject",
+        "url": "https://cdn.imweb.me/upload/S2020040584513d33c8b3c/5ec59760c7ec1.png",
+        "width": 303,
+        "height": 55
+      },
+      "image": "https://cdn.imweb.me/upload/S2020040584513d33c8b3c/d43cbe4fe485b.png",
+      "description": "서울·경기·인천 수도권의 상업용 냉난방기·시스템에어컨 판매·설계·시공 전문 기업. LG·삼성·캐리어 인증점이자 기계설비·가스공사업 등록 전문건설사업자로, 사무실·상가·식당·병원·학원·공장·관공서 현장을 무료 방문 실측 후 견적합니다.",
+      "telephone": "+82-1899-1377",
+      "email": "contact@itg-aircon.com",
+      "address": {
+        "@type": "PostalAddress",
+        "streetAddress": "걸포로 134-84",
+        "addressLocality": "김포시",
+        "addressRegion": "경기도",
+        "postalCode": "10076",
+        "addressCountry": "KR"
+      },
+      "geo": {
+        "@type": "GeoCoordinates",
+        "latitude": 37.6410894,
+        "longitude": 126.7059370
+      },
+      "areaServed": [
+        { "@type": "AdministrativeArea", "name": "서울특별시" },
+        { "@type": "AdministrativeArea", "name": "경기도" },
+        { "@type": "AdministrativeArea", "name": "인천광역시" }
+      ],
+      "contactPoint": {
+        "@type": "ContactPoint",
+        "telephone": "+82-1899-1377",
+        "contactType": "customer service",
+        "areaServed": "KR",
+        "availableLanguage": "Korean"
+      },
+      "sameAs": [
+        "https://www.instagram.com/systemaircon_itg/",
+        "https://blog.naver.com/itglobal0813",
+        "https://www.facebook.com/%EC%A3%BC%EC%8B%9D%ED%9A%8C%EC%82%AC-%EC%95%84%EC%9D%B4%ED%8B%B0%EA%B8%80%EB%A1%9C%EB%B2%8C-103667235633479"
+      ],
+      "knowsAbout": [
+        "상업용 냉난방기 설치",
+        "시스템에어컨 설계·시공",
+        "천장형 에어컨",
+        "전열교환기",
+        "FCU",
+        "매립 덕트형 냉난방기",
+        "상업용 에어컨 분해 세척"
+      ],
+      "hasOfferCatalog": {
+        "@type": "OfferCatalog",
+        "name": "상업용 냉난방 시공 서비스",
+        "itemListElement": [
+          { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "시스템에어컨·냉난방기 설치", "description": "천장형(1WAY·4WAY), 상업용 스탠드형, 매립 덕트형 설치" } },
+          { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "전열교환기·FCU 시공", "description": "환기 설비 및 FCU 설계·시공" } },
+          { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "냉난방기 교체·추가 설치", "description": "기존 장비·배관 상태 확인 후 교체 또는 추가 설치" } },
+          { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "상업용 에어컨 분해 세척", "description": "천장형·스탠드형·덕트형 분해 약품 세척" } }
+        ]
+      }
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://www.itg-aircon.com/#website",
+      "url": "https://www.itg-aircon.com/",
+      "name": "(주)아이티글로벌",
+      "inLanguage": "ko-KR",
+      "publisher": { "@id": "https://www.itg-aircon.com/#organization" }
+    }
+  ]
 }
 </script>
 
@@ -254,7 +319,7 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
   var publisher={
     "@type":"Organization",
     "name":"아이티글로벌",
-    "logo":{"@type":"ImageObject","url":"https://cdn.imweb.me/thumbnail/20250821/2b805c12024a3.png"}
+    "logo":{"@type":"ImageObject","url":"https://cdn.imweb.me/upload/S2020040584513d33c8b3c/5ec59760c7ec1.png"}
   };
 
   // 메인 / 회사소개
