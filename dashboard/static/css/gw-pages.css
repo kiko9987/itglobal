@@ -1898,3 +1898,60 @@ body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7
 }
 
 .gw-page-title:focus { outline: none; }
+
+/* ── 휴대폰 결재함 정리(11-15 부장님 제보: 결재함 UI 엉망) ─────────────────────── */
+.gw-chip-more { display: none; }
+
+@media (max-width: 767.98px) {
+  /* 머리: 휴대폰에서 엑셀 내려받기는 쓸 일이 없어 숨김 — 제목과 [새 결재] 한 줄 */
+  .gw-approval .gw-page-actions a[href*="export.xlsx"] { display: none; }
+
+  /* 탭: 화면 폭에 맞춰 세 칸 */
+  .gw-ap-tabs { display: flex; width: 100%; }
+  .gw-ap-tabs button { flex: 1 1 auto; padding: 0 8px; height: 40px; }
+
+  /* 필터: 검색 한 줄 + [필터 n]·[초기화]·건수 한 줄, 칩·날짜는 [필터]를 누르면 */
+  .gw-ap-filters .gw-chip-search { order: -3; flex: 1 1 100%; }
+  .gw-ap-filters .gw-chip-more { order: -2; }
+  .gw-ap-filters .gw-chip-reset { order: -1; }
+  .gw-ap-filters .gw-ap-count { order: -1; margin-left: auto; }
+  .gw-ap-filters:not(.open) .gw-chip-select,
+  .gw-ap-filters:not(.open) .gw-chip-date,
+  .gw-ap-filters:not(.open) .gw-ap-tilde { display: none; }
+  .gw-ap-filters.open .gw-chip-select { flex: 1 1 40%; }
+  .gw-ap-filters.open .gw-chip-date { flex: 1 1 38%; min-width: 0; }
+
+  .gw-chip-more {
+    display: inline-flex;
+    align-items: center;
+    height: 40px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 9999px;
+    background: rgba(0, 0, 0, 0.047);
+    color: #1a1c20;
+    font-size: 15px;
+    font-weight: 500;
+  }
+  .gw-chip-more.on { background: #2a3038; color: #ffffff; }
+  .gw-chip-more-n {
+    margin-left: 6px;
+    min-width: 20px;
+    padding: 0 6px;
+    border-radius: 9999px;
+    background: #ff6f0f;
+    color: #ffffff;
+    font-size: 12px;
+    line-height: 20px;
+    text-align: center;
+  }
+  .gw-chip-more:focus-visible { outline: 2px solid #2a3038; outline-offset: 2px; }
+  .gw-ap-filters .gw-chip-reset { height: 40px; font-size: 15px; }
+
+  /* 카드 아래 줄: 금액·현장·요청자·때를 작게, 건마다 줄바꿈이 들쭉날쭉하지 않게 */
+  #apRows tr[data-id] td.num,
+  #apRows tr[data-id] td:nth-child(4),
+  #apRows tr[data-id] td:nth-child(6),
+  #apRows tr[data-id] td:nth-child(8) { font-size: 0.82rem; white-space: nowrap; }
+  #apRows tr[data-id] td:nth-child(2) { font-size: 0.85rem; }
+}

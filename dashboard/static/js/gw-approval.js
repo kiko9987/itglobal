@@ -100,6 +100,36 @@
     return h + '</dl>';
   }
 
+  // ── 휴대폰 필터 접기(11-15 부장님 제보: 결재함 화면이 엉망) ──────────────────
+  // 양식·상태·날짜 칩이 네 줄을 차지해 목록이 화면 중간부터 시작했다 → 휴대폰에선 검색 + [필터 n] 만,
+  // 누르면 펼침. 넓은 화면에선 [필터] 단추를 CSS 로 숨겨 지금 그대로
+  document.querySelectorAll('.gw-approval .gw-ap-filters').forEach(function (box) {
+    var search = box.querySelector('.gw-chip-search');
+    if (!search || box.querySelector('.gw-chip-more')) return;
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'gw-chip-more';
+    btn.setAttribute('aria-expanded', 'false');
+    btn.innerHTML = '<i class="fas fa-sliders-h me-1" aria-hidden="true"></i>필터<b class="gw-chip-more-n" hidden></b>';
+    search.insertAdjacentElement('afterend', btn);
+    var nEl = btn.querySelector('b');
+    function sync() {
+      var n = Array.prototype.filter.call(box.querySelectorAll('select.gw-chip-select, input.gw-chip-date'),
+        function (el) { return !!el.value; }).length;
+      nEl.textContent = n;
+      nEl.hidden = !n;
+      btn.classList.toggle('on', n > 0);
+    }
+    btn.addEventListener('click', function () {
+      var open = !box.classList.contains('open');
+      box.classList.toggle('open', open);
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    box.addEventListener('change', sync);
+    box.addEventListener('click', function () { setTimeout(sync, 0); });   // [초기화]는 값만 비움(change 없음)
+    sync();
+  });
+
   // ── 결재함 ────────────────────────────────────────
   var page = $('apPage');
   if (page) {
