@@ -110,8 +110,8 @@ def client(db):
 def test_field_login_flow_and_gatekeeper(client):
     tok = _token(gw_login.issue(FIELD_SLACK))
     r = client.get(f'/gw/login/{tok}')
-    assert r.status_code == 302 and r.headers['Location'].endswith('/home')
-    assert client.get(f'/gw/login/{tok}').status_code == 410                     # 다시 쓰면 거절 화면
+    assert r.status_code == 302 and r.headers['Location'].endswith('/leave')        # 현장은 바로 내 휴가(11-15)
+    assert client.get(f'/gw/login/{tok}').status_code == 410                    # 다시 쓰면 거절 화면
 
     with client.session_transaction() as s:
         u = s['user']

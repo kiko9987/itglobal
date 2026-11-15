@@ -374,6 +374,14 @@ class SecurityMiddleware:
         if request.path.startswith(('/secom/', '/v1/secom/')) or request.path == '/secom':
             return None
 
+        # 1.10. 현장 직원 휴대폰 등록(로그인 화면에서 6자리 숫자, 2026-11-15) — 로그인 전이라 세션·CSRF 토큰이 없다.
+        #       같은 사이트 화면에서 보낸 것만 받고, 숫자 틀림 제한은 gw_device.redeem 이 따로 한다.
+        if request.path == '/gw/device/redeem' and request.method == 'POST':
+            if not self._same_origin_request():
+                self._log_security_event('DEVICE_REDEEM_CROSS_ORIGIN', request.remote_addr)
+                return jsonify({'error': '다른 사이트에서 보낸 요청은 처리하지 않습니다.'}), 403
+            return None
+
         # 2. CSRF/인증 검사 (상태 변경 요청)
         if request.method in ['POST', 'PUT', 'DELETE', 'PATCH']:
             if request.path.startswith('/api/') or request.path.startswith('/admin/api/'):

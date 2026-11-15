@@ -244,6 +244,44 @@ def api_set_roles():
     return jsonify({'success': True, key: emails})
 
 
+# ── 현장 직원 휴대폰 등록(인사카드 관리자, 11-15) — services/gw_device.py ─────────
+@hr_bp.route('/api/hr/people/<int:pid>/devices', methods=['GET'])
+@gw_page
+def api_devices(pid):
+    from dashboard.services import gw_device
+    if not _hr_admin():
+        return jsonify({'success': False, 'message': '인사카드 관리자만 볼 수 있습니다.'}), 403
+    p = hr.get_person(pid)
+    if not p:
+        return jsonify({'success': False, 'message': '없는 구성원입니다.'}), 404
+    can = p.get('status') != hr.STATUS_RESIGNED and p.get('access') == hr.ACCESS_FIELD
+    return jsonify({'success': True, 'can_register': can, 'devices': gw_device.list_for(pid) if can else [],
+                    'idle_days': gw_device.IDLE_DAYS})
+
+
+@hr_bp.route('/api/hr/people/<int:pid>/device-code', methods=['POST'])
+@gw_page
+def api_device_code(pid):
+    from dashboard.services import gw_device
+    if not _hr_admin():
+        return jsonify({'success': False, 'message': '인사카드 관리자만 만들 수 있습니다.'}), 403
+    try:
+        return jsonify({'success': True, **gw_device.issue_code(pid, _me())})
+    except Exception as e:
+        return _fail(e)
+
+
+@hr_bp.route('/api/hr/people/<int:pid>/devices/<int:did>/revoke', methods=['POST'])
+@gw_page
+def api_device_revoke(pid, did):
+    from dashboard.services import gw_device
+    if not _hr_admin():
+        return jsonify({'success': False, 'message': '인사카드 관리자만 끊을 수 있습니다.'}), 403
+    if not gw_device.revoke(did, _me(), person_id=pid):
+        return jsonify({'success': False, 'message': '이미 끊긴 휴대폰입니다.'}), 400
+    return jsonify({'success': True, 'devices': gw_device.list_for(pid)})
+
+
 # ── 휴가(조회) ────────────────────────────────────────────────────────
 # 승인·반려는 슬랙 휴가 봇. 본인 신청·취소는 여기서도(11-15) — 아래 /api/leave/apply·cancel.
 def _leave_all() -> bool:
@@ -353,6 +391,8 @@ def api_leave_calendar():
 @hr_bp.route('/home')
 @gw_page
 def page_home():
+    if _is_field():
+        return redirect('/leave')   # 현장·미화 직원은 앱을 열면 바로 내 휴가(11-15, 플렉스 앱처럼)
     p = _my_person()
     name = (p or {}).get('name') or (session.get('user') or {}).get('name', '')
     return render_template('gw/home.html', person_name=name, is_field=_is_field())

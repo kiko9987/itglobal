@@ -25,7 +25,7 @@ logger = get_logger(__name__)
 
 STATUS_ACTIVE, STATUS_LEAVE, STATUS_RESIGNED = '재직', '휴직', '퇴사'
 STATUSES = (STATUS_ACTIVE, STATUS_LEAVE, STATUS_RESIGNED)
-ACCESS_STAFF, ACCESS_FIELD = 'staff', 'field'   # field = 현장·미화(개인 메일 로그인, 제한 권한)
+ACCESS_STAFF, ACCESS_FIELD = 'staff', 'field'   # field = 현장·미화(휴대폰 등록 숫자·슬랙 링크 로그인, 제한 권한 — 구글 로그인 아님)
 
 # 화면·수정에 쓰는 칸(주민번호 제외). (키, 이름)
 FIELDS = [

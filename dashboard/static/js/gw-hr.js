@@ -7,7 +7,7 @@
   // 로그인 방식(인사카드 access 칸) — 카드와 수정 창이 같은 말을 쓰게 여기 한곳에
   var ACCESS_LABEL = {
     staff: '회사 구글 계정',
-    field: '슬랙 휴가 앱 링크 (현장·미화 · 내 정보·휴가만)'
+    field: '휴대폰 등록·슬랙 휴가 앱 링크 (현장·미화 · 내 정보·휴가만)'
   };
   var cardEl = document.getElementById('hrCard');
   var state = { people: [], selectedId: null, showResigned: false, query: '', current: null };
@@ -125,6 +125,10 @@
         dd('로그인 메일', p.login_email) +
         dd('로그인 방식', ACCESS_LABEL[p.access] || ACCESS_LABEL.staff) +
         dd('슬랙 ID', p.slack_id) + '</dl>';
+      if (p.access === 'field' && !resigned && CFG.mode !== 'me') {
+        // 현장 직원 휴대폰 등록(11-15) — 숫자를 만들어 직원 휴대폰 로그인 화면에 넣으면 그 휴대폰은 계속 로그인
+        h += '<div class="gw-dev" id="hrDevices"><div class="gw-log">불러오는 중…</div></div>';
+      }
     }
 
     if (resigned || p.resign_date) {
@@ -170,6 +174,74 @@
     if (editBtn) editBtn.addEventListener('click', function () { openEdit(p); });
     bindSsnToggles();
     bindPrivate(p);
+    if (document.getElementById('hrDevices')) loadDevices(p);
+  }
+
+  // ── 현장 직원 휴대폰 등록 ─────────────────────────────
+  var codeTimer = null;
+
+  function renderDevices(p, j, code) {
+    var box = document.getElementById('hrDevices');
+    if (!box || !state.current || state.current.id !== p.id) return;
+    var h = '<div class="gw-dev-head"><strong>등록된 휴대폰</strong>' +
+      '<button type="button" class="btn btn-sm btn-primary" id="hrDevCodeBtn"><i class="fas fa-mobile-alt me-1" aria-hidden="true"></i>휴대폰 등록 숫자 만들기</button></div>';
+    if (code) {
+      h += '<div class="gw-dev-code" role="status"><div class="gw-dev-code-num">' + esc(code.code.replace(/(\d{3})(\d{3})/, '$1 $2')) + '</div>' +
+        '<div class="gw-dev-code-help">' + esc(p.name) + ' 님 휴대폰의 아이티글로벌 로그인 화면 <strong>「현장 직원 휴대폰 등록」</strong>에 이 숫자를 넣어 주세요. ' +
+        '<span id="hrDevLeft">' + code.minutes + '분</span> 동안 한 번만 쓸 수 있어요.</div></div>';
+    }
+    var list = j.devices || [];
+    if (list.length) {
+      h += '<ul class="gw-dev-list">' + list.map(function (d) {
+        return '<li><div><strong>' + esc(d.label || '기기') + '</strong><div class="gw-log">등록 ' + esc((d.created_at || '').slice(0, 10)) +
+          ' · 마지막 사용 ' + esc((d.last_used_at || '').slice(0, 16)) + '</div></div>' +
+          '<button type="button" class="btn btn-sm btn-outline-danger" data-dev-revoke="' + d.id + '">끊기</button></li>';
+      }).join('') + '</ul>';
+    } else {
+      h += '<div class="gw-log">아직 등록된 휴대폰이 없어요.</div>';
+    }
+    h += '<div class="gw-log mt-1">등록한 휴대폰은 로그인이 계속 유지돼요. ' + (j.idle_days || 90) + '일 동안 안 쓰거나, 퇴사·로그인 방식 변경·[끊기]·그 휴대폰에서 로그아웃하면 끝나요.</div>';
+    box.innerHTML = h;
+
+    document.getElementById('hrDevCodeBtn').addEventListener('click', function () {
+      var b = this;
+      b.disabled = true;
+      api('/api/hr/people/' + p.id + '/device-code', { method: 'POST' }).then(function (c) {
+        renderDevices(p, j, c);
+        startCountdown(c.expires_at);
+      }).catch(function (e) { b.disabled = false; window.alert(e.message); });
+    });
+    box.querySelectorAll('[data-dev-revoke]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        if (!window.confirm('이 휴대폰 로그인을 끊을까요? 다시 쓰려면 숫자로 다시 등록해야 해요.')) return;
+        b.disabled = true;
+        api('/api/hr/people/' + p.id + '/devices/' + b.getAttribute('data-dev-revoke') + '/revoke', { method: 'POST' })
+          .then(function (r) { j.devices = r.devices; renderDevices(p, j, null); })
+          .catch(function (e) { b.disabled = false; window.alert(e.message); });
+      });
+    });
+  }
+
+  function startCountdown(expiresAt) {
+    clearInterval(codeTimer);
+    var end = new Date(expiresAt.replace(' ', 'T')).getTime();
+    codeTimer = setInterval(function () {
+      var el = document.getElementById('hrDevLeft');
+      if (!el) { clearInterval(codeTimer); return; }
+      var s = Math.max(0, Math.round((end - Date.now()) / 1000));
+      el.textContent = s ? Math.floor(s / 60) + '분 ' + (s % 60) + '초' : '시간이 지나 쓸 수 없어요 —';
+      if (!s) clearInterval(codeTimer);
+    }, 1000);
+  }
+
+  function loadDevices(p) {
+    api('/api/hr/people/' + p.id + '/devices').then(function (j) {
+      if (!j.can_register) { var b = document.getElementById('hrDevices'); if (b) b.remove(); return; }
+      renderDevices(p, j, null);
+    }).catch(function (e) {
+      var b = document.getElementById('hrDevices');
+      if (b) b.innerHTML = '<div class="gw-log">' + esc(e.message) + '</div>';
+    });
   }
 
   // ── 경력·학력·가족·서류(본인·인사카드 관리자만 서버가 보내 줌) ─────────────
@@ -366,12 +438,12 @@
   if (formEl && formEl.elements.access) {
     Array.prototype.forEach.call(formEl.elements.access.options, function (o) {
       if (o.value === 'staff') o.textContent = ACCESS_LABEL.staff;
-      if (o.value === 'field') o.textContent = '슬랙 휴가 앱 링크 (현장·미화)';
+      if (o.value === 'field') o.textContent = '휴대폰 등록·슬랙 휴가 앱 링크 (현장·미화)';
     });
     var accLabel = formEl.querySelector('label[for="f_access"]');
     if (accLabel) accLabel.textContent = '로그인 방식';
     var hint = formEl.elements.login_email && formEl.elements.login_email.parentNode.querySelector('.form-text');
-    if (hint) hint.textContent = '회사 구글 계정으로 들어오는 메일이에요. 슬랙 링크로 들어오는 현장·미화 직원은 비워 둬도 돼요.';
+    if (hint) hint.textContent = '회사 구글 계정으로 들어오는 메일이에요. 현장·미화 직원(휴대폰 등록·슬랙 링크)은 비워 둬도 돼요.';
   }
 
   function modal() {

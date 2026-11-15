@@ -43,6 +43,12 @@ def _person_and_sid(user: dict) -> Tuple[Optional[dict], str, str]:
         if link_sid != (p.get('slack_id') or '').strip():
             logger.warning(f'{_LOG} 현장 세션 슬랙 ID 와 인사카드가 다름 — 거절 (#{p["id"]})')
             return p, '', MSG_RELOGIN
+        # 휴대폰 등록(관리자가 숫자 발급)은 인사카드 슬랙 ID 를 그대로 믿는다 → 그 ID 의 휴가 장부 이름이
+        # 인사카드 이름과 같을 때만(카드에 남의 슬랙 ID 를 넣어 그 사람 휴가를 건드리지 못하게, 11-15)
+        staff = lv.staff_by_slack(link_sid)
+        if staff and staff['name'] != p['name']:
+            logger.warning(f'{_LOG} 현장 세션 슬랙 ID 의 휴가 장부 이름이 인사카드와 다름 — 거절 (#{p["id"]})')
+            return p, '', MSG_NOT_LISTED
         return p, link_sid, ''
     email = (user.get('email') or '').strip().lower()
     p = hr.find_by_email(email) if email else None

@@ -7,8 +7,9 @@
 import re
 import uuid
 from datetime import datetime
+from typing import Optional
 
-from flask import Blueprint, jsonify, redirect, render_template_string, request, session
+from flask import Blueprint, g, jsonify, redirect, render_template_string, request, session
 
 from dashboard.auth import admin_required, login_required
 from dashboard.services import groupware as gw
@@ -38,11 +39,95 @@ _FIELD_API = [
 
 def field_path_allowed(method: str, path: str) -> bool:
     if path.startswith('/static/') or path == '/favicon.ico' or path.startswith('/gw/login/') \
-            or path == '/manifest.webmanifest':
+            or path == '/manifest.webmanifest' or path == '/gw/device/redeem':
         return True
     if path in _FIELD_PAGES:
         return True
     return any(method in methods and pat.match(path) for methods, pat in _FIELD_API)
+
+
+# ── 현장 휴대폰 등록(기기 열쇠) — 플렉스 앱처럼 한 번 등록하면 계속(2026-11-15) ─────────────
+# 문지기보다 먼저 돈다(같은 블루프린트 안에서 적은 순서). services/gw_device.py 참고.
+def _start_field_session(p: dict, slack_id: str, device_id: Optional[int] = None) -> None:
+    from dashboard.services import gw_login
+    from dashboard.auth import rotate_session_id
+    session.clear()   # 세션 고정 방지
+    session['user'] = dict(gw_login.session_user(dict(p, link_slack_id=slack_id)), gw_device_id=device_id)
+    session['login_time'] = datetime.now().isoformat()
+    session['session_id'] = str(uuid.uuid4())
+    session.permanent = True
+    rotate_session_id()
+
+
+@groupware_bp.before_app_request
+def restore_device_session():
+    from dashboard.services import gw_device
+    tok = request.cookies.get(gw_device.COOKIE)
+    if not tok or request.path.startswith('/static/'):
+        return None
+    try:
+        if request.path == '/logout':
+            # 그 휴대폰에서 로그아웃 = 등록 해제(안 그러면 다음 화면에서 바로 다시 들어옴)
+            gw_device.revoke_token(tok, 'logout')
+            g.gw_device_clear = True
+            return None
+        user = session.get('user') or {}
+        if user and not user.get('gw_field'):
+            return None                       # 회사 계정으로 로그인한 브라우저 — 손대지 않음
+        info = gw_device.check(tok)
+        if not info:
+            g.gw_device_clear = True          # 끊김·오래 안 씀·퇴사 → 열쇠 지우고, 그 열쇠로 연 세션도 닫음
+            if user.get('gw_device_id'):
+                session.clear()
+            return None
+        p, d = info['person'], info['device']
+        if user and user.get('gw_person_id') != p['id']:
+            return None                       # 다른 현장 직원이 링크로 들어와 있는 브라우저
+        if not user or user.get('gw_device_id') != d['id']:
+            _start_field_session(p, d.get('slack_id') or '', d['id'])
+            logger.info(f'[GW-DEVICE] 휴대폰으로 현장 세션 #{p["id"]} device#{d["id"]}')
+        else:
+            # 4시간 세션 끝(SESSION_TIMEOUT_HOURS)에 걸리지 않게 — 한 시간마다 로그인 시각을 당겨 둔다
+            try:
+                old = datetime.fromisoformat(session.get('login_time') or '')
+            except ValueError:
+                old = None
+            if not old or datetime.now() - old > gw_device.TOUCH_EVERY:
+                session['login_time'] = datetime.now().isoformat()
+        if gw_device.needs_touch(d):
+            gw_device.touch(d['id'], request.remote_addr or '')
+            g.gw_device_set = tok             # 쿠키 기한도 다시 90일로
+    except Exception as e:
+        logger.warning(f'[GW-DEVICE] 휴대폰 열쇠 확인 실패(그냥 진행): {e}')
+    return None
+
+
+@groupware_bp.after_app_request
+def write_device_cookie(resp):
+    from dashboard.services import gw_device
+    from flask import current_app
+    if getattr(g, 'gw_device_clear', False):
+        resp.delete_cookie(gw_device.COOKIE, path='/')
+    elif getattr(g, 'gw_device_set', None):
+        resp.set_cookie(gw_device.COOKIE, g.gw_device_set, max_age=gw_device.IDLE_DAYS * 86400, path='/',
+                        httponly=True, samesite='Lax', secure=bool(current_app.config.get('SESSION_COOKIE_SECURE')))
+    return resp
+
+
+@groupware_bp.route('/gw/device/redeem', methods=['POST'])
+def device_redeem():
+    """로그인 화면 「현장 직원 휴대폰 등록」 — 6자리 숫자 → 이 휴대폰 등록 + 현장 세션.
+    로그인 전이라 CSRF 토큰이 없다 → 보안 미들웨어가 같은 사이트에서 보낸 요청인지만 보고 통과시킨다."""
+    from dashboard.services import gw_device
+    data = request.get_json(silent=True) or {}
+    ip = request.remote_addr or ''
+    p, token, why = gw_device.redeem(data.get('code', ''), ip, request.headers.get('User-Agent', ''))
+    if why:
+        return jsonify({'success': False, 'message': why}), 400
+    info = gw_device.check(token)
+    _start_field_session(p, (p.get('slack_id') or '').strip(), info['device']['id'] if info else None)
+    g.gw_device_set = token
+    return jsonify({'success': True, 'redirect': '/leave', 'name': p['name']})
 
 
 @groupware_bp.before_app_request
@@ -84,7 +169,7 @@ def field_login(token):
     from dashboard.auth import rotate_session_id
     rotate_session_id()   # 세션 ID 새로 발급 (2026-11-13)
     logger.info(f'[GW-LOGIN] 현장 로그인 #{p["id"]} ip={ip}')
-    return redirect('/home')
+    return redirect('/leave')   # 현장 직원은 바로 내 휴가(11-15)
 
 
 # ── 홈 화면 앱(웹 앱 설치, 2026-11-15) ────────────────────────────────

@@ -162,7 +162,7 @@ def test_home_api_staff_and_field(client, db):
     with client.session_transaction() as s:
         s.clear()
     r = client.get(f'/gw/login/{tok}')
-    assert r.headers['Location'].endswith('/home')
+    assert r.headers['Location'].endswith('/leave')                     # 현장은 바로 내 휴가(11-15)
     j = client.get('/api/home').get_json()
     assert j['field'] and 'approvals' not in j and 'off' not in j       # 현장: 내 휴가만
     assert client.get('/api/home/mail').status_code == 403

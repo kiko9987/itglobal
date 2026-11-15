@@ -274,6 +274,23 @@
             line-height: 1.5;
         }
         
+        /* 현장 직원 휴대폰 등록(11-15) */
+        .gw-device-form {
+            margin-top: 1.5rem;
+            padding-top: 1.25rem;
+            border-top: 1px solid var(--gray-200, #e5e7eb);
+            text-align: left;
+        }
+        .gw-device-title { display: block; font-weight: 700; font-size: 1rem; color: #111827; margin-bottom: 4px; }
+        .gw-device-help { color: var(--gray-600, #4b5563); font-size: 0.85rem; margin: 0 0 10px; line-height: 1.5; }
+        .gw-device-row { display: flex; gap: 8px; }
+        .gw-device-row input {
+            flex: 1 1 auto; min-width: 0; height: 52px; font-size: 24px; letter-spacing: 0.25em; text-align: center;
+            border: 1px solid #d1d5db; border-radius: 10px; font-variant-numeric: tabular-nums;
+        }
+        .gw-device-row .btn { height: 52px; min-width: 84px; font-size: 1.05rem; border-radius: 10px; }
+        .gw-device-err { color: #b91c1c; font-size: 0.88rem; margin-top: 6px; min-height: 1.2em; }
+
         /* 추가 정보 섹션 */
         .additional-info {
             margin-top: 1.5rem;
@@ -401,8 +418,6 @@
                 
                 <div class="signup-info">
                     <p class="signup-text">신규 가입자는 구글 로그인 시 자동으로 계정이 생성됩니다</p>
-                    {# 현장·미화 직원은 구글 계정이 없다 — 세션이 끝나 이 화면으로 오면 길을 알려 준다(11-15) #}
-                    <p class="signup-text">현장·미화 직원은 슬랙 휴가 앱의 [그룹웨어 열기]로 들어와 주세요</p>
                 </div>
                 
                 <!-- Additional Info Section -->
@@ -431,6 +446,19 @@
                     Google OAuth가 설정되지 않았습니다. 관리자에게 문의하세요.
                 </div>
                 {% endif %}
+
+                {# 현장·미화 직원 휴대폰 등록(11-15) — 구글 계정이 없는 직원. 경영지원이 인사카드에서 만든 6자리 숫자를
+                   한 번 넣으면 이 휴대폰은 계속 로그인돼 있다(플렉스 앱처럼). #}
+                <form class="gw-device-form" id="gwDeviceForm" novalidate>
+                    <label for="gwDeviceCode" class="gw-device-title">현장 직원 휴대폰 등록</label>
+                    <p class="gw-device-help">경영지원에서 받은 숫자 6자리를 넣어 주세요. 한 번 등록하면 다음부터는 바로 열려요.</p>
+                    <div class="gw-device-row">
+                        <input type="text" id="gwDeviceCode" name="code" inputmode="numeric" pattern="[0-9 ]*"
+                               autocomplete="one-time-code" maxlength="7" placeholder="000000" aria-describedby="gwDeviceErr">
+                        <button type="submit" class="btn btn-dark" id="gwDeviceBtn">등록</button>
+                    </div>
+                    <div class="gw-device-err" id="gwDeviceErr" role="alert"></div>
+                </form>
             </div>
             
             <div class="security-info">
@@ -470,6 +498,34 @@
             }, 5000);
         }
         
+        // 현장 직원 휴대폰 등록 — 숫자 6자리 → /gw/device/redeem → 내 휴가로(11-15)
+        (function () {
+            var f = document.getElementById('gwDeviceForm');
+            if (!f) return;
+            var input = document.getElementById('gwDeviceCode');
+            var btn = document.getElementById('gwDeviceBtn');
+            var err = document.getElementById('gwDeviceErr');
+            f.addEventListener('submit', function (e) {
+                e.preventDefault();
+                var code = (input.value || '').replace(/\D/g, '');
+                if (code.length !== 6) { err.textContent = '숫자 6자리를 넣어 주세요.'; input.focus(); return; }
+                btn.disabled = true;
+                err.textContent = '';
+                fetch('/gw/device/redeem', {
+                    method: 'POST', credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: code })
+                }).then(function (r) {
+                    return r.json().catch(function () { return {}; }).then(function (j) {
+                        if (!r.ok || !j.success) throw new Error(j.message || j.error || '등록하지 못했어요. 잠시 뒤 다시 해 주세요.');
+                        location.href = j.redirect || '/leave';
+                    });
+                }).catch(function (x) {
+                    err.textContent = x.message;
+                    btn.disabled = false;
+                });
+            });
+        })();
+
         // 실제 오류 발생시만 알림 표시
         if (message) {
             if (message === 'oauth_error') {
