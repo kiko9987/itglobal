@@ -289,7 +289,7 @@ Restart-Service ITGFlask  # 관리자 권한 필요
 **증상**: 프로젝트 상세의 폴더 ID 링크 클릭 시 반응 없음, 또는 브라우저 오류
 **원인 후보** (순서대로 확인):
 1. 해당 직원 PC에 `itgfolder://` 프로토콜이 등록되지 않음 — [docs/employee-deployment/itgfolder-install.md](docs/employee-deployment/itgfolder-install.md) 재설치
-2. `C:\ITG\open-itg-folder.vbs` 파일 없음
+2. `%LOCALAPPDATA%\ITG\open-itg-folder.vbs` 파일 없음 (2026-11-15 전 설치본은 `C:\ITG\`)
 3. Google Drive Desktop 미실행 또는 G: 미마운트
 4. 브라우저 팝업 차단 — 첫 클릭 시 "itgfolder 열기" 허용 필요
 

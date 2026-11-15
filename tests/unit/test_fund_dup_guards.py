@@ -309,17 +309,64 @@ def test_socket_touch_keeps_active_tab_connected(monkeypatch):
     from dashboard.utils import socket_session_guard as sg
     monkeypatch.setattr(sg, '_conns', {})
     start = datetime(2026, 11, 15, 9, 0, 0)
-    sg.register('s1', 'a@x.com', start.isoformat())
-    sg.register('s2', 'b@x.com', start.isoformat())
+    sg.register('s1', 'a@x.com', start.isoformat(), 'sess-a')
+    sg.register('s2', 'b@x.com', start.isoformat(), 'sess-b')
     later = start + timedelta(hours=3)
-    assert sg.touch('a@x.com', later.isoformat()) == 1
-    assert sg.touch('a@x.com', start.isoformat()) == 0          # 더 옛 시각으로 되돌리지 않음
+    assert sg.touch('a@x.com', later.isoformat(), 'sess-a') == 1
+    assert sg.touch('a@x.com', start.isoformat(), 'sess-a') == 0          # 더 옛 시각으로 되돌리지 않음
 
     class _DB:
         def get_user_by_email(self, e):
             return {'is_active': True}
     cut = sg.sweep(lambda sid: None, now=start + timedelta(hours=5), db=_DB())
     assert cut == ['s2']                                         # 화면을 쓴 a 는 유지, 4시간 넘게 연장 없던 b 만 끊음
+
+
+def test_socket_touch_and_logout_bound_to_session(monkeypatch):
+    """5차 점검 #5: 같은 직원의 다른 탭·브라우저가 연장해도, 로그아웃한 세션의 연결은 살아남지 않는다."""
+    from dashboard.utils import socket_session_guard as sg
+    monkeypatch.setattr(sg, '_conns', {})
+    monkeypatch.setattr(sg, '_disconnect', None)
+    start = datetime(2026, 11, 15, 9, 0, 0)
+    sg.register('old', 'a@x.com', start.isoformat(), 'sess-old')     # 로그아웃할 탭
+    sg.register('new', 'a@x.com', start.isoformat(), 'sess-new')     # 계속 쓰는 탭
+    later = start + timedelta(hours=3)
+    assert sg.touch('a@x.com', later.isoformat(), 'sess-new') == 1   # 쓰는 세션 연결만 연장
+    assert sg.tracked()['old']['login_time'] == start.isoformat()
+    assert sg.touch('a@x.com', later.isoformat()) == 0               # 세션 ID 없으면 아무것도 연장 안 함
+    assert sg.touch('b@x.com', later.isoformat(), 'sess-new') == 0   # 메일이 다르면 안 함
+
+    class _DB:
+        def get_user_by_email(self, e):
+            return {'is_active': True}
+    assert sg.sweep(lambda sid: None, now=start + timedelta(hours=5), db=_DB()) == ['old']
+
+    # 로그아웃: 그 세션 연결을 바로 끊음(끊기 함수 있음)
+    monkeypatch.setattr(sg, '_conns', {})
+    sg.register('t1', 'a@x.com', start.isoformat(), 'sess-1')
+    sg.register('t2', 'a@x.com', start.isoformat(), 'sess-2')
+    cut = []
+    monkeypatch.setattr(sg, '_disconnect', cut.append)
+    assert sg.revoke_session('sess-1') == ['t1'] and cut == ['t1']
+    assert set(sg.tracked()) == {'t2'}
+    assert sg.revoke_session(None) == [] and sg.revoke_session('') == []
+
+    # 끊기 함수가 아직 없으면 표시만 → 연장도 안 되고 다음 sweep 이 끊음
+    monkeypatch.setattr(sg, '_disconnect', None)
+    sg.register('t3', 'a@x.com', start.isoformat(), 'sess-3')
+    assert sg.revoke_session('sess-3') == ['t3']
+    assert sg.touch('a@x.com', later.isoformat(), 'sess-3') == 0
+    assert sg.sweep(lambda sid: None, now=start + timedelta(minutes=10), db=_DB()) == ['t3']
+
+
+def test_logout_and_ping_pass_own_session_id():
+    """연결 등록·연장·로그아웃이 자기 세션 ID 를 넘기는지."""
+    import inspect
+    import dashboard
+    from dashboard.blueprints import auth as auth_bp
+    assert "revoke_session(session.get('session_id'))" in inspect.getsource(auth_bp.logout)
+    assert "session.get('session_id')" in inspect.getsource(auth_bp.refresh_session)
+    assert "_ss.get('session_id'))" in inspect.getsource(dashboard)
 
 
 @pytest.mark.parametrize('raw, shown', [

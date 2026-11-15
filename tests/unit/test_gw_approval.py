@@ -117,8 +117,11 @@ def test_flex_archive_import_mask_and_scope(db, tmp_path):
     ]}, ensure_ascii=False), encoding='utf-8')
     assert ga.latest_export(str(tmp_path)) == str(exp)
     out = ga.import_flex_export(str(exp))
+    assert out['blocked'] and out['no_card_writers'] == ['황샛별']           # 인사카드 없는 작성자 → 안 씀(5차 #9)
+    assert ga.archive_list(ga.viewer('kiko@itg-aircon.com'))['total'] == 0
+    out = ga.import_flex_export(str(exp), allow_no_card=True)              # 확인 뒤 허용
     assert out['count'] == 3 and out['by_status'] == {'완료': 1, '반려': 1, '진행 중(플렉스)': 1}
-    ga.import_flex_export(str(exp))                                          # 다시 돌려도 3건
+    ga.import_flex_export(str(exp), allow_no_card=True)                    # 다시 돌려도 3건
     # 옛 문서는 이름 + 본인 근무 기간으로 묶는다(11-14) — 입사일 있는 카드여야 본인 문서가 보인다
     with db._get_connection() as conn:
         conn.execute("UPDATE hr_people SET hire_date='2024-01-02' WHERE name='박민우'")

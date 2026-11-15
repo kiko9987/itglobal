@@ -629,7 +629,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
                 try:
                     from flask import request as _rq
                     from dashboard.utils import socket_session_guard as _sg
-                    _sg.register(_rq.sid, _u.get('email'), _ss.get('login_time'))
+                    _sg.register(_rq.sid, _u.get('email'), _ss.get('login_time'), _ss.get('session_id'))
                 except Exception as _e:
                     logger.warning(f"[SOCKET] 연결 기록 실패(무시): {_e}")
 

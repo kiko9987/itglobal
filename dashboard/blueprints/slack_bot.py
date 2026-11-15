@@ -1663,6 +1663,7 @@ def _build_payment_intake_view(intake_id, channel, message_ts, text,
             f"*📅 공사 시작 :* {dd.get('work_start', '-') or '-'}\n"
             f"*📅 공사 종료 :* {dd.get('work_end', '-') or '-'}"
         )
+        info = _slack_esc_txt(info)   # 시트·리드 값 표시만 이스케이프(5차 점검 #6) — 라벨엔 & < > 없음
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]})
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": info}})
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]})
@@ -6187,6 +6188,7 @@ def _as_request_view_blocks(
                 f"*📅 공사 시작 :* {project_details.get('work_start','-') or '-'}\n"
                 f"*📅 공사 종료 :* {project_details.get('work_end','-') or '-'}"
             )
+            info = _slack_esc_txt(info)   # 시트·리드 값 표시만 이스케이프(5차 점검 #6) — 라벨엔 & < > 없음
             # 상단 여백 (⠀ context) + 정보 섹션 + 하단 여백 divider
             blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]})
             blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": info}})
@@ -14111,9 +14113,9 @@ def _fmt_edit_field_change(field: str, old_value, new_value, current_vat_after: 
             return 'VAT 별도'
         return 'VAT 없음'
 
-    def _txt(v):
+    def _txt(v):   # 거래처명·공사 내용 등 시트 값 — 슬랙 표기 이스케이프(5차 점검 #6)
         s = str(v).strip() if v is not None else ''
-        return s if s else '-'
+        return _slack_esc_txt(s) if s else '-'
 
     if field == '총액 1':
         old_disp = _money(old_value)
@@ -14158,7 +14160,7 @@ def _post_project_edit_notice_card(
         f'🔔 *[공사 내용 수정 알림]*  `{code}`',
         '--------------------------------------------',
         *_site_head_lines(before_project),   # 거래처명 + 사업자명 (공사 카드와 같게, 2026-10-28)
-        f'📍 현장 주소 : {addr}',
+        f'📍 현장 주소 : {_slack_esc_txt(addr)}',  # 표시만 이스케이프(5차 점검 #6) — 현장 주소는 리드 원문일 수 있음
         f'📝 수정 사유 : {reason.strip()}',
         '📋 변경 내역',
         *change_lines,
@@ -14305,7 +14307,7 @@ def _post_amount_edit_request_card(
         f'🔔 *[공사 금액 수정 요청]*  `{code}`',
         '--------------------------------------------',
         *_site_head_lines(project),   # 거래처명 + 사업자명 (공사 카드와 같게, 2026-10-28)
-        f'📍 현장 주소 : {addr}',
+        f'📍 현장 주소 : {_slack_esc_txt(addr)}',  # 표시만 이스케이프(5차 점검 #6) — 현장 주소는 리드 원문일 수 있음
         f'📝 수정 사유 : {reason.strip()}',
         '📋 요청 내역',
         *change_lines,
@@ -14659,7 +14661,7 @@ def apply_project_cancel_to_slack(code: str, project: dict, initial: str,
                     dm.chat_postMessage(
                         channel=_cid,
                         text=(f"🚫 *[공사 취소]*  `{code}`\n"
-                              f"{_site_head_text(project)}\n📍 {addr}\n💲 {amt_disp}\n"
+                              f"{_site_head_text(project)}\n📍 {_slack_esc_txt(addr)}\n💲 {amt_disp}\n"
                               f"👤 취소자 : {initial} · {cancel_time}"),
                         unfurl_links=False, unfurl_media=False)
         except Exception as exc:
@@ -14767,7 +14769,7 @@ def _send_cancel_money_request_card(project: dict, reason: str,
         f'💰 *[공사 취소 — 매출 0원 반영 요청]*  `{code}`',
         '--------------------------------------------',
         *_site_head_lines(project),   # 거래처명 + 사업자명 (공사 카드와 같게, 2026-10-28)
-        f'📍 현장 주소 : {addr}',
+        f'📍 현장 주소 : {_slack_esc_txt(addr)}',  # 표시만 이스케이프(5차 점검 #6) — 현장 주소는 리드 원문일 수 있음
         f'💵 취소 전 금액 : {amt_disp}  →  0원',
         f'📝 취소 사유 : {reason}',
         f'👤 요청자 : {requester_initial}  {now_str}',
@@ -14978,7 +14980,7 @@ def _post_project_cancel_notice_card(
         f'🔔 *[공사 취소 알림]*  `{code}`',
         '--------------------------------------------',
         *_site_head_lines(before_project),   # 거래처명 + 사업자명 (공사 카드와 같게, 2026-10-28)
-        f'📍 현장 주소 : {addr}',
+        f'📍 현장 주소 : {_slack_esc_txt(addr)}',  # 표시만 이스케이프(5차 점검 #6) — 현장 주소는 리드 원문일 수 있음
         f'💲 공사 금액 : {amt_disp}',
         f'📅 공사 확정일 : {confirmed_disp}',
         f'👤 취소자 : {initial}  {now_str}',
@@ -15107,7 +15109,7 @@ def _send_project_resume_card(code: str, project: dict, initial: str, reason: st
         f'↩️ *[공사 재개]*  `{code}`',
         '--------------------------------------------',
         *_site_head_lines(project),
-        f'📍 현장 주소 : {addr}',
+        f'📍 현장 주소 : {_slack_esc_txt(addr)}',  # 표시만 이스케이프(5차 점검 #6) — 현장 주소는 리드 원문일 수 있음
         _resume_amount_line(project, before_total),
         f'📝 재개 사유 : {(reason or "").strip() or "-"}',
         f'👤 재개 : {initial}  {datetime.now().strftime("%m.%d %H:%M")}',
@@ -17041,7 +17043,7 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
                     lic = _sp[1]
                     invoice_client.files_upload_v2(
                         channel=channel_id, thread_ts=ts, file=lic['content'], filename=lic['file_name'],
-                        initial_comment=f":page_facing_up: 사업자등록증 — `{code}` · {biz}",
+                        initial_comment=f":page_facing_up: 사업자등록증 — `{code}` · {_slack_esc_txt(biz)}",
                     )
                     logger.info(f"[SLACK/계산서] 부담자 등록증 첨부: {code} {biz} ({lic['file_name']})")
                     return

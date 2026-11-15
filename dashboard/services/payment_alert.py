@@ -296,6 +296,8 @@ def send_alert(row: Dict, category: str, detected: Dict, slack_client=None) -> b
     meta = CATEGORY_META.get(category, {})
     title = meta.get('title', '알림')
     addr = (row.get('address') or '').strip()[:60]
+    from dashboard.services.lead_helpers import slack_esc
+    addr = slack_esc(addr)   # 표시만 — 현장 주소는 리드 원문일 수 있음(5차 점검 #6)
     body = detected.get('body', '')
 
     text = (
@@ -388,7 +390,8 @@ def build_daily_summary_text(alerts: List[Dict]) -> str:
         title = meta.get('title', cat)
         lines.append(f"\n{title}")
         for it in items:
-            addr = (it.get('address') or '')[:50]
+            from dashboard.services.lead_helpers import slack_esc
+            addr = slack_esc((it.get('address') or '')[:50])   # 표시만(5차 점검 #6)
             lines.append(f"• `{it['code']}` {addr}")
             lines.append(f"    {it.get('body', '')}")
     return '\n'.join(lines)

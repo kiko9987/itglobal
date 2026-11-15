@@ -159,6 +159,11 @@ def google_callback():
 @auth_bp.route('/logout')
 def logout():
     """로그아웃 처리"""
+    try:   # 이 세션이 연 실시간 연결도 바로 끊기(2026-11-15 5차 점검 #5 — 다른 탭 연장으로 살아남던 것)
+        from dashboard.utils import socket_session_guard as _sg
+        _sg.revoke_session(session.get('session_id'))
+    except Exception as _e:
+        logger.debug(f"실시간 연결 끊기 실패(무시): {_e}")
     session.clear()
     return redirect(url_for('auth.login_page', message='logout_success'))
 
@@ -171,9 +176,11 @@ def refresh_session():
         session['login_time'] = datetime.now().isoformat()
         session.modified = True
         logger.debug(f"세션 연장: {session.get('user', {}).get('email', 'unknown')}")
-        try:   # 열린 실시간 연결도 같이 연장(11-15 — 4시간 지나면 세션이 살아 있어도 끊기던 것)
+        try:   # 이 세션이 연 실시간 연결도 같이 연장(11-15 — 4시간 지나면 세션이 살아 있어도 끊기던 것).
+            #   같은 메일의 다른 세션 연결은 건드리지 않는다(5차 점검 #5 — 로그아웃한 탭 연결이 살아남음)
             from dashboard.utils import socket_session_guard as _sg
-            _sg.touch((session.get('user') or {}).get('email'), session['login_time'])
+            _sg.touch((session.get('user') or {}).get('email'), session['login_time'],
+                      session.get('session_id'))
         except Exception as _e:
             logger.debug(f"실시간 연결 연장 실패(무시): {_e}")
 

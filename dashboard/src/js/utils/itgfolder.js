@@ -1,7 +1,7 @@
 /**
  * itgfolder:// — Drive 폴더를 각 직원 PC 탐색기로 여는 커스텀 프로토콜 (프로젝트·리드 페이지 공용)
  *
- * 클라이언트에 install-itg-folder.bat(→ C:\ITG\open-itg-folder.vbs + HKCU 등록) 설치 필요.
+ * 클라이언트에 install-itg-folder.bat(→ %LOCALAPPDATA%\ITG\open-itg-folder.vbs + HKCU 등록) 설치 필요.
  * VBS 가 explorer.exe "G:\.shortcut-targets-by-id\{폴더ID}" 실행. 서버 subprocess 방식은 불가
  * (NSSM LocalSystem 세션 격리) — 되돌리지 말 것.
  */

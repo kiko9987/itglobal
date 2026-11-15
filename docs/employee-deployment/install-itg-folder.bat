@@ -7,15 +7,26 @@ title ITG 폴더 프로토콜 설치
 REM ==============================================================
 REM  itgfolder:// 프로토콜 원클릭 설치 (관리자 권한 불필요)
 REM  더블클릭으로 실행.
-REM  - C:\ITG\open-itg-folder.vbs 배치 (base64 embed → certutil decode)
+REM  - %LOCALAPPDATA%\ITG\open-itg-folder.vbs 배치 (base64 embed → certutil decode)
 REM  - HKCU\Software\Classes\itgfolder 프로토콜 등록
+REM  2026-11-15 보안 점검 5차 #8: 예전 위치 C:\ITG 는 같은 PC 의 다른 계정도 파일을 바꿀 수 있어
+REM    (드라이브 바로 아래 폴더는 기본 권한이 '인증된 사용자 수정'), 바꿔치기된 스크립트가 링크 클릭 때마다
+REM    직원 계정으로 실행될 수 있었다. 본인 계정만 쓸 수 있는 %LOCALAPPDATA% 아래로 옮기고, 예전 파일은 지운다.
 REM ==============================================================
 
-echo.
-echo [1/3] C:\ITG 폴더 준비...
-if not exist "C:\ITG" mkdir "C:\ITG"
+set "ITG_DIR=%LOCALAPPDATA%\ITG"
+set "ITG_VBS=%LOCALAPPDATA%\ITG\open-itg-folder.vbs"
+if "%LOCALAPPDATA%"=="" (
+    echo   [실패] LOCALAPPDATA 경로를 찾지 못했습니다. 관리자에게 문의하세요.
+    pause
+    exit /b 1
+)
 
-echo [2/3] open-itg-folder.vbs 배치...
+echo.
+echo [1/4] 설치 폴더 준비 (%LOCALAPPDATA%\ITG)...
+if not exist "%ITG_DIR%" mkdir "%ITG_DIR%"
+
+echo [2/4] open-itg-folder.vbs 배치...
 set "B64=%TEMP%\itg_vbs.b64"
 (
 echo //4nACAAaQB0AGcAZgBvAGwAZABlAHIAOgAvAC8AIAAE1Vy4oNFczyAAeNXktOy3DQAKACcAIAAM
@@ -69,26 +80,38 @@ echo AHAAbABvAHIAZQByAC4AZQB4AGUAIAAiACIAIgAgACYAIABkAHIAaQB2AGUAUABhAHQAaAAgACY
 echo IAAiACIAIgAiACwAIAAxACwAIABGAGEAbABzAGUADQAKAA==
 ) > "%B64%"
 REM -f: 이미 설치된 PC 에서도 새 버전으로 덮어씀 (없으면 ERROR_FILE_EXISTS 로 실패, 2026-11-13)
-certutil -f -decode "%B64%" "C:\ITG\open-itg-folder.vbs" >nul
+certutil -f -decode "%B64%" "%ITG_VBS%" >nul
 if errorlevel 1 (
-    echo   [실패] VBS 파일 생성 실패. 관리자 권한으로 재시도하거나 문의.
+    echo   [실패] VBS 파일 생성 실패. 관리자에게 문의하세요.
     del "%B64%" 2>nul
     pause
     exit /b 1
 )
 del "%B64%"
 
-echo [3/3] 프로토콜 등록 (HKCU)...
+echo [3/4] 프로토콜 등록 (HKCU)...
 reg add "HKCU\Software\Classes\itgfolder" /ve /d "URL:ITG Folder Protocol" /f >nul
 reg add "HKCU\Software\Classes\itgfolder" /v "URL Protocol" /t REG_SZ /d "" /f >nul
 reg add "HKCU\Software\Classes\itgfolder\DefaultIcon" /ve /d "explorer.exe,1" /f >nul
-reg add "HKCU\Software\Classes\itgfolder\shell\open\command" /ve /d "wscript.exe \"C:\ITG\open-itg-folder.vbs\" \"%%1\"" /f >nul
+REM 실행 경로는 REG_EXPAND_SZ 로 %LOCALAPPDATA% 를 그대로 적는다(실행 때 풀림 — 한글 계정 이름도 안전)
+reg add "HKCU\Software\Classes\itgfolder\shell\open\command" /ve /t REG_EXPAND_SZ /d "wscript.exe \"%%LOCALAPPDATA%%\ITG\open-itg-folder.vbs\" \"%%1\"" /f >nul
+if errorlevel 1 (
+    echo   [실패] 프로토콜 등록 실패. 관리자에게 문의하세요.
+    pause
+    exit /b 1
+)
+
+echo [4/4] 예전 위치(C:\ITG) 정리...
+REM 레지스트리가 새 위치를 가리킨 뒤에 지운다. 폴더는 비어 있을 때만 지워진다(다른 파일이 있으면 그대로 둠).
+if exist "C:\ITG\open-itg-folder.vbs" del /f /q "C:\ITG\open-itg-folder.vbs" >nul 2>&1
+if exist "C:\ITG\open-itg-folder.vbs" echo   [참고] C:\ITG\open-itg-folder.vbs 를 지우지 못했습니다. 더는 쓰이지 않으니 관리자에게 알려 주세요.
+if exist "C:\ITG" rmdir "C:\ITG" >nul 2>&1
 
 echo.
 echo ============================================
 echo   설치 완료
 echo ============================================
-echo   VBS  : C:\ITG\open-itg-folder.vbs
+echo   VBS  : %ITG_VBS%
 echo   레지스트리: HKCU\Software\Classes\itgfolder
 echo.
 echo   Chrome/Edge를 완전히 종료 후 재실행하세요.

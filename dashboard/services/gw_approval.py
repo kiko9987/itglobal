@@ -470,7 +470,16 @@ def latest_export(folder: Optional[str] = None) -> Optional[str]:
     return files[-1] if files else None
 
 
-def import_flex_export(path: str, apply: bool = True) -> dict:
+def _no_card_writers(rows) -> List[str]:
+    """인사카드가 없는 작성자 이름(5차 점검 #9). 보관함은 작성자 '이름'으로만 주인을 가리므로, 카드 없는 작성자가
+    지금 직원과 이름이 같으면 그 직원이 자기 근무 기간 안의 남의 문서를 보게 된다. 11-15 운영 1,305건·17명은 모두 카드 있음."""
+    names = sorted({(r[4] or '').strip() for r in rows if (r[4] or '').strip()})
+    return [n for n in names if not hr.same_name_people(n)]
+
+
+def import_flex_export(path: str, apply: bool = True, allow_no_card: bool = False) -> dict:
+    """플렉스 내보내기 → 보관함. 인사카드 없는 작성자가 있으면 쓰지 않는다(blocked) — 카드를 먼저 만들거나
+    (동명이인이면 생년월일·근무 기간까지) 확인한 뒤 allow_no_card=True 로 다시(5차 점검 #9)."""
     with open(path, encoding='utf-8') as fp:
         data = json.load(fp)
     docs = data.get('docs') or []
@@ -487,13 +496,17 @@ def import_flex_export(path: str, apply: bool = True) -> dict:
                      int(d.get('att') or 0), d.get('memo') or '', json.dumps(f, ensure_ascii=False), amount,
                      (f.get('프로젝트 코드') or f.get('프로젝트코드') or '').strip(), (f.get('상호명') or '').strip()))
     rows = [r for r in rows if r[0]]
-    if apply:
+    no_card = _no_card_writers(rows)
+    blocked = bool(apply and no_card and not allow_no_card)
+    if blocked:
+        logger.warning(f'[GW/플렉스] 인사카드 없는 작성자 {len(no_card)}명 — 보관함에 쓰지 않음')
+    if apply and not blocked:
         with _aconn() as conn:
             conn.executemany('INSERT OR REPLACE INTO flex_approval_archive (doc_no, title, form, status, writer, created_at, '
                              'updated_at, attachments, memo, fields, amount, project_code, partner) '
                              'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)', rows)
     from collections import Counter
-    return {'count': len(rows), 'exported_at': data.get('exported_at'),
+    return {'count': len(rows), 'exported_at': data.get('exported_at'), 'no_card_writers': no_card, 'blocked': blocked,
             'by_status': dict(Counter(r[3] for r in rows)), 'by_form': dict(Counter(r[2] for r in rows).most_common(12))}
 
 

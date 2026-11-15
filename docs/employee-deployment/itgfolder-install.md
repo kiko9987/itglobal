@@ -63,13 +63,14 @@ Chrome/Edge를 **완전히 종료**했다가 다시 열어주세요. (이미 열
 
 1. Windows 실행(`Win+R`) → `regedit`
 2. `HKEY_CURRENT_USER\Software\Classes\itgfolder` 키를 우클릭 → **삭제**
-3. `C:\ITG\` 폴더 삭제
+3. 탐색기 주소창에 `%LOCALAPPDATA%\ITG` 입력 → 그 폴더 삭제
 
 ## 설치되는 내용 (참고)
 
 `install-itg-folder.bat`이 자동으로 처리하는 것:
 
-- `C:\ITG\open-itg-folder.vbs` 배치 — URL에서 폴더 ID 파싱 후 탐색기 실행하는 스크립트
+- `%LOCALAPPDATA%\ITG\open-itg-folder.vbs` 배치 — URL에서 폴더 ID 파싱 후 탐색기 실행하는 스크립트
+  (본인 계정만 바꿀 수 있는 위치. 2026-11-15 전에는 `C:\ITG`였고, 다시 설치하면 예전 파일은 지워짐)
 - `HKEY_CURRENT_USER\Software\Classes\itgfolder` 프로토콜 등록 — 클릭 시 위 VBS 호출
 
 ## 작동 원리 (참고)
