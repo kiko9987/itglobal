@@ -704,3 +704,33 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
   else start();
 })();
 </script>
+
+<!-- 푸터에 회사 정보 페이지 링크 (2026-11-15) =========================
+     아임웹이 Claude·Perplexity 크롤러를 막고 있어, 우리 서버에 같은 회사 정보를 두었다.
+     구글이 그 주소를 찾아갈 수 있도록 푸터 저작권 줄 옆에 링크를 붙인다.
+     아임웹 푸터를 직접 못 고쳐서 코드로 넣는다. -->
+<script>
+(function(){
+  var URL = 'https://pm.itg-aircon.com/company';
+  function add(){
+    var box = document.querySelector('.itg-footer-bottom');
+    if (!box) return false;
+    if (box.querySelector('a[href="' + URL + '"]')) return true;
+    var a = document.createElement('a');
+    a.href = URL;
+    a.textContent = '회사 정보';
+    a.style.cssText = 'margin-left:14px;color:inherit;opacity:.7;text-decoration:none';
+    (box.querySelector('.itg-footer-copy') || box).appendChild(a);
+    return true;
+  }
+  function start(){
+    if (add()) return;
+    var n = 0;
+    var timer = setInterval(function(){
+      if (add() || ++n > 20) clearInterval(timer);
+    }, 400);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
+})();
+</script>
