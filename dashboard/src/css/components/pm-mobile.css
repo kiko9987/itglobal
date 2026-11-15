@@ -5,8 +5,8 @@
    - 모양 기준은 그룹웨어(당근 비즈니스 따라가기): 카드 1px #dcdee3·둥글기 12px·그림자 없음,
      주 단추 #2a3038, 누를 자리 44px, 입력칸 글자 16px(아이폰 확대 방지), 글자 대비 4.5:1 이상.
    - 그룹웨어 CSS(static/css/groupware-shell.css, 이 파일보다 뒤에 읽힘)와 우선순위가 같으면 그쪽이 이기므로
-     휴대폰 규칙은 `html body.pm-projects-page ...` 로 한 단계 높인다.
-   - JS: components/MobileCardView.js(카드·상세 시트), components/ProjectMobileChrome.js(⋯ 메뉴·필터 접기)
+     휴대폰 규칙은 `html body.pmm-page ...` 로 한 단계 높인다.
+   - JS: components/MobileCardView.js(카드·상세 시트), components/MobileChrome.js(⋯ 메뉴·필터 접기)
    ══════════════════════════════════════════════════════════════════════════ */
 
 /* ── 넓은 화면: 휴대폰용으로 새로 만든 것만 숨김 ── */
@@ -208,7 +208,7 @@ html.pmm-sheet-open body {
 @media (max-width: 767.98px) {
 
   /* 페이지가 옆으로 넘치지 않게 + 바깥 흰 상자를 걷어 카드가 화면 폭을 쓰게(회색 바탕 위 흰 카드) */
-  html body.pm-projects-page .content-container {
+  html body.pmm-page .content-container {
     max-width: 100%;
     overflow-x: clip;
     padding: 4px 0 16px !important;
@@ -217,18 +217,18 @@ html.pmm-sheet-open body {
     box-shadow: none !important;
   }
 
-  html body.pm-projects-page .filter-section-sticky {
+  html body.pmm-page .filter-section-sticky {
     margin-bottom: 0 !important;
     padding-top: 0 !important;
     background: transparent !important;
   }
 
-  html body.pm-projects-page .table-wrapper {
+  html body.pmm-page .table-wrapper {
     border: 0 !important;
     background: transparent !important;
   }
 
-  html body.pm-projects-page #mobileCardContainer {
+  html body.pmm-page #mobileCardContainer {
     padding: 0 !important;
     margin: 0 !important;
     background: transparent !important;
@@ -236,43 +236,43 @@ html.pmm-sheet-open body {
   }
 
   /* ── 1. 머리: 제목 한 줄 + ⋯ + [새 프로젝트] ── */
-  html body.pm-projects-page .pmm-head {
+  html body.pmm-page .pmm-head {
     margin-bottom: 12px !important;
   }
 
-  html body.pm-projects-page .pmm-head > .col-12 {
+  html body.pmm-page .pmm-head > .col-12 {
     flex-wrap: nowrap;
     gap: 8px;
     min-height: 44px !important;
   }
 
-  html body.pm-projects-page .pmm-head > .col-12 > .d-flex:first-child {
+  html body.pmm-page .pmm-head > .col-12 > .d-flex:first-child {
     flex: 1 1 auto;
     min-width: 0;
     flex-wrap: wrap;
   }
 
-  html body.pm-projects-page .pmm-head h4 {
+  html body.pmm-page .pmm-head h4 {
     font-size: 20px;
     white-space: nowrap;
   }
 
-  html body.pm-projects-page #headerAlertContainer {
+  html body.pmm-page #headerAlertContainer {
     flex-basis: 100%;
     height: auto !important;
     margin: 4px 0 0 !important;
   }
 
-  html body.pm-projects-page #headerAlertContainer:empty {
+  html body.pmm-page #headerAlertContainer:empty {
     display: none !important;
   }
 
-  html body.pm-projects-page #fullRefreshBtn,
-  html body.pm-projects-page #calendarSyncBtn {
+  html body.pmm-page #fullRefreshBtn,
+  html body.pmm-page #calendarSyncBtn {
     display: none !important;
   }
 
-  html body.pm-projects-page .pmm-head .btn {
+  html body.pmm-page .pmm-head .btn {
     min-width: 0 !important;
     height: 44px;
     display: inline-flex;
@@ -280,7 +280,7 @@ html.pmm-sheet-open body {
     font-size: 15px;
   }
 
-  html body.pm-projects-page .pmm-kebab-wrap {
+  html body.pmm-page .pmm-kebab-wrap {
     display: block;
     position: relative;
   }
@@ -342,7 +342,7 @@ html.pmm-sheet-open body {
   }
 
   /* ── 2. 상태 칸: 한 줄 가로로 밀기, 글자 안 잘리게 ── */
-  html body.gw-shell.pm-projects-page .gw-stats {
+  html body.gw-shell.pmm-page .gw-stats {
     display: flex;
     gap: 8px;
     overflow-x: auto;
@@ -351,33 +351,33 @@ html.pmm-sheet-open body {
     padding-bottom: 2px;
   }
 
-  html body.gw-shell.pm-projects-page .gw-stats::-webkit-scrollbar {
+  html body.gw-shell.pmm-page .gw-stats::-webkit-scrollbar {
     display: none;
   }
 
-  html body.gw-shell.pm-projects-page .gw-stat {
+  html body.gw-shell.pmm-page .gw-stat {
     flex: 0 0 auto;
     height: 44px;
     padding: 0 14px;
     scroll-snap-align: start;
   }
 
-  html body.gw-shell.pm-projects-page .gw-stat-label {
+  html body.gw-shell.pmm-page .gw-stat-label {
     flex: 0 0 auto;
     overflow: visible;
   }
 
-  html body.gw-shell.pm-projects-page .gw-stat-go {
+  html body.gw-shell.pmm-page .gw-stat-go {
     display: none;
   }
 
   /* ── 3. 필터: 검색 + [필터 n], 펼치면 칩 두 칸씩 ── */
-  html body.pm-projects-page .filter-section-sticky {
+  html body.pmm-page .filter-section-sticky {
     position: static !important;
     top: auto !important;
   }
 
-  html body.pm-projects-page .pmm-filters > .row {
+  html body.pmm-page .pmm-filters > .row {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -385,11 +385,11 @@ html.pmm-sheet-open body {
     margin: 0;
   }
 
-  html body.pm-projects-page .pmm-filters > .row > [class*="col-"] {
+  html body.pmm-page .pmm-filters > .row > [class*="col-"] {
     padding: 0;
   }
 
-  html body.pm-projects-page .pmm-filters > .row > .pmm-col-search {
+  html body.pmm-page .pmm-filters > .row > .pmm-col-search {
     order: -3;
     flex: 1 1 0;
     min-width: 0;
@@ -397,7 +397,7 @@ html.pmm-sheet-open body {
     max-width: none;
   }
 
-  html body.pm-projects-page .pmm-filters > .row > .pmm-more-slot {
+  html body.pmm-page .pmm-filters > .row > .pmm-more-slot {
     display: block;
     order: -2;
     flex: 0 0 auto;
@@ -405,18 +405,18 @@ html.pmm-sheet-open body {
     padding: 0;
   }
 
-  html body.pm-projects-page .pmm-filters > .row > * {
+  html body.pmm-page .pmm-filters > .row > * {
     margin-bottom: 0 !important;
   }
 
-  html body.pm-projects-page .pmm-filters > .row > .pmm-col-actions {
+  html body.pmm-page .pmm-filters > .row > .pmm-col-actions {
     order: -1;
     flex: 1 1 100%;
     width: 100%;
     max-width: none;
   }
 
-  html body.pm-projects-page .pmm-filters #searchInput {
+  html body.pmm-page .pmm-filters #searchInput {
     width: 100% !important;
     height: 44px !important;
     font-size: 16px !important;
@@ -447,46 +447,47 @@ html.pmm-sheet-open body {
     outline-offset: 2px;
   }
 
+  /* 걸린 필터 수: 단추가 어두운 색(#2a3038)으로 바뀌므로 흰 알약에 진한 글자(주황은 '만들기'에만, 흰 글자 주황은 대비 2.9:1) */
   .pmm-filter-n {
     min-width: 20px;
     padding: 0 6px;
     border-radius: 9999px;
-    background: #ff6f0f;
-    color: #ffffff;
+    background: #ffffff;
+    color: #2a3038;
     font-size: 12px;
     line-height: 20px;
     text-align: center;
   }
 
   /* [필터 n] 이 이미 수를 보여 주므로 PC 의 'n개 활성' 배지는 숨김 */
-  html body.pm-projects-page .pmm-filters .active-filter-badge {
+  html body.pmm-page .pmm-filters .active-filter-badge {
     display: none !important;
   }
 
   /* 접힌 상태: 검색·[필터]·건수(+필터가 걸렸으면 [초기화])만 */
-  html body.pm-projects-page .pmm-filters:not(.pmm-open) > .row > [class*="col-"]:not(.pmm-col-search):not(.pmm-col-actions) {
+  html body.pmm-page .pmm-filters:not(.pmm-open) > .row > [class*="col-"]:not(.pmm-col-search):not(.pmm-col-actions) {
     display: none !important;
   }
 
-  html body.pm-projects-page .pmm-filters:not(.pmm-open) .pmm-col-actions .btn,
-  html body.pm-projects-page .pmm-filters:not(.pmm-open) #filterPresetsContainer {
+  html body.pmm-page .pmm-filters:not(.pmm-open) .pmm-col-actions .btn,
+  html body.pmm-page .pmm-filters:not(.pmm-open) #filterPresetsContainer {
     display: none !important;
   }
 
-  html body.pm-projects-page .pmm-filters.has-active-filters:not(.pmm-open) .pmm-col-actions .btn[onclick*="resetFilters"] {
+  html body.pmm-page .pmm-filters.has-active-filters:not(.pmm-open) .pmm-col-actions .btn[onclick*="resetFilters"] {
     display: inline-flex !important;
   }
 
-  html body.pm-projects-page .pmm-filters .pmm-col-actions .filter-actions-row {
+  html body.pmm-page .pmm-filters .pmm-col-actions .filter-actions-row {
     margin-top: 0 !important;
     gap: 8px !important;
   }
 
-  html body.pm-projects-page .pmm-filters .pmm-col-actions > label.form-label {
+  html body.pmm-page .pmm-filters .pmm-col-actions > label.form-label {
     display: none;
   }
 
-  html body.pm-projects-page .pmm-filters .pmm-col-actions .btn {
+  html body.pmm-page .pmm-filters .pmm-col-actions .btn {
     height: 40px;
     display: inline-flex;
     align-items: center;
@@ -494,14 +495,14 @@ html.pmm-sheet-open body {
   }
 
   /* 펼친 상태: 고르기 칸 두 칸씩, 글자 16px */
-  html body.pm-projects-page .pmm-filters.pmm-open > .row > [class*="col-"]:not(.pmm-col-search):not(.pmm-col-actions) {
+  html body.pmm-page .pmm-filters.pmm-open > .row > [class*="col-"]:not(.pmm-col-search):not(.pmm-col-actions) {
     flex: 1 1 calc(50% - 4px);
     width: auto;
     min-width: 0;
     max-width: none;
   }
 
-  html body.pm-projects-page .pmm-filters.pmm-open .form-select {
+  html body.pmm-page .pmm-filters.pmm-open .form-select {
     width: 100% !important;
     max-width: none !important;
     height: 44px !important;
@@ -509,46 +510,46 @@ html.pmm-sheet-open body {
   }
 
   /* 표 위 줄(내 프로젝트만·취소 제외·수금/A/S 관리 모드): 한 줄 가로 밀기, '개씩 보기'는 카드라 숨김 */
-  html body.pm-projects-page .table-section {
+  html body.pmm-page .table-section {
     min-height: 0 !important;
     margin-top: 8px;
   }
 
-  html body.pm-projects-page #tableLoadingOverlay {
+  html body.pmm-page #tableLoadingOverlay {
     position: relative !important;
     min-height: 160px;
   }
 
-  html body.pm-projects-page .table-wrapper {
+  html body.pmm-page .table-wrapper {
     height: auto !important;
     overflow: visible !important;
   }
 
-  html body.pm-projects-page .dt-container > table,
-  html body.pm-projects-page .dt-container > .bottom,
-  html body.pm-projects-page .dt-container > .clear {
+  html body.pmm-page .dt-container > table,
+  html body.pmm-page .dt-container > .bottom,
+  html body.pmm-page .dt-container > .clear {
     display: none !important;
   }
 
-  html body.pm-projects-page .dt-container > .top .dt-length > select,
-  html body.pm-projects-page .dt-container > .top .dt-length > label {
+  html body.pmm-page .dt-container > .top .dt-length > select,
+  html body.pmm-page .dt-container > .top .dt-length > label {
     display: none !important;
   }
 
-  html body.pm-projects-page .dt-container > .top {
+  html body.pmm-page .dt-container > .top {
     margin: 0 !important;
     padding: 0 4px !important;
     border: 0 !important;
     background: transparent !important;
   }
 
-  html body.pm-projects-page .dt-container > .top .dt-length .my-projects-filter,
-  html body.pm-projects-page .dt-container > .top .dt-length .form-switch {
+  html body.pmm-page .dt-container > .top .dt-length .my-projects-filter,
+  html body.pmm-page .dt-container > .top .dt-length .form-switch {
     border: 0 !important;
     padding-left: 0 !important;
   }
 
-  html body.pm-projects-page .dt-container > .top .dt-length {
+  html body.pmm-page .dt-container > .top .dt-length {
     display: flex !important;
     flex-wrap: nowrap;
     align-items: center;
@@ -558,11 +559,11 @@ html.pmm-sheet-open body {
     white-space: nowrap;
   }
 
-  html body.pm-projects-page .dt-container > .top .dt-length::-webkit-scrollbar {
+  html body.pmm-page .dt-container > .top .dt-length::-webkit-scrollbar {
     display: none;
   }
 
-  html body.pm-projects-page .dt-container > .top .dt-length > * {
+  html body.pmm-page .dt-container > .top .dt-length > * {
     flex: 0 0 auto;
     min-height: 44px;
     margin: 0 !important;
@@ -572,10 +573,22 @@ html.pmm-sheet-open body {
     font-size: 14px;
   }
 
-  html body.pm-projects-page .dt-container > .top .dt-length input[type="checkbox"] {
+  html body.pmm-page .dt-container > .top .dt-length input[type="checkbox"] {
     width: 20px;
     height: 20px;
     margin: 0;
+  }
+
+  /* 체크 줄: 이름표까지 눌러지는 높이 44px, '개씩 보기'를 숨겨 짝 없이 남던 '|' 구분선 숨김 */
+  html body.pmm-page .dt-container > .top .dt-length label {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    margin: 0;
+  }
+
+  html body.pmm-page .dt-container > .top .dt-length > *::before {
+    display: none !important;
   }
 
   /* ── 4. 카드 목록 ── */
@@ -900,6 +913,29 @@ html.pmm-sheet-open body {
     order: 2;
   }
 
+  /* 시트 안 예전 펼침 글자 대비: 제목 칸 회색 글자 #6c757d/#f8f9fa 4.45:1 · 빈 칸 #94a3b8 2.45:1 → 흰 바탕·진한 회색 */
+  html body .pmm-sheet .project-title-section {
+    background: #ffffff !important;
+  }
+
+  html body .pmm-sheet .project-title-section .project-manager-info,
+  html body .pmm-sheet .project-title-section .project-address-info,
+  html body .pmm-sheet .project-title-section .project-content-info,
+  html body .pmm-sheet .lead-empty,
+  html body .pmm-sheet .lead-sub {
+    color: #4b5563 !important;
+  }
+
+  html body .pmm-sheet .project-code-badge {
+    color: #1d4ed8 !important;
+  }
+
+  html body .pmm-sheet .legacy-card a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
   /* 작은 단추(코드 복사 19×17px·메모 24×24px)를 누를 자리 44px 로 */
   html body .pmm-sheet .code-copy-btn,
   html body .pmm-sheet .field-memo-btn {
@@ -921,21 +957,21 @@ html.pmm-sheet-open body {
   }
 
   /* ── 6. 새 프로젝트·수정 창: 화면 가득 ── */
-  html body.pm-projects-page #modernProjectModal .modal-dialog {
+  html body.pmm-page #modernProjectModal .modal-dialog {
     width: 100%;
     max-width: none;
     height: 100%;
     margin: 0;
   }
 
-  html body.pm-projects-page #modernProjectModal .modal-content {
+  html body.pmm-page #modernProjectModal .modal-content {
     height: 100%;
     max-height: none;
     border: 0;
     border-radius: 0;
   }
 
-  html body.pm-projects-page #modernProjectModal .modal-body {
+  html body.pmm-page #modernProjectModal .modal-body {
     flex: 1 1 auto;
     max-height: none !important; /* PC 는 화면 60% — 휴대폰에선 머리·바닥 사이를 다 씀 */
     padding: 16px !important;
@@ -943,38 +979,203 @@ html.pmm-sheet-open body {
     -webkit-overflow-scrolling: touch;
   }
 
-  html body.pm-projects-page #modernProjectModal .modal-header {
+  html body.pmm-page #modernProjectModal .modal-header {
     padding: 12px 8px 12px 16px !important;
     padding-top: calc(12px + env(safe-area-inset-top)) !important;
   }
 
-  html body.pm-projects-page #modernProjectModal .modal-footer {
+  html body.pmm-page #modernProjectModal .modal-footer {
     padding: 12px 16px !important;
     padding-bottom: calc(12px + env(safe-area-inset-bottom)) !important;
   }
 
-  html body.pm-projects-page #modernProjectModal .modal-body .card-body {
+  html body.pmm-page #modernProjectModal .modal-body .card-body {
     padding: 12px !important;
   }
 
   /* 칸 1열: 고르기·입력칸을 칸 폭만큼(고정 120px 이라 '사업자 선택' 글자가 잘렸음) */
-  html body.pm-projects-page #modernProjectModal .modal-body select,
-  html body.pm-projects-page #modernProjectModal .modal-body .form-select,
-  html body.pm-projects-page #modernProjectModal .modal-body input.form-control {
+  html body.pmm-page #modernProjectModal .modal-body select,
+  html body.pmm-page #modernProjectModal .modal-body .form-select,
+  html body.pmm-page #modernProjectModal .modal-body input.form-control {
     width: 100% !important;
     max-width: none !important;
     min-height: 44px;
   }
 
-  html body.pm-projects-page #modernProjectModal input,
-  html body.pm-projects-page #modernProjectModal select,
-  html body.pm-projects-page #modernProjectModal textarea {
+  html body.pmm-page #modernProjectModal input,
+  html body.pmm-page #modernProjectModal select,
+  html body.pmm-page #modernProjectModal textarea {
     font-size: 16px !important;
   }
 
-  html body.pm-projects-page #modernProjectModal .modal-footer .btn,
-  html body.pm-projects-page #modernProjectModal .btn-close {
+  html body.pmm-page #modernProjectModal .modal-footer .btn,
+  html body.pmm-page #modernProjectModal .btn-close {
     min-height: 44px;
+  }
+}
+
+/* ══════════════════ 고객 리드 화면(2단계, 2026-11-16) — 휴대폰만 ══════════════════ */
+@media (max-width: 767.98px) {
+  /* 머리: 제목 + [목록|일정] + ⋯ 한 줄 (등록은 슬랙이라 주 단추 없음) */
+  html body.pmm-leads #viewSwitcher {
+    flex-wrap: nowrap;
+  }
+
+  html body.pmm-leads #viewSwitcher .btn {
+    height: 44px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+    font-size: 14px !important;
+  }
+
+  /* [일정] 보기: 달력 대신 날짜별 방문 목록(LeadMobileView) */
+  html body.pmm-leads #calendarView .calendar-wrapper {
+    display: none !important;
+  }
+
+  .pmm-lead-list,
+  .pmm-agenda {
+    margin-top: 8px;
+  }
+
+  /* 카드: 오른쪽 아래 [전화] 44px — 카드를 누르면 상세, 전화 단추는 바로 전화 */
+  .pmm-lead-card {
+    position: relative;
+  }
+
+  /* 아래쪽 줄(주소·방문일·담당)은 전화 단추 자리만큼 비움 — 긴 주소·여러 담당자가 단추 밑으로 들어가던 것 */
+  .pmm-lead-card .pmm-partner,
+  .pmm-lead-card .pmm-lead-meta {
+    padding-right: 52px;
+  }
+
+  .pmm-agenda-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .pmm-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 44px;
+    padding: 0 16px;
+    border: 0;
+    border-radius: 9999px;
+    background: rgba(0, 0, 0, 0.047);
+    color: #1a1c20;
+    font-size: 15px;
+    font-weight: 500;
+  }
+
+  .pmm-chip[aria-pressed="true"] {
+    background: #2a3038;
+    color: #ffffff;
+  }
+
+  .pmm-chip:focus-visible {
+    outline: 2px solid #2a3038;
+    outline-offset: 2px;
+  }
+
+  .pmm-chip[hidden] {
+    display: none;
+  }
+
+  .pmm-agenda-note:focus {
+    outline: none;
+  }
+
+  .pmm-card-call {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border: 1px solid #dcdee3;
+    border-radius: 9999px;
+    background: #ffffff;
+    color: #1a1c20 !important;
+    font-size: 16px;
+    text-decoration: none !important;
+  }
+
+  .pmm-card-call:active {
+    background: #f1f2f4;
+  }
+
+  .pmm-card-call:focus-visible {
+    outline: 2px solid #2a3038;
+    outline-offset: 2px;
+  }
+
+  .pmm-platform {
+    margin-left: 4px;
+    padding: 1px 8px;
+    border-radius: 9999px;
+    background: #f1f2f4;
+    color: #555d6d;
+    font-size: 12px;
+    font-weight: 500;
+    vertical-align: 2px;
+  }
+
+  .pmm-dday {
+    display: inline-block;
+    margin-left: 2px;
+    padding: 0 6px;
+    border-radius: 9999px;
+    background: #eef2ff;
+    color: #1e40af;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 20px;
+  }
+
+  .pmm-dday-today {
+    background: #fff1e8;
+    color: #9a3412;
+  }
+
+  .pmm-agenda-note {
+    margin: 0 4px 8px;
+    color: #555d6d;
+    font-size: 13px;
+  }
+
+  .pmm-agenda-day + .pmm-agenda-day {
+    margin-top: 16px;
+  }
+
+  .pmm-agenda-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 4px 8px;
+    font-size: 15px;
+    font-weight: 700;
+    color: #1a1c20;
+  }
+
+  .pmm-agenda-n {
+    margin-left: auto;
+    color: #555d6d;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  /* 리드 상세(시트 안): 문의 원문·상담 이력은 안쪽 스크롤 없이 다 펼침 */
+  html body .pmm-sheet .lead-text-scroll {
+    max-height: none !important;
+    overflow: visible !important;
+    font-size: 15px;
   }
 }
 
@@ -999,19 +1200,19 @@ html.pmm-sheet-open body {
   }
 
   /* 새 프로젝트 창도 밝게(예전 창 다크 규칙이 바탕만 어둡게 해 글자 대비가 깨짐 — 그룹웨어 창과 같은 처리) */
-  html body.pm-projects-page #modernProjectModal .modal-content,
-  html body.pm-projects-page #modernProjectModal .modal-body {
+  html body.pmm-page #modernProjectModal .modal-content,
+  html body.pmm-page #modernProjectModal .modal-body {
     background: #ffffff !important;
     color: #1a1c20 !important;
   }
 
-  html body.pm-projects-page #modernProjectModal .modal-header,
-  html body.pm-projects-page #modernProjectModal .modal-footer {
+  html body.pmm-page #modernProjectModal .modal-header,
+  html body.pmm-page #modernProjectModal .modal-footer {
     background: #ffffff !important;
     border-color: #e5e7eb !important;
   }
 
-  html body.pm-projects-page #modernProjectModal {
+  html body.pmm-page #modernProjectModal {
     color-scheme: light;
   }
 }

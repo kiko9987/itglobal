@@ -2,6 +2,7 @@ import logger from '../utils/logger.js';
 import { partnerDisplayName } from '../utils/partnerName.js';
 import { escHtml } from '../utils/escapeHtml.js';
 import ProjectStatusCalculator from '../utils/ProjectStatusCalculator.js';
+import MobileDetailSheet from './MobileDetailSheet.js';
 
 /**
  * 휴대폰 프로젝트 카드 목록 + 상세 화면 (2026-11-15 휴대폰 리뉴얼 1단계).
@@ -60,13 +61,16 @@ export default class MobileCardView {
     this.mq = window.matchMedia(MOBILE_MQ);
     this.currentData = [];
     this.shown = PAGE_SIZE;
-    this.sheetOpen = false;
     this.lastCardCode = null;
 
     this.createContainer();
     this.createSheet();
     this.bindEvents();
     this.sync();
+  }
+
+  get sheetOpen() {
+    return !!this.sheet?.isOpen;
   }
 
   /** 휴대폰 폭인지 (바깥에서 쓰던 이름 유지) */
@@ -86,7 +90,7 @@ export default class MobileCardView {
     el.setAttribute('aria-label', '프로젝트 목록');
     el.innerHTML = `
       <h2 class="visually-hidden">프로젝트 목록</h2>
-      <div class="pmm-cards" role="list"></div>
+      <div class="pmm-cards"></div>
       <p class="pmm-empty" hidden>조건에 맞는 공사가 없어요. 검색어나 필터를 바꿔 보세요.</p>
       <button type="button" class="pmm-more-btn" hidden></button>`;
     this.container = el;
@@ -96,32 +100,8 @@ export default class MobileCardView {
   }
 
   createSheet() {
-    const sheet = document.createElement('div');
-    sheet.className = 'pmm-sheet';
-    sheet.id = 'pmmSheet';
-    sheet.setAttribute('role', 'dialog');
-    sheet.setAttribute('aria-modal', 'true');
-    sheet.setAttribute('aria-labelledby', 'pmmSheetTitle');
-    sheet.hidden = true;
-    sheet.innerHTML = `
-      <div class="pmm-sheet-bar">
-        <button type="button" class="pmm-sheet-back" aria-label="목록으로 돌아가기">
-          <i class="fas fa-arrow-left" aria-hidden="true"></i>
-        </button>
-        <h2 class="pmm-sheet-title" id="pmmSheetTitle" tabindex="-1"></h2>
-      </div>
-      <div class="pmm-sheet-scroll">
-        <div class="pmm-sheet-quick"></div>
-        <table class="pmm-sheet-table" role="presentation">
-          <tbody><tr class="pmm-sheet-anchor"><td></td></tr></tbody>
-        </table>
-      </div>`;
-    document.body.appendChild(sheet);
-    this.sheet = sheet;
-    this.sheetTitle = sheet.querySelector('.pmm-sheet-title');
-    this.sheetQuick = sheet.querySelector('.pmm-sheet-quick');
-    this.sheetScroll = sheet.querySelector('.pmm-sheet-scroll');
-    this.anchorRow = sheet.querySelector('.pmm-sheet-anchor');
+    this.sheet = new MobileDetailSheet({ id: 'pmmSheet', onRequestClose: (fromPop) => this.requestClose(fromPop) });
+    this.anchorRow = this.sheet.anchorRow;
   }
 
   bindEvents() {
@@ -143,18 +123,6 @@ export default class MobileCardView {
     this.moreBtn.addEventListener('click', () => {
       this.shown += PAGE_SIZE;
       this.render();
-    });
-
-    this.sheet.querySelector('.pmm-sheet-back').addEventListener('click', () => this.requestClose());
-    // 포커스 가두기: 시트가 열려 있는 동안 Tab 으로 뒤 화면에 가지 않게. 시트 위에 뜬 창(메모·사유 입력 등
-    //   부트스트랩 창, 몸통으로 옮겨 띄운 체크 메뉴)은 그대로 둔다. 뒤 화면 inert 는 그 창들이 본문 안에 있어 못 씀
-    document.addEventListener('focusin', (e) => {
-      if (!this.sheetOpen || this.sheet.contains(e.target)) return;
-      if (e.target.closest?.('.modal, .dropdown-menu, [data-portal], .ts-dropdown, .tooltip, .popover')) return;
-      this.sheetTitle.focus({ preventScroll: true });
-    });
-    window.addEventListener('popstate', () => {
-      if (this.sheetOpen) this.requestClose(true);
     });
 
     // 메모 저장 등 부분 갱신 → 같은 객체를 고친 경우가 많아 카드만 다시 그림
@@ -209,7 +177,7 @@ export default class MobileCardView {
     const cancelled = status === '공사취소';
 
     return `
-      <div class="pmm-card${cancelled ? ' is-cancelled' : ''}" role="listitem" tabindex="0"
+      <div class="pmm-card${cancelled ? ' is-cancelled' : ''}" role="button" tabindex="0"
            data-code="${escHtml(code)}" aria-label="${escHtml(`${code} ${status} ${addr}`)} 상세 보기">
         <div class="pmm-card-top">
           <span class="pmm-status pmm-st-${tone}"><span class="pmm-dot" aria-hidden="true"></span>${escHtml(status || '상태 없음')}</span>
@@ -292,11 +260,11 @@ export default class MobileCardView {
     acc.moveAccordionRow = (newCode) => {
       if (this.sheetOpen) {
         const row = acc.accordionContainer?.closest('.accordion-row');
-        if (row && this.sheet.contains(row)) {
+        if (row && this.sheet.el.contains(row)) {
           row.dataset.projectCode = newCode;
           acc.accordionContainer.classList.add('show');
           acc.isOpen = true;
-          this.sheetTitle.textContent = newCode;
+          this.sheet.setTitle(newCode);
           return true;
         }
       }
@@ -317,18 +285,8 @@ export default class MobileCardView {
 
   showSheet(data) {
     const code = String(data['프로젝트 코드'] || '');
-    this.sheetTitle.textContent = code;
-    this.sheetQuick.innerHTML = this.quickHtml(data);
-    this.sheetScroll.scrollTop = 0;
-    if (!this.sheetOpen) {
-      this.sheetOpen = true;
-      this.sheet.hidden = false;
-      document.documentElement.classList.add('pmm-sheet-open');
-      try {
-        history.pushState({ ...(history.state || {}), pmmSheet: code }, '');
-      } catch (_) { /* 기록을 못 남겨도 닫기 단추로 닫힘 */ }
-      requestAnimationFrame(() => this.sheetTitle.focus({ preventScroll: true }));
-    }
+    const card = [...this.listEl.querySelectorAll('.pmm-card')].find((c) => c.dataset.code === this.lastCardCode);
+    this.sheet.show({ title: code, quickHtml: this.quickHtml(data), returnFocus: card || null });
   }
 
   /** 시트 위: 요약(상태·총액·미수금 — 상세 아래쪽까지 안 내려가도 보이게) + 바로 하기(발주처 전화, 현장 지도) */
@@ -367,36 +325,22 @@ export default class MobileCardView {
         changed = Object.keys(acc.editState.collectChanges() || {}).length > 0;
       } catch (_) { /* 못 세면 묻지 않음 */ }
       if (changed && !confirm('저장하지 않은 내용이 있어요.\n닫으면 고친 것이 사라져요. 닫을까요?')) {
-        if (fromPop) {
-          try { history.pushState({ ...(history.state || {}), pmmSheet: this.sheetTitle.textContent }, ''); } catch (_) { /* noop */ }
-        }
+        if (fromPop) this.sheet.restoreHistory();
         return;
       }
     }
-    this.closingFromPop = fromPop;
+    this.sheet.closingFromPop = fromPop;
     if (acc?.isOpen) acc.closeAccordion();
     if (this.sheetOpen) this.hideSheet();
-    this.closingFromPop = false;
+    this.sheet.closingFromPop = false;
   }
 
   hideSheet() {
-    if (!this.sheetOpen) return;
-    this.sheetOpen = false;
-    this.sheet.hidden = true;
-    document.documentElement.classList.remove('pmm-sheet-open');
-    if (!this.closingFromPop && history.state && history.state.pmmSheet) {
-      try { history.back(); } catch (_) { /* noop */ }
-    }
-    // 보던 카드로 포커스 되돌리기
-    const code = this.lastCardCode;
-    if (code && this.isActive) {
-      const card = [...this.listEl.querySelectorAll('.pmm-card')].find((c) => c.dataset.code === code);
-      if (card) card.focus({ preventScroll: true });
-    }
+    this.sheet.hide();   // 보던 카드로 포커스도 되돌림
   }
 
   destroy() {
-    this.sheet?.remove();
+    this.sheet?.el.remove();
     this.container.innerHTML = '';
   }
 }

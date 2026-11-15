@@ -23,7 +23,7 @@ const ModernProjectModal = () => import('../components/ModernProjectModal.js');
 const UserModal = () => import('../components/UserModal.js');
 const AuditLogModal = () => import('../components/AuditLogModal.js');
 const MobileCardView = () => import('../components/MobileCardView.js');
-const ProjectMobileChrome = () => import('../components/ProjectMobileChrome.js');
+const MobileChrome = () => import('../components/MobileChrome.js');
 const ProjectRowAccordion = () => import('../components/ProjectRowAccordion.js');
 const AsView = () => import('../components/AsView.js');
 const InvoiceLicense = () => import('../components/InvoiceLicense.js');
@@ -161,10 +161,10 @@ class ProjectListApp {
         this.components.mobileView = new module.default();
       }),
       // 휴대폰 폭 머리 줄 ⋯ 메뉴·필터 접기 (넓은 화면은 CSS 로 그대로, 2026-11-15)
-      ProjectMobileChrome().then(module => {
-        this.components.mobileChrome = new module.default();
+      MobileChrome().then(module => {
+        this.components.mobileChrome = new module.default({ pageClass: 'pmm-projects' });
       }).catch(err => {
-        logger.error('[ERROR] ProjectMobileChrome 로드 실패:', err);
+        logger.error('[ERROR] MobileChrome 로드 실패:', err);
       }),
       // [ROCKET] 핵심 컴포넌트들 초기화 추가
       ProjectRowAccordion().then(module => {

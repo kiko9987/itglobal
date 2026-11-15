@@ -13,7 +13,7 @@ import {
   lastContact, agoLabel,
 } from '../utils/leadFormat.js';
 import { managerBadges, platformBadge, selfVisitLabel, isCancelledLead } from './LeadTable.js';
-import { renderItgfolderLink, bindItgfolderProtocolHandler } from '../utils/itgfolder.js';
+import { renderItgfolderLink, bindItgfolderProtocolHandler, FOLDER_ID_RE } from '../utils/itgfolder.js';
 
 const val = (r, k) => {
   const v = String(r?.[k] ?? '').trim();
@@ -253,6 +253,11 @@ export default class LeadRowAccordion {
 
   renderFolderSection(lead) {
     const folder = val(lead, '_folder_id');
+    // 휴대폰: itgfolder:// 는 윈도우 PC 탐색기 전용 → 폴더 ID 면 구글 드라이브 웹으로 (2026-11-16)
+    const phoneLink = folder && FOLDER_ID_RE.test(folder) && window.matchMedia?.('(max-width: 767.98px)').matches
+      ? `<a href="https://drive.google.com/drive/folders/${esc(folder)}" target="_blank" rel="noopener"
+            class="text-decoration-none" style="color: #0d6efd;">구글 드라이브에서 열기</a>`
+      : '';
     return `
       <div class="legacy-card mt-3 document-card ${folder ? '' : 'document-card-empty'}">
         <div class="legacy-card-row">
@@ -260,7 +265,7 @@ export default class LeadRowAccordion {
             <span class="legacy-card-label"><i class="fab fa-google-drive me-2" style="color: #4285f4;"></i>사진 폴더</span>
             <div class="editable-value">${
               // 프로젝트 문서 폴더와 같은 표기·동작: 폴더 ID 링크 → itgfolder:// 로 탐색기에서 열기
-              (folder && renderItgfolderLink(folder)) || '<span class="lead-empty">방문 사진 없음</span>'}</div>
+              phoneLink || (folder && renderItgfolderLink(folder)) || '<span class="lead-empty">방문 사진 없음</span>'}</div>
           </div>
         </div>
       </div>`;

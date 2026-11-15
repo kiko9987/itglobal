@@ -1,18 +1,30 @@
 /**
- * 프로젝트 화면 휴대폰 정리 — 머리 줄 ⋯ 메뉴, 필터 접기 (2026-11-15 휴대폰 리뉴얼 1단계).
+ * 휴대폰 정리 — 머리 줄 ⋯ 메뉴, 필터 접기. 프로젝트(1단계 11-15)·고객 리드(2단계 11-16) 화면 공용.
  *
  * 만드는 것은 단추·메뉴 몇 개와 class 이름뿐이고, 보이고 숨기는 건 모두 CSS 의
  * `@media (max-width: 767.98px)` 안에서 한다(pm-mobile.css) → 넓은 화면(PC)은 지금과 똑같다.
  * 템플릿을 고치지 않으려고(서버 재시작 없이 반영) 기존 마크업을 찾아 class 를 붙인다.
  */
-export default class ProjectMobileChrome {
-  constructor() {
-    document.body.classList.add('pm-projects-page');
+const DEFAULT_MENU = [
+  { id: 'fullRefreshBtn', icon: 'fa-sync-alt', label: '새로고침' },
+  { id: 'calendarSyncBtn', icon: 'fa-calendar-check', label: '캘린더 동기화' },
+];
+
+export default class MobileChrome {
+  /**
+   * @param {object} opts
+   * @param {string} [opts.pageClass] 화면별 body class(pmm-projects / pmm-leads)
+   * @param {Array}  [opts.menu] ⋯ 메뉴로 옮길 단추 {id, icon, label} — 휴대폰에선 원래 단추를 CSS 로 숨김
+   */
+  constructor({ pageClass = '', menu = DEFAULT_MENU } = {}) {
+    document.body.classList.add('pmm-page');
+    if (pageClass) document.body.classList.add(pageClass);
+    this.menu = menu;
     this.setupHead();
     this.setupFilters();
   }
 
-  // ── 머리 줄: 제목 + [새 프로젝트] 하나, [새로고침]·[캘린더 동기화]는 ⋯ 메뉴로 ─────────
+  // ── 머리 줄: 제목 + 주 단추 하나, 나머지(새로고침 등)는 ⋯ 메뉴로 ─────────
   setupHead() {
     const refresh = document.getElementById('fullRefreshBtn');
     const head = refresh?.closest('.row');
@@ -20,10 +32,7 @@ export default class ProjectMobileChrome {
     if (!head || !actions || actions.querySelector('.pmm-kebab-wrap')) return;
     head.classList.add('pmm-head');
 
-    const items = [
-      { id: 'fullRefreshBtn', icon: 'fa-sync-alt', label: '새로고침' },
-      { id: 'calendarSyncBtn', icon: 'fa-calendar-check', label: '캘린더 동기화' },
-    ].filter((it) => document.getElementById(it.id));
+    const items = this.menu.filter((it) => document.getElementById(it.id));
 
     const wrap = document.createElement('div');
     wrap.className = 'pmm-kebab-wrap';
@@ -101,7 +110,6 @@ export default class ProjectMobileChrome {
       nEl.textContent = n;
       nEl.hidden = n === 0;
       btn.classList.toggle('on', n > 0);
-      btn.setAttribute('aria-label', n ? `필터 ${n}개 걸림, 펼치기` : '필터 펼치기');
     };
     btn.addEventListener('click', () => {
       const open = !section.classList.contains('pmm-open');

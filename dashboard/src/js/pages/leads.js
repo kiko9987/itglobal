@@ -10,6 +10,8 @@ import logger from '../utils/logger.js';
 import ModernLeadsFilters from '../components/ModernLeadsFilters.js';
 import LeadTable from '../components/LeadTable.js';
 import LeadRowAccordion from '../components/LeadRowAccordion.js';
+import MobileChrome from '../components/MobileChrome.js';
+import LeadMobileView from '../components/LeadMobileView.js';
 import { splitVisitRange, shiftIso, esc } from '../utils/leadFormat.js';
 
 import { Calendar } from '@fullcalendar/core';
@@ -156,6 +158,7 @@ function setView(view) {
     ensureCalendar()?.render();
     loadCalendarEvents();
   }
+  app.mobile?.render();   // 휴대폰: 카드 목록 ↔ 방문 일정 목록 (넓은 화면에선 아무것도 안 함)
 }
 
 // ── 초기화 ────────────────────────────────────────────────
@@ -164,6 +167,16 @@ async function init() {
     app.filters = new ModernLeadsFilters();
     app.filters.init();
     app.accordion = new LeadRowAccordion();
+    // 휴대폰 폭에서만: 머리 ⋯ 메뉴·필터 접기·카드 목록·화면 가득 상세 (넓은 화면은 CSS 로 그대로, 2026-11-16)
+    try {
+      app.chrome = new MobileChrome({
+        pageClass: 'pmm-leads',
+        menu: [{ id: 'fullRefreshBtn', icon: 'fa-sync-alt', label: '새로고침' }],
+      });
+      app.mobile = new LeadMobileView({ accordion: app.accordion, getView: () => app.view });
+    } catch (err) {
+      logger.error('[LEADS] 휴대폰 화면 준비 실패:', err);
+    }
 
     const rows = await fetchLeads(false);
     if (!rows) return;
@@ -174,6 +187,8 @@ async function init() {
     app.filters.onFilterChange((filtered, meta = {}) => {
       app.filtered = filtered;
       app.table.updateData(filtered, { keepPage: !!meta.dataRefresh });
+      app.mobile?.update(filtered);
+      app.chrome?.syncFilterCount?.();
       if (app.view === 'calendar') loadCalendarEvents();
     });
 
