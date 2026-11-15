@@ -29,8 +29,11 @@ if (-not (Test-Path $source)) {
 $SysDir = 'C:\ProgramData\ITG\watchdog'
 New-Item -ItemType Directory -Force -Path $SysDir | Out-Null
 icacls $SysDir /setowner '*S-1-5-32-544' /T /C | Out-Null                       # Administrators
-icacls $SysDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' /T /C | Out-Null
+# 폴더에만 권한을 걸고(/T 없이) 안의 파일은 폴더 것을 물려받게 한다 — 11-15 첫 설치 때 /T 로 파일에도 (OI)(CI) 를
+#   걸다가 파일 권한이 비어 SYSTEM 도 스크립트를 못 읽어 워치독이 멈췄다
+icacls $SysDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' /C | Out-Null
 #   SYSTEM·Administrators 모두 권한, Users 읽기만
+if (Get-ChildItem $SysDir -Force -ErrorAction SilentlyContinue) { icacls (Join-Path $SysDir '*') /reset /T /C | Out-Null }
 Remove-Item (Join-Path $SysDir 'restart_request.json') -Force -ErrorAction SilentlyContinue   # 예전 파일은 믿지 않음
 $oldState = Join-Path $PSScriptRoot 'dashboard\logs\watchdog_state.json'
 if ((Test-Path $oldState) -and -not (Test-Path (Join-Path $SysDir 'watchdog_state.json'))) {
@@ -38,7 +41,13 @@ if ((Test-Path $oldState) -and -not (Test-Path (Join-Path $SysDir 'watchdog_stat
 }
 $script = Join-Path $SysDir 'watchdog.ps1'
 Copy-Item $source $script -Force
-icacls $SysDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' /T /C | Out-Null
+icacls (Join-Path $SysDir '*') /reset /T /C | Out-Null   # 안의 파일 = 폴더 권한
+# 확인 — SYSTEM 이 스크립트를 못 읽으면 워치독이 조용히 멈춘다
+$acl = (icacls $script) -join ' '
+if ($acl -notmatch 'SYSTEM:\(I\)\(F\)') {
+    Write-Host "❌ 워치독 스크립트 권한이 이상합니다: $acl" -ForegroundColor Red
+    return
+}
 Write-Host "🔒 워치독 폴더: $SysDir (SYSTEM·관리자만 쓰기)" -ForegroundColor Cyan
 
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
