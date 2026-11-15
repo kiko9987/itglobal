@@ -1750,12 +1750,15 @@ class GoogleSheetsManager:
 
             logger.info(f"[GET_CELL_NOTES] 셀 노트 읽기 시작: {range_name}")
 
-            # includeGridData=True로 셀 데이터와 노트 함께 가져오기
+            # includeGridData=True로 노트를 가져오되 fields 로 '노트·시작 위치'만 (2026-11-15).
+            #   예전엔 5열×4천 행의 값·서식·색까지 통째로 받아 3분마다 4.3초 걸렸고, 큰 응답을 푸는 동안
+            #   서버 전체가 느려졌다. 다른 메모 읽기(payment_sync·fund_transfer 등)는 이미 이렇게 한다.
             result = self._execute_with_retry(
                 lambda: self.service.spreadsheets().get(
                     spreadsheetId=sheet_id,
                     ranges=[range_name],
-                    includeGridData=True
+                    includeGridData=True,
+                    fields='sheets(data(startRow,startColumn,rowData(values(note))))',
                 ),
                 f"get_cell_notes({range_name})"
             )
