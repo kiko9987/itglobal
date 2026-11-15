@@ -16,14 +16,33 @@ if (-not $isAdmin) {
 }
 
 $TaskName = 'ITGFlask-Watchdog'
-$script   = Join-Path $PSScriptRoot 'watchdog.ps1'
-if (-not (Test-Path $script)) {
-    Write-Host "❌ watchdog.ps1 을 찾을 수 없습니다: $script" -ForegroundColor Red
+$source   = Join-Path $PSScriptRoot 'watchdog.ps1'
+if (-not (Test-Path $source)) {
+    Write-Host "❌ watchdog.ps1 을 찾을 수 없습니다: $source" -ForegroundColor Red
     return
 }
 
+# SYSTEM·관리자만 쓸 수 있는 워치독 폴더 (2026-11-15 5차 점검 개선)
+#   SYSTEM 작업이 사용자 폴더의 스크립트·재시작 요청 파일을 그대로 믿지 않게, 스크립트 사본과 요청·상태 파일을 여기 둔다.
+#   ProgramData 기본 권한은 일반 사용자도 하위에 파일을 만들 수 있어서 → 상속을 끊고 소유자를 Administrators 로.
+#   ⚠️ watchdog.ps1 을 고치면 이 설치를 다시 실행해야 사본이 바뀐다.
+$SysDir = 'C:\ProgramData\ITG\watchdog'
+New-Item -ItemType Directory -Force -Path $SysDir | Out-Null
+icacls $SysDir /setowner '*S-1-5-32-544' /T /C | Out-Null                       # Administrators
+icacls $SysDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' /T /C | Out-Null
+#   SYSTEM·Administrators 모두 권한, Users 읽기만
+Remove-Item (Join-Path $SysDir 'restart_request.json') -Force -ErrorAction SilentlyContinue   # 예전 파일은 믿지 않음
+$oldState = Join-Path $PSScriptRoot 'dashboard\logs\watchdog_state.json'
+if ((Test-Path $oldState) -and -not (Test-Path (Join-Path $SysDir 'watchdog_state.json'))) {
+    Copy-Item $oldState (Join-Path $SysDir 'watchdog_state.json')   # 재시작 쿨다운·장애 상태 이어받기
+}
+$script = Join-Path $SysDir 'watchdog.ps1'
+Copy-Item $source $script -Force
+icacls $SysDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-32-545:(OI)(CI)RX' /T /C | Out-Null
+Write-Host "🔒 워치독 폴더: $SysDir (SYSTEM·관리자만 쓰기)" -ForegroundColor Cyan
+
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
-    -Argument ('-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}"' -f $script)
+    -Argument ('-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -ProjectRoot "{1}"' -f $script, $PSScriptRoot)
 
 # 1분마다 무기한 반복
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `

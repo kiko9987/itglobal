@@ -27,7 +27,14 @@
 # 점검: .\watchdog.ps1 -SelfTest  → 재시작 없이 슬랙 알림 경로만 점검
 #       .\watchdog.ps1 -RestartRequestDryRun  → 승인된 요청을 실제 재시작 없이 처리해 카드 갱신까지 점검
 
-param([switch]$SelfTest, [switch]$RestartRequestDryRun)
+param([switch]$SelfTest, [switch]$RestartRequestDryRun, [string]$ProjectRoot = '')
+
+# 실행 위치 (2026-11-15 5차 점검 개선): install_watchdog.ps1 이 이 파일을 SYSTEM·관리자만 쓸 수 있는 폴더
+#   (C:\ProgramData\ITG\watchdog)로 복사해 그 사본을 실행한다 — 사용자 폴더 스크립트를 SYSTEM 이 돌리지 않게.
+#   프로젝트 폴더(.env·로그)는 -ProjectRoot 로 받는다. ⚠️ 이 파일을 고치면 install_watchdog.ps1 을 다시 실행해야 반영.
+if (-not $ProjectRoot) { $ProjectRoot = $PSScriptRoot }
+if (-not (Test-Path (Join-Path $ProjectRoot '.env'))) { $ProjectRoot = 'C:\Users\SECOM\Desktop\ITG-Project\Claude Project' }
+$SysDir = 'C:\ProgramData\ITG\watchdog'   # 재시작 요청·상태 파일 — SYSTEM·관리자만 쓰기(install_watchdog.ps1 이 권한 설정)
 
 $ErrorActionPreference = 'SilentlyContinue'
 
@@ -47,9 +54,11 @@ $RedisRecoverCooldownSec = 600 # 도커 복구 시도 간 최소 간격 10분
 $RedisSlackThrottleSec   = 1800  # 'Redis 꺼짐' 반복 알림 최소 간격 30분
 $FallbackThreshold  = 2        # Redis 정상인데 앱이 임시 저장소 모드 N회 연속 → 앱 재시작
 $DockerTaskName     = 'ITGFlask-DockerRecover'
-$LogPath            = Join-Path $PSScriptRoot 'dashboard\logs\watchdog.log'
-$StatePath          = Join-Path $PSScriptRoot 'dashboard\logs\watchdog_state.json'
-$RequestPath        = Join-Path $PSScriptRoot 'dashboard\logs\restart_request.json'
+$LogPath            = Join-Path $ProjectRoot 'dashboard\logs\watchdog.log'
+# 상태 파일: 설치 전(옛 방식)엔 프로젝트 logs, 설치 뒤엔 SYSTEM 폴더
+$StatePath          = if (Test-Path $SysDir) { Join-Path $SysDir 'watchdog_state.json' } else { Join-Path $ProjectRoot 'dashboard\logs\watchdog_state.json' }
+# 재시작 요청은 SYSTEM 폴더 것만 믿는다 — 사용자 폴더 파일은 누구나 'approved' 로 쓸 수 있었다
+$RequestPath        = Join-Path $SysDir 'restart_request.json'
 $PendingTtlSec      = 1800     # 승인 안 된 재시작 요청은 30분 뒤 만료
 $ApprovedTtlSec     = 600      # 승인 후 10분 안에 못 돌리면(워치독 멈춤 등) 실행하지 않음
 $ManualMinGapSec    = 120      # 직전 재시작 2분 안이면 다음 실행으로 미룸
@@ -66,7 +75,7 @@ function Write-WLog($msg) {
 }
 
 function Get-EnvVal($name) {
-    $envPath = Join-Path $PSScriptRoot '.env'
+    $envPath = Join-Path $ProjectRoot '.env'
     if (-not (Test-Path $envPath)) { return $null }
     $m = Select-String -Path $envPath -Pattern ('^\s*' + [regex]::Escape($name) + '\s*=') | Select-Object -First 1
     if (-not $m) { return $null }
@@ -205,6 +214,13 @@ function Invoke-RestartRequest($state, $now) {
         return
     }
     if ($r.status -ne 'approved') { return }
+    # 승인한 사람이 대표님(SLACK_ADMIN_CHANNEL)인지 한 번 더 (2026-11-15 5차 점검 개선)
+    $approver = Get-EnvVal 'SLACK_ADMIN_CHANNEL'
+    if (-not $approver -or [string]$r.decided_by -ne $approver) {
+        $r.status = 'rejected'; Write-RestartRequest $r
+        Write-WLog ('RESTART-REQ 거절 — 승인자 불일치 id={0} by={1}' -f $r.id, $r.decided_by)
+        return
+    }
     if (($now - [double]$r.approved_at) -gt $ApprovedTtlSec) {
         $r.status = 'expired'; Write-RestartRequest $r
         Update-RestartCard $r ':zzz: *재시작 요청 만료* — 승인 후 10분 안에 실행하지 못했습니다. 다시 요청해 주세요.'

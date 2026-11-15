@@ -14,8 +14,12 @@ _spec.loader.exec_module(bd)
 
 def test_redis_cli_cmd_passes_password_via_env(monkeypatch):
     monkeypatch.setenv('REDIS_PASSWORD', 'pw-123')
+    monkeypatch.delenv('REDISCLI_AUTH', raising=False)
     cmd = bd.redis_cli_cmd('BGSAVE')
-    assert cmd[:4] == ['docker', 'exec', '-e', 'REDISCLI_AUTH=pw-123']
+    # 비밀번호는 명령줄에 없고(프로세스 목록에 보임) 환경으로만 넘긴다 (2026-11-15)
+    assert cmd[:4] == ['docker', 'exec', '-e', 'REDISCLI_AUTH']
+    assert not any('pw-123' in c for c in cmd)
+    assert bd.os.environ['REDISCLI_AUTH'] == 'pw-123'
     assert cmd[-2:] == ['redis-cli', 'BGSAVE'] and '-a' not in cmd
 
 

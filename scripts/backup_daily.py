@@ -39,8 +39,12 @@ def redis_cli_cmd(*args: str) -> list:
 
     비밀번호 없이 BGSAVE 하면 'NOAUTH' 를 돌려주고도 종료 코드가 0 이라, 옛 dump.rdb 를 복사하고 OK 로 남는다."""
     pw = (os.getenv('REDIS_PASSWORD') or '').strip()
-    auth = ['-e', f'REDISCLI_AUTH={pw}'] if pw else []
-    return ['docker', 'exec', *auth, REDIS_CONTAINER, 'redis-cli', *args]
+    if not pw:
+        return ['docker', 'exec', REDIS_CONTAINER, 'redis-cli', *args]
+    # 값은 명령줄이 아니라 이 프로세스 환경으로 넘긴다 — `-e 이름` 만 쓰면 docker 가 자기 환경에서 값을 읽는다.
+    #   명령줄(`-e REDISCLI_AUTH=값`)은 같은 PC 의 다른 계정도 프로세스 목록에서 볼 수 있다(2026-11-15 5차 점검 개선)
+    os.environ['REDISCLI_AUTH'] = pw
+    return ['docker', 'exec', '-e', 'REDISCLI_AUTH', REDIS_CONTAINER, 'redis-cli', *args]
 
 
 def bgsave_started(out: str) -> bool:

@@ -88,7 +88,10 @@ if (-not $DryRun) {
         $redisPw = ((Get-Content (Join-Path $ProjectRoot ".env") -ErrorAction SilentlyContinue |
             Where-Object { $_ -match '^REDIS_PASSWORD=' } | Select-Object -First 1) -replace '^REDIS_PASSWORD=', '').Trim()
         if ($redisPw) {
-            $bgSave = docker exec -e "REDISCLI_AUTH=$redisPw" redis redis-cli BGSAVE 2>&1
+            # pass the value through this process env (not the command line, which other accounts can see) - 2026-11-15
+            $env:REDISCLI_AUTH = $redisPw
+            try { $bgSave = docker exec -e REDISCLI_AUTH redis redis-cli BGSAVE 2>&1 }
+            finally { Remove-Item Env:\REDISCLI_AUTH -ErrorAction SilentlyContinue }
         } else {
             $bgSave = docker exec redis redis-cli BGSAVE 2>&1
         }

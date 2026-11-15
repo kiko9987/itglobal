@@ -22,7 +22,11 @@ from pathlib import Path
 from typing import Optional
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-REQUEST_PATH = PROJECT_ROOT / 'dashboard' / 'logs' / 'restart_request.json'
+# 재시작 요청 파일은 SYSTEM·관리자만 쓸 수 있는 워치독 폴더에 둔다(2026-11-15 5차 점검 개선) — 프로젝트 logs 에 두면
+# 사용자 계정 누구나 'approved' 로 써서 워치독(SYSTEM)이 재시작했다. 서버(LocalSystem)는 쓸 수 있고, 사용자 계정
+# 스크립트(request_restart.py)는 못 쓴다(11-10 부터 이 흐름은 안 씀). 폴더는 install_watchdog.ps1 이 만든다.
+WATCHDOG_DIR = Path(os.getenv('ITG_WATCHDOG_DIR') or r'C:\ProgramData\ITG\watchdog')
+REQUEST_PATH = WATCHDOG_DIR / 'restart_request.json'
 _LOG_DIR = PROJECT_ROOT / 'dashboard' / 'logs'
 _SRC_DIR = PROJECT_ROOT / 'dashboard' / 'src'
 _BUILD_MANIFEST = PROJECT_ROOT / 'dashboard' / 'static' / 'dist' / '.vite' / 'manifest.json'
@@ -54,7 +58,9 @@ def load_request(path: Path = None) -> Optional[dict]:
 
 def save_request(req: dict, path: Path = None) -> None:
     path = path or REQUEST_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
+    # 폴더를 여기서 만들지 않는다 — 만들면 권한 설정 없이 생겨 사용자 계정도 쓸 수 있다(설치 스크립트가 만든다)
+    if not path.parent.exists():
+        raise FileNotFoundError(f'워치독 폴더가 없어요({path.parent}) — 관리자 PowerShell 에서 install_watchdog.ps1 실행 필요')
     tmp = path.with_suffix('.tmp')
     tmp.write_text(json.dumps(req, ensure_ascii=False, indent=1), encoding='utf-8')
     os.replace(tmp, path)
