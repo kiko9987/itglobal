@@ -1,8 +1,8 @@
 """현장·미화 직원 휴대폰 등록 (2026-11-15, KiKO: 플렉스 앱처럼 한 번 로그인하면 계속).
 
 메일·슬랙을 잘 안 보는 직원(미화 여사님)용. 흐름:
-  1) 인사카드 관리자가 PC 인사카드에서 [휴대폰 등록 숫자 만들기] → 6자리 숫자(10분·한 번만).
-  2) 직원 휴대폰의 홈 화면 앱(또는 브라우저) 로그인 화면 「현장 직원 휴대폰 등록」 칸에 그 숫자.
+  1) 인사카드 관리자가 PC 인사카드에서 [로그인 번호 만들기] → 6자리 숫자(10분·한 번만).
+  2) 직원 휴대폰의 홈 화면 앱(또는 브라우저) 로그인 화면 「번호로 로그인」 칸에 그 번호.
   3) 그 휴대폰에 '기기 열쇠' 쿠키(gw_device, 원문은 DB 에 sha256 만)를 심고 현장 세션을 연다.
      그 뒤로는 세션이 끝나도 열쇠로 다시 연다 — 마지막 사용 뒤 IDLE_DAYS 일 안 쓰면 끝.
 
@@ -132,7 +132,7 @@ def issue_code(person_id: int, by: str, now: Optional[datetime] = None) -> Dict:
     """6자리 숫자 — 그 사람의 아직 안 쓴 숫자는 지운다. 현장 재직자가 아니면 ValueError."""
     p = hr.get_person(int(person_id))
     if not _field_ok(p):
-        raise ValueError('로그인 방식이 현장(휴대폰 등록)인 재직자만 휴대폰을 등록할 수 있어요.')
+        raise ValueError('로그인 방식이 현장인 재직자만 로그인 번호를 만들 수 있어요.')
     if not (p.get('slack_id') or '').strip():
         raise ValueError('인사카드에 슬랙 ID 가 있어야 휴가를 신청할 수 있어요. 슬랙 ID 를 먼저 넣어 주세요.')
     now = now or datetime.now()
@@ -149,7 +149,7 @@ def issue_code(person_id: int, by: str, now: Optional[datetime] = None) -> Dict:
             except Exception:
                 continue
         else:
-            raise RuntimeError('숫자를 만들지 못했어요. 다시 눌러 주세요.')
+            raise RuntimeError('번호를 만들지 못했어요. 다시 눌러 주세요.')
     logger.info(f'[GW-DEVICE] 등록 숫자 발급 #{p["id"]} by {by}')
     return {'code': code, 'expires_at': _fmt(now + timedelta(minutes=CODE_TTL_MINUTES)),
             'minutes': CODE_TTL_MINUTES}
@@ -184,10 +184,10 @@ def redeem(code: str, ip: str = '', user_agent: str = '',
                                    (_hash(code),)).fetchone()
         if not row:
             conn.execute('INSERT INTO gw_device_fails (ip, at) VALUES (?, ?)', (ip, _fmt(now)))
-            return None, '', '숫자가 맞지 않거나 10분이 지났어요. 경영지원에 새 숫자를 받아 주세요.'
+            return None, '', '번호가 맞지 않거나 10분이 지났어요. 경영지원에서 새 번호를 받아 주세요.'
     p = hr.get_person(row[0])
     if not _field_ok(p):
-        return None, '', '이 숫자로는 등록할 수 없어요. 경영지원에 문의해 주세요.'
+        return None, '', '이 번호로는 로그인할 수 없어요. 경영지원에 문의해 주세요.'
     token = secrets.token_urlsafe(32)
     with _conn() as conn:
         conn.execute('INSERT INTO gw_devices (token_hash, person_id, slack_id, label, created_by, created_at, '
@@ -252,7 +252,7 @@ def revoke_token(token: str, by: str) -> None:
 
 
 def list_for(person_id: int, now: Optional[datetime] = None) -> List[dict]:
-    """인사카드 '등록된 휴대폰' — 끊긴 것·오래 안 쓴 것은 빼고 최근 사용 순."""
+    """인사카드 '로그인된 휴대폰' — 끊긴 것·오래 안 쓴 것은 빼고 최근 사용 순."""
     now = now or datetime.now()
     since = _fmt(now - timedelta(days=IDLE_DAYS))
     with _conn() as conn:

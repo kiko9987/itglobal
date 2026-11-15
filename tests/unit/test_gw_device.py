@@ -186,7 +186,7 @@ def test_wrong_codes_are_rate_limited(db):
     good = gw_device.issue_code(_field_id(), ADMIN, now)['code']
     bad = '000000' if good != '000000' else '111111'
     for _ in range(gw_device.FAIL_PER_IP):
-        assert gw_device.redeem(bad, '1.2.3.4', now=now)[2].startswith('숫자가 맞지')
+        assert gw_device.redeem(bad, '1.2.3.4', now=now)[2].startswith('번호가 맞지')
     p, tok, why = gw_device.redeem(good, '1.2.3.4', now=now)          # 맞는 숫자도 잠깐 막힘
     assert p is None and '잠시 막혔어요' in why
     p, tok, why = gw_device.redeem(good, '5.6.7.8', now=now)          # 다른 주소는 됨

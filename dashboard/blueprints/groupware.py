@@ -116,7 +116,7 @@ def write_device_cookie(resp):
 
 @groupware_bp.route('/gw/device/redeem', methods=['POST'])
 def device_redeem():
-    """로그인 화면 「현장 직원 휴대폰 등록」 — 6자리 숫자 → 이 휴대폰 등록 + 현장 세션.
+    """로그인 화면 「번호로 로그인」 — 6자리 번호 → 이 휴대폰 등록 + 현장 세션.
     로그인 전이라 CSRF 토큰이 없다 → 보안 미들웨어가 같은 사이트에서 보낸 요청인지만 보고 통과시킨다."""
     from dashboard.services import gw_device
     data = request.get_json(silent=True) or {}

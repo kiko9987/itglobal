@@ -1749,7 +1749,7 @@ body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7
   #lvCancelModal .modal-dialog { margin: 12px; max-width: none; }
 }
 
-/* ── 인사카드: 현장 직원 휴대폰 등록(11-15) ──────────────── */
+/* ── 인사카드: 현장 직원 로그인 번호·휴대폰(11-15) ──────────────── */
 .gw-dev { margin-top: 10px; padding: 12px 14px; border: 1px solid #e2e8f0; border-radius: 10px; background: #f8fafc; }
 .gw-dev-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
 .gw-dev-code { background: #fff7ed; border: 1px solid #fdba74; border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }

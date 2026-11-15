@@ -62,7 +62,7 @@
             {% endif %}
             <li>
                 <a class="dropdown-item logout-item" href="/logout"{% if session.user and session.user.gw_device_id %}
-                   onclick="return confirm('로그아웃하면 이 휴대폰 등록이 풀려요. 다시 쓰려면 경영지원에서 숫자를 새로 받아야 해요. 로그아웃할까요?');"{% endif %}>
+                   onclick="return confirm('로그아웃하면 다음에 들어올 때 경영지원에서 번호를 새로 받아야 해요. 로그아웃할까요?');"{% endif %}>
                     <i class="fas fa-sign-out-alt me-2"></i>로그아웃
                 </a>
             </li>

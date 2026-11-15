@@ -244,7 +244,7 @@ def api_set_roles():
     return jsonify({'success': True, key: emails})
 
 
-# ── 현장 직원 휴대폰 등록(인사카드 관리자, 11-15) — services/gw_device.py ─────────
+# ── 현장 직원 로그인 번호·휴대폰(인사카드 관리자, 11-15) — services/gw_device.py ─────────
 @hr_bp.route('/api/hr/people/<int:pid>/devices', methods=['GET'])
 @gw_page
 def api_devices(pid):
@@ -278,7 +278,7 @@ def api_device_revoke(pid, did):
     if not _hr_admin():
         return jsonify({'success': False, 'message': '인사카드 관리자만 끊을 수 있습니다.'}), 403
     if not gw_device.revoke(did, _me(), person_id=pid):
-        return jsonify({'success': False, 'message': '이미 끊긴 휴대폰입니다.'}), 400
+        return jsonify({'success': False, 'message': '이미 로그아웃된 휴대폰입니다.'}), 400
     return jsonify({'success': True, 'devices': gw_device.list_for(pid)})
 
 
