@@ -474,6 +474,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         from dashboard.blueprints.channeltalk import channeltalk_bp
         from dashboard.blueprints.sms_inbound import sms_bp
         from dashboard.blueprints.call_track import call_track_bp
+        from dashboard.blueprints.public_info import public_info_bp
         from dashboard.blueprints.secom_inbound import secom_bp
         from dashboard.api.v1.auth import auth_bp as auth_api_bp
 
@@ -505,6 +506,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         app.register_blueprint(channeltalk_bp)  # 채널톡 ↔ 슬랙 webhook
         app.register_blueprint(sms_bp)  # 은행 입금 SMS 인입 webhook (폰 포워딩 → 슬랙)
         app.register_blueprint(call_track_bp)  # 홈페이지 전화 버튼 클릭 측정 (아임웹 비콘)
+        app.register_blueprint(public_info_bp)  # 회사 정보 공개 페이지 /company·/llms.txt (AI 검색용, 로그인 없음)
         app.register_blueprint(secom_bp)  # 세콤매니저(근태) REST 전송 받기 — 같은 PC만
         app.register_blueprint(auth_api_bp)  # API v1 인증 엔드포인트
 
