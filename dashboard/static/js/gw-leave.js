@@ -74,6 +74,10 @@
       '<div class="gw-stat"><div class="k">' + L.year + '년 병가</div><div class="v">' + days(L.sick_used) + ' <small>/ ' + L.sick_limit + '일</small></div></div>' +
       '<div class="gw-stat"><div class="k">승인 대기</div><div class="v">' + L.pending + '건</div></div>' +
       '</div>';
+    // 남은 연차는 승인 대기 중인 것까지 미리 뺀 값(leave.balance) — 신청하자마자 줄어 "왜 벌써?" 묻지 않게(11-15 점검)
+    if (L.pending && L.balance != null) {
+      h += '<div class="gw-lv-note">남은 연차는 승인 대기 중인 휴가까지 미리 뺀 날수예요.</div>';
+    }
 
     if (L.grants && L.grants.length) {
       h += '<div class="gw-sec-title">언제까지 써야 하나요</div><ul class="gw-plain-list">';
@@ -90,8 +94,11 @@
         h += '<ul class="gw-lv-upcoming">';
         L.upcoming.forEach(function (e) {
           h += '<li><div class="gw-lv-up-main"><div class="gw-lv-up-when">' + esc(period(e)) + '</div>' +
-            '<div class="gw-lv-up-sub">' + esc(e.type) + ' · ' + days(e.days) + ' ' + statusBadge(e.status) + '</div></div>' +
-            cancelBtn(e) + '</li>';
+            '<div class="gw-lv-up-sub">' + esc(e.type) + ' · ' + days(e.days) + ' ' + statusBadge(e.status) + '</div>' +
+            // 플렉스에서 옮겨 온 대기 건은 여기서 취소할 수 없다 — 단추 없이 이유만 비면 막막하니 할 일을 적어 둠
+            (!e.cancel && e.source === 'flex' && e.status === '대기'
+              ? '<div class="gw-lv-up-why">플렉스에서 신청한 휴가예요. 취소는 경영지원에 말씀해 주세요.</div>' : '') +
+            '</div>' + cancelBtn(e) + '</li>';
         });
         h += '</ul>';
       } else {
@@ -111,9 +118,14 @@
 
     var years = [];
     (L.entries || []).forEach(function (e) { var y = e.start.slice(0, 4); if (years.indexOf(y) === -1) years.push(y); });
+    // 기록은 처음에 올해만 — 3년치 45줄이 휴대폰에 다 펼쳐지던 것(11-15 점검). 올해 기록이 없으면 전체
+    var thisYear = String(L.year || '');
+    var pickYear = years.length > 1 && years.indexOf(thisYear) !== -1 ? thisYear : '';
     h += '<div class="gw-sec-head"><div class="gw-sec-title m-0">휴가 기록</div>' +
       (years.length > 1 ? '<select class="form-select form-select-sm gw-year-select" aria-label="연도">' +
-        '<option value="">전체</option>' + years.map(function (y) { return '<option value="' + y + '">' + y + '년</option>'; }).join('') +
+        '<option value="">전체</option>' + years.map(function (y) {
+          return '<option value="' + y + '"' + (y === pickYear ? ' selected' : '') + '>' + y + '년</option>';
+        }).join('') +
         '</select>' : '') + '</div>';
     var cols = opts.mine ? 6 : 5;
     h += '<div class="gw-table-wrap"><table class="gw-table gw-leave-table' + (opts.mine ? ' gw-lv-mine-table' : '') + '"><thead><tr><th>기간</th><th>종류</th><th class="n">일수</th><th>상태</th><th>사유</th>' +
@@ -122,14 +134,15 @@
       h += '<tr><td colspan="' + cols + '" class="gw-empty">기록이 없습니다.</td></tr>';
     } else {
       L.entries.forEach(function (e) {
-        h += '<tr data-year="' + esc(e.start.slice(0, 4)) + '"' + (e.status === '취소' || e.status === '반려' ? ' class="muted"' : '') + '>' +
+        h += '<tr data-year="' + esc(e.start.slice(0, 4)) + '"' + (e.status === '취소' || e.status === '반려' ? ' class="muted"' : '') +
+          (pickYear && e.start.slice(0, 4) !== pickYear ? ' hidden' : '') + '>' +
           '<td class="gw-lv-when">' + esc(period(e, true)) + '</td><td>' + esc(e.type) + '</td><td class="n">' + days(e.days) + '</td>' +
           '<td>' + statusBadge(e.status) + '</td><td class="gw-reason">' + esc(e.reason) + '</td>' +
           (opts.mine ? '<td class="gw-lv-act">' + cancelBtn(e) + '</td>' : '') + '</tr>';
       });
     }
     h += '</tbody></table></div>';
-    h += '<div class="gw-note">2026년 11월 이전 기록은 플렉스에서 옮겨 온 것입니다.</div>';
+    h += '<div class="gw-note">2026년 11월 이전 기록은 예전 휴가 프로그램(플렉스)에서 옮겨 온 것이에요.</div>';
     return h;
   }
 
@@ -168,7 +181,7 @@
         form = j.form || { can_apply: false };
         applyBtn.hidden = !form.can_apply;
         var note = form.can_apply
-          ? 'JW → YG 승인 후 #휴가_일정에 날짜만 올라가요. 승인 결과는 슬랙 <strong>휴가</strong> 앱으로 알려 드려요.'
+          ? '신청하면 승인하는 분께 바로 알림이 가요. 결과는 아래 휴가 기록과 위쪽 <i class="fas fa-bell" aria-hidden="true"></i> 알림에서 볼 수 있어요.'
           : '<i class="fas fa-info-circle me-1" aria-hidden="true"></i>' + esc(form.why || '지금은 휴가를 신청할 수 없어요.');
         mine.innerHTML = renderSummary(j.leave, { mine: true, applyNote: note });
         bindYearFilter(mine);
@@ -264,7 +277,7 @@
         if (window.bootstrap) window.bootstrap.Modal.getOrCreateInstance(modalEl).hide();
         showFlash(j.status === 'approved'
           ? '휴가가 확정됐어요 (' + days(j.days) + ').'
-          : '휴가를 신청했어요 (' + days(j.days) + '). 승인되면 슬랙 휴가 앱으로 알려 드려요.', 'ok');
+          : '휴가를 신청했어요 (' + days(j.days) + '). 승인되면 아래 기록이 「승인」으로 바뀌어요.', 'ok');
         load();
       }).catch(function (e) {
         showErrors(e.fields, e.message);

@@ -92,7 +92,7 @@
 
 .gw-list-count {
   font-size: 0.78rem;
-  color: #94a3b8;
+  color: #64748b;
   padding: 6px 12px 2px;
 }
 
@@ -161,21 +161,21 @@
 }
 
 .gw-list-item.resigned .gw-list-name {
-  color: #94a3b8;
+  color: #64748b;
 }
 
 .gw-badge {
   display: inline-block;
   padding: 1px 7px;
   border-radius: 999px;
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 600;
   vertical-align: middle;
 }
 
 .gw-badge-active { background: #dcfce7; color: #166534; }
 .gw-badge-leave { background: #fef3c7; color: #92400e; }
-.gw-badge-resigned { background: #f1f5f9; color: #64748b; }
+.gw-badge-resigned { background: #f1f5f9; color: #475569; }
 .gw-badge-field { background: #e0f2fe; color: #075985; }
 
 /* ── 인사카드 ─────────────────────────────────── */
@@ -244,7 +244,7 @@
 
 .gw-dl dt {
   flex: 0 0 88px;
-  color: #868b94;
+  color: #6b7079;
   font-weight: 400;
   font-size: 13px;
 }
@@ -485,7 +485,7 @@
 
 .gw-panel-sub {
   font-weight: 400;
-  color: #94a3b8;
+  color: #64748b;
   font-size: 0.85rem;
   margin-left: 6px;
 }
@@ -518,7 +518,7 @@
 .gw-chip button {
   border: 0;
   background: transparent;
-  color: #94a3b8;
+  color: #64748b;
   width: 22px;
   height: 22px;
   border-radius: 50%;
@@ -600,7 +600,7 @@
 }
 
 .gw-home-sub {
-  color: #94a3b8;
+  color: #64748b;
   font-size: 0.78rem;
 }
 
@@ -623,7 +623,7 @@
 }
 
 .gw-home-none {
-  color: #94a3b8;
+  color: #64748b;
   font-size: 0.85rem;
   padding: 4px 0 8px;
 }
@@ -721,7 +721,7 @@
 }
 
 .gw-home-when {
-  color: #94a3b8;
+  color: #64748b;
   font-size: 0.78rem;
   white-space: nowrap;
 }
@@ -786,7 +786,7 @@
 .gw-stat .v small {
   font-size: 0.8rem;
   font-weight: 500;
-  color: #94a3b8;
+  color: #64748b;
 }
 
 .gw-stat-main {
@@ -860,7 +860,7 @@
 }
 
 .gw-leave-table tr.muted td {
-  color: #94a3b8;
+  color: #64748b;
 }
 
 .gw-leave-table tr.muted td:first-child {
@@ -880,7 +880,12 @@
 .gw-table-click tbody tr:hover,
 .gw-table-click tbody tr:focus-visible {
   background: #fff7ed;
-  outline: none;
+}
+
+/* 키보드로 고른 줄이 바탕색만 바뀌어 거의 안 보이던 것(대비 1.07:1, 11-15 점검) */
+.gw-table-click tbody tr:focus-visible {
+  outline: 2px solid #2a3038;
+  outline-offset: -2px;
 }
 
 .gw-seg {
@@ -1236,7 +1241,7 @@
 .gw-sales-note {
   margin-top: 6px;
   font-size: 12px;
-  color: #868b94;
+  color: #6b7079;
 }
 
 @media (max-width: 767.98px) {
@@ -1255,7 +1260,7 @@
 
 .gw-sales-goal {
   margin-left: 8px;
-  color: #868b94;
+  color: #6b7079;
   font-size: 12px;
 }
 
@@ -1342,7 +1347,7 @@
 }
 
 .gw-ap-tilde {
-  color: #868b94;
+  color: #6b7079;
 }
 
 .gw-chip-reset {
@@ -1410,7 +1415,7 @@
 
 .gw-ap-table .muted,
 .gw-ap-table i.muted {
-  color: #868b94;
+  color: #6b7079;
 }
 
 .gw-ap-table tbody tr[data-id],
@@ -1421,6 +1426,13 @@
 .gw-ap-table tbody tr[data-id]:hover,
 .gw-ap-table tbody tr[data-doc]:hover {
   background: #f7f8f9;
+}
+
+.gw-ap-table tbody tr[data-id]:focus-visible,
+.gw-ap-table tbody tr[data-doc]:focus-visible {
+  background: #f7f8f9;
+  outline: 2px solid #2a3038;
+  outline-offset: -2px;
 }
 
 .gw-ap-table tbody tr.my-turn td:first-child {
@@ -1592,7 +1604,7 @@
 
 .gw-ap-steps .at {
   display: block;
-  color: #868b94;
+  color: #6b7079;
   font-size: 12px;
 }
 
@@ -1758,3 +1770,75 @@ body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7
 .gw-dev-list { list-style: none; margin: 0; padding: 0; }
 .gw-dev-list li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid #e2e8f0; }
 .gw-dev-list li:first-child { border-top: 0; }
+
+/* ── 11-15 화면 점검(impeccable) ──────────────────────────────────── */
+
+/* 내 휴가: 남은 연차가 대기분까지 미리 뺀 값이라는 설명, 플렉스 대기 건 안내 */
+.gw-lv-note { margin: -4px 0 12px; font-size: 0.85rem; color: #475569; }
+.gw-lv-up-why { margin-top: 4px; font-size: 0.85rem; color: #92400e; }
+
+/* 주황 글자 링크(#ff6b35, 흰 바탕 2.84:1) → 글자용 진한 주황(5.2:1). 주황 바탕·단추는 그대로 */
+.gw-home-more,
+.gw-ap-slack,
+.gw-callout a,
+.gw-lv-note a {
+  color: #c2410c;
+}
+
+.gw-home-more:hover,
+.gw-ap-slack:hover,
+.gw-callout a:hover {
+  color: #9a3412;
+}
+
+/* 남은 연차 칸(연주황 바탕) 이름 4.48:1 → 4.5 넘게 */
+.gw-stat-main .k { color: #475569; }
+
+/* 입력칸 테두리가 바탕과 거의 같던 것(1.3~1.5:1) → 3:1, 고르면 짙은 테두리+둘레 */
+.gw-page .form-control,
+.gw-page .form-select,
+.gw-lv-form .form-control,
+.gw-lv-form .form-select,
+.gw-drawer .form-control {
+  border-color: #8b95a5;
+}
+
+.gw-page .form-control:focus,
+.gw-page .form-select:focus,
+.gw-lv-form .form-control:focus,
+.gw-lv-form .form-select:focus,
+.gw-drawer .form-control:focus {
+  border-color: #2a3038;
+  box-shadow: 0 0 0 3px rgba(42, 48, 56, 0.2);
+}
+
+.gw-lv-form .form-control.is-invalid,
+.gw-lv-form .form-select.is-invalid {
+  border-color: #dc3545;
+}
+
+/* 결재 필터 날짜·검색 칸 테두리(#dcdee3, 1.3:1) — 바탕을 채운 칩(양식·상태)은 당근 모양 그대로 */
+.gw-chip-date,
+.gw-chip-search {
+  border-color: #8b95a5;
+}
+
+.gw-chip-date:focus,
+.gw-chip-search:focus,
+.gw-chip-select:focus-visible {
+  outline: none;
+  border-color: #2a3038;
+  box-shadow: 0 0 0 3px rgba(42, 48, 56, 0.25);
+}
+
+/* 휴대폰: 입력칸 글자 16px 미만이면 아이폰이 화면을 확대함(연도 고르기·결재 필터 14px 였음) */
+@media (max-width: 767.98px) {
+  .gw-page .form-control,
+  .gw-page .form-select,
+  .gw-drawer .form-control,
+  .gw-chip-select,
+  .gw-chip-date,
+  .gw-chip-search {
+    font-size: 16px;
+  }
+}

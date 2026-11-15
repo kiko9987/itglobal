@@ -151,6 +151,29 @@
     }
   });
 
+  // 좁은 화면: 닫힌 왼쪽 줄은 화면 밖에 있어도 Tab 이 들어가던 것 → 닫혀 있는 동안 inert(11-15 점검).
+  // ☰ 에 열림 상태도 알려 줌
+  function syncNarrowRail() {
+    var narrowClosed = isNarrow() && !has('gw-peek');
+    if (rail) {
+      if (narrowClosed) rail.setAttribute('inert', ''); else rail.removeAttribute('inert');
+    }
+    if (topMenuBtn) topMenuBtn.setAttribute('aria-expanded', isNarrow() ? String(has('gw-peek')) : String(!has('gw-collapsed')));
+  }
+  if (window.MutationObserver) {
+    new MutationObserver(syncNarrowRail).observe(body, { attributes: true, attributeFilter: ['class'] });
+  }
+  try { window.matchMedia('(max-width: 767.98px)').addEventListener('change', syncNarrowRail); } catch (e) { /* 옛 브라우저 */ }
+  syncNarrowRail();
+
+  // 하위 메뉴가 넘치면 지금 탭이 보이게 가로로 옮김(휴대폰에서 '연말정산' 등이 찾기 단추 뒤로 가려지던 것)
+  var subnav = document.querySelector('.gw-subnav');
+  var activeSub = subnav && subnav.querySelector('.gw-subnav-item.active');
+  if (activeSub && subnav.scrollWidth > subnav.clientWidth) {
+    var left = activeSub.getBoundingClientRect().left - subnav.getBoundingClientRect().left + subnav.scrollLeft;
+    subnav.scrollLeft = Math.max(0, left - (subnav.clientWidth - activeSub.offsetWidth) / 2);
+  }
+
   // 예전 화면으로(이번 로그인 동안) — 사용자 메뉴에서 다시 새 화면으로 돌아올 수 있음
   if (classicBtn) {
     classicBtn.addEventListener('click', function () {

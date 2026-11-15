@@ -1448,10 +1448,11 @@
             // 권한 뱃지 업데이트
             if (roleBadge) {
                 const roleMap = {
-                    'super_admin': { text: 'Admin', class: 'badge bg-warning' },
-                    'admin': { text: 'Admin', class: 'badge bg-warning' },
+                    'super_admin': { text: 'Admin', class: 'badge bg-warning text-dark' },
+                    'admin': { text: 'Admin', class: 'badge bg-warning text-dark' },
                     'editor': { text: 'Editor', class: 'badge bg-primary' },
-                    'viewer': { text: 'Viewer', class: 'badge bg-secondary' }
+                    'viewer': { text: 'Viewer', class: 'badge bg-secondary' },
+                    'field': { text: '현장', class: 'badge bg-secondary' }
                 };
 
                 const roleInfo = roleMap[window.userRole] || { text: window.userRole, class: 'badge bg-secondary' };

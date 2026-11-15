@@ -87,7 +87,7 @@
     } else {
       h += '<div class="gw-home-none mt-2">잡힌 휴가가 없어요.</div>';
     }
-    h += '<div class="gw-callout gw-callout-sm"><i class="fab fa-slack me-1" aria-hidden="true"></i>신청은 슬랙 <strong>휴가</strong> 앱에서 해요.</div>';
+    h += '<div class="gw-callout gw-callout-sm"><i class="far fa-calendar-check me-1" aria-hidden="true"></i>휴가 신청·취소는 <a href="/leave">내 휴가</a> 화면에서 해요.</div>';
     box.innerHTML = h;
   }
 

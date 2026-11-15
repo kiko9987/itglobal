@@ -382,7 +382,7 @@ body.gw-shell .gw-find-trigger {
   border: 1px solid #dcdee3;
   border-radius: 9999px;
   background: #f7f8f9;
-  color: #868b94;
+  color: #6b7079;
   font-size: 13.5px;
   cursor: text;
   flex-shrink: 0;
@@ -455,7 +455,7 @@ body.gw-shell .gw-find-bar {
   padding: 0 14px 0 18px;
   height: 56px;
   border-bottom: 1px solid #eeeff1;
-  color: #868b94;
+  color: #6b7079;
 }
 
 body.gw-shell .gw-find-bar input {
@@ -480,7 +480,7 @@ body.gw-shell .gw-find-group {
   align-items: center;
   justify-content: space-between;
   padding: 10px 10px 4px;
-  color: #868b94;
+  color: #6b7079;
   font-size: 12px;
   font-weight: 700;
 }
@@ -506,7 +506,7 @@ body.gw-shell .gw-find-item.active {
 }
 
 body.gw-shell .gw-find-item.dim .gw-find-name {
-  color: #868b94;
+  color: #6b7079;
 }
 
 body.gw-shell .gw-find-ic {
@@ -570,7 +570,7 @@ body.gw-shell .gw-find-sub {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #868b94;
+  color: #6b7079;
   font-size: 12.5px;
 }
 
@@ -580,13 +580,13 @@ body.gw-shell .gw-find-meta {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #868b94;
+  color: #6b7079;
   font-size: 12.5px;
 }
 
 body.gw-shell .gw-find-note {
   padding: 18px 12px;
-  color: #868b94;
+  color: #6b7079;
   font-size: 13.5px;
   text-align: center;
 }
@@ -596,7 +596,7 @@ body.gw-shell .gw-find-foot {
   gap: 16px;
   padding: 8px 16px;
   border-top: 1px solid #eeeff1;
-  color: #868b94;
+  color: #6b7079;
   font-size: 12px;
 }
 
@@ -1179,7 +1179,7 @@ body.gw-shell .gw-notify-head {
 }
 
 body.gw-shell .gw-notify-sub {
-  color: #868b94;
+  color: #6b7079;
   font-size: 12px;
 }
 
@@ -1266,7 +1266,7 @@ body.gw-shell .gw-notify-body {
 body.gw-shell .gw-notify-meta {
   display: flex;
   gap: 6px;
-  color: #868b94;
+  color: #6b7079;
   font-size: 12px;
 }
 
@@ -1276,7 +1276,7 @@ body.gw-shell .gw-notify-cat {
 
 body.gw-shell .gw-notify-empty {
   padding: 28px 16px;
-  color: #868b94;
+  color: #6b7079;
   font-size: 13.5px;
   text-align: center;
 }
@@ -1296,3 +1296,147 @@ body.gw-shell .gw-notify-empty {
 #gwInstallModal .gw-install-body li { padding: 3px 0; line-height: 1.55; }
 #gwInstallModal .gw-install-note { color: #64748b; font-size: 0.85rem; margin: 0; }
 #gwInstallModal [hidden] { display: none; }
+
+/* ── 11-15 화면 점검(impeccable) 1묶음 ─────────────────────────────── */
+
+/* 휴대폰이 다크 모드면 옛 PM 공용 CSS(modal-system·user-dropdown·notification-system)의 다크 규칙이
+   그룹웨어 창 바탕만 어둡게 바꿔 글자가 안 보였다(제목 1.22:1). 그룹웨어는 아직 밝은 화면만 → 밝게 고정 */
+@media (prefers-color-scheme: dark) {
+  html:has(body.gw-shell),
+  body.gw-shell {
+    color-scheme: light;
+  }
+
+  body.gw-shell .modal-content,
+  body.gw-shell .modal-body {
+    background: #ffffff;
+    color: #1a1c20;
+  }
+
+  body.gw-shell .modal-header {
+    background: #ffffff;
+    border-bottom-color: #e5e7eb;
+  }
+
+  body.gw-shell .modal-footer {
+    background: #f7f8f9;
+    border-top-color: #e5e7eb;
+  }
+
+  body.gw-shell .user-dropdown,
+  body.gw-shell .user-dropdown .dropdown-menu {
+    background: #ffffff;
+    border-color: #dcdee3;
+  }
+
+  body.gw-shell .user-dropdown .dropdown-item {
+    color: #1a1c20;
+  }
+
+  body.gw-shell .user-name {
+    color: #1a1c20;
+  }
+
+  body.gw-shell .user-email {
+    color: #555d6d;
+  }
+
+  body.gw-shell .toast,
+  body.gw-shell .progress-notification {
+    background: #ffffff;
+    color: #1a1c20;
+    border-color: #dcdee3;
+  }
+
+  body.gw-shell .toast-header {
+    background: #f7f8f9;
+    border-bottom-color: #e5e7eb;
+  }
+}
+
+/* 창 오른쪽 위 ✕ — 공용 modal-system.css 가 Bootstrap ✕ 그림을 지워(background:none) 빈 단추만 남았다 */
+body.gw-shell .modal-header .btn-close {
+  position: static;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  margin: -10px -10px -10px auto;
+  padding: 0;
+  border-radius: 8px;
+  background: transparent url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%231a1c20'%3e%3cpath d='M.293.293a1 1 0 0 1 1.414 0L8 6.586 14.293.293a1 1 0 1 1 1.414 1.414L9.414 8l6.293 6.293a1 1 0 0 1-1.414 1.414L8 9.414l-6.293 6.293a1 1 0 0 1-1.414-1.414L6.586 8 .293 1.707a1 1 0 0 1 0-1.414z'/%3e%3c/svg%3e") center / 14px auto no-repeat;
+  opacity: 0.7;
+}
+
+body.gw-shell .modal-header .btn-close:hover {
+  opacity: 1;
+  background-color: #f1f3f5;
+}
+
+body.gw-shell .modal-header .btn-close:focus-visible {
+  opacity: 1;
+  outline: 2px solid #2a3038;
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* 휴대폰 위쪽 줄 — 이름이 두 줄로 끊기고(권태/숙) ☰ 가 26px 로 눌리고 하위 탭이 가려지던 것 */
+body.gw-shell .gw-topbar-menu,
+body.gw-shell .gw-find-trigger,
+body.gw-shell .gw-notify,
+body.gw-shell .gw-topbar-right {
+  flex: none;
+}
+
+body.gw-shell .gw-subnav {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+@media (max-width: 767.98px) {
+  body.gw-shell .gw-topbar {
+    gap: 6px;
+    padding: 0 8px;
+  }
+
+  body.gw-shell .gw-topbar-menu {
+    width: 44px;
+    height: 44px;
+  }
+
+  body.gw-shell .gw-subnav-item {
+    padding: 0 8px;
+  }
+
+  body.gw-shell .gw-find-trigger,
+  body.gw-shell .gw-notify-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  body.gw-shell .gw-notify {
+    margin-left: 0;
+  }
+
+  body.gw-shell .gw-find-trigger ~ .gw-topbar-right,
+  body.gw-shell .gw-find-trigger ~ .gw-notify ~ .gw-topbar-right {
+    margin-left: 0;
+  }
+
+  body.gw-shell .gw-topbar .btn-user-menu {
+    display: inline-flex;
+    align-items: center;
+    height: 44px;
+    max-width: 96px;
+    padding: 0 10px;
+    white-space: nowrap !important;
+  }
+
+  body.gw-shell .gw-topbar .btn-user-menu > .fa-user {
+    display: none;
+  }
+
+  body.gw-shell .gw-topbar .btn-user-menu > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
