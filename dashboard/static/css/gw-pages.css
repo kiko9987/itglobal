@@ -2014,7 +2014,7 @@ body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7
   }
   #lvTeamTable tbody tr[data-id] td { display: block; padding: 0; border: 0; white-space: nowrap; font-size: 0.88rem; }
   #lvTeamTable tbody tr[data-id] td:nth-child(1) { font-size: 1rem; }
-  #lvTeamTable tbody tr[data-id] td:nth-child(2) { color: #475569; flex: 1 1 auto; }
+  #lvTeamTable tbody tr[data-id] td:nth-child(2) { color: #475569; flex: 1 0 70%; }
   #lvTeamTable tbody tr[data-id] td:nth-child(3) { order: 9; color: #6b7079; font-size: 0.82rem; }
   #lvTeamTable tbody tr[data-id] td:nth-child(3)::before { content: '입사 '; }
   #lvTeamTable tbody tr[data-id] td:nth-child(4) { flex-basis: auto; order: 2; }
@@ -2027,7 +2027,6 @@ body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7
   #lvTeamTable tbody tr[data-id] td:nth-child(7)::before { content: '대기 '; color: #6b7079; }
   #lvTeamTable tbody tr[data-id] td:nth-child(8) { order: 8; flex-basis: 100%; font-size: 0.85rem; white-space: normal; }
   #lvTeamTable tbody tr[data-id] td:nth-child(8)::before { content: '다음 휴가 '; color: #6b7079; }
-  #lvTeamTable tbody tr[data-id] td:nth-child(1)::after { content: ''; }
   #lvTeamTable tbody tr:not([data-id]) td { display: block; }
 
   /* 휴가 달력: 이름 칩이 '권태…'처럼 잘리던 것 → 칸 안쪽 여백·칩 여백 줄임 */
