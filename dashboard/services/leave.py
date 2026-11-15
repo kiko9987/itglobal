@@ -754,22 +754,53 @@ def _btn(text: str, action: str, rid: int, style: str = '', confirm: Optional[di
     return b
 
 
+# 본인 취소 단추 — 슬랙 요청자 카드·슬랙 [내 휴가]·그룹웨어 내 휴가가 같은 규칙과 문구를 쓴다(11-15)
+CANCEL_TITLE, CANCEL_YES, CANCEL_NO = '휴가 취소', '취소하기', '그대로 두기'
+
+
+def cancel_label(mode: str) -> str:
+    return '남은 날 취소' if mode == 'rest' else '신청 취소'
+
+
+def cancel_confirm_text(mode: str) -> str:
+    return ('오늘부터 남은 휴가를 취소할까요? 어제까지 쓴 날은 그대로 남고, 나머지 연차는 돌아와요.' if mode == 'rest'
+            else '이 휴가를 취소할까요? 쓴 연차는 돌아와요.')
+
+
+def own_cancel_mode(row: dict, uid: str = '', today: Optional[date] = None) -> str:
+    """본인 취소 단추를 보일지 — 'all'·'rest', 안 보이면 ''. 승인 대기이거나 아직 안 끝난 휴가만.
+    uid 를 주면 그 사람이 본인일 때만(그룹웨어·[내 휴가]), 안 주면 신청자 기준(요청자 DM 카드)."""
+    today = today or date.today()
+    who = uid or row.get('slack_id') or row.get('submitter_id') or ''
+    if not who or who not in (row.get('slack_id'), row.get('submitter_id')):
+        return ''
+    if row['status'] not in HOLDING or not (row['status'] in OPEN or _d(row['end']) >= today):
+        return ''
+    if not can_act('cancel', row, who, today):
+        return ''
+    return cancel_mode(row, who, today)
+
+
+def cancel_button(row: dict, uid: str = '', today: Optional[date] = None) -> Optional[dict]:
+    mode = own_cancel_mode(row, uid, today)
+    if not mode:
+        return None
+    return _btn(cancel_label(mode), A_CANCEL, row['id'], confirm={
+        'title': {'type': 'plain_text', 'text': CANCEL_TITLE},
+        'text': {'type': 'plain_text', 'text': cancel_confirm_text(mode)},
+        'confirm': {'type': 'plain_text', 'text': CANCEL_YES},
+        'deny': {'type': 'plain_text', 'text': CANCEL_NO}})
+
+
 def card_blocks(row: dict, step_rows: List[dict], role: str, left: Optional[float] = None) -> List[dict]:
     """role: approver(지금 승인할 사람) / requester / info."""
     blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': card_text(row, step_rows, role, left)[:2900]}}]
     els = []
     if role == 'approver' and row['status'] in OPEN:
         els = [_btn('✅ 승인', A_APPROVE, row['id'], 'primary'), _btn('반려', A_REJECT, row['id'], 'danger')]
-    elif role == 'requester' and row['status'] in HOLDING and \
-            (row['status'] in OPEN or _d(row['end']) >= date.today()):
-        rest = cancel_mode(row, row.get('slack_id') or row.get('submitter_id') or '') == 'rest'
-        els = [_btn('남은 날 취소' if rest else '신청 취소', A_CANCEL, row['id'], confirm={
-            'title': {'type': 'plain_text', 'text': '휴가 취소'},
-            'text': {'type': 'plain_text', 'text': (
-                '오늘부터 남은 휴가를 취소할까요? 어제까지 쓴 날은 그대로 남고, 나머지 연차는 돌아와요.' if rest
-                else '이 휴가를 취소할까요? 쓴 연차는 돌아와요.')},
-            'confirm': {'type': 'plain_text', 'text': '취소하기'},
-            'deny': {'type': 'plain_text', 'text': '그대로 두기'}})]
+    elif role == 'requester':
+        b = cancel_button(row)
+        els = [b] if b else []
     if els:
         blocks.append({'type': 'actions', 'block_id': f'leave_{row["id"]}', 'elements': els})
     return blocks

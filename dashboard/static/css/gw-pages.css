@@ -1626,3 +1626,125 @@
   line-height: 1.5;
 }
 .gw-ap-warn > div + div { margin-top: 4px; }
+/* ── 내 휴가: 신청·취소 (11-15) ─────────────────────────────── */
+.gw-lv-flash {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 0.92rem;
+}
+.gw-lv-flash.ok { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+.gw-lv-flash.err { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+
+.gw-lv-upcoming {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.gw-lv-upcoming li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.gw-lv-up-when { font-weight: 600; color: #0f172a; }
+.gw-lv-up-sub { font-size: 0.85rem; color: #475569; margin-top: 2px; }
+.gw-lv-cancel { white-space: nowrap; flex-shrink: 0; }
+.gw-lv-act { text-align: right; }
+
+/* 신청 창 — 글자 16px(아이폰이 칸을 누를 때 화면을 확대하지 않게), 칸 높이 넉넉히 */
+.gw-lv-form .form-control,
+.gw-lv-form .form-select {
+  font-size: 16px;
+  min-height: 44px;
+  height: auto;
+  text-align: left;
+  width: 100%;
+  max-width: none;
+}
+.gw-lv-form .form-label { font-weight: 600; font-size: 0.9rem; color: #334155; margin-bottom: 4px; }
+.gw-lv-field { margin-bottom: 14px; }
+.gw-lv-field[hidden] { display: none; }
+.gw-lv-left { background: #fff7ed; border: 1px solid #fed7aa; color: #7c2d12; border-radius: 8px; padding: 8px 12px; font-size: 0.92rem; }
+.gw-lv-opt { font-weight: 400; color: #64748b; font-size: 0.82rem; }
+.gw-lv-hint { font-size: 0.8rem; color: #64748b; margin-top: 4px; }
+.gw-lv-proof { margin: 0 0 8px; color: #9a3412; }
+.gw-lv-err { color: #b91c1c; font-size: 0.85rem; margin-top: 4px; }
+.gw-lv-err:empty { display: none; }
+.gw-lv-form .modal-footer .btn { min-height: 44px; min-width: 88px; }
+#lvCancelModal .modal-footer .btn { min-height: 44px; }
+
+@media (max-width: 767.98px) {
+  .gw-page-head .gw-lv-apply-btn { min-height: 44px; }
+  .gw-lv-cancel { min-height: 40px; padding-left: 12px; padding-right: 12px; }
+
+  /* 휴가 기록 표 → 한 건씩 카드(옆으로 밀지 않아도 다 보이게) */
+  .gw-lv-mine-table thead { display: none; }
+  .gw-lv-mine-table,
+  .gw-lv-mine-table tbody { display: block; }
+  .gw-lv-mine-table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .gw-lv-mine-table tr[hidden] { display: none; }
+  .gw-lv-mine-table td {
+    display: block;
+    border: 0;
+    padding: 0;
+    white-space: normal;
+  }
+  .gw-lv-mine-table td.gw-lv-when { grid-column: 1; font-weight: 600; }
+  .gw-lv-mine-table td:nth-child(2) { grid-column: 1; font-size: 0.85rem; color: #475569; }
+  .gw-lv-mine-table td:nth-child(3) { grid-column: 2; font-size: 0.85rem; color: #475569; }
+  .gw-lv-mine-table td:nth-child(4) { grid-column: 2; grid-row: 1; text-align: right; }
+  .gw-lv-mine-table td.gw-reason { grid-column: 1 / -1; min-width: 0; font-size: 0.85rem; color: #64748b; }
+  .gw-lv-mine-table td.gw-lv-act { grid-column: 1 / -1; text-align: left; }
+  .gw-lv-mine-table td.gw-lv-act:empty,
+  .gw-lv-mine-table td.gw-reason:empty { display: none; }
+  .gw-lv-mine-table td.gw-empty { grid-column: 1 / -1; }
+}
+
+/* 휴가 숫자 칸(.gw-stat)이 공용 틀의 프로젝트 상태 칩(body.gw-shell .gw-stat — 높이 48px·가로 정렬·손가락 커서)과
+   이름이 같아 휴대폰에서 글자가 옆으로 눌렸다(11-15) → 휴가 칸만 원래 모양으로 */
+body.gw-shell .gw-stats .gw-stat {
+  display: block;
+  height: auto;
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  cursor: default;
+  background: #fff;
+}
+body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7ed; }
+
+/* 신청·취소 창 — 공용 스타일(작은 화면에서 창 여백·버튼 세로 쌓기)을 이 두 창만 되돌림 */
+#lvApplyModal .modal-footer,
+#lvCancelModal .modal-footer {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+@media (max-width: 575.98px) {
+  #lvApplyModal .modal-dialog {
+    width: 100vw;
+    max-width: none;
+    height: 100%;
+    margin: 0;
+  }
+  /* 공용 스타일이 창 본문을 화면 60%로 묶어 둠 → 남는 높이를 다 쓰고 넘치면 본문만 스크롤 */
+  #lvApplyModal .modal-body { max-height: none; flex: 1 1 auto; overflow-y: auto; }
+  #lvApplyModal .modal-footer .btn,
+  #lvCancelModal .modal-footer .btn { flex: 1 1 0; }
+  #lvCancelModal .modal-dialog { margin: 12px; max-width: none; }
+}

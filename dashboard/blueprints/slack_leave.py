@@ -280,11 +280,40 @@ def apply_action(action: str, rid: int, uid: str, reason: str = '') -> Optional[
 
 
 # ── 내 휴가 ──────────────────────────────────────────────────────────
-def mine_view(text: str) -> dict:
+CB_MINE = 'leave_mine_view'   # [내 휴가] 창 — 이 창에서 취소하면 창을 새로 그린다
+
+
+def mine_view(text: str, extra: Optional[list] = None, note: str = '') -> dict:
+    blocks = []
+    if note:
+        blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': note[:300]}]})
+    blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': text[:2900]}})
     return {
-        'type': 'modal', 'title': _plain('내 휴가'), 'close': _plain('닫기'), 'notify_on_close': True,
-        'blocks': [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': text[:2900]}}],
+        'type': 'modal', 'callback_id': CB_MINE, 'title': _plain('내 휴가'), 'close': _plain('닫기'),
+        'notify_on_close': True, 'blocks': blocks + (extra or [])[:90],
     }
+
+
+def mine_cancel_blocks(uid: str) -> list:
+    """[내 휴가] 창 아래 — 본인이 취소할 수 있는 휴가마다 [신청 취소]/[남은 날 취소](11-15, 요청자 카드와 같은 규칙·문구)."""
+    me = lv.staff_by_slack(uid)
+    if not me:
+        return []
+    rows = [r for r in lv.requests_of(me['name']) if lv.own_cancel_mode(r, uid)]
+    if not rows:
+        return []
+    out = [{'type': 'divider'}, {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': '*취소할 수 있는 휴가*'}]}]
+    for r in sorted(rows, key=lambda x: x['start'])[:20]:
+        emoji, label = lv.STATUS_LABELS.get(r['status'], ('', r['status']))
+        out.append({'type': 'section',
+                    'text': {'type': 'mrkdwn', 'text': f"{lv.period_text(r)} · {lv.type_label(r['ltype'], r.get('sub') or '')}"
+                                                       f" · {lv.fmt_days(r['days'])} · {emoji} {label}"},
+                    'accessory': lv.cancel_button(r, uid)})
+    return out
+
+
+def my_mine_view(uid: str, note: str = '') -> dict:
+    return mine_view(_mine_text(uid), mine_cancel_blocks(uid), note)
 
 
 def home_view(uid: str) -> dict:
@@ -306,7 +335,7 @@ def home_view(uid: str) -> dict:
     if _gw_link_ok(uid):
         blocks.append({'type': 'divider'})
         blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text':
-                       '*그룹웨어*\n내 인사 정보와 휴가 내역을 볼 수 있어요.'},
+                       '*그룹웨어*\n내 인사 정보를 보고, 휴가를 신청·취소할 수 있어요.'},
                        'accessory': {'type': 'button', 'action_id': A_GW_LINK, 'text': _plain('🔑 그룹웨어 열기')}})
     return {'type': 'home', 'blocks': blocks}
 
@@ -431,14 +460,25 @@ def register_leave_handlers(app) -> None:
             rid = int(body['actions'][0]['value'])
             uid = (body.get('user') or {}).get('id', '')
 
+            view = body.get('view') or {}
+            in_mine = view.get('callback_id') == CB_MINE and bool(se._hub_view_id(body))
+
             def _bg():
+                failed = False
                 try:
                     msg = apply_action(action, rid, uid)
-                    if msg:
-                        se._ephemeral(client, body, f'🔒 {msg}')
+                    msg = f'🔒 {msg}' if msg else ''
                 except Exception as exc:
                     logger.error(f'{_LOG} {action} 실패 (#{rid}): {exc}', exc_info=True, extra={'force_alert': True})
-                    se._ephemeral(client, body, ':warning: 처리 중 오류가 났어요. 잠시 뒤 다시 눌러 주세요.')
+                    msg, failed = ':warning: 처리 중 오류가 났어요. 잠시 뒤 다시 눌러 주세요.', True
+                if in_mine:
+                    # [내 휴가] 창에서 누름 → 창을 지금 상태로 다시 그리고, 맨 위에 결과(안 됐으면 이유)
+                    try:
+                        client.views_update(view_id=view['id'], view=my_mine_view(uid, msg or '⚪ 휴가를 취소했어요.'))
+                    except Exception as exc:
+                        logger.warning(f'{_LOG} 내 휴가 창 다시 그리기 실패: {exc}')
+                elif msg or failed:
+                    se._ephemeral(client, body, msg)
             threading.Thread(target=_bg, daemon=True).start()
         return handler
 
@@ -498,14 +538,16 @@ def register_leave_handlers(app) -> None:
                 return
 
         def _bg():
+            extra = []
             try:
                 text = _mine_text(uid)
+                extra = mine_cancel_blocks(uid)
             except Exception as exc:
                 logger.error(f'{_LOG} 내 휴가 조회 실패: {exc}', exc_info=True)
                 text = ':warning: 휴가 내역을 불러오지 못했어요. 잠시 뒤 다시 눌러 주세요.'
             if view_id:
                 try:
-                    client.views_update(view_id=view_id, view=mine_view(text))
+                    client.views_update(view_id=view_id, view=mine_view(text, extra))
                 except Exception as exc:
                     logger.error(f'{_LOG} 내 휴가 창 바꾸기 실패: {exc}', exc_info=True)
             else:

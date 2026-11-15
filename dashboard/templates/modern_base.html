@@ -95,7 +95,10 @@
     <link rel="icon" type="image/png" sizes="192x192" href="{{ gw_asset('images/favicon-192.png') }}">
     <link rel="apple-touch-icon" href="{{ gw_asset('images/apple-touch-icon.png') }}">
 
-    <!-- PWA Manifest - Disabled for now to avoid 404 errors -->
+    {% if gw_layout %}
+    <!-- 홈 화면 앱 — 그룹웨어 틀에서만(예전 PM 화면엔 안 붙임) -->
+    {% include 'components/_web_app_head.html' %}
+    {% endif %}
 </head>
 <body{% if gw_layout %} class="gw-shell"{% endif %}>
     <!-- Critical loading overlay (각 페이지에 전용 로딩 표시가 있으므로 기본 숨김) -->

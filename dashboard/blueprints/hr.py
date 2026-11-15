@@ -245,7 +245,7 @@ def api_set_roles():
 
 
 # ── 휴가(조회) ────────────────────────────────────────────────────────
-# 신청·승인·취소는 슬랙 휴가 봇. 여기서는 보기만.
+# 승인·반려는 슬랙 휴가 봇. 본인 신청·취소는 여기서도(11-15) — 아래 /api/leave/apply·cancel.
 def _leave_all() -> bool:
     """전 직원 휴가를 볼 수 있나 — 인사카드 관리자·휴가 현황 열람자. 현장 세션은 아님."""
     return not _is_field() and hr.can_view_all_leave(_me())
@@ -269,11 +269,46 @@ def page_leave_team():
 @hr_bp.route('/api/leave/me', methods=['GET'])
 @gw_page
 def api_leave_me():
-    from dashboard.services import leave_view
+    """내 휴가 + 신청 창 정보(form) + 기록마다 본인 취소 단추(cancel)."""
+    from dashboard.services import leave_view, leave_web
     p = _my_person()
     if not p:
         return jsonify({'success': False, 'message': '인사카드가 연결되지 않았습니다.'}), 404
-    return jsonify({'success': True, 'leave': leave_view.summary(p)})
+    user = session.get('user') or {}
+    try:
+        form = leave_web.form_info(user)
+    except Exception as e:
+        logger.warning(f'[GW휴가] 신청 창 정보 실패: {e}', exc_info=True)
+        form = {'can_apply': False, 'why': '휴가 신청 정보를 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.'}
+    return jsonify({'success': True, 'leave': leave_web.annotate(leave_view.summary(p), user), 'form': form})
+
+
+# ── 휴가(본인 신청·취소) — 슬랙 휴가 앱과 같은 장부·같은 알림 ──────────────
+@hr_bp.route('/api/leave/apply', methods=['POST'])
+@gw_page
+def api_leave_apply():
+    from dashboard.services import leave_web
+    try:
+        row, errs = leave_web.apply(session.get('user') or {}, request.get_json(silent=True) or {})
+    except Exception as e:
+        return _fail(e)
+    if errs:
+        msg = errs.pop('_', '') or next(iter(errs.values()))
+        return jsonify({'success': False, 'message': msg, 'errors': errs}), 400
+    return jsonify({'success': True, 'id': row['id'], 'status': row['status'], 'days': row['days']})
+
+
+@hr_bp.route('/api/leave/<int:rid>/cancel', methods=['POST'])
+@gw_page
+def api_leave_cancel(rid):
+    from dashboard.services import leave_web
+    try:
+        msg = leave_web.cancel(session.get('user') or {}, rid)
+    except Exception as e:
+        return _fail(e)
+    if msg:
+        return jsonify({'success': False, 'message': msg}), 400
+    return jsonify({'success': True})
 
 
 @hr_bp.route('/api/leave/person/<int:pid>', methods=['GET'])

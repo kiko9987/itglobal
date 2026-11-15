@@ -115,11 +115,12 @@ def consume(token: str, ip: str = '', now: Optional[datetime] = None) -> Optiona
                            (_fmt(now), ip[:64], h, _fmt(now)))
         if cur.rowcount != 1:
             return None
-        row = conn.execute('SELECT person_id FROM gw_login_tokens WHERE token_hash = ?', (h,)).fetchone()
+        row = conn.execute('SELECT person_id, slack_id FROM gw_login_tokens WHERE token_hash = ?', (h,)).fetchone()
     p = hr.get_person(row[0]) if row else None
     if not p or p.get('status') == hr.STATUS_RESIGNED or p.get('access') != hr.ACCESS_FIELD:
         return None
-    return p
+    # 링크를 누른 슬랙 계정 — 웹 휴가 신청·취소는 이 ID 로 한다(인사카드 slack_id 는 나중에 바뀔 수 있음, 11-15)
+    return dict(p, link_slack_id=(row[1] or '') if row else '')
 
 
 def session_user(p: dict) -> dict:
@@ -133,6 +134,7 @@ def session_user(p: dict) -> dict:
         'picture': '',
         'gw_field': True,
         'gw_person_id': p['id'],
+        'gw_slack_id': p.get('link_slack_id') or '',
     }
 
 

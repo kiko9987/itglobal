@@ -10,13 +10,97 @@
 <div class="gw-page gw-page-narrow">
   <div class="gw-page-head">
     <h1 class="gw-page-title">내 휴가</h1>
+    {% if person_id %}
+    <button type="button" class="btn btn-primary gw-lv-apply-btn" id="lvApplyBtn" hidden>
+      <i class="fas fa-plus me-1" aria-hidden="true"></i>휴가 신청
+    </button>
+    {% endif %}
   </div>
   {% if person_id %}
+  <div id="lvFlash" class="gw-lv-flash" role="status" aria-live="polite" hidden></div>
   <div id="lvMine" aria-live="polite"><div class="gw-empty">불러오는 중…</div></div>
   {% else %}
   <div class="gw-empty gw-empty-box">아직 인사카드가 연결되지 않았습니다. 경영지원에 문의해 주세요.</div>
   {% endif %}
 </div>
+
+{% if person_id %}
+{# 휴가 신청 — 슬랙 휴가 앱 신청 창과 같은 칸(종류·경조사 종류·날짜·마지막 날·사유). 휴대폰에선 화면 가득 #}
+<div class="modal fade" id="lvApplyModal" tabindex="-1" aria-labelledby="lvApplyTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-fullscreen-sm-down">
+    <form class="modal-content gw-lv-form" id="lvApplyForm" novalidate>
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="lvApplyTitle">휴가 신청</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
+      </div>
+      <div class="modal-body">
+        <p class="gw-lv-left" id="lvApplyLeft"></p>
+
+        <div class="gw-lv-field">
+          <label class="form-label" for="lvType">휴가 종류</label>
+          <select class="form-select" id="lvType" name="type"></select>
+          <div class="gw-lv-err" data-err="type" role="alert"></div>
+        </div>
+
+        <div class="gw-lv-field" id="lvSubWrap" hidden>
+          <label class="form-label" for="lvSub">경조사 종류</label>
+          <select class="form-select" id="lvSub" name="sub"></select>
+          <div class="gw-lv-err" data-err="sub" role="alert"></div>
+        </div>
+
+        <div class="gw-lv-field">
+          <label class="form-label" for="lvStart" id="lvStartLabel">시작일</label>
+          <input type="date" class="form-control" id="lvStart" name="start" required>
+          <div class="gw-lv-err" data-err="start" role="alert"></div>
+        </div>
+
+        <div class="gw-lv-field" id="lvEndWrap">
+          <label class="form-label" for="lvEnd">마지막 날 <span class="gw-lv-opt">(고르지 않아도 돼요)</span></label>
+          <input type="date" class="form-control" id="lvEnd" name="end" aria-describedby="lvEndHint">
+          <div class="gw-lv-err" data-err="end" role="alert"></div>
+          <div class="gw-lv-hint" id="lvEndHint">하루만 쉬면 비워 두세요. 주말·공휴일은 일수에서 빠져요.</div>
+        </div>
+
+        <div class="gw-lv-field">
+          <label class="form-label" for="lvReason">사유</label>
+          <input type="text" class="form-control" id="lvReason" name="reason" maxlength="200" placeholder="예: 개인 사정"
+                 required aria-describedby="lvReasonHint">
+          <div class="gw-lv-err" data-err="reason" role="alert"></div>
+          <div class="gw-lv-hint" id="lvReasonHint">승인자(JW·YG)에게만 보여요. #휴가_일정에는 날짜만 올라가요.</div>
+        </div>
+
+        <div class="gw-lv-hint gw-lv-proof" id="lvProof" hidden>증빙(청첩장·부고·훈련 통지서 등)은 경영지원에 보내 주세요.</div>
+        <div class="gw-lv-err" data-err="_" role="alert"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">닫기</button>
+        <button type="submit" class="btn btn-primary" id="lvApplySubmit">신청</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# 휴가 취소 확인 — 슬랙 카드 확인 창과 같은 문구 #}
+<div class="modal fade" id="lvCancelModal" tabindex="-1" aria-labelledby="lvCancelTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="lvCancelTitle">휴가 취소</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-1" id="lvCancelWhat"></p>
+        <p class="mb-0" id="lvCancelText"></p>
+        <div class="gw-lv-err" id="lvCancelErr" role="alert"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">그대로 두기</button>
+        <button type="button" class="btn btn-danger" id="lvCancelYes">취소하기</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block additional_js %}

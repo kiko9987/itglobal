@@ -24,7 +24,9 @@ _FIELD_PAGES = ('/home', '/hr/me', '/leave', '/yearend', '/logout', '/login')
 _FIELD_API = [
     (('GET',), re.compile(r'^/api/home$')),              # 홈(현장은 내 휴가만 담김)
     (('GET',), re.compile(r'^/api/hr/people/\d+$')),     # 본인 카드(본인 여부는 화면 쪽에서 다시 확인)
-    (('GET',), re.compile(r'^/api/leave/me$')),          # 내 휴가
+    (('GET',), re.compile(r'^/api/leave/me$')),          # 내 휴가(+신청 창 정보)
+    (('POST',), re.compile(r'^/api/leave/apply$')),      # 본인 휴가 신청(본인 여부는 leave_web 이 슬랙 ID 로 다시 확인)
+    (('POST',), re.compile(r'^/api/leave/\d+/cancel$')), # 본인 휴가 취소(같음)
     (('GET',), re.compile(r'^/api/hr/documents/\d+$')),  # 본인 서류 내려받기(본인 여부는 화면 쪽에서 다시 확인)
     (('GET', 'POST'), re.compile(r'^/api/yearend/me(/submit|/reopen|/documents)?$')),   # 연말정산 본인 것만
     (('DELETE',), re.compile(r'^/api/yearend/me/documents/\d+$')),
@@ -35,7 +37,8 @@ _FIELD_API = [
 
 
 def field_path_allowed(method: str, path: str) -> bool:
-    if path.startswith('/static/') or path == '/favicon.ico' or path.startswith('/gw/login/'):
+    if path.startswith('/static/') or path == '/favicon.ico' or path.startswith('/gw/login/') \
+            or path == '/manifest.webmanifest':
         return True
     if path in _FIELD_PAGES:
         return True
@@ -56,6 +59,7 @@ def field_gatekeeper():
 
 _LINK_FAIL_PAGE = '''<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>링크를 쓸 수 없어요</title>
+<link rel="manifest" href="/manifest.webmanifest">
 <style>body{font-family:-apple-system,'Segoe UI',sans-serif;background:#f8fafc;margin:0;padding:48px 16px;color:#0f172a}
 .box{max-width:420px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:24px}
 h1{font-size:1.15rem;margin:0 0 8px}p{color:#475569;line-height:1.6;margin:0}</style></head>
@@ -81,6 +85,37 @@ def field_login(token):
     rotate_session_id()   # 세션 ID 새로 발급 (2026-11-13)
     logger.info(f'[GW-LOGIN] 현장 로그인 #{p["id"]} ip={ip}')
     return redirect('/home')
+
+
+# ── 홈 화면 앱(웹 앱 설치, 2026-11-15) ────────────────────────────────
+# 휴대폰 '홈 화면에 추가' → 주소창 없이 앱처럼 열린다. 스토어 앱 아님.
+# 서비스 워커는 쓰지 않는다 — 2026-07-08 Cache First 워커가 배포마다 옛 화면을 보여 줘서 일부러 끔(sw.js 머리말).
+# 요즘 안드로이드 크롬·iOS 사파리는 워커 없이도 설치 정보(manifest)만으로 주소창 없는 앱으로 연다.
+# 로그인 없이 읽혀야 한다(브라우저가 쿠키 없이 가져감) — 회사 이름·아이콘만 담는다.
+@groupware_bp.route('/manifest.webmanifest')
+def web_app_manifest():
+    from flask import Response
+    import json as _json
+    body = {
+        'id': '/home',
+        'name': '아이티글로벌',
+        'short_name': '아이티글로벌',
+        'description': '아이티글로벌 그룹웨어',
+        'lang': 'ko',
+        'start_url': '/home',
+        'scope': '/',
+        'display': 'standalone',
+        'background_color': '#ffffff',
+        'theme_color': '#ffffff',
+        'icons': [
+            {'src': gw_asset('images/favicon-192.png'), 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any'},
+            {'src': gw_asset('images/icon-512.png'), 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any'},
+            {'src': gw_asset('images/apple-touch-icon.png'), 'sizes': '180x180', 'type': 'image/png', 'purpose': 'any'},
+        ],
+    }
+    resp = Response(_json.dumps(body, ensure_ascii=False), mimetype='application/manifest+json')
+    resp.headers['Cache-Control'] = 'no-cache'
+    return resp
 
 
 @groupware_bp.app_template_global()
