@@ -237,7 +237,8 @@
           'H' + (x + bw - r) + 'Q' + (x + bw) + ',' + top + ' ' + (x + bw) + ',' + (top + r) + 'V' + (T + ph) + 'Z" fill="' + fill + '"/>';
       }
       var p = d.date.split('-'), dd = Number(p[2]);
-      if (i === n - 1 || (i % 5 === 0 && i < n - 3)) {
+      // 마지막 날짜와 겹치지 않게, 글자 폭(약 40) 안에 드는 앞 눈금은 건너뜀(휴대폰에서 '11/1111/15'로 붙던 것)
+      if (i === n - 1 || (i % 5 === 0 && (n - 1 - i) * slot >= 40)) {
         // 마지막 날짜는 오른쪽 끝에 맞춰 — 가운데 정렬이면 휴대폰에서 '11/15'가 잘렸다(11-15 점검)
         var last = i === n - 1;
         svg += '<text x="' + (last ? x + bw : x + bw / 2) + '" y="' + (H - 6) + '" text-anchor="' + (last ? 'end' : 'middle') + '" font-size="11" fill="#6b7079">' + Number(p[1]) + '/' + dd + '</text>';
