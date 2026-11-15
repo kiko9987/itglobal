@@ -1,0 +1,41 @@
+# robots.txt 정리본 — 2026-11-15
+#
+# [어디에 넣나] 아임웹 관리자 → 사이트 설정 → 검색엔진 최적화(SEO) → robots.txt 직접 입력 칸.
+# [중요] 아임웹이 이 내용 앞에 자기 기본 블록(User-agent: * / Allow: / / Disallow: /site_join …)을
+#        자동으로 붙인다. 구글은 같은 'User-agent: *' 그룹을 하나로 합쳐 읽으니 그대로 둬도 된다.
+#
+# [적용 순서 — 이 파일만 바꾸면 안 된다]
+#   1) 먼저 아임웹 관리자에서 아래 페이지들의 '검색엔진 노출'을 끈다(페이지 삭제 금지).
+#      /37  테스트 게시판('이름 없는 게시판', 글 2개 codes·test)
+#      /48  빈 페이지
+#      /49  옛 세척 랜딩(완전 분해 세척)
+#      /50  옛 홈 랜딩('17년간 9,000건' 옛 문구) — FAQ 게시판 글 주소(/50/?idx=)가 걸려 있어 삭제하면 안 된다
+#      /53  빈 페이지(메뉴·푸터만)
+#      /54  옛 세척 랜딩('에어컨 클리닝')
+#      /contact-board  열면 /login 으로 튕기는 로그인 전용 게시판
+#      → 노출을 끄면 아임웹이 noindex 를 붙이고 sitemap.xml 에서도 자동으로 빠진다.
+#   2) 그 다음에 이 robots.txt 를 넣는다. 위 주소들의 Disallow 를 일부러 뺐다.
+#
+# [왜 Disallow 를 뺐나]
+#   robots.txt 로 막으면 구글이 페이지를 아예 못 읽어서, 그 안에 있는 noindex 도 못 본다.
+#   그래서 '색인에서 빼고 싶은 페이지'는 Disallow 하지 말고 noindex 만 걸어야 실제로 빠진다.
+#   /35 · /home · /introduce · 각 backup 페이지 · /itglobal-kps 는 이미 noindex 가 걸려 있어
+#   Disallow 가 오히려 색인 제거를 막고 있었다. 전부 뺐다.
+#   아래 Disallow 로 남긴 것은 noindex 가 없는 기능 URL 뿐이다.
+#
+# [AI 크롤러] 봇별 그룹(User-agent: GPTBot 등)은 넣지 않는다. 그룹을 따로 만들면 그 봇은
+#   'User-agent: *' 규칙을 무시하므로 Disallow 를 전부 복사해야 하고, 지금은 아임웹 서버가
+#   이미 Claude-SearchBot·PerplexityBot·ChatGPT-User·GPTBot 등을 403 으로 막고 있어 효과도 없다.
+#   (이 403 은 아임웹 쪽 설정이라 관리자·고객센터에서 풀어야 한다)
+
+User-agent: *
+# 'Allow: /' 는 일부러 넣지 않았다. 기본이 허용이고, 구식 크롤러는 Allow 줄을 먼저 보고
+# 뒤의 Disallow 를 무시하는 경우가 있다(구글·빙은 가장 긴 규칙을 쓰므로 영향 없음).
+Disallow: /admin/
+Disallow: /login
+Disallow: /cart
+Disallow: /checkout
+Disallow: /search
+Disallow: /?mode*
+
+Sitemap: https://www.itg-aircon.com/sitemap.xml
