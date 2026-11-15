@@ -174,6 +174,43 @@
     subnav.scrollLeft = Math.max(0, left - (subnav.clientWidth - activeSub.offsetWidth) / 2);
   }
 
+  // 그룹웨어 화면의 창(휴가 신청·취소·앱 설치 등) 포커스(11-15 점검):
+  // 열면 첫 칸(칸이 없으면 아래 첫 단추 = '그대로 두기'·'확인' 같은 안전한 쪽), 닫으면 연 단추로 돌아감.
+  // 예전 PM 화면 창은 건드리지 않게 그룹웨어 화면(.gw-page)·설치 창만
+  function gwModal(m) {
+    return m && m.classList && m.classList.contains('modal') &&
+      (m.id === 'gwInstallModal' || !!document.querySelector('.gw-page'));
+  }
+  document.addEventListener('show.bs.modal', function (e) {
+    var m = e.target;
+    if (!gwModal(m)) return;
+    var a = document.activeElement;
+    // 사용자 메뉴 안 항목([앱으로 설치])에서 열었으면 메뉴가 닫히므로 이름 단추로 돌아가게
+    var dd = a && a.closest && a.closest('.dropdown');
+    if (dd && a.closest('.dropdown-menu')) a = dd.querySelector('[data-bs-toggle="dropdown"]') || a;
+    m._gwOpener = a && a !== document.body && !m.contains(a) ? a : null;
+  });
+  document.addEventListener('shown.bs.modal', function (e) {
+    var m = e.target;
+    if (!gwModal(m)) return;
+    var first = m.querySelector('.modal-body select:not([disabled]), .modal-body input:not([disabled]):not([type=hidden]), .modal-body textarea:not([disabled])');
+    if (first && first.offsetParent === null) first = null;
+    if (!first) first = m.querySelector('.modal-footer button:not([disabled])');
+    if (first) first.focus();
+  });
+  document.addEventListener('hidden.bs.modal', function (e) {
+    var m = e.target;
+    if (!gwModal(m)) return;
+    var o = m._gwOpener;
+    m._gwOpener = null;
+    if (o && document.contains(o) && o.offsetParent !== null) {
+      try { o.focus({ preventScroll: true }); } catch (x) { /* 무시 */ }
+    } else {
+      var h = document.querySelector('.gw-page-title');   // 연 단추가 다시 그려져 없어졌으면 화면 제목으로
+      if (h) { if (!h.hasAttribute('tabindex')) h.setAttribute('tabindex', '-1'); h.focus({ preventScroll: true }); }
+    }
+  });
+
   // 예전 화면으로(이번 로그인 동안) — 사용자 메뉴에서 다시 새 화면으로 돌아올 수 있음
   if (classicBtn) {
     classicBtn.addEventListener('click', function () {

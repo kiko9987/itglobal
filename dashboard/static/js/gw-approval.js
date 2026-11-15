@@ -38,11 +38,24 @@
 
   // ── 오른쪽 창 ─────────────────────────────────────
   var drawer = $('apDrawer');
+  var drawerOpener = null;   // 창을 연 줄 — 닫으면 그 줄로 포커스를 돌려준다(11-15 점검)
+  function drawerTitle() {
+    var t = $('apDocTitle');
+    if (t && !t.hasAttribute('tabindex')) t.setAttribute('tabindex', '-1');
+    return t;
+  }
   function openDrawer(title, html) {
     $('apDocTitle').textContent = title;
     $('apDoc').innerHTML = html;
+    if (drawer.hidden) {
+      var a = document.activeElement;
+      drawerOpener = a && a !== document.body && !drawer.contains(a) ? a : null;
+    }
     drawer.hidden = false;
     document.body.classList.add('gw-drawer-open');
+    // 키보드·화면 읽기 사용자가 창 안에서 시작하게 — 제목으로 포커스
+    var t = drawerTitle();
+    if (t) t.focus({ preventScroll: true });
   }
   function closeDrawer() {
     drawer.hidden = true;
@@ -50,10 +63,31 @@
     if (history.replaceState && /[?&]id=/.test(location.search)) {
       var u = new URL(location.href); u.searchParams.delete('id'); history.replaceState({}, '', u);
     }
+    if (drawerOpener && document.contains(drawerOpener)) {
+      try { drawerOpener.focus({ preventScroll: true }); } catch (e) { /* 무시 */ }
+    }
+    drawerOpener = null;
+  }
+  // 창이 열린 동안 Tab 이 뒤쪽 표로 빠져나가지 않게(aria-modal 인데 포커스가 갇히지 않던 것)
+  function trapTab(e) {
+    if (e.key !== 'Tab' || drawer.hidden) return;
+    var panel = drawer.querySelector('.gw-drawer-panel');
+    var items = Array.prototype.filter.call(
+      panel.querySelectorAll('a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'),
+      function (el) { return el.offsetParent !== null; });
+    if (!items.length) return;
+    var first = items[0], last = items[items.length - 1];
+    var cur = document.activeElement;
+    if (!panel.contains(cur)) { e.preventDefault(); first.focus(); return; }
+    if (e.shiftKey && (cur === first || cur === drawerTitle())) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && cur === last) { e.preventDefault(); first.focus(); }
   }
   if (drawer) {
     drawer.addEventListener('click', function (e) { if (e.target.closest('[data-close]')) closeDrawer(); });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !drawer.hidden) closeDrawer(); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && !drawer.hidden) closeDrawer();
+      trapTab(e);
+    });
   }
 
   function fieldsHtml(fields) {
@@ -178,14 +212,27 @@
       if (d.amount) h += '<div class="gw-ap-amount">' + won(d.amount) + '</div>';
       // 슬랙 카드와 같은 ⚠️ 줄 — 결재함으로 처리해도 계좌 바뀜·중복을 놓치지 않게(5차 점검)
       var warns = d.warnings || [];
+      var hasActions = d.actions && d.actions.length;
       if (warns.length) {
-        h += '<div class="gw-ap-warn" role="alert">' + warns.map(function (w) { return '<div>' + esc(w) + '</div>'; }).join('') + '</div>';
+        h += '<div class="gw-ap-warn" role="alert">' +
+          (hasActions ? '<div class="gw-ap-warn-head">아래 내용을 확인하고 처리해 주세요</div>' : '') +
+          warns.map(function (w) { return '<div>' + esc(w) + '</div>'; }).join('') + '</div>';
+      }
+      // 처리 단추는 내용(계좌·예금주) 아래 — 판단 근거를 보기 전에 [승인]을 누르지 않게(11-15 점검).
+      // 내 차례인데 위에서 단추가 안 보이면 헷갈리니 한 줄로 알려 줌
+      if (hasActions) {
+        h += '<div class="gw-ap-turn-hint"><i class="fas fa-arrow-down me-1" aria-hidden="true"></i>내용을 확인한 뒤 아래에서 처리해 주세요.</div>';
       }
 
-      if (d.actions && d.actions.length) {
-        h += '<div class="gw-ap-actions" id="apActions">' + d.actions.map(function (a) {
+      h += '<div class="gw-sec-title">내용</div>' + fieldsHtml(d.fields);
+
+      if (hasActions) {
+        h += '<div class="gw-ap-actions' + (warns.length ? ' warned' : '') + '" id="apActions">' + d.actions.map(function (a) {
+          var warnedPrimary = a.primary && warns.length;
           return '<button type="button" class="btn ' + (a.primary ? 'btn-primary' : (a.key === 'reject' ? 'btn-outline-danger' : 'btn-outline-secondary')) +
-            '" data-act="' + a.key + '" data-reason="' + (a.needs_reason ? '1' : '') + '">' + esc(a.label) + '</button>';
+            '" data-act="' + a.key + '" data-reason="' + (a.needs_reason ? '1' : '') + '">' +
+            (warnedPrimary ? '<i class="fas fa-exclamation-triangle me-1" aria-hidden="true"></i>' : '') + esc(a.label) +
+            (warnedPrimary ? '<span class="visually-hidden"> (경고 있음)</span>' : '') + '</button>';
         }).join('') + '</div>' +
         '<div class="gw-ap-reason" id="apReason" hidden><textarea class="form-control" rows="3" maxlength="300" id="apReasonText"></textarea>' +
         '<div class="gw-ap-reason-btns"><button type="button" class="btn btn-sm btn-outline-secondary" id="apReasonCancel">취소</button>' +
@@ -193,7 +240,6 @@
         '<div class="gw-form-error" id="apActError" role="alert"></div>';
       }
 
-      h += '<div class="gw-sec-title">내용</div>' + fieldsHtml(d.fields);
       h += '<div class="gw-sec-title">진행</div>';
       if (d.steps.length) {
         h += '<ol class="gw-ap-steps">' + d.steps.map(function (s) {
@@ -208,8 +254,14 @@
       if (d.slack_link) {
         h += '<a class="gw-ap-slack" href="' + esc(d.slack_link) + '" target="_blank" rel="noopener"><i class="fab fa-slack me-1" aria-hidden="true"></i>슬랙 카드 열기 — 첨부 파일·댓글은 카드 스레드에 있어요</a>';
       }
+      var hadFocusInside = drawer.contains(document.activeElement);
       $('apDoc').innerHTML = h;
       bindActions(d);
+      // 처리 뒤 다시 그리면 누른 단추가 사라져 포커스를 잃음 → 제목으로
+      if (hadFocusInside && !drawer.contains(document.activeElement)) {
+        var t = drawerTitle();
+        if (t) t.focus({ preventScroll: true });
+      }
     }
 
     function bindActions(d) {
@@ -229,7 +281,7 @@
           t.focus();
           return;
         }
-        var label = b.textContent;
+        var label = b.textContent.replace(' (경고 있음)', '');
         var warnText = (d.warnings || []).filter(function (w) { return w.indexOf('⚠️') !== -1; });
         var ask = d.title + '\n' + (warnText.length ? '\n' + warnText.join('\n') + '\n\n' : '') +
           '「' + label + '」 처리할까요? 슬랙 카드도 같이 바뀌어요.';

@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="IT Global 프로젝트 통합 관리 시스템">
-    <meta name="theme-color" content="#FF6B35">
+    {# 그룹웨어는 흰 위쪽 줄 — 홈 화면 앱(manifest theme_color #ffffff)과 같은 색으로(11-15 점검), 예전 화면은 주황 그대로 #}
+    <meta name="theme-color" content="{{ '#ffffff' if gw_layout else '#FF6B35' }}">
 
     <title>{% block title %}ITG 대시보드{% endblock %}</title>
 

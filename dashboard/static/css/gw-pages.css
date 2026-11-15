@@ -1842,3 +1842,59 @@ body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7
     font-size: 16px;
   }
 }
+
+/* ── 11-15 화면 점검 4묶음: 결재 상세·결재표 휴대폰 ─────────────────── */
+
+/* 경고가 있으면 맨 위 굵은 한 줄, 처리 단추 묶음도 경고 색 테두리 */
+.gw-ap-warn-head { font-weight: 700; margin-bottom: 4px; }
+.gw-ap-turn-hint { margin: 4px 0 8px; font-size: 0.85rem; color: #475569; }
+.gw-ap-actions.warned {
+  padding: 10px 12px;
+  border: 1px solid #f5c26b;
+  border-radius: 8px;
+  background: #fffcf3;
+}
+.gw-ap-actions { margin-top: 18px; }
+.gw-drawer-head h2:focus { outline: none; }
+.gw-drawer-head h2:focus-visible { outline: 2px solid #2a3038; outline-offset: 2px; border-radius: 4px; }
+.gw-drawer-head .btn-close { width: 44px; height: 44px; margin: -10px -12px -10px 0; flex: none; }
+
+/* 휴대폰: 결재 목록을 860px 가로 스크롤 표 대신 줄마다 카드로(#apRows 만 — 플렉스 보관함 표는 그대로) */
+@media (max-width: 767.98px) {
+  .gw-ap-tablewrap:has(#apRows) { overflow-x: visible; }
+  .gw-ap-table:has(#apRows) { min-width: 0; }
+  .gw-ap-table:has(#apRows) thead { display: none; }
+  #apRows,
+  #apRows tr { display: block; }
+  #apRows tr[data-id] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    padding: 12px 14px;
+    border-bottom: 1px solid #eeeff1;
+  }
+  #apRows tr[data-id] td {
+    display: block;
+    padding: 0;
+    border: 0;
+    white-space: normal;
+    font-size: 0.9rem;
+  }
+  #apRows tr[data-id] td:empty { display: none; }
+  /* 1줄: 상태·번호·양식 / 2줄: 내용 / 3줄: 금액·현장·요청자·올린 때 */
+  #apRows tr[data-id] td:nth-child(7) { order: 0; }
+  #apRows tr[data-id] td:nth-child(1) { order: 1; }
+  #apRows tr[data-id] td:nth-child(2) { order: 2; color: #475569; }
+  #apRows tr[data-id] td.main { order: 3; flex-basis: 100%; min-width: 0; font-size: 1rem; font-weight: 600; }
+  #apRows tr[data-id] td.num { order: 4; font-weight: 600; color: #1a1c20; }
+  #apRows tr[data-id] td:nth-child(4),
+  #apRows tr[data-id] td:nth-child(6),
+  #apRows tr[data-id] td:nth-child(8) { order: 5; color: #6b7079; }
+  #apRows tr:not([data-id]) td { display: block; }
+  /* 내 차례 주황 줄은 카드 왼쪽 끝에(표에선 첫 칸 왼쪽이었음) */
+  #apRows tr.my-turn td:first-child { box-shadow: none; }
+  #apRows tr.my-turn[data-id] { box-shadow: inset 3px 0 0 #ff6f0f; }
+}
+
+.gw-page-title:focus { outline: none; }
