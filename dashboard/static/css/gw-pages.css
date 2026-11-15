@@ -1955,3 +1955,35 @@ body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7
   #apRows tr[data-id] td:nth-child(8) { font-size: 0.82rem; white-space: nowrap; }
   #apRows tr[data-id] td:nth-child(2) { font-size: 0.85rem; }
 }
+
+/* 휴대폰 플렉스 보관함: 제목·설명이 한 줄에 끼어 제목이 두 줄로 꺾이던 것, 9칸 표 가로 스크롤 → 카드 */
+@media (max-width: 767.98px) {
+  #arPage .gw-page-head { flex-wrap: wrap; row-gap: 4px; }
+  #arPage .gw-page-head .gw-page-title { flex: 1 1 100%; }
+  .gw-ap-tablewrap:has(#arRows) { overflow-x: visible; }
+  .gw-ap-table:has(#arRows) { min-width: 0; }
+  .gw-ap-table:has(#arRows) thead { display: none; }
+  #arRows,
+  #arRows tr { display: block; }
+  #arRows tr[data-doc] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    padding: 12px 14px;
+    border-bottom: 1px solid #eeeff1;
+  }
+  #arRows tr[data-doc] td { display: block; padding: 0; border: 0; white-space: normal; font-size: 0.85rem; }
+  #arRows tr[data-doc] td:empty { display: none; }
+  /* 1줄: 상태·문서 번호·양식 / 2줄: 제목 / 3줄: 금액·현장·거래처·작성자·때 */
+  #arRows tr[data-doc] td:nth-child(8) { order: 0; }
+  #arRows tr[data-doc] td:nth-child(1) { order: 1; }
+  #arRows tr[data-doc] td:nth-child(2) { order: 2; color: #475569; }
+  #arRows tr[data-doc] td.main { order: 3; flex-basis: 100%; min-width: 0; font-size: 1rem; font-weight: 600; }
+  #arRows tr[data-doc] td.num { order: 4; font-weight: 600; color: #1a1c20; white-space: nowrap; }
+  #arRows tr[data-doc] td:nth-child(4),
+  #arRows tr[data-doc] td:nth-child(5),
+  #arRows tr[data-doc] td:nth-child(7),
+  #arRows tr[data-doc] td:nth-child(9) { order: 5; font-size: 0.82rem; color: #6b7079; white-space: nowrap; }
+  #arRows tr:not([data-doc]) td { display: block; }
+}
