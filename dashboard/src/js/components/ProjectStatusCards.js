@@ -15,8 +15,9 @@ import { PAID_UNISSUED, PAID_UNISSUED_LABEL, matchesInvoice } from '../utils/inv
 // ⚠️ 함수로 만든다: utils 묶음(청크)의 값을 모듈 맨 위에서 읽으면 components↔utils 청크 순환 때문에
 //    "Cannot access before initialization"으로 목록 화면 전체가 멈춘다(2026-11-10 시험 서버에서 확인).
 const cardDefs = () => [
-  { key: '공사대기', kind: 'status', value: '공사대기', tone: 'wait', tip: '공사 시작 전인 공사' },
-  { key: '공사진행', kind: 'status', value: '공사진행', tone: 'run', tip: '공사가 시작됐거나 입금이 들어온 공사' },
+  { key: '공사대기', kind: 'status', value: '공사대기', tone: 'wait', tip: '공사 시작 전인 공사(계약금을 받은 공사도 여기)' },
+  // 입금이 있어도 시작일 전이면 공사대기(ProjectStatusCalculator 4번) — 11-17 안내 문구 맞춤
+  { key: '공사진행', kind: 'status', value: '공사진행', tone: 'run', tip: '공사가 시작됐고 아직 끝나지 않은 공사' },
   { key: '수금필요', kind: 'status', value: '수금필요', tone: 'due', tip: '공사가 끝났는데 입금이 다 안 된 공사' },
   { key: '확인필요', kind: 'status', value: '확인필요', tone: 'check', tip: '금액·날짜가 비었거나 서로 맞지 않는 공사' },
   // 입금이 들어왔는데 세금계산서가 없는 공사만(입금 전 공사·현금(N입금)·카드는 안 셈). 2026-11-10 사용자 결정
