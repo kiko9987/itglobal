@@ -47,6 +47,16 @@ def _saved_ranges() -> dict:
         return {}
 
 
+RANGE_EDIT_DENIED = '정산 기간은 경영지원과 대표님만 바꿀 수 있어요.'
+
+
+def _can_edit_range() -> bool:
+    """정산 기간 저장·되돌리기는 정산 승인 명단(경영지원 SB·KiKO + 대표 JW·YG, settlement_checkers)만 — 부장님 결정 11-17."""
+    from ..services.settlement_checkers import checker_emails
+    u = session.get('user') or {}
+    return isinstance(u, dict) and (u.get('email') or '').strip().lower() in checker_emails()
+
+
 def _report():
     year, month = cr.parse_period(request.args.get('period', ''))
     refresh = request.args.get('refresh', 'false').lower() == 'true'
@@ -56,7 +66,8 @@ def _report():
 @collected_report_bp.route('/settlement/collected')
 @login_required
 def collected_page():
-    return render_template('collected_report.html', periods=cr.recent_periods(saved=_saved_ranges()))
+    return render_template('collected_report.html', periods=cr.recent_periods(saved=_saved_ranges()),
+                           can_edit_range=_can_edit_range())
 
 
 @collected_report_bp.route('/api/settlement/collected')
@@ -73,7 +84,9 @@ def collected_json():
 @collected_report_bp.route('/api/settlement/collected/range', methods=['POST'])
 @login_required
 def collected_range():
-    """그 달 정산 기간 저장. reset=true 면 기본(26~25일)으로 되돌림."""
+    """그 달 정산 기간 저장. reset=true 면 기본(26~25일)으로 되돌림. 경영지원·대표만."""
+    if not _can_edit_range():
+        return jsonify({'success': False, 'error': RANGE_EDIT_DENIED}), 403
     body = request.get_json(silent=True) or {}
     period = str(body.get('period') or '')
     try:

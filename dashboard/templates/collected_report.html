@@ -92,7 +92,7 @@
       <i class="fas fa-file-excel me-1"></i>엑셀 내려받기</a>
   </div>
   <div class="cr-note">수금 확인이 체크되고 수금 날짜가 기간 안에 있는 공사입니다. 담당자 이름을 누르면 사업자별 목록과 소계가 펼쳐집니다. 엑셀에는 전체 칸과 '담당자별 합계' 시트가 들어갑니다.<br>
-    명절 등으로 기준일이 바뀐 달은 기간을 고치고 [이 기간으로 저장]을 누르세요. 다음에도 그 기간으로 열리고, 다음 달은 바꾼 끝날 다음 날부터 시작합니다.</div>
+    {% if can_edit_range %}명절 등으로 기준일이 바뀐 달은 기간을 고치고 [이 기간으로 저장]을 누르세요. 다음에도 그 기간으로 열리고, 다음 달은 바꾼 끝날 다음 날부터 시작합니다.{% else %}정산 기간은 경영지원과 대표님이 정합니다.{% endif %}</div>
   <div class="cr-notes d-none" id="crNotes"></div>
 
   <div class="cr-cards mt-3" id="crCards"></div>
@@ -134,9 +134,14 @@
   const inS = document.getElementById('crStart'), inE = document.getElementById('crEnd');
   const btnSave = document.getElementById('crSaveRange'), btnReset = document.getElementById('crResetRange');
   let cur = null;
+  // 기간 저장·되돌리기는 경영지원·대표만(부장님 결정 11-17, 서버도 막음) — 다른 사람은 기간을 보기만
+  const CAN_EDIT = {{ 'true' if can_edit_range else 'false' }};
+  if (!CAN_EDIT) {
+    [inS, inE].forEach(inp => { inp.disabled = true; inp.title = '정산 기간은 경영지원과 대표님만 바꿀 수 있어요.'; });
+  }
   const md = s => { const [, m, d] = s.split('-'); return `${+m}/${+d}`; };
   function syncSave() {
-    btnSave.classList.toggle('d-none', !cur || (inS.value === cur.start && inE.value === cur.end));
+    btnSave.classList.toggle('d-none', !CAN_EDIT || !cur || (inS.value === cur.start && inE.value === cur.end));
   }
   // 날짜 규칙 (새 프로젝트 등록 창과 같게, 2026-11-09)
   //  - 끝날 달력은 시작일 이전, 시작일 달력은 끝날 이후 날짜를 못 고름
@@ -200,7 +205,7 @@
     inE.value = d.end;
     syncBounds();
     syncSave();
-    btnReset.classList.toggle('d-none', !d.custom);
+    btnReset.classList.toggle('d-none', !CAN_EDIT || !d.custom);
     const opt = sel.options[sel.selectedIndex];
     if (opt && d.label) opt.text = d.label;
     document.getElementById('crHint').textContent = d.custom

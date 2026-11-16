@@ -162,6 +162,7 @@ def test_range_api_save_and_reset(monkeypatch):
     fake = FakeRedis()
     monkeypatch.setattr(auth, '_validate_session', lambda *a, **k: None)
     monkeypatch.setattr(bp, '_redis', lambda: fake)
+    monkeypatch.setattr(bp, '_can_edit_range', lambda: True)   # 경영지원·대표로 로그인한 셈
     monkeypatch.setattr(bp, '_records', lambda refresh: [_r('G1-YG', '박용구', '글로벌', '2026-10-24')])
     app = Flask(__name__)
     app.secret_key = 'x'
@@ -179,3 +180,35 @@ def test_range_api_save_and_reset(monkeypatch):
     assert c.post(url, json={'period': '2026-10', 'reset': True}).get_json()['success'] and fake == {}
     c.post(url, json={'period': '2026-10', 'start': '2026-09-26', 'end': '2026-10-25'})
     assert fake == {}
+
+
+def test_range_api_only_office(monkeypatch):
+    """정산 기간 저장·되돌리기는 경영지원·대표(정산 승인 명단)만 (부장님 결정 11-17). 다른 직원은 403, 저장된 값은 그대로."""
+    from flask import Flask
+    from dashboard import auth
+    from dashboard.blueprints import collected_report as bp
+    from dashboard.services import settlement_checkers as sc
+
+    class FakeRedis(dict):
+        def hgetall(self, k): return dict(self)
+        def hset(self, k, f, v): self[f] = v
+        def hdel(self, k, f): self.pop(f, None)
+
+    fake = FakeRedis({'2026-10': '2026-09-24|2026-10-23'})
+    monkeypatch.setattr(auth, '_validate_session', lambda *a, **k: None)
+    monkeypatch.setattr(bp, '_redis', lambda: fake)
+    monkeypatch.setattr(sc, 'checker_emails', lambda: {'office@example.test'})
+    app = Flask(__name__)
+    app.secret_key = 'x'
+    app.register_blueprint(bp.collected_report_bp)
+    c = app.test_client()
+    url = '/api/settlement/collected/range'
+    with c.session_transaction() as s:
+        s['user'] = {'email': 'sales@example.test', 'name': '영업'}
+    for body in ({'period': '2026-10', 'start': '2026-09-20', 'end': '2026-10-20'}, {'period': '2026-10', 'reset': True}):
+        r = c.post(url, json=body)
+        assert r.status_code == 403 and r.get_json()['error'] == bp.RANGE_EDIT_DENIED
+    assert fake == {'2026-10': '2026-09-24|2026-10-23'}
+    with c.session_transaction() as s:
+        s['user'] = {'email': 'office@example.test', 'name': '경영지원'}
+    assert c.post(url, json={'period': '2026-10', 'reset': True}).get_json()['success'] and fake == {}
