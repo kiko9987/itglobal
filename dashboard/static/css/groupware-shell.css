@@ -925,6 +925,58 @@ body.gw-shell .filter-section .form-select option {
   color: #1a1c20;
 }
 
+/* PC 필터 드롭다운 목록 — 브라우저 기본 목록은 글자가 테두리에 붙고 줄 간격이 좁았음(부장님 지적 11-16 저녁).
+   꾸밀 수 있는 브라우저(Chrome·Edge 135+)에서만 둥근 상자·여백·그림자. 휴대폰은 기본 선택 창이 더 편해 그대로. */
+@media (min-width: 768px) {
+  @supports (appearance: base-select) {
+    body.gw-shell .filter-section .form-select,
+    body.gw-shell .filter-section .form-select::picker(select) {
+      appearance: base-select;
+    }
+    body.gw-shell .filter-section .form-select {
+      display: inline-flex;
+      align-items: center;     /* 꾸미는 목록으로 바꾸면 단추 글자가 위로 붙어 화살표와 어긋났음 */
+      line-height: 1.2;
+    }
+    body.gw-shell .filter-section .form-select::picker-icon {
+      display: none;               /* 화살표는 기존 배경 그림 하나만 */
+    }
+    body.gw-shell .filter-section .form-select::picker(select) {
+      margin-top: 4px;
+      padding: 6px;
+      min-width: 160px;
+      border: 1px solid #dcdee3;
+      border-radius: 12px;
+      background: #ffffff;
+      box-shadow: 0 8px 24px rgba(16, 24, 40, 0.12);
+    }
+    body.gw-shell .filter-section .form-select option {
+      display: flex;
+      align-items: center;
+      min-height: 36px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 14px;
+      color: #1a1c20;
+      background: transparent;
+      white-space: nowrap;
+    }
+    body.gw-shell .filter-section .form-select option::checkmark {
+      display: none;
+    }
+    body.gw-shell .filter-section .form-select option:hover,
+    body.gw-shell .filter-section .form-select option:focus-visible {
+      background: #f2f3f6;
+      outline: none;
+    }
+    body.gw-shell .filter-section .form-select option:checked {
+      background: #fff1ea;
+      color: #c2410c;
+      font-weight: 600;
+    }
+  }
+}
+
 body.gw-shell .filter-section #searchInput {
   height: 36px;
   width: 200px;
