@@ -2730,45 +2730,111 @@ def _dedup_hash(biz: str, owner: str, addr: str, start: str, amount: str) -> str
     return _hl.md5(raw.encode('utf-8')).hexdigest()[:16]
 
 
-def _find_recent_duplicate(data: dict, minutes: int = 5) -> Optional[str]:
-    """최근 오늘자 동일 데이터로 이미 등록된 프로젝트 코드가 있으면 반환.
+# 중복 등록 방지 — 선점(claim) 방식 (2026-11-16 R4291/R4292 사고)
+#
+# 전에는 '들어올 때 조회 → (느린 작업) → 나갈 때 저장' 이어서 그 사이가 빈 창이었다.
+# R4291/R4292 는 접수부터 발번까지 37초가 걸리는 바람에, 31초 뒤 다시 누른 2차 요청이
+# 1차가 키를 심기 6초 전에 조회를 끝내 둘 다 통과했다(멱등 키·dedup 키가 똑같았는데도).
+# 이제는 들어오는 순간 SET NX 로 키를 차지한다. 못 차지한 요청은 먼저 들어온 요청의
+# 결과를 기다려 같은 코드를 돌려주므로, 간격이 몇 초든 몇 분이든 하나만 만들어진다.
+_CLAIM_PENDING = '__pending__'
 
-    (사업자·담당자·주소·공사 시작·총액 1) 모두 같은 프로젝트가 오늘 확정 등록됐으면
-    duplicate 로 판단. Idempotency key 유실 시 안전망.
 
-    2026-07-10 강화: Redis 즉시 캐시 우선 조회 → load_data 캐시 지연 문제 회피
-      (G3852/G3853 관측: 첫 요청 응답 후 8초 만에 재요청 왔지만 load_data 캐시
-      아직 갱신 안 됐음 → dedup 실패).
+def _claim(rc, key: str, ttl: int) -> bool:
+    """키를 선점한다. 내가 처음이면 True."""
+    return bool(rc.set(key, _CLAIM_PENDING, nx=True, ex=ttl))
 
-    성능: 3800+ 행 dict 순회 대신 pandas mask 로 오늘자만 먼저 필터 (수 ms).
+
+def _release_claim(rc, key: str) -> None:
+    """내 선점을 푼다 — 아직 결과를 안 넣은 경우에만(남의 결과를 지우지 않게)."""
+    try:
+        cur = rc.get(key)
+        if cur is None:
+            return
+        cur = cur if isinstance(cur, str) else cur.decode()
+        if cur == _CLAIM_PENDING:
+            rc.delete(key)
+    except Exception as exc:
+        logger.warning(f'[CREATE_PROJECT/claim] 선점 해제 실패 key={key[-20:]}: {exc}')
+
+
+def _await_claim(rc, key: str, timeout: float = 45.0, interval: float = 0.4):
+    """남이 선점한 키의 결과를 기다린다.
+
+    반환:
+      - 문자열/dict: 먼저 들어온 요청이 남긴 결과 (그대로 돌려주면 된다)
+      - _CLAIM_PENDING: 시간 안에 안 끝남 → 호출자가 409 로 돌려보낸다
+      - None: 선점자가 실패해 키를 풀었다 → 호출자가 다시 선점을 시도한다
     """
+    import time as _t
+    deadline = _t.monotonic() + timeout
+    while True:
+        try:
+            cur = rc.get(key)
+        except Exception as exc:
+            logger.warning(f'[CREATE_PROJECT/claim] 결과 대기 중 조회 실패: {exc}')
+            return _CLAIM_PENDING
+        if cur is None:
+            return None
+        cur = cur if isinstance(cur, str) else cur.decode()
+        if cur != _CLAIM_PENDING:
+            return cur
+        if _t.monotonic() >= deadline:
+            return _CLAIM_PENDING
+        _t.sleep(interval)
+
+
+def _dedup_fields(data: dict):
+    """dedup 해시에 쓸 다섯 값. 하나라도 비면 None (판정 못 함)."""
     biz = str(data.get('사업자', '') or '').strip()
     owner = str(data.get('담당자', '') or '').strip()
     addr = str(data.get('현장 주소', '') or '').strip()
     start = str(data.get('공사 시작', '') or '').strip()[:10]
-    amount_in = str(data.get('총액 1', '') or '').replace(',', '').replace('₩', '').strip()
+    amount = str(data.get('총액 1', '') or '').replace(',', '').replace('₩', '').strip()
     if not (biz and owner and addr and start):
         return None
+    return (biz, owner, addr, start, amount)
 
-    # Layer A: Redis 즉시 조회 (load_data 캐시 지연 우회)
+
+def _dedup_response(code: str) -> dict:
+    """중복으로 걸러진 요청에 돌려줄 본문 — 먼저 만들어진 공사를 그대로 보여 준다.
+
+    project_data 를 같이 담아야 프론트가 시트를 통째로 다시 읽지 않는다(15초).
+    """
+    dup_project = None
     try:
-        from dashboard.utils.redis_client import get_redis_client
-        rc = get_redis_client().redis
-        dedup_key = f'project_create_dedup:{_dedup_hash(biz, owner, addr, start, amount_in)}'
-        cached_code = rc.get(dedup_key)
-        if cached_code:
-            code_str = cached_code if isinstance(cached_code, str) else cached_code.decode()
-            logger.info(f'[CREATE_PROJECT/dedup:redis] Redis 히트 → 기존 코드 {code_str}')
-            return code_str
-        else:
-            # 2026-07-10 관측성 강화 — 조회 miss 도 남긴다. 첫 요청이면 정상, 재요청인데 miss 면
-            # 저장이 안 됐거나 hash 필드가 달라진 것 → 다음 사고 시 근본 원인 짚기 위함.
-            logger.info(
-                f'[CREATE_PROJECT/dedup:redis] Redis miss — key={dedup_key[-16:]} '
-                f'(biz={biz[:20]}, owner={owner}, addr_len={len(addr)}, start={start}, amount={amount_in})'
-            )
+        from ..services.project_service import get_project_records
+        for r in get_project_records() or []:
+            if r.get('프로젝트 코드') == code:
+                dup_project = r
+                break
     except Exception as exc:
-        logger.warning(f'[CREATE_PROJECT/dedup:redis] Redis 조회 실패 (계속 진행): {exc}', exc_info=True)
+        logger.debug(f'[CREATE_PROJECT/dedup] project_data 조회 실패 (무시): {exc}')
+    return {
+        'success': True,
+        'project_code': code,
+        'project_data': dup_project,
+        'lead_linked': False,
+        'deduped': True,
+    }
+
+
+def _find_recent_duplicate(data: dict, minutes: int = 5) -> Optional[str]:
+    """최근 오늘자 동일 데이터로 이미 등록된 프로젝트 코드가 있으면 반환.
+
+    (사업자·담당자·주소·공사 시작·총액 1) 모두 같은 프로젝트가 오늘 확정 등록됐으면
+    duplicate 로 판단. 선점(_claim)이 놓친 경우의 세 번째 그물이다.
+
+    2026-11-16: Redis 조회 레이어를 뺐다. 같은 키를 이제 선점이 쓰는데, 거기 들어 있는
+      '__pending__' 을 기존 코드로 착각해 그 문자열을 공사 코드처럼 돌려줄 수 있었다.
+      Redis 로 막는 일은 선점이 더 이르게·확실히 한다.
+
+    성능: 3800+ 행 dict 순회 대신 pandas mask 로 오늘자만 먼저 필터 (수 ms).
+    """
+    fields = _dedup_fields(data)
+    if not fields:
+        return None
+    biz, owner, addr, start, amount_in = fields
 
     try:
         from dashboard.services.project_service import load_data
@@ -2805,37 +2871,95 @@ def _find_recent_duplicate(data: dict, minutes: int = 5) -> Optional[str]:
 def add_project_auto():
     """신규 프로젝트 자동 코드 생성 및 추가.
 
-    2026-07-09 중복 등록 방지 2단계:
-      1. X-Idempotency-Key 헤더 → Redis 캐시 hit 시 이전 응답 그대로 반환
-      2. 데이터 기반 안전망 (최근 5분 내 동일 사업자·담당자·주소·시작일·금액 존재 시)
+    중복 등록 방지 2단계 (2026-11-16 선점 방식으로 교체 — _claim 주석 참고):
+      1. X-Idempotency-Key 헤더 → 들어오는 순간 선점. 못 차지하면 먼저 들어온 요청의
+         응답을 기다려 그대로 반환 (같은 코드 하나)
+      2. 데이터 기반 안전망 → 같은 사업자·담당자·주소·시작일·금액이면 역시 선점.
+         헤더가 없거나 달라도 막힌다. 시트 스캔(최근 5분)은 그 뒤 세 번째 그물.
     """
     idem_key = request.headers.get('X-Idempotency-Key', '').strip()
     idem_redis_key = f'project_create_idem:{idem_key}' if idem_key else ''
+    _rc = None
+    _claimed = []          # 내가 차지한 키 — 실패 시 풀어 준다
 
-    # === Layer 1: Idempotency key 캐시 조회 ===
+    def _rc_get():
+        nonlocal _rc
+        if _rc is None:
+            from dashboard.utils.redis_client import get_redis_client
+            _rc = get_redis_client().redis
+        return _rc
+
+    # === Layer 1: Idempotency key 선점 ===
     if idem_key:
         try:
-            from dashboard.utils.redis_client import get_redis_client
-            rc = get_redis_client().redis
-            cached = rc.get(idem_redis_key)
-            if cached:
-                logger.info(
-                    f'[CREATE_PROJECT/idem] 중복 요청 감지 (idem={idem_key[:8]}…) — 이전 응답 반환'
-                )
-                import json as _json
-                return jsonify(_json.loads(cached))
+            import json as _json
+            rc = _rc_get()
+            if _claim(rc, idem_redis_key, 600):
+                _claimed.append(idem_redis_key)
+                logger.info(f'[CREATE_PROJECT/idem] 선점 (idem={idem_key[:8]}…)')
             else:
-                # 2026-07-10 fingerprint 기반 idem-key 도입 후 정상적으로 매 요청마다 나올 로그.
-                # 재요청 시엔 히트해야 정상 → 재발 시 이 로그가 실마리.
-                logger.info(f'[CREATE_PROJECT/idem] miss (idem={idem_key[:8]}…)')
+                got = _await_claim(rc, idem_redis_key)
+                if got is None:
+                    # 먼저 들어온 요청이 실패해 키를 풀었다 → 내가 이어서 한다
+                    if _claim(rc, idem_redis_key, 600):
+                        _claimed.append(idem_redis_key)
+                        logger.info(f'[CREATE_PROJECT/idem] 재선점 (idem={idem_key[:8]}…)')
+                elif got == _CLAIM_PENDING:
+                    logger.warning(
+                        f'[CREATE_PROJECT/idem] 같은 요청이 아직 처리 중 (idem={idem_key[:8]}…) — 409'
+                    )
+                    return jsonify({
+                        'success': False,
+                        'error': '같은 내용의 등록이 처리 중입니다. 잠시 뒤 목록을 새로 고쳐 확인해 주세요.',
+                    }), 409
+                else:
+                    logger.info(
+                        f'[CREATE_PROJECT/idem] 중복 요청 감지 (idem={idem_key[:8]}…) — 이전 응답 반환'
+                    )
+                    return jsonify(_json.loads(got))
         except Exception as exc:
             logger.warning(
-                f'[CREATE_PROJECT/idem] Redis 조회 실패 (계속 진행): {exc}', exc_info=True,
+                f'[CREATE_PROJECT/idem] Redis 선점 실패 (계속 진행): {exc}', exc_info=True,
             )
 
     try:
         data = request.get_json()
         logger.info(f"[POST /api/projects/auto] 받은 데이터: {data}")
+
+        # === Layer 2: 같은 데이터 선점 ===
+        # 폴더 검증·시트 로드보다 먼저 한다. R4291/R4292 는 그 느린 작업 때문에 창이 열렸다.
+        _dedup_rkey = ''
+        try:
+            _h = _dedup_fields(data)
+            if _h:
+                _dedup_rkey = f'project_create_dedup:{_dedup_hash(*_h)}'
+                rc = _rc_get()
+                if _claim(rc, _dedup_rkey, 300):
+                    _claimed.append(_dedup_rkey)
+                    logger.info(f'[CREATE_PROJECT/dedup] 선점 key={_dedup_rkey[-16:]}')
+                else:
+                    got = _await_claim(rc, _dedup_rkey)
+                    if got is None:
+                        if _claim(rc, _dedup_rkey, 300):
+                            _claimed.append(_dedup_rkey)
+                            logger.info(f'[CREATE_PROJECT/dedup] 재선점 key={_dedup_rkey[-16:]}')
+                    elif got == _CLAIM_PENDING:
+                        logger.warning(
+                            f'[CREATE_PROJECT/dedup] 같은 데이터가 아직 처리 중 key={_dedup_rkey[-16:]} — 409'
+                        )
+                        return jsonify({
+                            'success': False,
+                            'error': '같은 내용의 등록이 처리 중입니다. 잠시 뒤 목록을 새로 고쳐 확인해 주세요.',
+                        }), 409
+                    else:
+                        logger.warning(
+                            f'[CREATE_PROJECT/dedup] 같은 데이터로 이미 등록됨 → 기존 코드 반환: {got}'
+                        )
+                        return jsonify(_dedup_response(got))
+        except Exception as exc:
+            logger.warning(
+                f'[CREATE_PROJECT/dedup] 선점 실패 (계속 진행): {exc}', exc_info=True,
+            )
 
         # 폴더 경로 안전장치 — 폴더 대신 파일 링크를 잘못 붙여넣으면 그 파일의 상위
         # 폴더로 자동 교정. 안 하면 사업자등록증 등 하위폴더 생성이 parentNotAFolder
@@ -2853,40 +2977,23 @@ def add_project_auto():
         except Exception as _fexc:
             logger.warning(f'[CREATE_PROJECT] 폴더경로 검증 실패(무시): {_fexc}')
 
-        # === Layer 2: 데이터 기반 dedup 안전망 ===
+        # === Layer 3: 시트 스캔 안전망 (선점이 놓친 경우) ===
         dup_code = _find_recent_duplicate(data)
         if dup_code:
             logger.warning(
                 f'[CREATE_PROJECT/dedup] 최근 5분 내 동일 데이터 감지 → 기존 코드 반환: {dup_code}'
             )
-            # dedup 이라도 project_data 찾아서 반환 → 프론트가 전체 시트 재로드(15초) 안 하도록
-            dup_project = None
+            resp_body = _dedup_response(dup_code)
+            # 선점해 둔 키에 결과를 넣는다 — 같은 요청이 또 와도 이 응답이 그대로 나간다
             try:
-                from ..services.project_service import get_project_records
-                records = get_project_records() or []
-                for r in records:
-                    if r.get('프로젝트 코드') == dup_code:
-                        dup_project = r
-                        break
+                import json as _json
+                rc = _rc_get()
+                if idem_key:
+                    rc.set(idem_redis_key, _json.dumps(resp_body), ex=600)
+                if _dedup_rkey:
+                    rc.set(_dedup_rkey, dup_code, ex=300)
             except Exception as exc:
-                logger.debug(f'[CREATE_PROJECT/dedup] project_data 조회 실패 (무시): {exc}')
-            resp_body = {
-                'success': True,
-                'project_code': dup_code,
-                'project_data': dup_project,
-                'lead_linked': False,
-                'deduped': True,
-            }
-            # idempotency 캐시에도 저장 (같은 key 로 다시 오면 즉시 재응답)
-            if idem_key:
-                try:
-                    import json as _json
-                    from dashboard.utils.redis_client import get_redis_client
-                    get_redis_client().redis.set(
-                        idem_redis_key, _json.dumps(resp_body), ex=600,
-                    )
-                except Exception:
-                    pass
+                logger.warning(f'[CREATE_PROJECT/dedup] 결과 저장 실패(무시): {exc}')
             return jsonify(resp_body)
 
         # 1. 데이터 검증
@@ -2962,31 +3069,21 @@ def add_project_auto():
             'partner_promote': list(partner_promote) if partner_promote else None,
         }, meta={'user_email': _bg_user_email, 'source': 'add_project_auto'})
 
-        # dedup Redis 캐시 즉시 저장 (2026-07-10 G3852/G3853/R3854/R3855 대응)
-        # load_data 캐시 갱신 지연으로 dedup 실패하는 케이스 방지 — 8초 이내 재요청 즉시 감지.
-        # 관측성: 저장 성공/필드 부족/예외 모두 명시적으로 로그 → 재발 시 원인 즉시 짚음.
+        # 선점해 둔 dedup 키에 발번 결과를 넣는다 (5분). 같은 데이터가 또 오면 이 코드가 나간다.
         try:
-            from dashboard.utils.redis_client import get_redis_client
-            _biz = str(data.get('사업자', '') or '').strip()
-            _owner = str(data.get('담당자', '') or '').strip()
-            _addr = str(data.get('현장 주소', '') or '').strip()
-            _start = str(data.get('공사 시작', '') or '').strip()[:10]
-            _amount = str(data.get('총액 1', '') or '').replace(',', '').replace('₩', '').strip()
-            if _biz and _owner and _addr and _start:
-                _dkey = f'project_create_dedup:{_dedup_hash(_biz, _owner, _addr, _start, _amount)}'
-                _ok = get_redis_client().redis.set(_dkey, code, ex=300)  # 5분 TTL
+            if _dedup_rkey:
+                _ok = _rc_get().set(_dedup_rkey, code, ex=300)
                 if _ok:
                     logger.info(
-                        f'[CREATE_PROJECT/dedup:save] 저장 성공 code={code} key={_dkey[-16:]}'
+                        f'[CREATE_PROJECT/dedup:save] 저장 성공 code={code} key={_dedup_rkey[-16:]}'
                     )
                 else:
                     logger.warning(
-                        f'[CREATE_PROJECT/dedup:save] Redis set 반환값 falsy — key={_dkey[-16:]}'
+                        f'[CREATE_PROJECT/dedup:save] Redis set 반환값 falsy — key={_dedup_rkey[-16:]}'
                     )
             else:
                 logger.warning(
-                    f'[CREATE_PROJECT/dedup:save] 필드 부족으로 dedup 저장 스킵 — code={code} '
-                    f'biz="{_biz}" owner="{_owner}" addr_len={len(_addr)} start="{_start}"'
+                    f'[CREATE_PROJECT/dedup:save] 필드 부족으로 dedup 저장 스킵 — code={code}'
                 )
         except Exception as _exc:
             logger.warning(
@@ -3006,6 +3103,18 @@ def add_project_auto():
             "error_id": error_id,
             "code": "INTERNAL_ERROR"
         }), 500
+
+    finally:
+        # 결과를 못 넣고 끝났으면(검증 실패·발번 실패·예외) 선점을 풀어 준다.
+        # 안 풀면 고쳐서 다시 눌러도 10분(dedup 5분) 동안 409 로 막힌다.
+        # 결과가 들어간 키는 _release_claim 이 건드리지 않는다.
+        if _claimed:
+            try:
+                rc = _rc_get()
+                for _k in _claimed:
+                    _release_claim(rc, _k)
+            except Exception as _exc:
+                logger.warning(f'[CREATE_PROJECT/claim] 선점 정리 실패: {_exc}')
 
 
 def _finalize_project_creation_bg(code, data, project_data, user_email='unknown', ip_address=None):
