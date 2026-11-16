@@ -216,6 +216,8 @@
 
   input.addEventListener('input', search);
   input.addEventListener('keydown', function (e) {
+    // 한글 조합 중 Enter·화살표는 글자 확정용 — 그때 처리하면 덜 친 검색어로 열리거나 줄이 움직였음
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === 'ArrowDown') { e.preventDefault(); setActive(active + 1); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(active - 1); }
     else if (e.key === 'Enter') { e.preventDefault(); go(active, e.ctrlKey || e.metaKey); }
@@ -223,6 +225,17 @@
   });
   root.addEventListener('click', function (e) {
     if (e.target.closest('[data-close]')) close();
+  });
+  // 창(aria-modal) 안에서만 Tab 이 돌게 — 뒤 화면으로 빠져나가던 것
+  root.addEventListener('keydown', function (e) {
+    if (e.key !== 'Tab') return;
+    var f = Array.prototype.filter.call(root.querySelectorAll('input, a[href], button'), function (x) {
+      return x.offsetParent !== null && !x.disabled;
+    });
+    if (!f.length) return;
+    var first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   });
   list.addEventListener('click', function (e) {
     var a = e.target.closest('a');

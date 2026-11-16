@@ -264,7 +264,7 @@
             (warnedPrimary ? '<i class="fas fa-exclamation-triangle me-1" aria-hidden="true"></i>' : '') + esc(a.label) +
             (warnedPrimary ? '<span class="visually-hidden"> (경고 있음)</span>' : '') + '</button>';
         }).join('') + '</div>' +
-        '<div class="gw-ap-reason" id="apReason" hidden><textarea class="form-control" rows="3" maxlength="300" id="apReasonText"></textarea>' +
+        '<div class="gw-ap-reason" id="apReason" hidden><textarea class="form-control" rows="3" maxlength="300" id="apReasonText" aria-label="사유"></textarea>' +
         '<div class="gw-ap-reason-btns"><button type="button" class="btn btn-sm btn-outline-secondary" id="apReasonCancel">취소</button>' +
         '<button type="button" class="btn btn-sm btn-primary" id="apReasonOk">보내기</button></div></div>' +
         '<div class="gw-form-error" id="apActError" role="alert"></div>';
@@ -308,6 +308,10 @@
           $('apReason').hidden = false;
           var t = $('apReasonText');
           t.placeholder = act === 'reject' ? '반려 사유를 적어 주세요.' : '무엇을 고쳐야 하는지 적어 주세요.';
+          t.setAttribute('aria-label', act === 'reject' ? '반려 사유' : '수정 요청 내용');
+          t.removeAttribute('aria-invalid');
+          // 단추 이름에 무엇을 보내는지 — '보내기'만으로는 반려인지 수정 요청인지 안 드러났음
+          $('apReasonOk').textContent = act === 'reject' ? '반려 보내기' : '수정 요청 보내기';
           t.focus();
           return;
         }
@@ -321,11 +325,21 @@
       $('apReasonCancel').addEventListener('click', function () { $('apReason').hidden = true; pending = null; });
       $('apReasonOk').addEventListener('click', function () {
         var r = $('apReasonText').value.trim();
-        if (!r) { $('apActError').textContent = '내용을 적어 주세요.'; return; }
+        if (!r) {
+          $('apActError').textContent = '내용을 적어 주세요.';
+          $('apReasonText').setAttribute('aria-invalid', 'true');
+          $('apReasonText').focus();
+          return;
+        }
         send(pending, r);
       });
+      // 처리 중엔 사유 칸의 [보내기]·[취소]도 막음 — 처리 단추만 막아 두 번 누르면 두 번째에 '이미 처리된 결재' 오류가 떴음
+      function lock(on) {
+        box.querySelectorAll('button').forEach(function (x) { x.disabled = on; });
+        ['apReasonOk', 'apReasonCancel'].forEach(function (id) { var x = $(id); if (x) x.disabled = on; });
+      }
       function send(act, reason) {
-        box.querySelectorAll('button').forEach(function (x) { x.disabled = true; });
+        lock(true);
         // rev = 이 화면을 그릴 때의 수정 회차 — 그 사이 요청자가 고쳤으면 서버가 거절한다(11-14)
         api('/api/approval/' + d.id + '/act', { method: 'POST', body: { action: act, reason: reason, rev: d.rev } })
           .then(function (j) { renderDoc(j.doc); load(); })
@@ -337,12 +351,12 @@
                 if (el) el.textContent = e.message; else window.alert(e.message);
                 load();
               }).catch(function () {
-                box.querySelectorAll('button').forEach(function (x) { x.disabled = false; });
+                lock(false);
                 $('apActError').textContent = e.message;
               });
               return;
             }
-            box.querySelectorAll('button').forEach(function (x) { x.disabled = false; });
+            lock(false);
             $('apActError').textContent = e.message;
           });
       }

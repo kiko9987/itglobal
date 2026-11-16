@@ -177,6 +177,15 @@
     if (document.getElementById('hrDevices')) loadDevices(p);
   }
 
+  // 창을 JS 로 열면 닫힌 뒤 포커스가 여는 단추로 돌아가지 않음(부트스트랩은 data-bs 로 열 때만) → 직접 되돌림
+  function returnFocusOnHide(modalEl) {
+    var opener = document.activeElement;
+    modalEl.addEventListener('hidden.bs.modal', function h() {
+      modalEl.removeEventListener('hidden.bs.modal', h);
+      if (opener && opener.focus && document.contains(opener)) opener.focus();
+    });
+  }
+
   // ── 현장 직원 로그인 번호 ─────────────────────────────
   var codeTimer = null;
 
@@ -186,7 +195,8 @@
     var h = '<div class="gw-dev-head"><strong>로그인된 휴대폰</strong>' +
       '<button type="button" class="btn btn-sm btn-primary" id="hrDevCodeBtn"><i class="fas fa-mobile-alt me-1" aria-hidden="true"></i>로그인 번호 만들기</button></div>';
     if (code) {
-      h += '<div class="gw-dev-code" role="status"><div class="gw-dev-code-num">' + esc(code.code.replace(/(\d{3})(\d{3})/, '$1 $2')) + '</div>' +
+      h += '<div class="visually-hidden" role="status">로그인 번호 ' + esc(code.code.split('').join(' ')) + ' 을 만들었어요.</div>' +
+        '<div class="gw-dev-code"><div class="gw-dev-code-num">' + esc(code.code.replace(/(\d{3})(\d{3})/, '$1 $2')) + '</div>' +
         '<div class="gw-dev-code-help">' + esc(p.name) + ' 님 휴대폰 로그인 화면의 <strong>「번호로 로그인」</strong>에 이 번호를 넣어 주세요. ' +
         '<span id="hrDevLeft">' + code.minutes + '분</span> 동안 한 번만 쓸 수 있어요.</div></div>';
     }
@@ -466,7 +476,7 @@
     formEl.elements.ssn.placeholder = p && p.has_ssn ? '저장됨 — 바꿀 때만 입력' : '숫자 13자리';
     errEl.textContent = '';
     var m = modal();
-    if (m) m.show();
+    if (m) { returnFocusOnHide(modalEl); m.show(); }
   }
 
   if (formEl) {

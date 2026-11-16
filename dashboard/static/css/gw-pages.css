@@ -2043,3 +2043,97 @@ body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7
   .gw-page .gw-ye-season-form .form-control-sm,
   .gw-page .gw-ye-season-form .gw-ye-wide .form-control-sm { width: 100%; }
 }
+
+/* ── 11-16 웹 가이드라인 점검(그룹웨어): 휴대폰 누를 자리 44px · 입력 글자 16px · 대비 4.5:1 ── */
+
+/* 그래프: 키보드로 오면 테두리 */
+.gw-sales-chart svg:focus-visible {
+  outline: 2px solid #2a3038;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (max-width: 767.98px) {
+  /* 인사카드 수정·휴가 인원 창은 .gw-page 밖이라 16px 규칙이 안 닿아 14px(아이폰이 확대) — id 선택자라 더 세게 */
+  #hrEditModal .form-control-sm,
+  #hrEditModal .form-select-sm,
+  #lvPersonModal .form-select-sm,
+  .gw-page .form-control-sm,
+  .gw-page .form-select-sm {
+    height: auto;
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  #hrEditModal textarea.form-control-sm {
+    min-height: 66px;
+  }
+
+  #hrEditModal .modal-footer .btn {
+    min-height: 44px;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  /* 작은 단추들 */
+  .gw-ssn-btn,
+  .gw-doc-act .btn,
+  .gw-dev-list .btn,
+  .gw-seg-btn,
+  .gw-todo-close,
+  .gw-ye-files .btn-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .gw-ye-files .btn-link {
+    padding: 0 8px !important;
+  }
+
+  .gw-chip button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .gw-chip-select,
+  .gw-chip-date,
+  .gw-chip-search,
+  .gw-lv-cancel,
+  .gw-ap-tabs button,
+  .gw-chip-more,
+  .gw-ap-filters .gw-chip-reset {
+    height: 44px;
+    min-height: 44px;
+  }
+
+  /* 휴가 달력 이름 약 11px → 12px */
+  .gw-cal-chip {
+    font-size: 0.75rem;
+  }
+
+  /* 대비 4.5:1 넘게 */
+  .gw-sales-tile .s { color: #4b5563; }
+  .gw-sales-tile .up { color: #047857; }
+  .gw-sales-tile .down { color: #b91c1c; }
+  .gw-sales-chart text.ax { fill: #6b7079; }
+  .gw-ap-turn { color: #c2410c; }
+  .gw-dl dd.empty { color: #6b7280; }
+
+  .gw-chip button { color: #1e293b; } /* 설정 화면 칩 × 빼기 4.34:1 */
+  #lvToday { color: #1d4ed8; }        /* 휴가 현황 [이번 달] 4.30:1 */
+
+  /* 칸 머리의 '더 보기' 류 링크 높이 약 21px */
+  .gw-home-more {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
+  /* 고른 줄: 바탕색(#fff4ef)만으로는 거의 안 보였음 → 왼쪽 굵은 선 */
+  .gw-list-item[aria-selected="true"] {
+    box-shadow: inset 3px 0 0 #2a3038;
+  }
+}

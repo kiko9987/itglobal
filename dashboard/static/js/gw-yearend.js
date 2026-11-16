@@ -132,7 +132,7 @@
           '<label class="gw-ye-method sm' + (s.family_status === 'none' ? ' on' : '') + '"><input type="radio" name="yeFam" value="none"' + (s.family_status === 'none' ? ' checked' : '') + (editable ? '' : ' disabled') + '> 작년과 같아요(변경 없음)</label>' +
           '<label class="gw-ye-method sm' + (s.family_status === 'changed' ? ' on' : '') + '"><input type="radio" name="yeFam" value="changed"' + (s.family_status === 'changed' ? ' checked' : '') + (editable ? '' : ' disabled') + '> 바뀐 게 있어요</label></div>';
         if (s.family_status === 'changed') {
-          h += '<textarea class="form-control form-control-sm mt-2" id="yeFamNote" rows="2" maxlength="1000" placeholder="예: 2026년 6월 자녀 출생, 어머니 기본공제 추가"' + (editable ? '' : ' disabled') + '>' + esc(s.family_note || '') + '</textarea>';
+          h += '<textarea class="form-control form-control-sm mt-2" id="yeFamNote" rows="2" maxlength="1000" aria-label="바뀐 부양가족 내용" placeholder="예: 2026년 6월 자녀 출생, 어머니 기본공제 추가"' + (editable ? '' : ' disabled') + '>' + esc(s.family_note || '') + '</textarea>';
         }
         h += '</div>';
 
@@ -140,7 +140,7 @@
         h += '<div class="gw-panel"><h2 class="gw-panel-title">3. 추가 증빙 <span class="gw-panel-sub">해당될 때만</span></h2>' +
           '<p class="gw-panel-desc">간소화에 안 나오는 것: 월세 계약서·이체 내역, 안경·교복 영수증, 간소화에 빠진 의료비·기부금 영수증 등</p>' +
           docList(v.extra_docs, editable) + (editable ? uploader('extra', '추가 증빙', true) : '') +
-          '<textarea class="form-control form-control-sm mt-2" id="yeNote" rows="2" maxlength="1000" placeholder="경영지원·세무사에 전할 말(선택)"' + (editable ? '' : ' disabled') + '>' + esc(s.note || '') + '</textarea></div>';
+          '<textarea class="form-control form-control-sm mt-2" id="yeNote" rows="2" maxlength="1000" aria-label="경영지원·세무사에 전할 말" placeholder="경영지원·세무사에 전할 말(선택)"' + (editable ? '' : ' disabled') + '>' + esc(s.note || '') + '</textarea></div>';
 
         // 제출
         h += '<div class="gw-panel">';
@@ -161,8 +161,18 @@
       if (v.result_docs && v.result_docs.length) {
         h += '<div class="gw-panel"><h2 class="gw-panel-title">결과 · 근로소득 원천징수영수증</h2>' + docList(v.result_docs, false) + '</div>';
       }
+      var FOC = 'a[href], button, input, select, textarea';
+      var ae = document.activeElement, key = null, idx = -1;
+      if (ae && box.contains(ae)) {
+        key = ae.id ? '#' + ae.id : (ae.name && ae.type === 'radio' ? 'input[name="' + ae.name + '"][value="' + ae.value + '"]' : null);
+        idx = Array.prototype.indexOf.call(box.querySelectorAll(FOC), ae);
+      }
       box.innerHTML = h;
       bind(editable);
+      if (key || idx >= 0) {
+        var back = (key && box.querySelector(key)) || (idx >= 0 ? box.querySelectorAll(FOC)[idx] : null);
+        if (back && !back.disabled) back.focus({ preventScroll: true });
+      }
     };
 
     var bind = function (editable) {
@@ -269,16 +279,19 @@
       '<div class="gw-stat"><div class="k">완료</div><div class="v">' + cnt.done + '명</div></div>' +
       '<div class="gw-stat"><div class="k">작성 중·보완</div><div class="v">' + (cnt.draft + cnt.returned) + '명</div></div></div>';
 
-    h += '<div class="gw-panel gw-table-wrap"><table class="gw-table gw-appt-table"><thead><tr><th>이름</th><th>상태</th><th>방식</th><th>홈택스 동의</th><th>부양가족</th><th>간소화 PDF</th><th>추가 증빙</th><th>원천징수영수증</th><th>제출</th><th></th></tr></thead><tbody>' +
+    h += '<div class="gw-panel gw-table-wrap"><table class="gw-table gw-appt-table"><thead><tr><th>이름</th><th>상태</th><th>방식</th><th>홈택스 동의</th><th>부양가족</th><th>간소화 PDF</th><th>추가 증빙</th><th>원천징수영수증</th><th>제출</th><th aria-label="처리"></th></tr></thead><tbody>' +
       rows.map(function (r) {
         var method = { bulk: '일괄제공', pdf: 'PDF' }[r.method] || '-';
         var consent = r.method === 'bulk' ? (r.bulk_consent ? '예' : '<span class="text-danger">아직</span>') + (r.family_consent ? ' · 가족 예' : '') : '-';
-        var fam = { none: '변경 없음', changed: '<span title="' + esc(r.family_note || '') + '">변경 있음</span>' }[r.family_status] || '-';
+        // 바뀐 내용을 마우스를 올려야만(title) 보던 것 → 아래에 글자로
+        var fam = { none: '변경 없음', changed: '변경 있음' + (r.family_note ? '<br><span class="small text-muted">' + esc(r.family_note) + '</span>' : '') }[r.family_status] || '-';
         var acts = '<a class="btn btn-sm btn-outline-secondary" href="/hr/people#' + r.person_id + '">자료</a>';
         if (r.status === 'submitted') acts += ' <button type="button" class="btn btn-sm btn-outline-success" data-done="' + r.person_id + '">완료</button>' +
           ' <button type="button" class="btn btn-sm btn-outline-danger" data-return="' + r.person_id + '">보완 요청</button>';
         if (r.status === 'done') acts += ' <button type="button" class="btn btn-sm btn-outline-secondary" data-undone="' + r.person_id + '">완료 취소</button>';
-        acts += ' <label class="btn btn-sm btn-outline-primary mb-0">영수증 업로드<input type="file" hidden accept=".pdf,.jpg,.jpeg,.png" data-result="' + r.person_id + '"></label>';
+        // 영수증 업로드: 숨긴 파일 칸을 이름표로 감싸면 Tab 으로 못 가서 키보드로 못 올렸음 → 단추가 숨은 칸을 누름
+        acts += ' <button type="button" class="btn btn-sm btn-outline-primary" data-pick="' + r.person_id + '">영수증 업로드</button>' +
+          '<input type="file" hidden accept=".pdf,.jpg,.jpeg,.png" data-result="' + r.person_id + '" aria-label="' + esc(r.name) + ' 원천징수영수증 파일">';
         return '<tr><td><b>' + esc(r.name) + '</b><br><span class="text-muted small">' + esc(r.department) + '</span></td><td>' + badge(r.status, r.status_label) +
           (r.returned_reason && r.status === 'returned' ? '<br><span class="small text-muted">' + esc(r.returned_reason) + '</span>' : '') + '</td><td>' + method + '</td><td>' + consent +
           '</td><td>' + fam + '</td><td>' + (r.simple || '-') + '</td><td>' + (r.extra || '-') + '</td><td>' + (r.result || '-') + '</td><td>' + esc(md(r.submitted_at)) + '</td><td class="gw-doc-act">' + acts + '</td></tr>';
@@ -291,10 +304,14 @@
 
   var bindAdmin = function () {
     document.getElementById('yeSaveSeason').addEventListener('click', function () {
+      var sb = this;
       var st = document.getElementById('yeSt').value;
       if (st === 'open' && A.season.status !== 'open' && !window.confirm('직원들이 연말정산 자료를 낼 수 있게 엽니다. 계속할까요?')) return;
+      // 마감도 확인 — 저장하면 바로 직원 제출·수정이 막힘
+      if (st === 'closed' && A.season.status !== 'closed' && !window.confirm('연말정산 자료 받기를 마감합니다. 직원들은 더 이상 제출하거나 고칠 수 없어요. 계속할까요?')) return;
+      sb.disabled = true;
       post('/api/yearend/admin/season', { status: st, due_date: document.getElementById('yeDue').value, notice: document.getElementById('yeNotice').value })
-        .then(loadAdmin).catch(function (e) { window.alert(e.message); });
+        .then(loadAdmin).catch(function (e) { sb.disabled = false; window.alert(e.message); });
     });
     var nb = document.getElementById('yeNotify');
     if (nb) nb.addEventListener('click', function () {
@@ -320,6 +337,12 @@
         var reason = window.prompt('보완 요청 사유(직원에게 슬랙으로 갑니다)');
         if (!reason || !reason.trim()) return;
         post('/api/yearend/admin/' + b.getAttribute('data-return') + '/status', { status: 'returned', reason: reason }).then(loadAdmin).catch(function (e) { window.alert(e.message); });
+      });
+    });
+    root.querySelectorAll('[data-pick]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var inp = root.querySelector('input[data-result="' + b.getAttribute('data-pick') + '"]');
+        if (inp) inp.click();
       });
     });
     root.querySelectorAll('input[data-result]').forEach(function (inp) {

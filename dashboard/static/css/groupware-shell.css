@@ -1482,3 +1482,69 @@ body.gw-shell .gw-subnav {
     background: rgba(15, 23, 42, 0.35);
   }
 }
+
+/* ── 11-16 웹 가이드라인 점검(그룹웨어) ─────────────────────────────── */
+
+/* 본문 바로가기: Tab 을 처음 누를 때만 왼쪽 위에 나타남 */
+body.gw-shell .gw-skip {
+  position: absolute;
+  top: -100px;
+  left: 8px;
+  z-index: 2000;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: #2a3038;
+  color: #ffffff;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+body.gw-shell .gw-skip:focus {
+  top: 8px;
+}
+
+body.gw-shell #mainContent:focus {
+  outline: none; /* 바로가기로 온 본문 자체에는 테두리 없음(본문은 누르는 곳이 아님) */
+}
+
+/* 찾기 칸: outline 을 지워 두어 포커스가 안 보였음 → 줄 아래 선 */
+body.gw-shell .gw-find-bar:focus-within {
+  box-shadow: inset 0 -2px 0 #2a3038;
+}
+
+body.gw-shell .gw-find-list,
+body.gw-shell .gw-notify-list {
+  overscroll-behavior: contain;
+}
+
+/* 휴대폰: 누를 자리 44px, 0건 숫자 대비 */
+@media (max-width: 767.98px) {
+  body.gw-shell .gw-nav-area,
+  body.gw-shell .gw-nav-subitem {
+    height: auto;
+    min-height: 44px;
+  }
+
+  body.gw-shell .gw-rail-toggle {
+    width: 44px;
+    height: 44px;
+  }
+
+  body.gw-shell:has(.gw-topbar .gw-subnav > .gw-subnav-item + .gw-subnav-item) {
+    --header-height: 96px;
+  }
+
+  body.gw-shell .gw-topbar .gw-subnav:has(> .gw-subnav-item + .gw-subnav-item) {
+    height: 44px;
+  }
+
+  body.gw-shell .gw-notify-tabs button {
+    height: 44px;
+    padding: 0 14px;
+    font-size: 14px;
+  }
+
+  body.gw-shell .gw-stat.zero .gw-stat-num b {
+    color: #6b7280; /* #9aa0aa 2.6:1 → 4.8:1 */
+  }
+}

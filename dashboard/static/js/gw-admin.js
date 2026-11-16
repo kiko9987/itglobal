@@ -34,18 +34,25 @@
     });
   }
 
+  // 빼기는 확인 뒤 — 누르는 즉시 권한이 사라졌음
   function render() {
     chips(document.getElementById('gwPilotList'), data.pilots.map(function (p) { return p.email; }), function (email) {
+      if (!window.confirm(email + ' — 시범 명단에서 뺄까요?\n바로 예전 화면으로 돌아갑니다.')) return;
       setPilot(email, false);
     });
     document.getElementById('gwOpenAll').checked = !!data.open_all;
     chips(document.getElementById('gwHrAdmins'), data.hr_admins, function (email) {
+      if (!window.confirm(email + ' — 인사카드 관리자에서 뺄까요?\n바로 전 직원 인사카드를 볼 수 없게 됩니다.')) return;
       saveRole('hr_admins', data.hr_admins.filter(function (x) { return x !== email; }));
     }, true);
     chips(document.getElementById('gwLeaveViewers'), data.leave_viewers, function (email) {
+      if (!window.confirm(email + ' — 휴가 현황 열람자에서 뺄까요?')) return;
       saveRole('leave_viewers', data.leave_viewers.filter(function (x) { return x !== email; }));
     });
   }
+
+  // 오류는 고친 칸 바로 아래에 — 인사카드 관리자 오류가 아래 '휴가 현황' 칸에 나오던 것
+  var ROLE_ERR = { hr_admins: 'gwHrAdminError', leave_viewers: 'gwRoleError' };
 
   function showErr(id, msg) {
     var el = document.getElementById(id);
@@ -69,11 +76,11 @@
   }
 
   function saveRole(key, emails) {
-    showErr('gwRoleError', '');
+    showErr(ROLE_ERR[key], '');
     api('/api/gw/roles', { key: key, emails: emails }).then(function (j) {
       data[key] = j[key];
       render();
-    }).catch(function (e) { showErr('gwRoleError', e.message); });
+    }).catch(function (e) { showErr(ROLE_ERR[key], e.message); });
   }
 
   function valid(email) {
@@ -94,9 +101,22 @@
       var key = btn.getAttribute('data-add');
       var input = document.getElementById(btn.getAttribute('data-input'));
       var email = input.value.trim().toLowerCase();
-      if (!valid(email)) { showErr('gwRoleError', '이메일을 정확히 입력하세요.'); input.focus(); return; }
+      if (!valid(email)) { showErr(ROLE_ERR[key], '이메일을 정확히 입력하세요.'); input.focus(); return; }
+      if (data[key].indexOf(email) !== -1) { showErr(ROLE_ERR[key], '이미 들어 있어요.'); input.focus(); return; }
       input.value = '';
-      if (data[key].indexOf(email) === -1) saveRole(key, data[key].concat([email]));
+      saveRole(key, data[key].concat([email]));
+    });
+  });
+
+  // 입력칸에서 Enter 로도 추가
+  [['gwPilotInput', 'gwPilotAdd'], ['gwHrAdminInput', null], ['gwLeaveViewerInput', null]].forEach(function (pair) {
+    var input = document.getElementById(pair[0]);
+    if (!input) return;
+    input.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' || e.isComposing) return;
+      e.preventDefault();
+      var b = pair[1] ? document.getElementById(pair[1]) : document.querySelector('button[data-input="' + pair[0] + '"]');
+      if (b) b.click();
     });
   });
 
