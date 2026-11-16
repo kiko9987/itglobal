@@ -3085,10 +3085,26 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
         # 이상징후 이력(계좌·사업자 불일치·과입금) — 이 입금 블록 바로 아래. '⚠' 줄은 파서 제외.
         if note_extra:
             memo_sheet = memo_sheet.rstrip() + "\n" + "\n".join(note_extra)
-        old_note = (manager.get_cell_note(sheet_id, sheet_name, cell) or '').rstrip()
+        # 메모를 못 읽으면 쓰지 않는다 — 빈 메모로 보고 새 블록만 쓰면 이전 입금·반환·자금 이동 줄이 사라짐.
+        #   메모 쓰기가 실패해도 값을 쓰지 않는다 — 값만 있고 누가 낸 돈인지 없는 칸이 되고, 카드는 '확인 완료'로
+        #   닫혀 원문이 사라졌다. 둘 다 실패로 돌려 카드를 대기로 되돌림(재클릭 재시도). (2026-11-16 점검 위험 2·9)
+        from dashboard.utils.google_sheets import NoteReadError, read_note_for_append
+        try:
+            old_note = read_note_for_append(manager, sheet_id, sheet_name, cell).rstrip()
+        except NoteReadError as exc:
+            logger.error(f"[SLACK/수금봇] 셀 메모를 읽지 못해 기록 중단: {project_code} {stage} {cell} — {exc}")
+            return False, old_num, old_num, "시트 메모를 읽지 못해 아무것도 기록하지 않았습니다. 잠시 뒤 다시 눌러 주세요."
         new_note = f"{old_note}\n\n{memo_sheet.strip()}" if old_note else memo_sheet.strip()
         if not manager.update_cell_note(sheet_id, sheet_name, cell, new_note):
-            logger.warning(f"[SLACK/수금봇] 셀 메모 기록 실패(값은 이어서 기록): {cell}")
+            # 응답만 실패하고 실제로는 써졌을 수 있다 — 다시 읽어 이번 블록이 있으면 이어서 진행
+            try:
+                _back = read_note_for_append(manager, sheet_id, sheet_name, cell)
+            except NoteReadError:
+                _back = ''
+            if memo_sheet.strip() not in _back:
+                logger.error(f"[SLACK/수금봇] 셀 메모 기록 실패 — 값도 기록 안 함: {project_code} {stage} {cell}")
+                return False, old_num, old_num, "시트 메모 기록에 실패해 금액도 기록하지 않았습니다. 잠시 뒤 다시 눌러 주세요."
+            logger.warning(f"[SLACK/수금봇] 셀 메모 쓰기 응답은 실패였지만 기록 확인됨: {cell}")
 
         # 2) 금액 값 나중 — 기존 값에 합산 (트리거 조건: 값 > 0). 노트 확정 뒤 마지막에 기록.
         new_num = old_num + int(amount)
@@ -15522,7 +15538,9 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
         if col_y:
             try:
                 _today = f"{datetime.now():%Y-%m-%d}"
-                _note = manager.get_cell_note(sheet_id, sheet_name, f"{col_y}{row}") or ''
+                # 못 읽으면 예외 → 아래 except 가 관리자 알림. 빈 메모로 보고 쓰면 발행 이력이 사라짐 (2026-11-16)
+                from dashboard.utils.google_sheets import read_note_for_append as _rnfa
+                _note = _rnfa(manager, sheet_id, sheet_name, f"{col_y}{row}")
                 _core = f"{selected} 발행"
                 if inv_amt > 0:
                     # '현금 · 부가세 없음' 몫이 있는 나눠 내는 공사는 총액 2 가 그만큼 덜 커서 총액2/총액1 비율이
@@ -15603,7 +15621,9 @@ def _mark_invoice_issued_in_sheet(code, stages_csv, invoice_amt='', vat_val='sep
                 if _card_new and _add:
                     _new_note = '\n'.join([_note.strip()] + _add) if _note.strip() else '\n'.join(_add)
                     try:
-                        manager.update_cell_note(sheet_id, sheet_name, f"{col_y}{row}", _new_note)
+                        # False(쓰기 실패) 도 예외와 같게 — 예전엔 False 를 지나쳐 '기록함' 표시만 남았음 (2026-11-16)
+                        if not manager.update_cell_note(sheet_id, sheet_name, f"{col_y}{row}", _new_note):
+                            raise RuntimeError(f"{col_y}{row} 메모 쓰기 실패")
                     except Exception:
                         # 못 썼으면 '이 카드는 기록함' 표시를 풀어 둠 — 남아 있으면 다시 첨부해도 400일간 안 써져
                         #   Y칸은 '발행'인데 금액 줄이 없는 채로 남았음 (2026-10-29 점검)

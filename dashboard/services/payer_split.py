@@ -703,7 +703,9 @@ def save_payers(code: str, plan: Dict[str, dict]) -> dict:
                     changed[PAYER_FIELD[s]] = cell_val
             ncol = f2l.get(s)
             if ncol:
-                note = mgr.get_cell_note(sid, sn, f'{ncol}{row}') or ''
+                # 못 읽으면 NoteReadError — 빈 메모로 보면 ◆ 줄만 남고 입금 이력이 사라짐 (2026-11-16)
+                from dashboard.utils.google_sheets import read_note_for_append
+                note = read_note_for_append(mgr, sid, sn, f'{ncol}{row}')
                 new_note = apply_note_line(note, payer_note_line(p) if p else '')
                 if new_note.strip() != note.strip():
                     if not mgr.update_cell_note(sid, sn, f'{ncol}{row}', new_note):

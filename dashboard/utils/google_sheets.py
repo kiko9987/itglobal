@@ -37,6 +37,23 @@ class SSLRetryFailedError(Exception):
     pass
 
 
+class NoteReadError(RuntimeError):
+    """셀 메모를 읽지 못함 — '메모 없음'과 다르다. 덧붙여 쓰기 전에 이걸 받으면 쓰지 말 것."""
+    pass
+
+
+def read_note_for_append(mgr, sheet_id, sheet_name, cell_address) -> str:
+    """덧붙여 쓰기 직전 메모 읽기 — 메모가 없으면 '', 읽지 못하면 NoteReadError.
+
+    get_cell_note 는 실패해도 None 을 돌려줘 '메모 없음'과 구분되지 않는다. 그 값에 새 줄을 붙여 쓰면
+    입금 이력·자금 이동 요청·발행 줄이 통째로 사라진다(2026-11-16 상태 머신 점검 위험 2).
+    get_cell_note_checked 가 없는 매니저(테스트용 가짜 등)는 예전 방식으로 읽는다."""
+    fn = getattr(mgr, 'get_cell_note_checked', None)
+    if not callable(fn):
+        return mgr.get_cell_note(sheet_id, sheet_name, cell_address) or ''
+    return fn(sheet_id, sheet_name, cell_address) or ''
+
+
 # Tenacity 재시도 조건 함수
 def _should_retry_http_error(exception):
     """
@@ -2168,6 +2185,32 @@ class GoogleSheetsManager:
         except Exception as e:
             logger.warning(f"셀 노트 조회 실패 ({cell_address}): {e}")
             return None
+
+    def get_cell_note_checked(self, sheet_id, sheet_name, cell_address):
+        """get_cell_note 와 같지만 읽지 못하면 NoteReadError — 메모가 없으면 None.
+
+        열 전체로 다시 읽는 대체 경로(get_cell_notes)는 실패해도 빈 dict 를 돌려줘 '없음'과 구분이 안 되므로
+        쓰지 않는다. 직접 쓰지 말고 read_note_for_append 로 부를 것."""
+        try:
+            with self._lock:
+                result = self._execute_with_retry(
+                    lambda: self.service.spreadsheets().get(
+                        spreadsheetId=sheet_id, ranges=[f"'{sheet_name}'!{cell_address}"],
+                        includeGridData=True, fields='sheets.data.rowData.values.note'),
+                    f"get_cell_note_checked({cell_address})",
+                )
+        except Exception as e:
+            logger.warning(f"셀 노트 조회 실패 — 덧붙여 쓰기 중단 ({cell_address}): {e}")
+            raise NoteReadError(f"{cell_address} 메모를 읽지 못함: {e}") from e
+        if not isinstance(result, dict):
+            raise NoteReadError(f"{cell_address} 메모 응답 이상: {type(result).__name__}")
+        for sh in result.get('sheets', []) or []:
+            for data in sh.get('data', []) or []:
+                for rd in data.get('rowData', []) or []:
+                    for cv in rd.get('values', []) or []:
+                        if cv.get('note'):
+                            return cv['note']
+        return None
 
 
 

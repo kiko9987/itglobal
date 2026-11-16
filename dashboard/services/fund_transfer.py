@@ -276,7 +276,8 @@ def apply_no_move(req: Dict, reason: str, checker: str, when: Optional[datetime]
     from dashboard.utils.google_sheets import main_field_to_letter
     cell = f"{main_field_to_letter().get(req.get('stage')) or req['col']}{row}"
     line = no_move_line(reason, checker, when)
-    note = mgr.get_cell_note(sid, sn, cell) or ''
+    from dashboard.utils.google_sheets import read_note_for_append
+    note = read_note_for_append(mgr, sid, sn, cell)     # 못 읽으면 NoteReadError (2026-11-16)
     new_note = insert_no_move_line(note, req.get('req_line', ''), line)
     if new_note is None:
         raise RuntimeError(f"{cell} 메모에서 자금 이동 요청 줄을 못 찾음")
@@ -353,7 +354,9 @@ def apply_transfer(req: Dict, deposit_text: str, preview: dict, checker: str) ->
     from dashboard.utils.google_sheets import main_field_to_letter
     cell = f"{main_field_to_letter().get(req.get('stage')) or req['col']}{row}"
     line = transfer_line(req, deposit_text, preview, checker)
-    note = mgr.get_cell_note(sid, sn, cell) or ''
+    # 못 읽으면 NoteReadError — 빈 메모로 보면 이체 줄 한 줄만 남고 입금 이력이 사라짐 (2026-11-16)
+    from dashboard.utils.google_sheets import read_note_for_append
+    note = read_note_for_append(mgr, sid, sn, cell)
     if line in note:
         return line    # 재처리 멱등
     if not mgr.update_cell_note(sid, sn, cell, insert_transfer_line(note, req.get('req_line', ''), line)):

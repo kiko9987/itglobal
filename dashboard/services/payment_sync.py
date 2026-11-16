@@ -558,6 +558,55 @@ def _ensure_note_year(memo: str) -> str:
     return f"{year_for_md(int(_mm), int(_dd))}/{md}\n{memo.lstrip()}"
 
 
+_INCOMPLETE_KEY = 'payment_sync:incomplete:'   # 미완성 메모 행 '{처음 본 시각}|{공사 코드}' (2026-11-16)
+_INCOMPLETE_ALERT_SEC = 6 * 3600
+
+
+def _note_incomplete_row(rc, sheet_row: int, project: str) -> None:
+    """입금 메모가 덜 적힌 행 기록 — 다음 회차부터 발송 순서 뒤로 미루고, 오래 남으면 관리자 알림.
+
+    예전엔 이런 행이 기준값 없이 건너뛰어져 매 회차 앞자리(한 회차 5행)를 계속 차지했다. 5행이 쌓이면
+    뒤쪽 공사의 입금 카드가 전부 멈추고, 같은 건너뛰기가 실수 감지 훅도 건너뛰어 아무도 몰랐다
+    (2026-11-16 상태 머신 점검 위험 8)."""
+    import time as _t
+    k = f'{_INCOMPLETE_KEY}{sheet_row}'
+    try:
+        now = int(_t.time())
+        cur = rc.get(k)
+        cur = cur.decode() if isinstance(cur, bytes) else (cur or '')
+        first_s, _, code = cur.partition('|')
+        if code != project or not first_s.isdigit():     # 처음 보거나 행이 다른 공사로 바뀜
+            rc.set(k, f'{now}|{project}', ex=3 * 86400)
+            return
+        if now - int(first_s) > _INCOMPLETE_ALERT_SEC and rc.set(f'{k}:alerted', '1', nx=True, ex=86400):
+            logger.error(
+                f"[PAYMENT] 입금 메모가 6시간 넘게 덜 적혀 #수금_관리 카드를 못 보냄: {project} ({sheet_row}행) — "
+                f"메모의 날짜·입금자 줄을 확인해 주세요", extra={'force_alert': True})
+    except Exception:
+        pass
+
+
+def _clear_incomplete_row(rc, sheet_row: int) -> None:
+    try:
+        rc.delete(f'{_INCOMPLETE_KEY}{sheet_row}', f'{_INCOMPLETE_KEY}{sheet_row}:alerted')
+    except Exception:
+        pass
+
+
+def _incomplete_last(rc, rows: List[Dict], limit: int) -> List[Dict]:
+    """한 회차 처리 수(limit)보다 많으면 미완성으로 기록된 행을 뒤로 — 순서는 그대로 유지."""
+    if len(rows) <= limit:
+        return rows
+    try:
+        pipe = rc.pipeline(transaction=False)
+        for c in rows:
+            pipe.exists(f"{_INCOMPLETE_KEY}{c['row']}")
+        flags = pipe.execute()
+    except Exception:
+        return rows
+    return [c for c, f in zip(rows, flags) if not f] + [c for c, f in zip(rows, flags) if f]
+
+
 def _hash_payments(payments: List[Dict]) -> str:
     """payments 리스트 → 짧은 hash. 메모 변경 감지용."""
     if not payments:
@@ -2668,6 +2717,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
     refund_sends = []    # 과입금 반환 신규(단계에 반환 블록 추가) → '반환' 새 카드 발송 대상
     reprice_rows = []    # 미수금(X) 단독 변화(총액/부가세 시트 직접수정) → 기존 카드 재렌더 (2026-09-11)
     p_updates = []       # (기준값 키, 지금 그 행의 공사 코드) — 루프 뒤 한 번에 기록 (2026-10-30)
+    shifted_rows = []    # 행이 밀린 행(기준값의 공사 코드 ≠ 지금 코드) — 기준값만 다시 잡음 (2026-11-16)
 
     # 행별 기준값을 한 번에 — 예전엔 행마다 hgetall(5천 번 왕복 2.3초, 폴러 한 회차 5초 중 절반).
     #   파이프라인 0.2초 (2026-10-30 실측). 실패하면 예전처럼 행마다 읽는다.
@@ -2772,6 +2822,28 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                 rc.expire(key, REDIS_TTL)
             except Exception:
                 pass
+            continue
+
+        # 행이 밀림(행 삽입·삭제·정렬) — 이 행의 기준값은 다른 공사 것이다. 바뀐 행 수와 상관없이 비교하지 않고
+        #   기준값만 지금 공사로 다시 잡는다. 예전엔 바뀐 행이 20개를 넘을 때만 공사 코드를 비교해, 몇 줄만 밀리면
+        #   옆 공사 기준값과 비교해 옛 입금 카드를 다시 보내거나(카드 위치 키도 덮어씀) 반환 카드를 잘못 보냈다
+        #   (2026-11-16 상태 머신 점검 T7). 코드가 없는 옛 기준값(prev_p 없음)은 예전대로 비교.
+        if prev_p and prev_p != project:
+            _sp = all_payments_by_row.get(sheet_row) or []
+            def _sref(_s):
+                return _hash_payments([p for p in _sp if p.get('stage') == _s and p.get('is_refund')])
+            try:
+                rc.hset(key, mapping={
+                    'u': u_val, 'v': v_val, 'w': w_val, 'x': x_val,
+                    'aa': 'true' if aa_chk else 'false',
+                    'phash': _cur_all_ph,
+                    'u_phash': cur_u_ph, 'v_phash': cur_v_ph, 'w_phash': cur_w_ph,
+                    'u_ref': _sref('계약금'), 'v_ref': _sref('중도금'), 'w_ref': _sref('잔금'),
+                })
+                rc.expire(key, REDIS_TTL)
+            except Exception:
+                pass
+            shifted_rows.append((sheet_row, prev_p, project))
             continue
 
         prev_u_ph = prev.get('u_phash', '')
@@ -2905,6 +2977,9 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
             'stage_memo_newly_added': stage_memo_newly_added,  # stage 별 dict (2026-07-22)
         })
 
+    if shifted_rows:
+        _ex = ', '.join(f"{r}행 {a}→{b}" for r, a, b in shifted_rows[:5])
+        logger.warning(f"[PAYMENT] 행 밀림 {len(shifted_rows)}행 — 비교 없이 기준값만 다시 잡음 (예: {_ex})")
     if p_updates:
         try:
             _pipe = rc.pipeline(transaction=False)
@@ -3011,6 +3086,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
     # 분기:
     #   - 단계 양수 증가 + 메모 변경 → 해당 단계 입금 알림
     #   - AA: false→true + X==0 → 수금완료 알림 (전체 history)
+    changed_rows = _incomplete_last(rc, changed_rows, MAX_PER_TICK)   # 미완성 메모 행이 자리를 막지 않게
     for c in changed_rows[:MAX_PER_TICK]:
         sheet_row = c['row']
         project = c['project']
@@ -3084,6 +3160,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                     if p.get('stage') == stage
                 )
                 if incomplete:
+                    _note_incomplete_row(rc, sheet_row, project)
                     logger.info(
                         f"[PAYMENT] 메모 미저장 감지 → skip ({project}, row {sheet_row}). "
                         f"다음 폴링에서 메모 확인 후 재시도"
@@ -3482,6 +3559,7 @@ def _sync_payments_locked(result, sheet_id, sheet_name, channel, bot_token):
                 'w_phash': (_pd.get('w', '') if isinstance(_pd, dict) else '') if w_val != 0 else '',
             })
             rc.expire(c['key'], REDIS_TTL)
+            _clear_incomplete_row(rc, c['row'])
             # Phash 이력 저장 (P2-2, 2026-07-10) — 디버깅용, 최근 20개만 유지
             # payment_sync:row:{row}:phash_history LIST — "{ts}|{phash}|sent={0/1}"
             try:
