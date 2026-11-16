@@ -1439,7 +1439,39 @@ def license_note(code: str) -> str:
         except Exception:
             bno = ''
         return f'✅ 거래처 탭에 등록된 거래처예요 ({biz}{" · " + bno if bno else ""}). 등록증 파일 없이 진행할 수 있어요.'
-    return f'⚠️ {biz}의 사업자등록증이 없어요. 공사 카드 스레드나 PM에서 올려 주세요.'
+    return (f'⚠️ {biz}의 사업자등록증이 없어 계약서 요청을 올릴 수 없어요. '
+            f'{_project_card_link(code)}에 등록증을 먼저 올리고 이 창을 다시 열어 주세요.')
+
+
+def _project_card_link(code: str) -> str:
+    """공사 확정 카드 스레드 링크(mrkdwn) — 못 찾으면 글자만."""
+    try:
+        from dashboard.services.project_slack_notifier import _project_card_permalink
+        url = _project_card_permalink(code)
+    except Exception:
+        url = ''
+    return f'<{url}|{code} 공사 카드 스레드>' if url else f'공사 카드 스레드({code})'
+
+
+def license_missing(code: str) -> str:
+    """계약서 요청을 막을 이유(11-17 KiKO) — 사업자명은 있는데 등록증이 없을 때만.
+
+    등록증 올리는 곳은 공사 카드 스레드 하나로 둔다(글자 판별·사업자명 대조·카드 ✅·재사용 색인이 거기 묶여 있음).
+    거래처 탭에만 있는 사업자(source=partner)는 세금계산서 요청과 같이 통과, 사업자명이 비면(개인 고객일 수 있음) 안내만.
+    상태 조회가 실패하면 막지 않는다."""
+    if not code:
+        return ''
+    biz = str((_project_rec(code) or {}).get('사업자명') or '').strip()
+    if biz in ('', '-', 'None'):
+        return ''
+    try:
+        from dashboard.services.business_license_handler import get_license_state
+        if (get_license_state(code) or {}).get('exists'):
+            return ''
+    except Exception as exc:
+        logger.warning(f'{_LOG} 등록증 상태 조회 실패 — 막지 않음 ({code}): {exc}')
+        return ''
+    return f'{biz}의 사업자등록증이 없어요. {code} 공사 카드 스레드에 먼저 올리고 다시 제출해 주세요.'
 
 
 def _form_notes(form_key: str, code: str) -> str:
@@ -1488,6 +1520,10 @@ def open_form_modal(client, trigger_id: str, uid: str, form_key: str, project_co
 def validate_form_submit(view: dict):
     form_key, vals = ea.forms.read_form(view)
     errs = ea.forms.validate(form_key, vals)
+    if form_key == ea.forms.FORM_CONTRACT and not errs.get('project'):
+        lic = license_missing(vals.get('project') or '')
+        if lic:
+            errs['project'] = lic
     if not errs and not is_configured():
         errs[ea.forms.get(form_key).fields[-1].key] = '전자결재 봇이 아직 설정되지 않았어요. 관리자에게 알려 주세요.'
     values = view['state']['values']
