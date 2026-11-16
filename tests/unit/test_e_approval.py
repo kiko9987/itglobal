@@ -1136,7 +1136,7 @@ def _form_state(form_key, vals, meta=None, pv=1):
 
 CONTRACT = {'project': 'G4237-MJ', 'total': '11440000', 'receiver': '윤명림', 'receiver_phone': '010-4312-1990',
             'send': '대면', 'contact': '010-4312-1990', 'deposit': '5720000', 'deposit_date': '2026-10-30',
-            'balance': '5720000'}
+            'balance': '5720000', 'delivery': '2026-11-20'}
 
 
 def test_contract_form_prefill_read_validate_and_task_flow(tmp_db):
@@ -1179,9 +1179,17 @@ def test_cardpay_fee_and_validation():
     assert set(forms.validate(forms.FORM_CARDPAY, {**vals, 'fee': ''})) == {'fee'}
 
 
+def test_contract_delivery_required():
+    """납기 및 제품인도 기간은 필수(11-16 SB 요청)."""
+    vals = {k: v for k, v in CONTRACT.items() if k != 'delivery'}
+    assert 'delivery' in forms.validate(forms.FORM_CONTRACT, vals)
+    blk = next(b for b in forms.form_view(forms.FORM_CONTRACT, {})['blocks'] if b.get('block_id') == 'delivery')
+    assert blk['optional'] is False
+
+
 def test_contract_parts_must_add_up():
     """계약금+중도금+잔금 합 = 총 금액 검수 — 나눠 받는 금액을 안 넣었으면 검사 안 함(11-05)."""
-    base = {'project': 'G4049-JW', 'total': '10,000,000', 'receiver': 'a', 'receiver_phone': '010',
+    base = {'project': 'G4049-JW', 'total': '10,000,000', 'receiver': 'a', 'receiver_phone': '010', 'delivery': '2026-11-20',
             'send': '이메일', 'contact': 'a@b'}
     assert forms.validate(forms.FORM_CONTRACT, base) == {}
     ok = {**base, 'deposit': '3,000,000', 'balance': '7,000,000'}

@@ -116,7 +116,7 @@ _add(Form(FORM_CONTRACT, '계약서 작성 요청', '📑', 'task', project_card
               F('balance_date', '잔금 입금 일자', 'date', required=False),
               F('receiver', '인수자명', auto='발주처 담당자', section='📦 인수·납기'),
               F('receiver_phone', '인수자 연락처', auto='발주처 연락처'),
-              F('delivery', '납기 및 제품인도 기간', 'date', required=False),
+              F('delivery', '납기 및 제품인도 기간', 'date'),   # 필수(11-16 SB 요청 — 계약서에 꼭 들어간다)
               F('send', '계약서 발송 방법', 'select', options=['이메일', '카카오톡', '대면'], section='✉️ 계약서 발송'),
               F('contact', '이메일 또는 전화번호', auto='발주처 이메일'),
               F('guarantees', '보증 종류', 'multiselect', required=False, options=CONTRACT_GUARANTEES, dispatch=True,
