@@ -1665,31 +1665,18 @@ body.gw-shell .gw-notify-stale {
 }
 
 /* ── 프로젝트 PC 필터 줄 정리(11-16 저녁, 부장님 결정 — FilterBarPC.js) ──────────────────
-   1줄: 검색 → 상태·담당자·수금 상태·세금계산서 → [+ 필터 더보기 n] …… [저장한 필터 ▾]
-   2줄: 걸린 조건 칩·[모두 지우기]·건수. 상태 칸은 폭을 꽉 채우지 않고 내용 길이만큼. 휴대폰은 그대로. */
+   1줄: 상태·담당자·수금 상태·세금계산서 → 검색 → [+ 필터 더보기 n] …… [저장한 필터 ▾] (다 들어가면 8개 뒤 검색)
+   2줄: 걸린 조건 칩·[모두 지우기]·건수. 상태 칸은 예전처럼 화면 폭을 꽉 채움(11-16 되돌림). 휴대폰은 그대로. */
 @media (min-width: 768px) {
-  body.gw-shell .gw-stats {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  body.gw-shell .gw-stats .gw-stat {
-    flex: 0 0 auto;
-    height: 44px;
-    padding: 0 12px 0 14px;
-  }
-  body.gw-shell .gw-stats .gw-stat-label {
-    flex: 0 1 auto;
-  }
-  body.gw-shell .gw-stats .gw-stat-num {
-    margin-left: 6px;
-  }
-
   body.gw-shell .pfb > .row > [class*="col-"] {
     order: var(--pfb-order, 20);
   }
+  /* 검색 칸은 필터 뒤(11-16 부장님) — 접힌: 자주 쓰는 4개 뒤·[필터 더보기] 앞, 다 펼침: [데이터] 오른쪽 */
   body.gw-shell .pfb > .row > .pfb-search {
-    order: 0;
+    order: 29;
+  }
+  body.gw-shell .pfb.pfb-all > .row > .pfb-search {
+    order: 41;
   }
   body.gw-shell .pfb #searchInput {
     width: 260px;
