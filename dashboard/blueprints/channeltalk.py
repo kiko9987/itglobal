@@ -634,6 +634,9 @@ def _register_pending_lead_if_any(chat_id: str) -> str:
         pending_key = f'channeltalk_pending_lead:{chat_id}'
         pending_raw = rc.get(pending_key)
         if not pending_raw:
+            # 등록할 게 없으면 잠금을 바로 푼다 — 예전엔 매니저 메시지마다 60초씩 잡아, 그 사이 같은 채팅 카드의
+            #   [상담하기] 제출이 같은 잠금에 걸려 조용히 무시됐다(11-16 상태 머신 점검 A6)
+            rc.delete(lock_key)
             return ''
         pending = _json.loads(
             pending_raw.decode('utf-8') if isinstance(pending_raw, bytes) else pending_raw

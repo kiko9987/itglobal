@@ -9489,6 +9489,18 @@ def _process_consult_submission(client, body, view):
     message_ts = metadata.get("message_ts", "")
     user_id = body["user"]["id"]
 
+    # 스팸 의심으로 카드만 먼저 뜬 채팅은 버튼 값이 chat_id 로 남는다 — 그 사이 매니저 응답으로 리드가 이미
+    #   등록됐으면 그 리드로 처리(예전엔 조용히 무시되거나 리드가 하나 더 생겼다, 11-16 A6)
+    if chat_id and not lead_no:
+        try:
+            from dashboard.blueprints.channeltalk import _get_chat_lead_no
+            _known = _get_chat_lead_no(chat_id)
+        except Exception:
+            _known = ''
+        if _known:
+            logger.info(f"[SLACK/상담] 채널톡 chat_id={chat_id} 는 이미 {_known} 로 등록됨 — 그 리드로 처리")
+            lead_no, chat_id = _known, ''
+
     # 채널톡 chat_id 있으면 Redis 락 + pending lead 정리 (중복 등록 방지)
     if chat_id:
         try:
@@ -9500,6 +9512,14 @@ def _process_consult_submission(client, body, view):
                 logger.info(
                     f"[SLACK/상담] 채널톡 chat_id={chat_id} 이미 처리 중 — 중복 제출 무시"
                 )
+                if channel and user_id:
+                    try:
+                        client.chat_postEphemeral(
+                            channel=channel, user=user_id,
+                            text=":hourglass_flowing_sand: 이 채팅을 등록하는 중이라 이번 제출은 반영하지 않았습니다. "
+                                 "잠시 뒤 카드를 확인하고 다시 해 주세요.")
+                    except Exception:
+                        pass
                 return
             # pending lead 데이터 삭제 (이 모달 제출이 정상 lead 등록 흐름)
             rc.delete(f'channeltalk_pending_lead:{chat_id}')
@@ -9608,6 +9628,8 @@ def _process_consult_submission(client, body, view):
     # 1) 인입 리드 케이스 — 기존 lead 시트 업데이트
     # ─────────────────────────────────────────────
     if lead_no:
+        _saved = False
+        _prev_status = str((_find_lead_by_no(lead_no) or {}).get('상태') or '').strip()
         try:
             from dashboard.services.lead_service import update_lead
             update_data = {'상태': sheet_status}
@@ -9658,16 +9680,32 @@ def _process_consult_submission(client, body, view):
             _res = update_lead(lead_no, update_data)
             if isinstance(_res, dict) and _res.get('success') is False:   # 실패를 예외 없이 돌려줌 (2026-10-28)
                 raise RuntimeError(_res.get('message') or '리드 시트 저장 실패')
+            _saved = True
         except Exception as exc:
-            logger.error(f"[SLACK/상담] 시트 업데이트 실패 ({lead_no}): {exc}", exc_info=True)
+            logger.error(f"[SLACK/상담] 시트 업데이트 실패 — 카드·방문 카드·List 그대로 ({lead_no}): {exc}",
+                         exc_info=True)
+            # 시트에 못 썼으면 카드·방문 카드·List 도 바꾸지 않고 멈춘다 — 스레드 자동 감지와 같은 정책.
+            #   예전엔 카드만 '상담 완료'로 바뀌고 시트는 그대로라 캔버스·리마인드와 어긋났다(11-16 A2)
+            try:
+                from dashboard.utils.redis_client import get_redis_client
+                get_redis_client().redis.delete(f'consult_submit_lock:{lead_no}')   # 바로 다시 누를 수 있게
+            except Exception:
+                pass
             try:
                 if channel and user_id:
                     client.chat_postEphemeral(
                         channel=channel, user=user_id,
-                        text=(f":warning: `{lead_no}` 상담 내용이 시트에 저장되지 않았습니다. "
-                              "카드는 바뀌었을 수 있으니, 잠시 후 [정보 수정]으로 다시 저장하거나 관리자에게 알려 주세요."))
+                        text=(f":warning: `{lead_no}` 상담 내용을 시트에 저장하지 못해 카드는 그대로 두었습니다. "
+                              "잠시 후 다시 제출해 주세요."))
             except Exception:
                 pass
+            return
+        if _saved and _prev_status == '방문 예약' and not is_visit:
+            try:
+                _close_visit_card_for_status_change(
+                    client, lead_no, sheet_status, _slack_user_to_initial(client, user_id) or '-')
+            except Exception as _cexc:
+                logger.warning(f"[SLACK/상담] 방문 카드 정리 실패 ({lead_no}): {_cexc}")
 
         # 슬랙 List webhook — 방문 예약 한정 (유선 상담/견적/드랍은 list 미등록)
         if is_visit:
@@ -11181,6 +11219,55 @@ def _visit_is_completed(lead_no: str, consult_text: str = '') -> bool:
     return consult_visit_done(consult_text)
 
 
+def _close_visit_card_for_status_change(client, lead_no: str, new_status: str, initial: str = '-') -> bool:
+    """'방문 예약'이던 리드가 재상담·전화 병합으로 다른 상태가 되면 방문 카드를 닫고 List 행을 지운다.
+
+    예전엔 캔버스1 에서만 빠지고 #방문_일정 카드(버튼 그대로)와 List 행이 남아 '방문 가야 하나?' 혼란이
+    생겼다(2026-11-16 상태 머신 점검 A4·A5). 카드가 이미 완료·취소 카드(진행 버튼 없음)면 건드리지 않는다.
+    닫았으면 True."""
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        stored = get_redis_client().redis.get(f'visit_notice_msg:{lead_no}')
+        stored = stored.decode('utf-8') if isinstance(stored, bytes) else (stored or '')
+    except Exception as exc:
+        logger.warning(f'[SLACK/방문정리] {lead_no} 방문 카드 위치 조회 실패: {exc}')
+        return False
+    if '|' not in stored:
+        return False
+    ch, ts = stored.split('|', 1)
+    vclient = _visit_slack_app.client if _visit_slack_app else client
+    original_text, active = '', False
+    try:
+        rep = vclient.conversations_replies(channel=ch, ts=ts, limit=1, inclusive=True)
+        root = (rep.get('messages') or [{}])[0]
+        for blk in root.get('blocks', []) or []:
+            if blk.get('type') == 'section' and not original_text:
+                original_text = (blk.get('text') or {}).get('text', '') or ''
+            if blk.get('type') == 'actions' and any(
+                    (e.get('action_id') or '') == 'visit_complete' for e in blk.get('elements', []) or []):
+                active = True
+    except Exception as exc:
+        logger.warning(f'[SLACK/방문정리] {lead_no} 방문 카드 읽기 실패 — 그대로 둠: {exc}')
+        return False
+    if not active:
+        return False
+    _trigger_visit_list_webhook('SLACK_VISIT_CANCEL_WEBHOOK_URL', lead_no, ch, ts)
+    body = '\n'.join(ln.lstrip('>').lstrip().replace('*', '') for ln in original_text.split('\n'))
+    body = re.sub(r'^[\s⠀]+|[\s⠀]+$', '', body)
+    text = (f"⚪ *방문 일정 종료 — 상담 결과 '{new_status}'*  `{lead_no}`\n"
+            f"처리 : {initial} · {datetime.now().strftime('%Y.%m.%d. %H:%M')}\n"
+            f"다시 방문하게 되면 리드 카드의 [✏️ 재상담]에서 방문 예약으로 올려 주세요."
+            + (f"\n\n```\n{body}\n```" if body else ''))
+    try:
+        vclient.chat_update(channel=ch, ts=ts, text=text,
+                            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}])
+    except Exception as exc:
+        logger.warning(f'[SLACK/방문정리] {lead_no} 방문 카드 닫기 실패: {exc}')
+        return False
+    logger.info(f"[SLACK/방문정리] {lead_no} 방문 예약 → '{new_status}' — 방문 카드 닫고 List 행 삭제")
+    return True
+
+
 def _clear_visit_completion(lead_no: str) -> None:
     """새 방문이 등록·병합되면 이전 방문의 완료 표시를 지움.
 
@@ -11189,7 +11276,8 @@ def _clear_visit_completion(lead_no: str) -> None:
     """
     if not lead_no:
         return
-    keys = (f'visit_auto_completed:{lead_no}', f'visit_completed:{lead_no}')
+    # 취소 표시도 — 남으면 같은 날 다시 예약한 방문을 또 취소할 때 '이미 취소됨'으로 조용히 무시됐다(11-16 A7)
+    keys = (f'visit_auto_completed:{lead_no}', f'visit_completed:{lead_no}', f'visit_cancelled:{lead_no}')
     try:
         from dashboard.utils.redis_client import get_redis_client
         if get_redis_client().redis.delete(*keys):
@@ -11893,14 +11981,32 @@ def _process_visit_cancel_confirmed(client, body, view) -> None:
     ).strip()
 
     # 1) 시트 상태='방문 취소' + 상담 내용 append (ETC- 는 Redis metadata 만 갱신)
+    #    '공사 확정' 리드는 상태를 그대로 둔다 — 방문 일정만 취소한 것. 예전엔 공사 확정을 덮어써 리드-공사
+    #    연결·계약 통계가 틀어지고, 되돌리기는 '방문 예약'으로 돌려 원래 상태가 사라졌다(11-16 A1)
+    _old_status = str(old_lead.get('상태') or '').strip()
+    _upd = {'상담 내용': appended_note}
+    if _old_status != '공사 확정':
+        _upd['상태'] = '방문 취소'
     try:
-        _update_lead_dispatch(lead_no, {
-            '상태': '방문 취소',
-            '상담 내용': appended_note,
-        })
+        _update_lead_dispatch(lead_no, _upd)
     except Exception as exc:
-        logger.error(f"[SLACK/방문취소] 시트 update 실패 ({lead_no}): {exc}",
+        # 시트에 못 썼는데 List·카드만 취소되면 캔버스1 에 취소된 방문이 남는다 — 멈추고 다시 누르게(11-16)
+        logger.error(f"[SLACK/방문취소] 시트 update 실패 — 취소 처리 중단 ({lead_no}): {exc}",
                      exc_info=True)
+        if _vc_rc is not None:
+            try:
+                _vc_rc.delete(f'visit_cancelled:{lead_no}')
+            except Exception:
+                pass
+        if channel and user_id:
+            try:
+                client.chat_postEphemeral(
+                    channel=channel, user=user_id,
+                    text=(f":warning: `{lead_no}` 시트에 저장하지 못해 방문 취소를 처리하지 않았습니다. "
+                          f"잠시 뒤 [🗑️ 방문 취소]를 다시 눌러 주세요."))
+            except Exception:
+                pass
+        return
 
     # 2) 슬랙 List 동기화 — 행 삭제
     _trigger_visit_list_webhook(
@@ -13238,6 +13344,31 @@ def _process_visit_uncancel(client, body) -> None:
     if not lead_no:
         return
 
+    def _tell(msg):
+        try:
+            client.chat_postEphemeral(channel=channel, user=user_id, text=msg)
+        except Exception:
+            pass
+
+    # 지금 상태를 먼저 읽는다 — '공사 확정'이면 그대로(취소 때도 안 바꿈), 못 읽으면 멈춤(11-16 A1)
+    try:
+        _cur = _find_lead_by_no(lead_no, strict=True)
+    except LeadReadError:
+        logger.error(f"[SLACK/방문복원] {lead_no} 리드 조회 실패 — 되돌리기 중단")
+        _tell(f":warning: `{lead_no}` 리드를 시트에서 읽지 못해 되돌리지 않았습니다. 잠시 뒤 다시 눌러 주세요.")
+        return
+    _cur_status = str((_cur or {}).get('상태') or '').strip()
+
+    # 1) 시트 상태 → '방문 예약' 복원 (ETC- 는 Redis metadata 만 갱신)
+    if _cur_status != '공사 확정':
+        try:
+            _update_lead_dispatch(lead_no, {'상태': '방문 예약'})
+        except Exception as exc:
+            logger.error(f"[SLACK/방문복원] 시트 update 실패 — 되돌리기 중단 ({lead_no}): {exc}",
+                         exc_info=True)
+            _tell(f":warning: `{lead_no}` 시트에 저장하지 못해 되돌리지 않았습니다. 잠시 뒤 다시 눌러 주세요.")
+            return
+
     # 0) 취소 멱등성 마커 해제 — 되돌린 뒤 재취소가 정상 통과하도록
     #    (_process_visit_cancel_confirmed 의 visit_cancelled: SETNX 마커와 대칭)
     try:
@@ -13245,13 +13376,6 @@ def _process_visit_uncancel(client, body) -> None:
         get_redis_client().redis.delete(f'visit_cancelled:{lead_no}')
     except Exception:
         pass
-
-    # 1) 시트 상태 → '방문 예약' 복원 (ETC- 는 Redis metadata 만 갱신)
-    try:
-        _update_lead_dispatch(lead_no, {'상태': '방문 예약'})
-    except Exception as exc:
-        logger.error(f"[SLACK/방문복원] 시트 update 실패 ({lead_no}): {exc}",
-                     exc_info=True)
 
     # 2) list 복구 webhook 호출
     _trigger_visit_list_webhook(

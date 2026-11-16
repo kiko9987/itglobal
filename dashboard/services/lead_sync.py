@@ -2285,10 +2285,16 @@ def _update_existing_lead_from_workflow(
         ('O', '마지막 연락일'),
     ]
     updates = []
+    _ex_status = str((existing_row.get('상태') if existing_row is not None else '') or '').strip()
     for col, field in field_col:
         v = str(workflow_row.get(field, '') or '').strip()
         if not v or v == '-':
             continue  # 빈값·'-' 는 기존값 보존
+        if field == '상태' and _ex_status == '방문 예약' and v not in ('방문 예약', '문의 드랍'):
+            # 방문 앞둔 고객의 통화(유선 상담·부재중·견적 요청)는 상담 기록만 남기고 방문 예약은 그대로.
+            #   예전엔 방문 예약이 내려가 캔버스1 에서 빠지고 카드·List 만 남았다(11-16 상태 머신 점검 A5).
+            #   통화로 방문을 취소하면 '문의 드랍' → 상태를 바꾸고 방문 카드·List 를 정리(호출부)
+            continue
         # 필드별 정규화
         if field == '상담 시간':
             norm = _normalize_workflow_datetime(v)
@@ -2554,6 +2560,13 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                             manager, cfg, existing_sheet_row, row,
                             existing_row=main_df.loc[existing_sheet_row - 2],
                         )
+                        if (_dst == '방문 예약'
+                                and str(row.get('상태', '') or '').strip() == '문의 드랍'):
+                            try:   # 통화로 방문 취소 — 방문 카드 닫고 List 행 삭제(11-16)
+                                from dashboard.blueprints.slack_bot import _close_visit_card_for_status_change
+                                _close_visit_card_for_status_change(None, existing_lead_no, '문의 드랍', '전화')
+                            except Exception as _cv_exc:
+                                logger.warning(f'[SYNC/전화WF/DEDUP] 방문 카드 정리 실패 ({existing_lead_no}): {_cv_exc}')
                         temp_rows_to_delete.append(sheet_row)
                         result.setdefault('updated_existing', 0)
                         result['updated_existing'] += 1
