@@ -372,8 +372,9 @@ export default class MobileCardView {
         <span class="pmm-sum-money ${dueClass(due, status)}">미수금 <b>${won(due)}</b></span>
       </div>`];
     if (tel) {
-      parts.push(`<a class="pmm-quick-btn" href="${escHtml(tel)}">
-        <i class="fas fa-phone" aria-hidden="true"></i>${who ? `발주처 전화 · ${escHtml(who)}` : '발주처 전화'}</a>`);
+      // 이름이 길면 단추가 길어져 [지도에서 보기]가 아래 줄로 밀렸음 → 이름은 아래 작은 줄(넘치면 …)
+      parts.push(`<a class="pmm-quick-btn" href="${escHtml(tel)}"${who ? ` aria-label="발주처 전화 ${escHtml(who)}"` : ''}>
+        <i class="fas fa-phone" aria-hidden="true"></i><span class="pmm-quick-txt"><span>발주처 전화</span>${who ? `<small>${escHtml(who)}</small>` : ''}</span></a>`);
     }
     if (addr) {
       const url = `https://map.kakao.com/link/search/${encodeURIComponent(addr)}`;

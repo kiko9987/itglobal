@@ -88,11 +88,20 @@
   padding: 12px 12px calc(32px + env(safe-area-inset-bottom));
 }
 
+/* 요약 한 줄 + 바로 하기 단추 두 칸(같은 넓이) — 발주처 이름이 길어도 두 단추가 나란히 */
 .pmm-sheet-quick {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin-bottom: 12px;
+}
+
+.pmm-sheet-quick > .pmm-sheet-sum {
+  grid-column: 1 / -1;
+}
+
+.pmm-sheet-quick > .pmm-quick-btn:only-of-type {
+  grid-column: 1 / -1;
 }
 
 .pmm-sheet-quick:empty {
@@ -155,13 +164,15 @@
 }
 
 .pmm-quick-btn {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  min-height: 44px;
-  padding: 0 16px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 4px 12px;
   border: 1px solid #dcdee3;
-  border-radius: 9999px;
+  border-radius: 12px;
   background: #ffffff;
   color: #1a1c20 !important;
   font-size: 15px;
@@ -170,7 +181,24 @@
 }
 
 .pmm-quick-btn i {
+  flex: 0 0 auto;
   color: #555d6d;
+}
+
+.pmm-quick-txt {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.pmm-quick-txt small {
+  overflow: hidden;
+  color: #4b5563;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .pmm-quick-btn:active {
@@ -819,10 +847,32 @@ html.pmm-sheet-open body {
   }
 
   /* [공사 취소]·[공사 재개]: [편집] 바로 옆이라 잘못 누르기 쉬웠음 → 줄 맨 끝(오른쪽)으로 떼어 놓음 */
-  .pmm-sheet .project-actions-container .cancel-construction-btn,
-  .pmm-sheet .project-actions-container .resume-construction-btn {
+  /* 단추 줄: 넓이가 제각각이라 들쭉날쭉하던 것 → 같은 넓이 2열 격자(11-16 부장님 실기기 제보)
+     [편집]·A/S 칸은 감싸개를 풀어(display: contents) 단추가 바로 격자 칸이 되게. 편집 중 하단 고정 바일 땐 그대로 */
+  html body .pmm-sheet .project-actions-container {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  html body .pmm-sheet .project-actions-container > .unified-edit-buttons:not(:has(.unified-save-btn:not(.d-none))),
+  html body .pmm-sheet .project-actions-container > .as-action-slot {
+    display: contents !important;
+  }
+
+  html body .pmm-sheet .project-actions-container .btn {
+    width: 100%;
+    margin: 0 !important;
+    justify-content: center;
+  }
+
+  /* [공사 취소]·[공사 재개]: [편집]과 떨어지게 맨 아래 줄 오른쪽 반 칸 */
+  html body .pmm-sheet .project-actions-container .cancel-construction-btn,
+  html body .pmm-sheet .project-actions-container .resume-construction-btn {
     order: 99;
-    margin-left: auto;
+    grid-column: 1 / -1;
+    justify-self: end;
+    width: calc(50% - 4px);
   }
 
   /* 편집 중 [저장]·[취소]: 긴 상세를 끝까지 내려야 했던 것 → 화면 아래 고정 */
