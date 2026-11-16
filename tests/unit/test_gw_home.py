@@ -300,3 +300,10 @@ def test_sales_api_field_blocked(client):
     tok = gw_login.issue('UF').rsplit('/', 1)[1]
     client.get(f'/gw/login/{tok}')
     assert client.get('/api/home/sales').status_code == 403
+
+
+def test_field_never_sees_sales_paths():
+    """시공·미화(현장 세션)는 매출을 안 본다 — 부장님 결정(11-17). 문지기 허용 목록에 매출 경로가 끼면 실패."""
+    from dashboard.blueprints.groupware import field_path_allowed
+    for path in ('/stats', '/api/home/sales', '/settlement/collected', '/projects', '/api/projects'):
+        assert not field_path_allowed('GET', path), path
