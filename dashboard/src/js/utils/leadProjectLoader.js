@@ -182,6 +182,11 @@ function renderResults(container, leads, onSelect) {
     const addr = escapeHtml(lead.address || '');
     const platform = escapeHtml(lead.platform || '');
     const leadNo = escapeHtml(lead.lead_no || '');
+    // 이미 공사가 붙은 리드 — 입찰 분리처럼 일부러 또 쓰는 경우가 있어 보여 주되 표시한다
+    const linked = Array.isArray(lead.linked_codes) ? lead.linked_codes : [];
+    const linkedBadge = linked.length
+      ? `<span class="badge bg-warning text-dark ms-1" style="font-size: 0.65rem; font-weight: 500;">이미 연결됨 · ${escapeHtml(linked.join(', '))}</span>`
+      : '';
     return `
       <a href="#" class="list-group-item list-group-item-action lead-project-item"
          style="padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--gray-200); text-decoration: none; color: inherit; display: block;"
@@ -191,6 +196,7 @@ function renderResults(container, leads, onSelect) {
             <div style="font-weight: 600; font-size: 0.9rem;">
               ${name}
               <span class="badge bg-${badge} ms-1" style="font-size: 0.65rem; font-weight: 500;">${status}</span>
+              ${linkedBadge}
               ${platform ? `<span class="text-muted ms-1" style="font-size: 0.7rem;">${platform}</span>` : ''}
             </div>
             <div style="font-size: 0.78rem; color: #666; margin-top: 2px;">
@@ -258,6 +264,18 @@ function applyLead(lead, opts) {
       );
       return; // 어떤 필드도 채우지 않고 리드 링크도 하지 않음
     }
+  }
+
+  // 이미 공사가 붙은 리드면 한 번 묻는다 (2026-11-16).
+  // 전에는 이런 리드를 검색에서 빼 버려서 입찰이 2건으로 나뉜 현장을 등록할 수 없었다.
+  // 지금은 보여 주는 대신 여기서 막아 중복 등록을 걸러낸다.
+  const linkedCodes = Array.isArray(lead.linked_codes) ? lead.linked_codes : [];
+  if (linkedCodes.length) {
+    const ok = window.confirm(
+      `${lead.lead_no} 현장에는 이미 공사가 있습니다 — ${linkedCodes.join(', ')}\n\n`
+      + '입찰이 나뉘어 공사를 하나 더 등록하는 경우가 아니면 [취소]를 누르세요.',
+    );
+    if (!ok) return;
   }
 
   currentLead = lead;
