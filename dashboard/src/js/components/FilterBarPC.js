@@ -119,11 +119,45 @@ export default class FilterBarPC {
     }
 
     // 다시 그리기: 칸을 바꿀 때·검색할 때·필터가 돌 때(상태 칸·[초기화]·저장한 필터는 값만 바꾸고 change 를 안 보낼 수 있음)
-    const update = () => this.update();
+    const update = () => { this.update(); this.fit(); };
     row.addEventListener('change', () => setTimeout(update, 0));
     document.getElementById('searchInput')?.addEventListener('input', () => setTimeout(update, 350));
     this.filters?.onFilterChange?.(() => update());
+
+    // 화면 폭이 바뀌면 다시 잼(넓은 화면은 8개 모두 펼침, 좁으면 더보기로)
+    let lastW = 0;
+    new ResizeObserver(() => {
+      const w = Math.round(section.getBoundingClientRect().width);
+      if (w !== lastW) { lastW = w; this.fit(); }
+    }).observe(section);
     this.update();
+    this.fit();
+  }
+
+  /**
+   * 넓은 화면이면 '더보기' 없이 8개를 한 줄에 다 편다(부장님 지적 11-16 저녁 — 오른쪽이 비는데 접어 둘 이유가 없음).
+   * 고정 폭 기준이 아니라 실제로 펴 보고 한 줄을 넘으면(줄바꿈 생기면) 다시 접는다. 고른 값에 따라 칸 폭이 바뀌므로
+   * 필터가 바뀔 때마다 다시 잰다.
+   */
+  fit() {
+    const { section, row } = this;
+    if (!window.matchMedia('(min-width: 768px)').matches) {
+      section.classList.remove('pfb-all');
+      return;
+    }
+    section.classList.add('pfb-all');
+    this.update();                      // 다 펴면 칩은 감춰지므로 칩을 뺀 모양으로 잰다
+    // 높이가 다른 칸(칩 30px·단추 36px)은 top 이 몇 px 다르므로 '줄이 바뀜' = 20px 넘게 아래
+    const tops = [...row.children]
+      .filter((el) => el.getBoundingClientRect().width > 0)
+      .map((el) => el.getBoundingClientRect().top);
+    const fits = tops.length === 0 || Math.max(...tops) - Math.min(...tops) < 20;
+    if (!fits) {
+      section.classList.remove('pfb-all');
+      this.update();
+    } else if (section.classList.contains('pfb-more-open')) {
+      this.setMoreOpen(false);
+    }
   }
 
   setMoreOpen(open) {
@@ -161,7 +195,8 @@ export default class FilterBarPC {
     const all = this.activeConditions();
     // 칩은 더보기 안 조건만, 그것도 접혀 있을 때만(첫 줄 필터·검색칸은 값이 그대로 보여 칩이 겹쳤음)
     const hiddenKeys = new Set(MORE);   // '내 프로젝트만'·'취소 제외'는 표 위 체크로 늘 보임
-    const conds = this.section.classList.contains('pfb-more-open') ? [] : all.filter((c) => hiddenKeys.has(c.key));
+    const shownAll = this.section.classList.contains('pfb-more-open') || this.section.classList.contains('pfb-all');
+    const conds = shownAll ? [] : all.filter((c) => hiddenKeys.has(c.key));
     this.tagsEl.innerHTML = conds.map((c) => `
       <span class="pfb-tag" role="listitem">
         <span>${c.label ? `<span class="pfb-tag-k">${esc(c.label)}</span> ` : ''}${esc(c.value)}</span>

@@ -1714,6 +1714,17 @@ body.gw-shell .gw-notify-stale {
   body.gw-shell .pfb > .row > .pfb-old-actions {
     display: none !important;      /* [초기화]·[필터 저장]·건수 → 2줄의 [모두 지우기]·건수, 오른쪽 [저장한 필터] */
   }
+  /* 넓은 화면(FilterBarPC.fit 이 한 줄에 다 들어간다고 잰 경우): 8개 모두 펴고 [필터 더보기]는 숨김 */
+  body.gw-shell .pfb.pfb-all > .row > .pfb-more-item {
+    display: flex;
+  }
+  body.gw-shell .pfb.pfb-all > .row > .pfb-tags-col {
+    order: 45;                     /* [모두 지우기]는 필터 8개 뒤로 */
+  }
+  body.gw-shell .pfb.pfb-all > .row > .pfb-more-col,
+  body.gw-shell .pfb.pfb-all > .row > .pfb-break {
+    display: none !important;
+  }
   body.gw-shell .pfb > .row > .pfb-break {
     order: 35;
     display: none;
