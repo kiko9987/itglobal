@@ -246,6 +246,11 @@ _DDL = [
         updated_at TIMESTAMP NOT NULL
     )''',
     'CREATE INDEX IF NOT EXISTS idx_approval_jobs_status ON approval_jobs(status)',
+    # 11-16 작은 설정값(메뉴 메시지 ts 등) — 메뉴가 지워지면 다시 올리려고
+    '''CREATE TABLE IF NOT EXISTS approval_kv (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    )''',
 ]
 _table_ready = False
 
@@ -764,6 +769,21 @@ def transition(aid: int, action: str, actor_id: str, actor_name: str, reason: st
             _auto_final_step(conn, aid, actor_id, actor_name, now, '최종 승인자가 승인')
         conn.commit()
         return _row(conn, aid)
+
+
+def kv_get(key: str) -> str:
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        r = conn.execute('SELECT value FROM approval_kv WHERE key=?', (key,)).fetchone()
+        return (r[0] if r else '') or ''
+
+
+def kv_set(key: str, value: str) -> None:
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        conn.execute('INSERT INTO approval_kv (key, value) VALUES (?,?) '
+                     'ON CONFLICT(key) DO UPDATE SET value=excluded.value', (key, value))
+        conn.commit()
 
 
 def set_card(aid: int, channel: str, ts: str) -> None:
@@ -1454,12 +1474,14 @@ def dm_blocks(row: dict, role: str, project_line: str, card_link: str = '') -> L
     if form == forms.FORM_EXPENSE and role == 'executor':   # 개인 계좌는 카드엔 안 보이고 경영지원 DM 에만
         f = extra(row).get('f') or {}
         summary += f"\n이체 계좌: {f.get('bank') or '-'} {f.get('account') or '-'} ({row.get('requester_name') or '-'})"
+    # 카드가 없을 때 '처리해 주세요'는 진행 중인 결재에만 — 끝난 결재엔 할 일이 없다(11-16 #23·#24)
     link = (f'<{card_link}|👉 결재 카드 열기>' if card_link
-            else '#전자_결재 채널의 카드에서 처리해 주세요.')
+            else '#전자_결재 채널의 카드에서 처리해 주세요.' if row.get('status') in OPEN_STATUSES else '')
     text = f'{dm_intro(row, role)}\n\n{summary}\n{step_line(row, steps(row["id"]))}'
     # 수정하기는 DM 에서도 바로(채널 카드까지 안 가도)
     els = [_btn('✏️ 수정하기', A_EDIT, row['id'], 'primary')] if role == 'requester' and row.get('status') == REVISE else None
-    return spaced(text[:2900], els, [{'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': link}]}])
+    notes = [{'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': link}]}] if link else None
+    return spaced(text[:2900], els, notes)
 
 
 def menu_blocks() -> List[dict]:

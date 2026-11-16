@@ -1807,6 +1807,67 @@ def test_reconcile_sends_missing_dm(se):
     assert len(ea.dm_refs(ea.get(row['id']))) == n                      # 두 번 보내지 않음
 
 
+def test_reconcile_reposts_deleted_card_and_menu(se, monkeypatch):
+    """11-16 — #23·#24 채널 카드가 지워져 최종 승인 버튼 없이 사흘 멈췄다. 5분 점검이 다시 올리고 DM 링크도 새 카드로."""
+    from datetime import datetime, timedelta
+    f = se._fake
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    old_ts = row['card_ts']
+    menu_ts = se.post_menu()
+    assert ea.kv_get('menu_ts') == menu_ts
+    later = datetime.now() + timedelta(minutes=3)
+    se.recover_jobs(later)                                               # 다 남아 있으면 아무것도 안 함
+    assert ea.get(row['id'])['card_ts'] == old_ts and ea.kv_get('menu_ts') == menu_ts
+
+    gone = {old_ts, menu_ts}
+    real = f.__getattr__
+
+    def getattr_(name):
+        if name == 'chat_getPermalink':
+            def _p(**kw):
+                f.calls.append((name, kw))
+                if kw['message_ts'] in gone:
+                    raise RuntimeError("The server responded with: {'ok': False, 'error': 'message_not_found'}")
+                return {'permalink': 'https://x/new'}
+            return _p
+        return real(name)
+    monkeypatch.setattr(type(f), '__getattr__', lambda self, name: getattr_(name))
+    alerts = []
+    monkeypatch.setattr(se.logger, 'error', lambda msg, *a, **k: alerts.append((msg, k.get('extra'))))
+    n_pins = len(f.of('pins_add'))
+    se.recover_jobs(later)
+    new = ea.get(row['id'])
+    assert new['card_ts'] != old_ts and new['status'] == ea.PENDING
+    assert len(f.of('pins_add')) == n_pins + 2                          # 새 카드 + 새 메뉴 고정
+    assert any('♻️' in (kw.get('text') or '') and kw.get('thread_ts') == new['card_ts'] for kw in f.of('chat_postMessage'))
+    assert any(kw['ts'] == r['ts'] for r in ea.dm_refs(new) for kw in f.of('chat_update'))   # DM 링크 새로
+    assert ea.kv_get('menu_ts') not in ('', menu_ts)
+    assert len(alerts) == 2 and all(e == {'force_alert': True} for _, e in alerts)
+
+
+def test_reconcile_ignores_other_slack_errors(se, monkeypatch):
+    """슬랙 장애·속도 제한으로 못 읽은 건 지워진 게 아니다 — 다시 올리지 않는다."""
+    from datetime import datetime, timedelta
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    assert se._message_gone(se._fake, 'C', '1.0') is False
+
+    class _Err:
+        def chat_getPermalink(self, **kw):
+            raise RuntimeError('ratelimited')
+    assert se._message_gone(_Err(), 'C', '1.0') is False
+    se.recover_jobs(datetime.now() + timedelta(minutes=3))
+    assert ea.get(row['id'])['card_ts'] == row['card_ts']
+
+
+def test_closed_dm_without_card_has_no_todo_line(se):
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    open_dm = ea.dm_blocks(ea.get(row['id']), 'approver', 'G4049-JW', '')
+    assert any('카드에서 처리해 주세요' in str(b) for b in open_dm)
+    se.apply_action('cancel', row['id'], MGR)
+    closed = ea.dm_blocks(ea.get(row['id']), 'approver', 'G4049-JW', '')
+    assert not any('처리해 주세요' in str(b) for b in closed) and len(closed) == len(open_dm) - 1
+
+
 def test_manifest_has_file_scopes():
     import os
     path = os.path.join(os.path.dirname(__file__), '..', '..', 'docs', 'slack_eapproval_manifest.yml')
