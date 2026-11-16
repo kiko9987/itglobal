@@ -50,7 +50,7 @@ export default class FilterBarPC {
     moreCol.className = 'col-auto pfb-more-col';
     moreCol.innerHTML = `
       <button type="button" class="pfb-more" aria-expanded="false" aria-controls="${row.id}">
-        <i class="fas fa-plus" aria-hidden="true"></i>필터 더보기<b class="pfb-more-n" hidden></b>
+        <i class="fas fa-plus" aria-hidden="true"></i><span class="pfb-more-txt">필터 더보기</span><b class="pfb-more-n" hidden></b>
       </button>`;
     row.appendChild(moreCol);
     // 더보기를 펼치면 추가 필터는 새 줄에서 시작(첫 줄 끝에 이어 붙으면 어디까지가 자주 쓰는 것인지 흐려짐)
@@ -129,6 +129,11 @@ export default class FilterBarPC {
   setMoreOpen(open) {
     this.section.classList.toggle('pfb-more-open', open);
     this.moreBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    // 펼친 상태가 단추만 봐도 보이게 '필터 접기'·－ 로(펼친 채 두면 줄이 하나 늘어난 이유를 몰랐음 — 11-16 저녁)
+    this.moreBtn.querySelector('.pfb-more-txt').textContent = open ? '필터 접기' : '필터 더보기';
+    const icon = this.moreBtn.querySelector('i');
+    icon.classList.toggle('fa-plus', !open);
+    icon.classList.toggle('fa-minus', open);
     this.update();   // 펼치면 칸이 직접 보이므로 칩은 감춤
   }
 
