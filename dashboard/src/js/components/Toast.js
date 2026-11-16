@@ -57,10 +57,14 @@ export default class Toast {
    * @param {number} duration 자동 사라지는 시간 (ms). 기본 4000. 0이면 수동 닫기만.
    */
   show(message, type = 'info', duration = 4000) {
-    // 이전 알림 제거 (헤더 슬롯은 최근 하나만 유지)
-    const isHeaderSlot = ['systemAlertContainer', 'headerAlertContainer'].includes(this.headerSlot?.id);
+    // 휴대폰에서 상세 시트가 열려 있으면 시트 안 위쪽 자리에 — 머리글 자리는 시트(z-index 1045)에 가려 안 보였음 (11-16)
+    //   시트가 없거나 닫혀 있으면(PC 포함) 예전 자리 그대로
+    const sheetSlot = this._openSheetSlot();
+    const slot = sheetSlot || this.headerSlot;
+    // 이전 알림 제거 (헤더 슬롯·시트 자리는 최근 하나만 유지)
+    const isHeaderSlot = !!sheetSlot || ['systemAlertContainer', 'headerAlertContainer'].includes(slot?.id);
     if (isHeaderSlot) {
-      this.headerSlot.innerHTML = '';
+      slot.innerHTML = '';
     }
 
     const alertEl = this._createAlert(message, type);
@@ -74,7 +78,7 @@ export default class Toast {
       close.addEventListener('click', () => this.hide(alertEl));
       alertEl.appendChild(close);
     }
-    this.headerSlot.appendChild(alertEl);
+    slot.appendChild(alertEl);
 
     // fade-in
     requestAnimationFrame(() => {
@@ -87,6 +91,18 @@ export default class Toast {
     }
 
     return alertEl;
+  }
+
+  /**
+   * 휴대폰 폭에서 열려 있는 상세 시트의 알림 자리(MobileDetailSheet `.pmm-sheet-alerts`). 없으면 null.
+   */
+  _openSheetSlot() {
+    try {
+      if (!window.matchMedia || !window.matchMedia('(max-width: 767.98px)').matches) return null;
+      return document.querySelector('.pmm-sheet:not([hidden]) .pmm-sheet-alerts');
+    } catch (_) {
+      return null;
+    }
   }
 
   /**

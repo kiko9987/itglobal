@@ -1711,6 +1711,11 @@ export default class ProjectTable {
     checkbox.addEventListener('change', (e) => {
       const mf = window.modernFilters;
       if (!mf) return;
+      // 펼침에서 편집 중이면 먼저 묻고, 이어서 편집하기로 하면 체크를 되돌린다 (11-16)
+      if (typeof mf._confirmLeaveEdit === 'function' && !mf._confirmLeaveEdit()) {
+        e.target.checked = !e.target.checked;
+        return;
+      }
       if (e.target.checked) {
         delete mf.filters.hideCancelled;
       } else {
@@ -2189,6 +2194,12 @@ export default class ProjectTable {
     const asStatusFilter = document.getElementById('asStatusFilter');
     if (asStatusFilter) {
       asStatusFilter.addEventListener('change', (e) => {
+        // 펼침에서 편집 중이면 먼저 묻고, 이어서 편집하기로 하면 고른 값을 되돌린다 (11-16)
+        const mf = window.modernFilters;
+        if (mf && typeof mf._confirmLeaveEdit === 'function' && !mf._confirmLeaveEdit()) {
+          e.target.value = this._asStatusFilter || 'active';
+          return;
+        }
         this._asStatusFilter = e.target.value || 'active';
         try { sessionStorage.setItem('itg_as_status_filter', this._asStatusFilter); } catch (_) { /* noop */ }
         if (window.modernFilters && window.modernFilters.applyFilters) {
@@ -2208,8 +2219,17 @@ export default class ProjectTable {
 
   /** A/S 모드 ON/OFF 실제 전환 */
   async _activateAsMode(toggle, on) {
-    // 편집 중이면 정리 (수금 토글과 동일 정책)
+    // 편집 중이면 수금 토글과 같은 정책: 고친 내용이 있으면 먼저 묻고, 취소하면 토글을 되돌린다.
+    //   예전엔 묻지 않고 정리해 고친 내용과 임시 저장분(draft)까지 사라졌음 (PC 점검 11-16).
+    //   임시 저장분은 버리기로 고른 뒤 cleanupEditMode 안에서만 지워진다.
     if (this.accordion && this.accordion.modeManager && this.accordion.modeManager.isEditMode()) {
+      const ok = typeof this.accordion._confirmDiscardEdits === 'function'
+        ? this.accordion._confirmDiscardEdits('모드를 바꾸면')
+        : true;
+      if (!ok) {
+        toggle.checked = this.modeManager.isAsMode();
+        return;
+      }
       this.accordion.cleanupEditMode();
     }
     // 수금 모드와 상호배타 — A/S 켜면 수금 토글 시각적으로 끔 (컬럼은 _applyAsColumns가 정리)

@@ -32,7 +32,21 @@ class StatsManager {
         try {
             this.showLoading(true);
 
-            const response = await fetch('/api/projects/list');
+            const response = await fetch('/api/projects/list', {
+                credentials: 'same-origin',
+                headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            });
+            // 로그인이 끝났으면(401 또는 로그인 화면 HTML 로 넘어감) 로그인 화면으로 — 리드 화면과 같은 방식.
+            //   전에는 "통계를 불러오지 못했습니다" 창만 뜨고 빈 화면에 남았음(최종 점검 11-16)
+            //   (서버 오류 HTML 은 로그인으로 보내지 않고 아래 '불러오지 못했습니다'로)
+            let toLogin = response.status === 401 || response.status === 440;
+            try { toLogin = toLogin || (response.redirected && new URL(response.url).pathname === '/login'); } catch (_) {}
+            if (toLogin) {
+                const u = new URL('/login', window.location.origin);
+                u.searchParams.set('session_expired', 'true');
+                window.location.href = u.toString();
+                return;
+            }
             let result;
             try { result = await response.json(); }
             catch (_) { throw new Error(''); }   // 로그인이 끝났거나 서버 오류(HTML)면 영어 오류 문구가 그대로 보였음

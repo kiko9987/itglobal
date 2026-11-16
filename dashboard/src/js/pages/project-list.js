@@ -280,30 +280,47 @@ class ProjectListApp {
           //   · 미수금 필터 ON + 미수금=0 저장 → 필터 outstanding 에서 제외
           //   · 미수금 필터 ON + 공사 취소 → '수금 관련 특이사항' 에 '공사 취소' 추가되어 자동 제외
           //   · 미수금 필터 ON + '수금 확인' 체크 → 미수금 처리 완료로 제외
+          // 11-16: 실제 펼침(window.projectRowAccordion)을 보도록 고침 — 예전엔 비어 있는 객체를 봐서 늘 건너뜀.
+          //   남아 있는지는 바뀐 공사 한 건을 지금 필터 규칙(filterRows)에 바로 대 본다
+          //   (stateManager.filteredData 는 첫 화면 뒤 비어 있을 수 있어 모든 저장을 '빠짐'으로 오판함).
           try {
-            const accordion = window.projectListApp?.components?.accordion;
-            const filtered = this.stateManager?.filteredData || [];
-            const stillVisible = filtered.some(p => p?.['프로젝트 코드'] === projectCode);
+            const accordion = this._getAccordion();
+            const filtersComp = this.components.filters;
+            const latest = this.stateManager?.findProject?.(projectCode) || project || event.detail?.updatedProject;
+            const stillVisible = (latest && typeof filtersComp?.filterRows === 'function')
+              ? filtersComp.filterRows([latest]).length > 0
+              : (this.stateManager?.filteredData || []).some(p => p?.['프로젝트 코드'] === projectCode);
             if (!stillVisible && accordion?.isOpen &&
                 accordion?.currentProject?.['프로젝트 코드'] === projectCode) {
               logger.info(`[필터-아코디언] ${projectCode} ${action || 'edit'} 후 필터 결과에서 제외됨 → 아코디언 자동 닫기`);
-              // 편집 모드였다면 정리 (편집 상태에서 사라지는 건 이미 저장 완료 후라 안전)
-              if (accordion.modeManager?.isEditMode?.()) {
-                accordion.disableUnifiedEditMode(projectCode);
-              }
-              accordion.closeAccordion?.();
+              const receivablesOn = !!filtersComp?.filters?.outstanding;
               // action 별 안내 메시지 세분화
               let msg;
               if (action === 'cancel_construction') {
-                msg = `${projectCode} 공사 취소 완료. 취소된 공사는 수금 관리 모드에서 자동으로 숨겨집니다. 다시 확인하려면 상단 '수금 관리 모드'를 끄세요.`;
+                msg = receivablesOn
+                  ? `${projectCode} 공사를 취소했습니다. 수금 관리 모드에서는 취소된 공사가 보이지 않습니다. 다시 보려면 위의 '수금 관리 모드'를 끄세요.`
+                  : `${projectCode} 공사를 취소했습니다. 취소된 공사는 목록에서 숨겨집니다. 다시 보려면 '취소된 공사 제외하기'를 끄세요.`;
               } else if (action === 'resume_construction') {
-                msg = `${projectCode} 공사 재개 완료.`;
+                msg = `${projectCode} 공사를 재개했습니다. 지금 걸린 필터 조건에 맞지 않아 목록에서 빠졌습니다.`;
               } else {
-                msg = `${projectCode} 저장 완료. 현재 필터 조건에 맞지 않아 리스트에서 제외되었습니다.`;
+                msg = `${projectCode} 저장했습니다. 지금 걸린 필터 조건에 맞지 않아 목록에서 빠졌습니다.`;
               }
-              if (window.showSystemAlert) {
-                window.showSystemAlert(msg, 'info');
-              }
+              // 저장 처리 쪽이 이 알림을 보낸 뒤에도 마무리(편집 끝내기 등)를 이어서 하므로, 그게 끝난 다음에 닫는다
+              setTimeout(() => {
+                try {
+                  if (!accordion.isOpen || accordion.currentProject?.['프로젝트 코드'] !== projectCode) return;
+                  // 편집 모드가 남아 있으면 저장된 값 기준으로 정리 (이미 저장 완료 후라 안전)
+                  if (accordion.modeManager?.isEditMode?.()) {
+                    accordion.disableUnifiedEditMode(projectCode, true);
+                  }
+                  accordion.closeAccordion?.();
+                  if (window.showSystemAlert) {
+                    window.showSystemAlert(msg, 'info');
+                  }
+                } catch (closeErr) {
+                  logger.warn('[필터-아코디언] 닫기 오류 (무시):', closeErr);
+                }
+              }, 0);
             }
           } catch (err) {
             logger.warn('[필터-아코디언] 정리 로직 오류 (무시):', err);
@@ -467,39 +484,91 @@ class ProjectListApp {
 
 
   /**
-   * 데이터 새로고침 (DataManager 사용)
+   * 실제로 쓰는 펼침 — ProjectTable 이 만들어 window.projectRowAccordion 에 둔다.
+   * (예전엔 this.components.accordion 을 봤는데 11-16 정리로 빠져 편집 중 보호가 통째로 꺼졌었음)
    */
-  async refreshData(forceRefresh = false, showOverlay = true, showMessage = false) {
+  _getAccordion() {
+    return window.projectRowAccordion || this.components?.table?.accordion || null;
+  }
+
+  _isEditing() {
+    return !!this._getAccordion()?.modeManager?.isEditMode?.();
+  }
+
+  /**
+   * 직원이 직접 새로고침할 때 — 펼침에서 편집 중이면 먼저 묻고, 계속하면 편집을 닫는다.
+   * 고친 내용이 없으면 묻지 않고 편집만 닫는다. 그대로 두기로 하면 false.
+   */
+  confirmLeaveEditForRefresh() {
+    const accordion = this._getAccordion();
+    if (!accordion?.modeManager?.isEditMode?.()) return true;
+    const ok = typeof accordion._confirmDiscardEdits === 'function'
+      ? accordion._confirmDiscardEdits('새로고침하면')
+      : confirm('저장하지 않은 변경이 있습니다.\n새로고침하면 고친 내용이 사라집니다. 계속할까요?');
+    if (!ok) {
+      logger.debug('[ProjectListApp] 사용자가 편집 중 새로고침을 취소했습니다.');
+      return false;
+    }
+    // 편집 취소와 같은 정리(원래 값 복원·잠금 해제·임시 저장분 지움) — 직원이 버리기로 고른 뒤에만
+    accordion.cleanupEditMode?.();
+    return true;
+  }
+
+  /**
+   * 편집 중에 들어온 자동 새로고침(다른 직원의 새 공사 등록 소켓 등)은 미뤘다가, 편집이 끝나면 한 번만 반영한다.
+   * 저장 직후 시트 쓰기가 끝나기 전에 읽지 않도록 편집이 끝나고 조금 기다린다.
+   */
+  _deferRefreshUntilEditEnds(forceRefresh) {
+    this._deferredRefresh = { forceRefresh: !!forceRefresh || !!this._deferredRefresh?.forceRefresh };
+    if (this._deferredRefreshListener) return;
+    const modeManager = this._getAccordion()?.modeManager;
+    if (!modeManager?.on) return;
+    this._deferredRefreshListener = () => {
+      if (modeManager.isEditMode()) return;
+      modeManager.off('accordionModeChanged', this._deferredRefreshListener);
+      this._deferredRefreshListener = null;
+      setTimeout(() => {
+        const pending = this._deferredRefresh;
+        this._deferredRefresh = null;
+        if (!pending) return;
+        logger.debug('[ProjectListApp] 편집이 끝나 미뤄 둔 새로고침을 반영합니다.');
+        this.refreshData(pending.forceRefresh, false); // 다시 편집 중이면 또 미룸
+      }, 3000);
+    };
+    modeManager.on('accordionModeChanged', this._deferredRefreshListener);
+  }
+
+  /**
+   * 데이터 새로고침 (DataManager 사용)
+   * @param {boolean} forceRefresh - 캐시 무시
+   * @param {boolean} showOverlay - 표 위 로딩 가림막
+   * @param {boolean} showMessage - 직원이 직접 누른 새로고침(Ctrl+R 등): 편집 중이면 묻고, 실패하면 알림
+   * @param {{userInitiated?: boolean}} opts - showMessage 없이도 '직원이 누른 것'으로 다룰 때(fullRefresh)
+   * @returns {Promise<'ok'|'failed'|'busy'|'deferred'|'cancelled'>}
+   *   busy = 이미 새로고침 중이라 바로 돌아옴, deferred = 편집 중이라 미룸, cancelled = 직원이 편집을 이어가기로 함
+   */
+  async refreshData(forceRefresh = false, showOverlay = true, showMessage = false, opts = {}) {
     // 중복 호출 방지를 위한 debouncing
     if (this.isRefreshing) {
       logger.debug('[ProjectListApp] 새로고침이 이미 진행 중입니다.');
-      return;
+      return 'busy';
     }
 
-    // 편집 모드 중에는 자동 새로고침 건너뛰기 (사용자가 명시적으로 새로고침 버튼을 누른 경우는 제외)
-    const modeManager = window.projectListApp?.components?.accordion?.modeManager;
-    if (modeManager && modeManager.isEditMode && modeManager.isEditMode() && !forceRefresh) {
-      logger.debug('[ProjectListApp] 편집 모드 중이므로 자동 새로고침을 건너뜁니다.');
-      return;
-    }
-
-    // 사용자가 명시적으로 새로고침 버튼을 누른 경우 (forceRefresh=true)
-    // 편집 중이면 확인 요청
-    if (modeManager && modeManager.isEditMode && modeManager.isEditMode() && forceRefresh) {
-      const confirmRefresh = confirm('편집 중인 내용이 있습니다. 새로고침하면 저장되지 않은 변경사항이 사라집니다. 계속하시겠습니까?');
-      if (!confirmRefresh) {
-        logger.debug('[ProjectListApp] 사용자가 편집 중 새로고침을 취소했습니다.');
-        return;
+    const userInitiated = opts.userInitiated ?? !!showMessage;
+    if (this._isEditing()) {
+      if (!userInitiated) {
+        // 자동 새로고침은 표를 다시 그려 고치던 내용을 날리므로 편집이 끝날 때까지 미룸
+        logger.debug('[ProjectListApp] 편집 모드 중이므로 자동 새로고침을 미룹니다.');
+        this._deferRefreshUntilEditEnds(forceRefresh);
+        return 'deferred';
       }
-      // 확인했으면 편집 모드 강제 종료 및 잠금 해제
-      const accordion = window.projectListApp?.components?.accordion;
-      if (accordion && accordion.currentProject) {
-        const projectCode = accordion.currentProject['프로젝트 코드'];
-        await accordion.disableUnifiedEditMode(projectCode, true); // skipDataRestore=true
-      }
+      if (!this.confirmLeaveEditForRefresh()) return 'cancelled';
     }
 
     this.isRefreshing = true;
+    let releaseWaiters = () => {};
+    this._refreshPromise = new Promise((resolve) => { releaseWaiters = resolve; });
+    let status = 'failed';
     const refreshBtn = document.getElementById('refreshProjectBtn');
 
     try {
@@ -532,6 +601,8 @@ class ProjectListApp {
         }
 
         logger.debug(`[ProjectListApp] 데이터 새로고침 완료: ${result.data.length}개 항목`);
+        status = 'ok';
+        if (forceRefresh) this._deferredRefresh = null; // 미뤄 둔 새로고침은 이걸로 반영됨
 
         // 강제 새로고침 시 DataTable draw 이벤트 리스닝
         if (forceRefresh) {
@@ -559,9 +630,11 @@ class ProjectListApp {
 
     } catch (error) {
       logger.error('[ProjectListApp] 새로고침 실패:', error);
-      if (showMessage && refreshBtn) {
-        buttonStateManager.setError(refreshBtn, '실패');
-        this.showErrorMessage('데이터 새로고침에 실패했습니다.');
+      status = 'failed';
+      // 실패를 삼키지 않는다 — 단추가 없어도(Ctrl+R) 직원이 누른 새로고침이면 알림 (PC 점검 11-16)
+      if (showMessage) {
+        if (refreshBtn) buttonStateManager.setError(refreshBtn, '실패');
+        this.showErrorMessage('목록을 다시 불러오지 못했습니다. 잠시 뒤 다시 새로고침해 주세요.');
       }
       // 에러 시에도 로딩 오버레이 숨김
       if (forceRefresh) {
@@ -570,7 +643,10 @@ class ProjectListApp {
     } finally {
       // 새로고침 완료 후 플래그 해제
       this.isRefreshing = false;
+      this._refreshPromise = null;
+      releaseWaiters();
     }
+    return status;
   }
 
   /**
@@ -727,13 +803,22 @@ class ProjectListApp {
    * 기본 라우팅: success → page, error → system, generic toast → system.
    */
   showSystemAlert(message, type = 'info') {
+    // 오류·주의는 직원이 닫을 때까지 남긴다(Toast 의 duration 0 = 닫기 단추) — 4초 만에 사라져 못 읽던 것 (11-16)
+    //   성공·안내는 지금처럼 4초 뒤 사라짐
+    const sticky = ['error', 'danger', 'warning'].includes(type);
     import('../components/Toast.js').then(({ default: Toast }) => {
-      new Toast().show(message, type);
+      new Toast().show(message, type, sticky ? 0 : 4000);
     });
     announceToScreenReader(message, type === 'error' ? 'assertive' : 'polite');
   }
 
   showPageAlert(message, type = 'info') {
+    // 휴대폰 상세 시트가 열려 있으면 머리글 자리는 시트에 가려 안 보임 → 시트 안 알림 자리로 (11-16)
+    if (document.documentElement.classList.contains('pmm-sheet-open')
+        && window.matchMedia?.('(max-width: 767.98px)').matches) {
+      this.showSystemAlert(message, type);
+      return;
+    }
     const container = document.getElementById('headerAlertContainer');
     if (!container) {
       // 페이지 서브 헤더 슬롯이 없으면 시스템 스코프로 fallback
@@ -1028,19 +1113,20 @@ if (window.__projectListAppModuleLoaded) {
       logger.debug('🔄 [자동 새로고침] 5분 이상 경과, 데이터 새로고침 시작');
       app.lastVisibilityChange = now;
 
-      // 자동 새로고침 (오버레이 없이)
-      app.refreshData(false, false);
+      // 자동 새로고침 (오버레이 없이) — 실제로 다시 불러왔을 때만 '갱신' 안내 (실패·미룸이면 안 띄움)
+      app.refreshData(false, false).then((status) => {
+        if (status !== 'ok') return;
+        // 수금 관리 모드에서는 토스트를 덜 방해되게 표시
+        const isCollectionMode = app.components?.filters?.filters?.outstanding === 'outstanding';
 
-      // 수금 관리 모드에서는 토스트를 덜 방해되게 표시
-      const isCollectionMode = app.components?.filters?.filters?.outstanding === 'outstanding';
-
-      if (isCollectionMode) {
-        // 수금 관리 모드에서는 간단한 메시지만 로그에 기록
-        logger.debug('ℹ️ [수금 모드] 자동 갱신 완료 (토스트 생략)');
-      } else {
-        // 일반 모드에서는 토스트 표시
-        app.showToast('최신 데이터로 갱신되었습니다', 'info');
-      }
+        if (isCollectionMode) {
+          // 수금 관리 모드에서는 간단한 메시지만 로그에 기록
+          logger.debug('ℹ️ [수금 모드] 자동 갱신 완료 (토스트 생략)');
+        } else {
+          // 일반 모드에서는 토스트 표시
+          app.showToast('최신 데이터로 갱신되었습니다', 'info');
+        }
+      });
     }
   });
 }

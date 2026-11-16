@@ -232,6 +232,32 @@ html.pmm-sheet-open body {
   overflow: hidden !important;
 }
 
+/* 시트가 열린 동안의 알림 자리(제목 줄 바로 아래에 띄움) — 알림이 화면 위 머리글에 떠서 시트(1045)에 가려
+   오류를 못 보던 것(11-16). Toast 가 휴대폰에서 시트가 열려 있으면 여기에 넣는다 */
+.pmm-sheet-alerts {
+  display: none;
+}
+
+@media (max-width: 767.98px) {
+  .pmm-sheet-alerts:not(:empty) {
+    position: absolute;
+    top: calc(56px + env(safe-area-inset-top) + 8px);
+    left: 16px;
+    right: 16px;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    pointer-events: none;
+  }
+
+  .pmm-sheet-alerts > * {
+    pointer-events: auto;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12) !important;
+  }
+}
+
 /* ══════════════════════════════ 휴대폰 ══════════════════════════════ */
 @media (max-width: 767.98px) {
 
@@ -363,6 +389,11 @@ html.pmm-sheet-open body {
   .pmm-menu-item i {
     width: 18px;
     color: #555d6d;
+  }
+
+  /* 원래 단추가 권한으로 숨겨진 항목(캘린더 동기화 등) — MobileChrome 이 메뉴를 열 때마다 맞춤 */
+  .pmm-menu-item[hidden] {
+    display: none;
   }
 
   .pmm-menu-item:active {

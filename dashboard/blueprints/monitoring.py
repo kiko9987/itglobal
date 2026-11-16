@@ -14,6 +14,9 @@ from ..utils.error_helpers import generate_error_id
 logger = get_logger(__name__)
 monitoring_bp = Blueprint('monitoring', __name__)
 
+# 작업 로그 한 번에 읽는 최대 줄 수 — 기간(days)으로 거른 뒤의 안전 상한(운영 90일 ≈ 8.5천 건, 2026-11-16)
+AUDIT_LOG_MAX_ROWS = 20000
+
 
 @monitoring_bp.route('/api/health')
 def health_check():
@@ -270,13 +273,17 @@ def get_audit_logs_api():
         user_email = user.get('email', '')
         user_role = user.get('permission_level', 'viewer')
 
-        limit = days * 100  # 대략적인 제한
+        # 기간은 시각 조건(지금-days 이후)으로 거르고, 개수는 넉넉한 상한으로만 —
+        #   예전 days*100 개수 자르기는 7일을 골라도 하루치(700건)도 못 채웠음(최종 점검 11-16, 운영 90일≈8.5천 건)
+        limit = AUDIT_LOG_MAX_ROWS
 
-        # 관리자가 아닌 경우 SQL WHERE 절로 필터링 (성능 향상)
-        if user_role != 'admin':
-            all_logs = audit_repo.get_recent_logs(limit=limit, user_email=user_email)
+        # 관리자(최고관리자 포함)는 전체, 나머지는 SQL WHERE 절로 자기 로그만 —
+        #   super_admin 이 '관리자 아님'으로 걸려 자기 로그만 보던 것(최종 점검 11-16)
+        # DB 오류는 아래 except 로 → 500 실패 응답(화면이 '작업 로그를 불러오지 못했습니다' 표시)
+        if user_role not in ('admin', 'super_admin'):
+            all_logs = audit_repo.get_recent_logs(limit=limit, user_email=user_email, days=days)
         else:
-            all_logs = audit_repo.get_recent_logs(limit=limit)
+            all_logs = audit_repo.get_recent_logs(limit=limit, days=days)
 
         # 사용자 정보 추가 (user_name, user_role)
         user_cache = {}  # 캐시로 중복 조회 방지
@@ -340,7 +347,7 @@ def get_audit_logs_api():
         logger.error(f"[{error_id}] 감사 로그 조회 오류: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
-            'message': '감사 로그를 불러올 수 없습니다.',
+            'message': '작업 로그를 불러오지 못했습니다. 잠시 뒤 다시 열어 주세요.',
             'error_id': error_id
         }), 500
 

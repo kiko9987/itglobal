@@ -298,20 +298,31 @@ export default class LeadRowAccordion {
   async loadSlackLinks(leadNo) {
     if (!leadNo) return;
     let links = this.slackLinkCache.get(leadNo);
+    let failed = false;
     if (!links) {
+      // 조회 실패는 '카드 없음'으로 보이거나 캐시에 남지 않게 — 다음에 열 때 다시 조회(최종 점검 11-16)
       try {
         const res = await fetch(`/leads/api/${encodeURIComponent(leadNo)}/slack-links`, {
           credentials: 'same-origin', headers: { Accept: 'application/json' },
         });
-        const json = res.ok ? await res.json() : null;
-        links = json?.data || { inquiry: '', visit: '' };
-        this.slackLinkCache.set(leadNo, links);
+        const ct = res.headers.get('content-type') || '';
+        const json = res.ok && ct.includes('application/json') ? await res.json() : null;
+        if (json && json.data) {
+          links = json.data;
+          this.slackLinkCache.set(leadNo, links);
+        } else {
+          failed = true;
+        }
       } catch (_) {
-        links = { inquiry: '', visit: '' };
+        failed = true;
       }
     }
     const box = this.container.querySelector(`.lead-slack-links[data-lead-no="${CSS.escape(leadNo)}"]`);
     if (!box) return;   // 그 사이 다른 리드로 전환됨
+    if (failed) {
+      box.innerHTML = '<span class="lead-empty">슬랙 카드 연결을 확인하지 못했어요</span>';
+      return;
+    }
     const parts = [];
     if (links.inquiry) parts.push(`<a href="${esc(links.inquiry)}" target="_blank" rel="noopener"><i class="fas fa-inbox me-1"></i>문의 카드</a>`);
     if (links.visit) parts.push(`<a href="${esc(links.visit)}" target="_blank" rel="noopener"><i class="fas fa-map-marker-alt me-1"></i>방문 카드</a>`);

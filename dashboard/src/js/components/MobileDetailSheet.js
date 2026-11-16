@@ -27,6 +27,7 @@ export default class MobileDetailSheet {
         </button>
         <h2 class="pmm-sheet-title" id="${id}Title" tabindex="-1"></h2>
       </div>
+      <div class="pmm-sheet-alerts" aria-live="polite"></div>
       <div class="pmm-sheet-scroll">
         <div class="pmm-sheet-quick"></div>
         <table class="pmm-sheet-table" role="presentation">
@@ -100,6 +101,9 @@ export default class MobileDetailSheet {
     if (!this.isOpen) return;
     this.isOpen = false;
     this.el.hidden = true;
+    // 시트 안에 띄운 알림은 시트와 함께 정리(다음에 열 때 옛 알림이 다시 보이지 않게)
+    const alerts = this.el.querySelector('.pmm-sheet-alerts');
+    if (alerts) alerts.innerHTML = '';
     document.documentElement.classList.remove('pmm-sheet-open');
     if (!fromPop && history.state && history.state.pmmSheet) {
       try { history.back(); } catch (_) { /* noop */ }

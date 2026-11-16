@@ -4,8 +4,8 @@ Stats Blueprint - 매출 통계 페이지
 """
 
 from flask import Blueprint, render_template, jsonify, session
-from functools import wraps
 import logging
+from dashboard.auth import login_required
 from dashboard.utils.error_helpers import generate_error_id
 
 # Blueprint 생성
@@ -13,14 +13,8 @@ stats_bp = Blueprint('stats', __name__, url_prefix='')
 
 logger = logging.getLogger(__name__)
 
-def login_required(f):
-    """로그인 필요 데코레이터"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'user' not in session:
-            return jsonify({'error': 'Unauthorized'}), 401
-        return f(*args, **kwargs)
-    return decorated_function
+# 로그인 확인은 다른 화면과 같은 공용 login_required — 예전 자체 데코레이터는 페이지 요청에도
+#   영어 JSON 401 만 돌려줘 세션이 끝난 직원이 로그인 화면으로 못 가고, 세션 만료·퇴사 확인도 안 했다(최종 점검 11-16)
 
 def get_user_role():
     """현재 사용자의 역할 반환"""
@@ -51,8 +45,10 @@ def stats_page():
                                user_email=user_email,
                                user=session.get('user', {}))
     except Exception as e:
-        logger.error(f"통계 페이지 로드 오류: {str(e)}")
-        return f"통계 페이지를 로드할 수 없습니다: {str(e)}", 500
+        # 오류 원문은 서버 로그에만 — 화면에 내부 경로·예외 내용이 그대로 보였음(최종 점검 11-16)
+        error_id = generate_error_id()
+        logger.error(f"[{error_id}] 통계 페이지 로드 오류: {e}", exc_info=True)
+        return "통계를 불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요.", 500
 
 @stats_bp.route('/api/user/role')
 @login_required

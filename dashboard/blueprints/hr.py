@@ -614,12 +614,14 @@ def api_ye_status(pid):
     data = request.get_json(silent=True) or {}
     try:
         sub = ye.set_status(pid, _ye_year(), data.get('status', ''), _me() if not _is_field() else '', data.get('reason', ''))
+        resp = {'success': True, 'submission': sub}
         if sub['status'] == ye.RETURNED:
             p = hr.get_person(pid)
-            ye._dm((p or {}).get('slack_id') or '',
-                   f'*{_ye_year()}년 귀속 연말정산* 자료 보완을 요청드려요.\n사유: {sub["returned_reason"]}\n'
-                   '그룹웨어 → 인사 → 연말정산에서 고친 뒤 다시 제출해 주세요.')
-        return jsonify({'success': True, 'submission': sub})
+            # DM 을 못 보내도 보완 요청은 저장됨 — 화면이 '직접 알려 주세요'를 띄우도록 결과를 같이 보냄
+            resp['notified'] = ye._dm((p or {}).get('slack_id') or '',
+                                      f'*{_ye_year()}년 귀속 연말정산* 자료 보완을 요청드려요.\n사유: {sub["returned_reason"]}\n'
+                                      '그룹웨어 → 인사 → 연말정산에서 고친 뒤 다시 제출해 주세요.')
+        return jsonify(resp)
     except Exception as e:
         return _fail(e)
 

@@ -10,17 +10,32 @@
     return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
+  var SESSION_ENDED = '로그인이 끝났어요. 새로 고친 뒤 다시 해 주세요.';
   function api(url, opts) {
     opts = opts || {};
-    var init = { method: opts.method || 'GET', credentials: 'same-origin' };
+    var method = opts.method || 'GET';
+    var init = { method: method, credentials: 'same-origin' };
     if (opts.body) {   // 본문 있을 때만 JSON 머리글(빈 본문 + JSON 머리글 = 운영 400)
       init.headers = { 'Content-Type': 'application/json' };
       init.body = JSON.stringify(opts.body);
     }
     return fetch(url, init).then(function (r) {
-      return r.json().catch(function () { return {}; }).then(function (j) {
-        if (!r.ok || j.success === false) {
-          var err = new Error(j.message || ('처리하지 못했습니다 (' + r.status + ')'));
+      var isJson = (r.headers.get('content-type') || '').indexOf('application/json') !== -1;
+      // 로그인 화면으로 돌려보내졌거나(redirected·200 HTML) 401 이면 로그인이 끝난 것.
+      // 예전엔 로그인 화면을 {} 로 읽어 처리가 "된" 것처럼 보였음(11-16 점검)
+      if (r.status === 401 || r.redirected || (r.ok && !isJson)) {
+        var se = new Error(SESSION_ENDED);
+        se.stale = false;
+        se.sessionEnded = true;
+        throw se;
+      }
+      return (isJson ? r.json() : Promise.reject()).catch(function () { return null; }).then(function (j) {
+        if (!j || !r.ok || j.success === false) {
+          j = j || {};
+          var fallback = method === 'GET'
+            ? '불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요. (오류 ' + r.status + ')'
+            : '처리하지 못했어요. 잠시 뒤 다시 해 주세요. (오류 ' + r.status + ')';
+          var err = new Error(j.message || j.error || fallback);
           err.stale = !!j.stale;
           throw err;
         }
@@ -82,10 +97,20 @@
     if (e.shiftKey && (cur === first || cur === drawerTitle())) { e.preventDefault(); last.focus(); }
     else if (!e.shiftKey && cur === last) { e.preventDefault(); first.focus(); }
   }
+  // 반려·수정 요청 사유를 적던 중에 바깥·✕·Esc 로 닫으면 글이 말없이 사라졌음 → 한 번 묻는다(11-16 점검).
+  // 사유 칸이 닫혀 있거나(보냄·[취소]) 비어 있으면 묻지 않음
+  function reasonPending() {
+    var box = $('apReason'), t = $('apReasonText');
+    return !!(box && !box.hidden && t && t.value.trim());
+  }
+  function tryCloseDrawer() {
+    if (reasonPending() && !window.confirm('적은 사유가 지워져요. 닫을까요?')) return;
+    closeDrawer();
+  }
   if (drawer) {
-    drawer.addEventListener('click', function (e) { if (e.target.closest('[data-close]')) closeDrawer(); });
+    drawer.addEventListener('click', function (e) { if (e.target.closest('[data-close]')) tryCloseDrawer(); });
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && !drawer.hidden) closeDrawer();
+      if (e.key === 'Escape' && !drawer.hidden) tryCloseDrawer();
       trapTab(e);
     });
   }

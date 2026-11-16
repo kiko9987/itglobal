@@ -28,6 +28,10 @@ export function exposeGlobalAPI(app) {
         logger.debug('[ProjectListAPI] 새로고침 이미 진행 중, skip');
         return;
       }
+      // 펼침에서 편집 중이면 서버 캐시를 지우기 전에 먼저 묻는다 — 이어서 편집하기로 하면 아무것도 안 함 (11-16)
+      if (typeof app.confirmLeaveEditForRefresh === 'function' && !app.confirmLeaveEditForRefresh()) {
+        return;
+      }
       _refreshInFlight = true;
 
       // 진행 중 요청은 새 요청 시작 전 취소 (AbortController)
@@ -91,33 +95,40 @@ export function exposeGlobalAPI(app) {
 
         logger.info('[ProjectListAPI] 서버 캐시 삭제 성공');
 
-        // 2단계: 클라이언트 데이터 갱신 (await 로 실패 감지)
-        // 이전엔 fire-and-forget 이라 refreshData 실패 시 stale 데이터 유지되면서 '완료' 표시.
-        let clientRefreshOk = true;
+        // 2단계: 클라이언트 데이터 갱신 — refreshData 가 돌려주는 결과로 판정.
+        //   예전엔 refreshData 가 실패를 삼켜(던지지 않음) 목록을 못 불러와도 '완료'가 떴고,
+        //   다른 새로고침이 도는 중이라 바로 돌아온 경우도 '완료'였음 (PC 점검 11-16).
+        //   알림은 여기서 한 번만 띄우도록 refreshData 쪽 알림(showMessage)은 끈다.
+        let refreshStatus = 'failed';
         try {
-          const rr = app.refreshData(true, true, showMessage);
-          if (rr && typeof rr.then === 'function') {
-            await rr;
+          refreshStatus = await app.refreshData(true, true, false, { userInitiated: true });
+          // 다른 새로고침(소켓 등)이 도는 중 — 끝나길 기다렸다가 지운 캐시 기준으로 다시 (최대 3번)
+          for (let i = 0; i < 3 && refreshStatus === 'busy'; i++) {
+            try { await app._refreshPromise; } catch (_) { /* 앞 새로고침 결과와 상관없이 다시 시도 */ }
+            refreshStatus = await app.refreshData(true, true, false, { userInitiated: true });
           }
         } catch (refreshErr) {
-          clientRefreshOk = false;
+          refreshStatus = 'failed';
           logger.error('[ProjectListAPI] 클라이언트 데이터 갱신 실패:', refreshErr);
         }
 
         // 성공 상태로 변경 (버튼 매니저가 최소 스피너 노출 시간 자동 보장)
-        if (btn) {
-          if (clientRefreshOk) {
+        if (refreshStatus === 'ok') {
+          if (btn) {
             buttonStateManager.setSuccess(btn, '완료', () => {
               setTimeout(() => buttonStateManager.reset(btn), 1500);
             });
-          } else {
-            buttonStateManager.setError(btn, '부분 실패', '새로고침');
-            if (app.showSystemAlert) {
-              app.showSystemAlert(
-                '서버 캐시는 삭제됐지만 화면 갱신에 실패했습니다. 페이지를 새로고침(F5) 해주세요.',
-                'warning',
-              );
-            }
+          }
+        } else if (refreshStatus === 'cancelled') {
+          // 기다리는 사이 다시 편집을 시작해 '이어서 편집'을 고름 — 실패가 아니므로 단추만 원래대로
+          if (btn) buttonStateManager.reset(btn);
+        } else {
+          if (btn) buttonStateManager.setError(btn, '실패', '새로고침');
+          if (app.showSystemAlert) {
+            app.showSystemAlert(
+              '목록을 다시 불러오지 못했습니다. 잠시 뒤 [새로고침]을 다시 누르거나 F5를 눌러 주세요.',
+              'error',
+            );
           }
         }
 

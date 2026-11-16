@@ -50,21 +50,32 @@ export default class MobileChrome {
 
     const btn = wrap.querySelector('.pmm-kebab');
     const menu = wrap.querySelector('.pmm-menu');
+    // 원래 단추를 화면 쪽이 숨겼으면(권한 — StateManager.applyPermissions 가 메뉴를 만든 뒤에 숨김) 메뉴에서도 뺀다.
+    //   휴대폰에선 원래 단추가 CSS 로 늘 숨으므로 계산된 모양이 아니라 화면 쪽이 건 표시만 본다 (11-16)
+    const hiddenByPage = (el) => !el || el.hidden || el.style.display === 'none' || el.classList.contains('d-none');
+    const syncItems = () => {
+      menu.querySelectorAll('.pmm-menu-item').forEach((item) => {
+        item.hidden = hiddenByPage(document.getElementById(item.dataset.proxy));
+      });
+    };
+    const visibleItems = () => [...menu.querySelectorAll('.pmm-menu-item')].filter((it) => !it.hidden);
     const setOpen = (open, focusBtn = false) => {
+      if (open) syncItems();
       menu.hidden = !open;
       btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-      if (open) menu.querySelector('.pmm-menu-item')?.focus();
+      if (open) visibleItems()[0]?.focus();
       else if (focusBtn) btn.focus();
     };
     btn.addEventListener('click', () => setOpen(menu.hidden));
     menu.addEventListener('click', (e) => {
       const item = e.target.closest('.pmm-menu-item');
-      if (!item) return;
+      if (!item || item.hidden) return;
       setOpen(false);
-      document.getElementById(item.dataset.proxy)?.click();
+      const target = document.getElementById(item.dataset.proxy);
+      if (!hiddenByPage(target)) target.click();
     });
     menu.addEventListener('keydown', (e) => {
-      const list = [...menu.querySelectorAll('.pmm-menu-item')];
+      const list = visibleItems();
       const i = list.indexOf(document.activeElement);
       if (e.key === 'ArrowDown') { e.preventDefault(); list[(i + 1) % list.length]?.focus(); }
       if (e.key === 'ArrowUp') { e.preventDefault(); list[(i - 1 + list.length) % list.length]?.focus(); }

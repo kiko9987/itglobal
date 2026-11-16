@@ -223,7 +223,15 @@
               return api('/api/yearend/me/documents', { method: 'POST', form: fd }).then(function (j) { data = j.ye; });
             });
           });
-          chain.then(render).catch(function (x) { err.textContent = x.message; btn.disabled = false; load(); });
+          // 실패: 앞서 올라간 파일까지 맞추려 다시 불러오되, 다시 그린 뒤 같은 칸에 오류를 다시 띄움(바로 지워지지 않게)
+          var kind = form.getAttribute('data-ye-up');
+          chain.then(render).catch(function (x) {
+            var msg = x.message;
+            load().then(function () {
+              var again = box.querySelector('form[data-ye-up="' + kind + '"] .gw-form-error');
+              if (again) again.textContent = msg; else window.alert(msg);
+            });
+          });
         });
       });
       var sub = document.getElementById('yeSubmit');
@@ -294,7 +302,7 @@
         if (r.status === 'done') acts += ' <button type="button" class="btn btn-sm btn-outline-secondary" data-undone="' + r.person_id + '" data-name="' + who + '" aria-label="' + who + ' 완료 취소">완료 취소</button>';
         // 영수증 업로드: 숨긴 파일 칸을 이름표로 감싸면 Tab 으로 못 가서 키보드로 못 올렸음 → 단추가 숨은 칸을 누름
         acts += ' <button type="button" class="btn btn-sm btn-outline-primary" data-pick="' + r.person_id + '" aria-label="' + who + ' 영수증 업로드">영수증 업로드</button>' +
-          '<input type="file" hidden accept=".pdf,.jpg,.jpeg,.png" data-result="' + r.person_id + '" aria-label="' + esc(r.name) + ' 원천징수영수증 파일">';
+          '<input type="file" hidden accept=".pdf,.jpg,.jpeg,.png" data-result="' + r.person_id + '" data-name="' + who + '" aria-label="' + esc(r.name) + ' 원천징수영수증 파일">';
         return '<tr><td><b>' + esc(r.name) + '</b><br><span class="text-muted small">' + esc(r.department) + '</span></td><td>' + badge(r.status, r.status_label) +
           (r.returned_reason && r.status === 'returned' ? '<br><span class="small text-muted">' + esc(r.returned_reason) + '</span>' : '') + '</td><td>' + method + '</td><td>' + consent +
           '</td><td>' + fam + '</td><td>' + (r.simple || '-') + '</td><td>' + (r.extra || '-') + '</td><td>' + (r.result || '-') + '</td><td>' + esc(md(r.submitted_at)) + '</td><td class="gw-doc-act">' + acts + '</td></tr>';
@@ -351,7 +359,11 @@
         var reason = window.prompt('보완 요청 사유(직원에게 슬랙으로 갑니다)');
         if (!reason || !reason.trim()) return;
         busyRow(b, true);
-        post('/api/yearend/admin/' + b.getAttribute('data-return') + '/status', { status: 'returned', reason: reason }).then(loadAdmin)
+        post('/api/yearend/admin/' + b.getAttribute('data-return') + '/status', { status: 'returned', reason: reason })
+          .then(function (j) {
+            if (j.notified === false) window.alert('보완 요청은 저장했지만 슬랙 알림은 못 보냈어요. 직원에게 직접 알려 주세요.');
+            loadAdmin();
+          })
           .catch(function (e) { busyRow(b, false); window.alert(e.message); });
       });
     });
@@ -365,10 +377,14 @@
       inp.addEventListener('change', function () {
         var f = inp.files[0];
         if (!f) return;
+        // 고르자마자 올라가 슬랙까지 가던 것 → 한 번 묻고, 어느 경우든 칸을 비워 같은 파일을 다시 고를 수 있게
+        if (!window.confirm(inp.getAttribute('data-name') + ' 님 영수증을 올리고 슬랙으로 알릴까요?')) { inp.value = ''; return; }
         var fd = new FormData(); fd.append('file', f);
+        inp.value = '';
+        busyRow(inp, true);
         api('/api/yearend/admin/' + inp.getAttribute('data-result') + '/result?year=' + A.year, { method: 'POST', form: fd })
           .then(function (j) { if (!j.notified) window.alert('업로드했어요. 슬랙 알림은 보내지 못했어요(슬랙 연결 없음).'); loadAdmin(); })
-          .catch(function (e) { window.alert(e.message); });
+          .catch(function (e) { busyRow(inp, false); window.alert(e.message); });
       });
     });
   };

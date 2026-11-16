@@ -167,6 +167,8 @@ export default class ModernProjectFilters {
     const presets = this._getPresets();
     const preset = presets.find(p => p.name === name);
     if (!preset) return;
+    // 펼침에서 편집 중이면 먼저 묻는다(이어서 편집하기로 하면 적용 안 함, 11-16)
+    if (!this._confirmLeaveEdit()) return;
 
     // 편집 모드 중이면 change 이벤트로 확인 다이얼로그가 뜨는 경로에 진입시키기 위해
     // receivablesToggle change dispatch 를 먼저 시도. 취소되면 preset 적용 중단.
@@ -387,6 +389,65 @@ export default class ModernProjectFilters {
   }
 
   /**
+   * 필터·검색을 바꾸면 표를 다시 그려 펼침에서 고치던 내용이 사라진다 → 편집 중이면 먼저 묻는다 (PC 점검 11-16).
+   * 고친 내용이 없으면 묻지 않고 편집만 닫는다. 버리기로 하면 편집을 닫고 true, 이어서 편집하기로 하면 false.
+   * (상태 칸처럼 한 번 누름에 change 가 둘 오는 경우 '취소' 뒤 두 번 묻지 않게 같은 순간엔 답을 재사용)
+   */
+  _confirmLeaveEdit(whenText = '필터를 바꾸면') {
+    const acc = window.projectRowAccordion;
+    if (!acc?.modeManager?.isEditMode?.()) return true;
+    if (this._leaveEditDeclined) return false;
+    const ok = typeof acc._confirmDiscardEdits === 'function' ? acc._confirmDiscardEdits(whenText) : true;
+    if (!ok) {
+      this._leaveEditDeclined = true;
+      queueMicrotask(() => { this._leaveEditDeclined = false; });
+      return false;
+    }
+    // 편집 취소와 같은 정리(원래 값 복원·잠금 해제) — 임시 저장분은 버리기로 고른 뒤에만 지워짐
+    acc.cleanupEditMode?.();
+    return true;
+  }
+
+  /** 마지막으로 적용한 필터 상태(직원이 '이어서 편집'을 고르면 여기로 되돌림) */
+  _rememberApplied() {
+    try {
+      this._lastApplied = {
+        filters: JSON.parse(JSON.stringify(this.filters || {})),
+        myOnly: !!this.myProjectsOnlyCheckbox?.checked,
+        managerBackup: this._managerBackupBeforeMine,
+      };
+    } catch (_) { /* 되돌릴 기준만 못 남김 */ }
+  }
+
+  _revertToApplied() {
+    const last = this._lastApplied;
+    if (!last) return;
+    this.filters = JSON.parse(JSON.stringify(last.filters));
+    this._managerBackupBeforeMine = last.managerBackup;
+    const f = this.filters;
+    if (this.searchInput) this.searchInput.value = f.search || '';
+    [
+      [this.companyFilter, 'company'], [this.clientFilter, 'client'], [this.businessNameFilter, 'businessName'],
+      [this.statusFilter, 'status'], [this.dataFilter, 'data'], [this.managerFilter, 'manager'],
+      [this.invoiceFilter, 'invoice'], [this.outstandingFilter, 'outstanding'],
+    ].forEach(([el, key]) => { if (el) el.value = f[key] || ''; });
+    if (this.myProjectsOnlyCheckbox) this.myProjectsOnlyCheckbox.checked = last.myOnly;
+    const hideCancelledCheckbox = document.getElementById('hideCancelledProjects');
+    if (hideCancelledCheckbox) hideCancelledCheckbox.checked = f.hideCancelled !== false;
+    this.updateFilterVisualEffects();
+    window.projectListApp?.components?.mobileChrome?.syncFilterCount?.();
+  }
+
+  /** 직원이 필터·검색을 바꿨을 때 — 편집 중이면 먼저 묻고, 이어서 편집하기로 하면 필터를 되돌린다 */
+  _applyFromUser(whenText) {
+    if (!this._confirmLeaveEdit(whenText)) {
+      this._revertToApplied();
+      return;
+    }
+    this.applyFilters(null, true);
+  }
+
+  /**
    * 이벤트 바인딩
    */
   bindEvents() {
@@ -402,7 +463,7 @@ export default class ModernProjectFilters {
 
         // 300ms 후에 필터 적용 (사용자가 타이핑을 멈출 때까지 대기)
         this.searchDebounceTimer = setTimeout(() => {
-          this.applyFilters(null, true);
+          this._applyFromUser('검색어를 바꾸면');
         }, 300);
       });
     }
@@ -416,7 +477,7 @@ export default class ModernProjectFilters {
         } else {
           delete this.filters.company;
         }
-        this.applyFilters(null, true);
+        this._applyFromUser();
         e.target.blur(); // 포커스 제거
       });
     }
@@ -430,7 +491,7 @@ export default class ModernProjectFilters {
         } else {
           delete this.filters.client;
         }
-        this.applyFilters(null, true);
+        this._applyFromUser();
         e.target.blur(); // 포커스 제거
       });
     }
@@ -444,7 +505,7 @@ export default class ModernProjectFilters {
         } else {
           delete this.filters.businessName;
         }
-        this.applyFilters(null, true);
+        this._applyFromUser();
         e.target.blur(); // 포커스 제거
       });
     }
@@ -458,7 +519,7 @@ export default class ModernProjectFilters {
         } else {
           delete this.filters.status;
         }
-        this.applyFilters(null, true);
+        this._applyFromUser();
         e.target.blur(); // 포커스 제거
       });
     }
@@ -472,7 +533,7 @@ export default class ModernProjectFilters {
         } else {
           delete this.filters.data;
         }
-        this.applyFilters(null, true);
+        this._applyFromUser();
         e.target.blur(); // 포커스 제거
       });
     }
@@ -486,7 +547,7 @@ export default class ModernProjectFilters {
         } else {
           delete this.filters.manager;
         }
-        this.applyFilters(null, true);
+        this._applyFromUser();
         e.target.blur(); // 포커스 제거
       });
     }
@@ -500,7 +561,7 @@ export default class ModernProjectFilters {
         } else {
           delete this.filters.invoice;
         }
-        this.applyFilters(null, true);
+        this._applyFromUser();
         e.target.blur();
       });
     }
@@ -514,7 +575,7 @@ export default class ModernProjectFilters {
         } else {
           delete this.filters.outstanding;
         }
-        this.applyFilters(null, true);
+        this._applyFromUser();
         e.target.blur(); // 포커스 제거
       });
     }
@@ -551,7 +612,7 @@ export default class ModernProjectFilters {
           // 담당자가 다른 사람으로 바뀌었으면 그대로 (사용자가 이미 명시적으로 다른 필터 세팅)
           this._managerBackupBeforeMine = null;
         }
-        this.applyFilters(null, true);
+        this._applyFromUser();
       });
     }
   }
@@ -621,6 +682,9 @@ export default class ModernProjectFilters {
 
     // 필터 시각적 효과 업데이트
     this.updateFilterVisualEffects();
+
+    // 직원이 편집 중 필터를 바꿨다가 '이어서 편집'을 고르면 돌아갈 기준
+    this._rememberApplied();
 
     // 필터 상태 sessionStorage 저장 (F5 시 복원용)
     this._persistFiltersToStorage();
@@ -1233,6 +1297,8 @@ export default class ModernProjectFilters {
    * 필터 초기화
    */
   resetFilters() {
+    // 펼침에서 편집 중이면 먼저 묻는다(이어서 편집하기로 하면 아무것도 안 바꿈, 11-16)
+    if (!this._confirmLeaveEdit()) return;
     // 수금 관리 토글부터 처리 (편집 모드였을 때 dirty 확인 다이얼로그 우선 노출)
     // 사용자가 취소하면 나머지 필터 리셋도 안 하는 게 자연스러움.
     const receivablesToggle = document.getElementById('receivablesToggle');

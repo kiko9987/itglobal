@@ -314,7 +314,18 @@
     document.getElementById('crCards').innerHTML = '';
     try {
       const res = await fetch(`/api/settlement/collected?period=${encodeURIComponent(sel.value)}${refresh ? '&refresh=true' : ''}`,
-                              { credentials: 'same-origin' });
+                              { credentials: 'same-origin',
+                                headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
+      // 로그인이 끝났으면(401 또는 로그인 화면 HTML 로 넘어감) 로그인 화면으로(최종 점검 11-16)
+      //   (서버 오류 HTML 은 로그인으로 보내지 않고 아래 '불러오지 못했습니다'로)
+      let toLogin = res.status === 401 || res.status === 440;
+      try { toLogin = toLogin || (res.redirected && new URL(res.url).pathname === '/login'); } catch (_) {}
+      if (toLogin) {
+        const u = new URL('/login', window.location.origin);
+        u.searchParams.set('session_expired', 'true');
+        window.location.href = u.toString();
+        return;
+      }
       let j = null;
       try { j = await res.json(); } catch (_) { j = null; }   // 로그인이 끝났거나 서버 오류면 JSON 이 아님
       if (!j || !j.success) throw new Error((j && j.error) || '');

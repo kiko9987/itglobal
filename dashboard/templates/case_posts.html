@@ -175,13 +175,24 @@
 
   // ── 2·3. 파일 고르기 ──
   function addFiles(kind, fileList) {
+    let skipped = 0;
     for (const f of fileList) {
       const okType = f.type.startsWith('image/') || (kind === 'order' && f.type === 'application/pdf') || /\.(heic|jpe?g|png|webp|pdf)$/i.test(f.name);
-      if (!okType) continue;
-      if (kind === 'photo' && f.type === 'application/pdf') continue;
+      if (!okType || (kind === 'photo' && (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)))) { skipped += 1; continue; }
       state.files[kind].push({ file: f, status: 'ready' });
     }
     renderFiles(kind);
+    showSkipped(kind, skipped);
+  }
+  // 형식이 안 맞아 뺀 파일 수를 목록 바로 아래에 알림 — 전에는 말없이 빠져 다 올라간 줄 알았음(최종 점검 11-16)
+  function showSkipped(kind, count) {
+    let note = document.getElementById('cpSkip-' + kind);
+    if (!count) { if (note) note.remove(); return; }
+    if (!note) {
+      note = el('div', { id: 'cpSkip-' + kind, class: 'cp-warn mt-1', role: 'status' });
+      $('#cpList-' + kind).after(note);
+    }
+    note.textContent = count + '개는 ' + (kind === 'photo' ? '사진' : '사진·PDF') + ' 형식이 아니라 뺐어요.';
   }
   function renderFiles(kind) {
     const box = $('#cpList-' + kind); box.textContent = '';
@@ -229,8 +240,18 @@
     try {
       if (!state.jobId) {
         prog.textContent = '접수 만드는 중…';
-        const r = await api('/jobs', { method: 'POST', body: form({ code: state.project.code, memo: $('#cpMemo').value, order_text: $('#cpOrderText').value }) });
+        const orderText = $('#cpOrderText').value;
+        const r = await api('/jobs', { method: 'POST', body: form({ code: state.project.code, memo: $('#cpMemo').value, order_text: orderText }) });
         state.jobId = r.job.id;
+        state.sentOrderText = orderText.trim();
+        // 메모는 접수를 만든 뒤 따로 저장할 길이 없어 잠금 — 다시 시도할 때 고친 메모가 말없이 버려졌음(최종 점검 11-16)
+        lockMemo(true);
+      } else if ($('#cpOrderText').value.trim() !== (state.sentOrderText || '')) {
+        // 다시 시도: 그 사이 고친 작업지시 글을 먼저 저장하고 이어서 올림(최종 점검 11-16)
+        prog.textContent = '작업지시 글 저장 중…';
+        const text = $('#cpOrderText').value;
+        await api('/jobs/' + encodeURIComponent(state.jobId) + '/order-text', { method: 'POST', body: form({ text }) });
+        state.sentOrderText = text.trim();
       }
       const todo = [];
       for (const kind of ['photo']) for (const it of state.files[kind]) if (it.status !== 'done') todo.push([kind, it]);
@@ -271,9 +292,20 @@
       prog.textContent = ''; prog.append(el('span', { class: 'cp-warn', text: e.message }));
     } finally { btn.disabled = false; state.uploading = false; }
   }
+  function lockMemo(on) {
+    const memo = $('#cpMemo');
+    memo.readOnly = on;
+    let note = document.getElementById('cpMemoLocked');
+    if (!on) { if (note) note.remove(); return; }
+    if (!note) {
+      note = el('div', { id: 'cpMemoLocked', class: 'cp-note mt-1', text: '메모는 처음 [접수하기] 때 저장돼서, 지금은 고칠 수 없어요.' });
+      memo.after(note);
+    }
+  }
   function resetForm() {
-    state.project = null; state.jobId = null; state.files = { photo: [], order: [] };
-    renderFiles('photo'); $('#cpMemo').value = ''; $('#cpOrderText').value = ''; $('#cpSearch').value = '';
+    state.project = null; state.jobId = null; state.sentOrderText = ''; state.files = { photo: [], order: [] };
+    renderFiles('photo'); showSkipped('photo', 0); lockMemo(false);
+    $('#cpMemo').value = ''; $('#cpOrderText').value = ''; $('#cpSearch').value = '';
     $('#cpPicker').style.display = ''; $('#cpSelected').style.display = 'none';
   }
   $('#cpSubmit').addEventListener('click', submit);

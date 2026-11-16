@@ -891,26 +891,33 @@ class AuditLogRepository:
             logger.error(f"배치 감사 로그 저장 실패: {str(e)}")
             return False, 0
 
-    def get_recent_logs(self, limit: int = 100, user_email: str = None) -> List[Dict]:
-        """최근 로그 조회"""
+    def get_recent_logs(self, limit: int = 100, user_email: str = None, days: int = None) -> List[Dict]:
+        """최근 로그 조회.
+
+        days: 지금부터 며칠 안의 로그만(시각 조건). timestamp 는 SQLite CURRENT_TIMESTAMP 기본값이라
+          UTC 'YYYY-MM-DD HH:MM:SS' 문자열 → 같은 형식인 datetime('now', '-N days') 와 비교한다.
+          (예전엔 limit=days*100 개수로만 잘라 7일이 실제론 하루치도 안 됐음 — 최종 점검 11-16)
+        DB 오류는 빈 목록으로 숨기지 않고 그대로 올린다 — 화면이 '로그 없음' 대신 '불러오지 못했습니다'를 띄우게.
+        """
+        where, params = [], []
+        if user_email:
+            where.append('user_email = ?')
+            params.append(user_email)
+        if days:
+            where.append("timestamp >= datetime('now', ?)")
+            params.append(f'-{int(days)} days')
+        sql = 'SELECT * FROM audit_logs'
+        if where:
+            sql += ' WHERE ' + ' AND '.join(where)
+        sql += ' ORDER BY timestamp DESC LIMIT ?'
+        params.append(limit)
         try:
             with self.user_db._get_connection() as conn:
-                if user_email:
-                    cursor = conn.execute('''
-                        SELECT * FROM audit_logs
-                        WHERE user_email = ?
-                        ORDER BY timestamp DESC LIMIT ?
-                    ''', (user_email, limit))
-                else:
-                    cursor = conn.execute('''
-                        SELECT * FROM audit_logs
-                        ORDER BY timestamp DESC LIMIT ?
-                    ''', (limit,))
-
+                cursor = conn.execute(sql, params)
                 return [dict(row) for row in cursor.fetchall()]
         except Exception as e:
             logger.error(f"감사 로그 조회 실패: {str(e)}")
-            return []
+            raise
 
 
 # 싱글톤 감사 로그 저장소 인스턴스

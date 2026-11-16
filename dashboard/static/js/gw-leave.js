@@ -21,14 +21,31 @@
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
+  var SESSION_ENDED = '로그인이 끝났어요. 새로 고친 뒤 다시 해 주세요.';
+
   function api(url, opts) {
     opts = opts || {};
-    var init = { method: opts.method || 'GET', credentials: 'same-origin' };
+    var method = opts.method || 'GET';
+    var init = { method: method, credentials: 'same-origin' };
+    // 본문 있을 때만 JSON 머리글(빈 본문 + JSON 머리글 = 운영 400). 본문 없는 POST(휴가 취소)는 로그인이 끝나면
+    // 로그인 화면으로 돌려보내지므로 아래 redirected·HTML 판정으로 잡는다(예전엔 {} 로 읽혀 취소가 "됐다"고 떴음, 11-16 점검)
     if (opts.body) { init.headers = { 'Content-Type': 'application/json' }; init.body = JSON.stringify(opts.body); }
     return fetch(url, init).then(function (r) {
-      return r.json().catch(function () { return {}; }).then(function (j) {
-        if (!r.ok || j.success === false) {
-          var err = new Error(j.message || j.error || ('처리하지 못했습니다 (' + r.status + ')'));
+      var isJson = (r.headers.get('content-type') || '').indexOf('application/json') !== -1;
+      // 로그인 화면으로 돌려보내졌거나(redirected·200 HTML) 401 이면 로그인이 끝난 것
+      if (r.status === 401 || r.redirected || (r.ok && !isJson)) {
+        var se = new Error(SESSION_ENDED);
+        se.fields = {};
+        se.sessionEnded = true;
+        throw se;
+      }
+      return (isJson ? r.json() : Promise.reject()).catch(function () { return null; }).then(function (j) {
+        if (!j || !r.ok || j.success === false) {
+          j = j || {};
+          var fallback = method === 'GET'
+            ? '불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요. (오류 ' + r.status + ')'
+            : '처리하지 못했어요. 잠시 뒤 다시 해 주세요. (오류 ' + r.status + ')';
+          var err = new Error(j.message || j.error || fallback);
           err.fields = j.errors || {};
           throw err;
         }
@@ -41,6 +58,11 @@
     if (x == null) return '-';
     var n = Math.round(Number(x) * 10) / 10;
     return (n % 1 === 0 ? n.toFixed(0) : n.toFixed(1)) + '일';
+  }
+
+  function todayIso() {
+    var t = new Date();
+    return t.getFullYear() + '-' + (t.getMonth() < 9 ? '0' : '') + (t.getMonth() + 1) + '-' + (t.getDate() < 10 ? '0' : '') + t.getDate();
   }
 
   function md(s) {
@@ -104,8 +126,9 @@
         L.upcoming.forEach(function (e) {
           h += '<li><div class="gw-lv-up-main"><div class="gw-lv-up-when">' + esc(period(e)) + '</div>' +
             '<div class="gw-lv-up-sub">' + esc(e.type) + ' · ' + days(e.days) + ' ' + statusBadge(e.status) + '</div>' +
-            // 플렉스에서 옮겨 온 대기 건은 여기서 취소할 수 없다 — 단추 없이 이유만 비면 막막하니 할 일을 적어 둠
-            (!e.cancel && e.source === 'flex' && e.status === '대기'
+            // 플렉스에서 옮겨 온 휴가는 여기서 취소할 수 없다 — 대기뿐 아니라 승인된 것도(끝나지 않았으면) 단추 없이 비면
+            // 막막하니 할 일을 적어 둠(11-16 점검: 승인된 플렉스 휴가에 안내가 없던 것)
+            (!e.cancel && e.source === 'flex' && (e.status === '대기' || e.status === '승인') && (e.end || e.start) >= todayIso()
               ? '<div class="gw-lv-up-why">플렉스에서 신청한 휴가예요. 취소는 경영지원에 말씀해 주세요.</div>' : '') +
             '</div>' + cancelBtn(e) + '</li>';
         });
@@ -254,17 +277,45 @@
       document.getElementById('lvProof').hidden = (form.needs_proof || []).indexOf(t) === -1;
     }
 
+    // 칸 비우기는 처음 열 때·신청이 된 뒤에만 — 실수로 닫았다 다시 열면 적던 것이 그대로 있게(11-16 점검)
+    var applyFresh = true;
+    var closingAfterApply = false;   // 신청 성공으로 닫을 때는 묻지 않음
+
+    function applyDirty() {
+      return !!(f.start.value || f.end.value || f.reason.value.trim() || subSel.value);
+    }
+
+    function selectIfThere(sel, v) {
+      if (v && Array.prototype.some.call(sel.options, function (o) { return o.value === v; })) sel.value = v;
+    }
+
     function openApply() {
       if (!form || !form.can_apply) return;
       clearErrors();
-      f.reset();
+      closingAfterApply = false;
+      var keepType = applyFresh ? '' : typeSel.value;
+      var keepSub = applyFresh ? '' : subSel.value;
+      if (applyFresh) {
+        f.reset();
+        document.getElementById('lvEnd').min = '';
+        applyFresh = false;
+      }
       document.getElementById('lvApplyLeft').innerHTML = '<strong>' + esc(form.name) + '</strong> 님 오늘 기준 남은 연차: <strong>' + days(form.balance) + '</strong>';
       typeSel.innerHTML = form.types.map(function (o) { return '<option value="' + esc(o.value) + '">' + esc(o.label) + '</option>'; }).join('');
       subSel.innerHTML = '<option value="">고르기</option>' + form.event_subs.map(function (o) { return '<option value="' + esc(o.value) + '">' + esc(o.label) + '</option>'; }).join('');
       typeSel.value = form.types.length ? form.types[0].value : '';
+      selectIfThere(typeSel, keepType);
+      selectIfThere(subSel, keepSub);
       syncType();
       if (window.bootstrap) { returnFocusOnHide(modalEl); window.bootstrap.Modal.getOrCreateInstance(modalEl).show(); }
     }
+
+    // 적던 중에 [닫기]·✕·Esc 를 누르면 한 번 묻는다(바깥 클릭은 data-bs-backdrop="static" 으로 막음)
+    modalEl.addEventListener('hide.bs.modal', function (ev) {
+      if (closingAfterApply || !applyDirty()) return;
+      if (!window.confirm('아직 신청하지 않았어요. 닫을까요?')) ev.preventDefault();
+    });
+    modalEl.addEventListener('hidden.bs.modal', function () { closingAfterApply = false; });
 
     applyBtn.addEventListener('click', openApply);
     typeSel.addEventListener('change', function () { clearErrors(); syncType(); });
@@ -296,6 +347,8 @@
       submitBtn.disabled = true;
       submitBtn.textContent = '신청하는 중…';
       api('/api/leave/apply', { method: 'POST', body: body }).then(function (j) {
+        applyFresh = true;
+        closingAfterApply = true;
         if (window.bootstrap) window.bootstrap.Modal.getOrCreateInstance(modalEl).hide();
         showFlash(j.status === 'approved'
           ? '휴가가 확정됐어요 (' + days(j.days) + ').'

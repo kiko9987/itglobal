@@ -308,11 +308,20 @@ def appointments(person_id: int) -> List[dict]:
     return [_row(r) for r in rows]
 
 
+# 인사카드 관리자만 보는 칸 — 본인 조회(내 정보) 응답에선 뺀다. 화면(gw-hr.js)도 can_edit 일 때만 그림.
+# access(로그인 방식)는 본인 화면 '현장' 배지에 쓰므로 남김.
+ADMIN_ONLY_FIELDS = ('memo', 'flex_id', 'slack_id', 'login_email', 'updated_by')
+
+
 def card(person_id: int, viewer_email: str) -> Optional[dict]:
-    """화면에 보낼 인사카드. 주민번호는 가린 값만, 원본 암호문은 절대 내보내지 않는다."""
+    """화면에 보낼 인사카드. 주민번호는 가린 값만, 원본 암호문은 절대 내보내지 않는다.
+    인사카드 관리자가 아니면 관리 전용 칸(메모·플렉스 ID·슬랙 ID 등)도 뺀다."""
     p = get_person(person_id)
     if not p:
         return None
+    if not is_hr_admin(viewer_email):
+        for k in ADMIN_ONLY_FIELDS:
+            p.pop(k, None)
     enc = p.pop('ssn_enc', None)
     p['ssn_masked'] = ''
     p['has_ssn'] = bool(enc)

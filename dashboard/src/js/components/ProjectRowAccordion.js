@@ -1339,6 +1339,10 @@ export default class ProjectRowAccordion {
    * 취소/재개 버튼 생성
    */
   generateCancelResumeButton(projectCode, rowData) {
+    // 조회 권한엔 단추를 만들지 않는다 — 서버(/api/project/cancel·resume)가 편집자 이상만 받아
+    //   눌러도 권한 오류만 났음. 부담자 설정 단추와 같은 판정 (PC 점검 11-16)
+    const role = window.userRole || 'viewer';
+    if (!['editor', 'admin', 'super_admin'].includes(role)) return '';
     const collectionNotes = rowData['수금 관련 특이사항'] || '';
     const isCancelled = collectionNotes && /공사\s*취소/.test(collectionNotes);
 

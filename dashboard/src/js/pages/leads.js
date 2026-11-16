@@ -94,10 +94,13 @@ async function refreshData(force = true) {
     const btn = document.getElementById('fullRefreshBtn');
     btn?.classList.add('disabled');
     const rows = await fetchLeads(force);
-    if (!rows) return;
+    if (!rows) return;   // 로그인 화면으로 넘어가는 중 — 성공 알림을 띄우지 않음
     app.data = rows;
     app.lastLoadedAt = Date.now();
-    app.filters.applyFilters(rows, true);
+    // 첫 불러오기가 실패해 표가 아직 없으면 표 만들기부터 다시 — 전에는 표도 없이
+    //   "최신 데이터를 불러왔습니다"만 떠 빈 화면이 그대로였음(최종 점검 11-16)
+    if (!app.table) await setupTable(rows);
+    else app.filters.applyFilters(rows, true);
     if (force) showPageAlert('최신 데이터를 불러왔습니다', 'success');
   } catch (err) {
     logger.error('[LEADS] 새로고침 실패:', err);
@@ -168,6 +171,46 @@ function setView(view) {
   app.mobile?.render();   // 휴대폰: 카드 목록 ↔ 방문 일정 목록 (넓은 화면에선 아무것도 안 함)
 }
 
+// ── 표 만들기 (첫 불러오기, 또는 첫 불러오기 실패 뒤 [새로고침]) ─────────────
+async function setupTable(rows) {
+  // 필터 연결·보기 버튼·탭 복귀 갱신은 한 번만 — 다시 불러도 겹쳐 붙지 않게
+  if (!app.wired) {
+    app.filters.onFilterChange((filtered, meta = {}) => {
+      app.filtered = filtered;
+      app.table?.updateData(filtered, { keepPage: !!meta.dataRefresh });
+      app.mobile?.update(filtered);
+      app.chrome?.syncFilterCount?.();
+      if (app.view === 'calendar') loadCalendarEvents();
+    });
+
+    document.getElementById('tableViewBtn')?.addEventListener('click', () => setView('table'));
+    document.getElementById('calendarViewBtn')?.addEventListener('click', () => setView('calendar'));
+
+    // 탭 복귀 시 5분 넘었으면 조용히 갱신 (아코디언 열려 있으면 보류 — 프로젝트 페이지와 동일)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && Date.now() - app.lastLoadedAt > 5 * 60 * 1000
+          && !app.accordion?.isOpen) {
+        refreshData(false);
+      }
+    });
+    app.wired = true;
+  }
+
+  // 첫 필터 결과로 테이블 생성 (populate + 세션 복원 필터 적용)
+  const table = new LeadTable({ filters: app.filters, accordion: app.accordion });
+  app.table = table;
+  try {
+    table.init([]);
+    app.filters.applyFilters(rows, true);
+    await table.firstDraw;
+  } catch (err) {
+    app.table = null;   // 반쯤 만든 표는 버림 — 다음 [새로고침]에서 처음부터 다시
+    throw err;
+  }
+  hideLoadingOverlay();
+  window.leadsApp = app;
+}
+
 // ── 초기화 ────────────────────────────────────────────────
 async function init() {
   try {
@@ -190,33 +233,7 @@ async function init() {
     app.data = rows;
     app.lastLoadedAt = Date.now();
 
-    app.table = new LeadTable({ filters: app.filters, accordion: app.accordion });
-    app.filters.onFilterChange((filtered, meta = {}) => {
-      app.filtered = filtered;
-      app.table.updateData(filtered, { keepPage: !!meta.dataRefresh });
-      app.mobile?.update(filtered);
-      app.chrome?.syncFilterCount?.();
-      if (app.view === 'calendar') loadCalendarEvents();
-    });
-
-    // 첫 필터 결과로 테이블 생성 (populate + 세션 복원 필터 적용)
-    app.table.init([]);
-    app.filters.applyFilters(rows, true);
-    await app.table.firstDraw;
-    hideLoadingOverlay();
-
-    document.getElementById('tableViewBtn')?.addEventListener('click', () => setView('table'));
-    document.getElementById('calendarViewBtn')?.addEventListener('click', () => setView('calendar'));
-
-    // 탭 복귀 시 5분 넘었으면 조용히 갱신 (아코디언 열려 있으면 보류 — 프로젝트 페이지와 동일)
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible' && Date.now() - app.lastLoadedAt > 5 * 60 * 1000
-          && !app.accordion.isOpen) {
-        refreshData(false);
-      }
-    });
-
-    window.leadsApp = app;
+    await setupTable(rows);
     logger.debug('[LEADS] 초기화 완료');
   } catch (err) {
     logger.error('[LEADS] 초기화 실패:', err);
