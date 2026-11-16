@@ -41,7 +41,7 @@ def _patch_common(monkeypatch, project, redis, captured):
     monkeypatch.setattr(psa, '_get_sheet_context', lambda: (_Mgr(), 'sid', '공사 현황'))
     monkeypatch.setattr(psa, '_find_row_number', lambda m, s, n, c: 100)
     monkeypatch.setattr(psa, '_queue_batch_write',
-                        lambda sid, updates, tag=None: captured.setdefault('updates', []).extend(updates))
+                        lambda sid, updates, tag=None, **k: captured.setdefault('updates', []).extend(updates))
     monkeypatch.setattr(psa, '_audit_log', lambda **k: None)
     monkeypatch.setattr(psa, '_queue_bg_color', lambda *a, **k: None)
     import dashboard.utils.redis_client as rcmod
@@ -190,3 +190,17 @@ def test_cancel_no_reason_plain_spec(monkeypatch):
     res = psa.perform_cancel('G1-XX', 'SD')  # 사유 없음
     assert res['ok'] is True
     assert _ranges(captured).get('공사 현황!AB100') == '공사 취소'
+
+
+def test_zero_total_syncs_reconcile_snapshot(monkeypatch):
+    """✅ 매출0 은 경영지원 본인 처리 — 리컨사일러 기준값도 0 으로 맞춰 '시트 직접수정' 금액 DM 이 안 가게(2026-11-16)."""
+    redis = _Redis()
+    captured = {}
+    proj = {'프로젝트 코드': 'G9999-XX', '수금 관련 특이사항': '공사 취소 (사유: 고객 변심)',
+            '공사 확정': '', '수금 확인': False, '총액 1': 3400000}
+    _patch_common(monkeypatch, proj, redis, captured)
+    synced = []
+    import dashboard.services.project_reconcile as rec
+    monkeypatch.setattr(rec, 'sync_snapshot_fields', lambda code, values: synced.append((code, values)))
+    assert psa.apply_cancel_zero_total('G9999-XX', 'SB')['ok'] is True
+    assert synced == [('G9999-XX', {'총액 1': 0})]

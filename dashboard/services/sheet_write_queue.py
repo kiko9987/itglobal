@@ -194,6 +194,8 @@ def retry_failed(op_id: str) -> bool:
             continue
         if op.get('op_id') == op_id:
             op['attempts'] = 0
+            if isinstance(op.get('payload'), dict):
+                op['payload']['_retried'] = True   # 핸들러가 '그 사이 다른 저장'을 확인(11-16)
             op['last_error'] = ''
             op['requeued_at'] = time.time()     # 대기 나이 감시가 옛 created_at 으로 오탐하지 않게
             rc.lrem(FAILED_KEY, 1, raw)

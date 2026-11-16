@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from dashboard.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
+from dashboard.services.project_state import spec_cancelled as _spec_cancelled
 
 
 # ─────────────────────────────────────────────────────────────
@@ -57,23 +58,29 @@ def _audit_log(**kwargs) -> None:
         logger.warning(f'[SLACK/action] 감사 로그 실패: {exc}')
 
 
-def _queue_bg_color(sheet_id: str, sheet_name: str, row_number: int, color_type: str, tag: str = '') -> None:
-    """행 배경색 갱신을 큐로 위임 (write-behind)."""
+def _queue_bg_color(sheet_id: str, sheet_name: str, row_number: int, color_type: str, tag: str = '',
+                    code: str = '') -> None:
+    """행 배경색 갱신을 큐로 위임 (write-behind). code 를 주면 쓰기 직전에 그 행이 그 공사인지 확인(11-16)."""
     try:
         from dashboard.services.sheet_write_queue import enqueue
         enqueue('sheet_bg_color', {
             'sheet_id': sheet_id, 'sheet_name': sheet_name,
             'row_number': row_number, 'color_type': color_type,
-            'tag': tag,
+            'tag': tag, 'expect_code': code,
         })
     except Exception as exc:
         logger.warning(f'[SLACK/action] bg_color enqueue 실패 ({tag}): {exc}')
 
 
-def _queue_batch_write(sheet_id: str, updates: list, tag: str) -> None:
-    """batch_update_cells 을 큐로 위임 (write-behind)."""
+def _queue_batch_write(sheet_id: str, updates: list, tag: str, code: str = '', sheet_name: str = '',
+                       row_number: Optional[int] = None) -> None:
+    """batch_update_cells 을 큐로 위임 (write-behind).
+    공사 행 쓰기면 code·sheet_name·row_number 를 준다 — 쓰기 직전 행 확인 + _version +1 (2026-11-16 점검)."""
     from dashboard.services.sheet_write_queue import enqueue
-    enqueue('sheet_batch_write', {'sheet_id': sheet_id, 'updates': updates, 'tag': tag})
+    payload = {'sheet_id': sheet_id, 'updates': updates, 'tag': tag}
+    if code and sheet_name and row_number:
+        payload.update(expect_code=code, sheet_name=sheet_name, row_number=int(row_number), bump_version=True)
+    enqueue('sheet_batch_write', payload)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -91,7 +98,7 @@ def perform_cancel(code: str, by_display_name: str, reason: str = '') -> Dict[st
     if not project:
         return {'ok': False, 'reason': 'not_found'}
 
-    if re.search(r'공사\s*취소', project.get('수금 관련 특이사항', '') or ''):
+    if _spec_cancelled(project.get('수금 관련 특이사항', '') or ''):
         return {'ok': False, 'reason': 'already_cancelled', 'project': project}
 
     manager, sheet_id, sheet_name = _get_sheet_context()
@@ -121,7 +128,8 @@ def perform_cancel(code: str, by_display_name: str, reason: str = '') -> Dict[st
     ]
 
     # 2026-07-09 write-behind: 시트 write 를 큐로 위임
-    _queue_batch_write(sheet_id, updates, tag=f'slack_cancel:{code}')
+    _queue_batch_write(sheet_id, updates, tag=f'slack_cancel:{code}', code=code, sheet_name=sheet_name,
+                       row_number=row_number)
 
     # 캐시 부분 갱신 (실패 시 전체 무효화 fallback)
     try:
@@ -153,7 +161,7 @@ def perform_cancel(code: str, by_display_name: str, reason: str = '') -> Dict[st
     )
 
     # 행 배경색 → 진한 회색 (관리 사이트와 동일 UX)
-    _queue_bg_color(sheet_id, sheet_name, row_number, 'dark_grey', tag=f'slack_cancel_bg:{code}')
+    _queue_bg_color(sheet_id, sheet_name, row_number, 'dark_grey', tag=f'slack_cancel_bg:{code}', code=code)
 
     logger.info(f'[SLACK/취소] 완료(상태): {code} by slack:{by_display_name}')
     return {
@@ -171,7 +179,7 @@ def apply_cancel_zero_total(code: str, by_display_name: str) -> Dict[str, Any]:
     project = _load_project(code)
     if not project:
         return {'ok': False, 'reason': 'not_found'}
-    if not re.search(r'공사\s*취소', project.get('수금 관련 특이사항', '') or ''):
+    if not _spec_cancelled(project.get('수금 관련 특이사항', '') or ''):
         return {'ok': False, 'reason': 'not_cancelled'}  # 재개됨 등 → 0 처리 안 함
     cur = project.get('총액 1', '')
     try:
@@ -201,7 +209,14 @@ def apply_cancel_zero_total(code: str, by_display_name: str) -> Dict[str, Any]:
     col = manager.get_field_to_letter()
     _queue_batch_write(sheet_id, [
         {'range': f"{sheet_name}!{col['총액 1']}{row_number}", 'values': [[0]]},
-    ], tag=f'cancel_zero_total:{code}')
+    ], tag=f'cancel_zero_total:{code}', code=code, sheet_name=sheet_name, row_number=row_number)
+    # 리컨사일러 기준값도 0 으로 — 안 하면 취소 2시간 마커가 지난 뒤 ✅ 를 누르면 '시트 직접수정'으로 잡혀 승인자
+    #   전원에게 '경영지원을 거치지 않은 금액 변경' DM 이 갔다(실제론 경영지원 본인의 ✅, 2026-11-16 점검 A5)
+    try:
+        from dashboard.services.project_reconcile import sync_snapshot_fields
+        sync_snapshot_fields(code, {'총액 1': 0})
+    except Exception as exc:
+        logger.warning(f'[SLACK/취소매출0] 리컨사일러 기준값 맞춤 실패 ({code}): {exc}')
     try:
         from dashboard.services.project_service import (
             update_project_in_cache, invalidate_project_cache)
@@ -229,7 +244,7 @@ def perform_uncancel(code: str, by_display_name: str, reason: str = '') -> Dict[
     if not project:
         return {'ok': False, 'reason': 'not_found'}
 
-    if not re.search(r'공사\s*취소', project.get('수금 관련 특이사항', '') or ''):
+    if not _spec_cancelled(project.get('수금 관련 특이사항', '') or ''):
         return {'ok': False, 'reason': 'already_active', 'project': project}
 
     manager, sheet_id, sheet_name = _get_sheet_context()
@@ -282,7 +297,8 @@ def perform_uncancel(code: str, by_display_name: str, reason: str = '') -> Dict[
             'range': f"{sheet_name}!{col['총액 1']}{row_number}",
             'values': [[restore_total_1]],  # 취소 시 0으로 만든 매출 원복
         })
-    _queue_batch_write(sheet_id, updates, tag=f'slack_uncancel:{code}')
+    _queue_batch_write(sheet_id, updates, tag=f'slack_uncancel:{code}', code=code, sheet_name=sheet_name,
+                       row_number=row_number)
 
     # 스냅샷 정리 (복원 성공 시 삭제)
     from dashboard.services import cancel_snapshot
@@ -319,7 +335,7 @@ def perform_uncancel(code: str, by_display_name: str, reason: str = '') -> Dict[
     )
 
     # 행 배경색 → 흰색 복원
-    _queue_bg_color(sheet_id, sheet_name, row_number, 'normal', tag=f'slack_uncancel_bg:{code}')
+    _queue_bg_color(sheet_id, sheet_name, row_number, 'normal', tag=f'slack_uncancel_bg:{code}', code=code)
 
     logger.info(f'[SLACK/재개] 완료: {code} by slack:{by_display_name}')
     after = dict(project, **{'수금 관련 특이사항': '', '공사 확정': restore_date})
@@ -401,7 +417,8 @@ def perform_edit(
     if not batch:
         return {'ok': False, 'reason': 'no_changes'}
 
-    _queue_batch_write(sheet_id, batch, tag=f'slack_edit:{code}')
+    _queue_batch_write(sheet_id, batch, tag=f'slack_edit:{code}', code=code, sheet_name=sheet_name,
+                       row_number=row_number)
 
     # 캐시 부분 갱신
     try:

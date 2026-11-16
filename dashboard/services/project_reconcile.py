@@ -17,6 +17,7 @@ import os
 from dashboard.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
+from dashboard.services.project_state import spec_cancelled as _spec_cancelled
 
 _SNAP_PREFIX = 'card_field_snap:'
 _SNAP_TTL = 60 * 60 * 24 * 180        # 180일 (카드 매핑 TTL과 정렬)
@@ -67,6 +68,28 @@ def sync_snapshot_fields(code: str, values: dict) -> None:
         rc.hset(key, mapping={f: ('' if v is None else str(v)) for f, v in values.items()})
     except Exception as exc:
         logger.debug(f'[RECONCILE] 스냅샷 동기화 실패 ({code}): {exc}')
+
+
+def _save_sheet_cancel_snapshot(code: str, prev: dict, cur: dict) -> None:
+    """시트에서 직접 취소한 공사도 취소 전 값을 남긴다 — 버튼 취소와 같은 스냅샷(2026-11-16 상태 머신 점검 A4).
+
+    예전엔 이 경로가 스냅샷을 안 남겨, 나중에 [공사 재개]하면 공사 확정일이 오늘로 덮이고 총액은 0 으로 남았다.
+    경영지원 관행(총액 0 + 특이사항 '공사 취소')이면 총액은 취소 전 기준값(prev)에서 가져온다. 이미 있으면 그대로."""
+    try:
+        from dashboard.services import cancel_snapshot
+        if cancel_snapshot.load_raw(code):
+            return
+        def _pick(f):
+            v = str(cur.get(f) if cur.get(f) is not None else '').strip()
+            return v if v not in ('', '0', 'nan') else str(prev.get(f, '') or '').strip()
+        cancel_snapshot.save(code, {
+            'confirmed_date': _pick('공사 확정'),
+            'payment_confirmed': cancel_snapshot.payment_confirmed(cur.get('수금 확인')),
+            'total_1': _pick('총액 1'),
+        }, by='시트정리')
+        logger.info(f'[RECONCILE] 시트 공사취소 스냅샷 저장: {code}')
+    except Exception as exc:
+        logger.warning(f'[RECONCILE] 시트 공사취소 스냅샷 실패 ({code}): {exc}')
 
 
 def reconcile_project_cards() -> dict:
@@ -179,10 +202,11 @@ def reconcile_project_cards() -> dict:
             #   전담 처리(일반 필드 댓글·금액 DM 대신). 2026-09-15.
             _spec_prev = str(prev.get('수금 관련 특이사항', '') or '')
             _spec_cur = str(r.get('수금 관련 특이사항') or '')
-            _to_cancel = ('공사 취소' in _spec_cur) and ('공사 취소' not in _spec_prev)
-            _from_cancel = ('공사 취소' in _spec_prev) and ('공사 취소' not in _spec_cur)
+            _to_cancel = _spec_cancelled(_spec_cur) and not _spec_cancelled(_spec_prev)
+            _from_cancel = _spec_cancelled(_spec_prev) and not _spec_cancelled(_spec_cur)
             try:
                 if _to_cancel:
+                    _save_sheet_cancel_snapshot(code, prev, r)
                     from dashboard.blueprints.slack_bot import apply_project_cancel_to_slack
                     # 시트 직접 정리=경영지원 본인이 인지 → 샛별 DM skip(send_dm=False).
                     apply_project_cancel_to_slack(code, r, '시트정리', send_dm=False)

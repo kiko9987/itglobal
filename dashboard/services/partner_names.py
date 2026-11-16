@@ -229,7 +229,7 @@ def promote_previous(codes: List[str], name: str, why: str = '', editor: str = '
             enqueue('project_update_sheet', {
                 'sheet_id': sid, 'sheet_name': sn, 'row_number': row,
                 'cells': [{'col': f2l['거래처명'], 'value': name}, {'col': f2l['_version'], 'value': ver}],
-                'field_changes': [change], 'project_code': code,
+                'field_changes': [change], 'project_code': code, 'expect_code': code,
             }, meta={'user_email': editor or 'system'})
             update_project_in_cache(code, {'거래처명': name, '_version': ver})
             done += 1

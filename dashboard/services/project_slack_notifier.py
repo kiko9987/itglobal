@@ -16,6 +16,7 @@ from dashboard.services.lead_helpers import slack_esc
 from dashboard.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
+from dashboard.services.project_state import spec_cancelled as _spec_cancelled
 
 # 공사확정 카드 매핑(project_card_msg / project_thread) TTL.
 #   구 180일 → 3년. 오래된(옛 확정) 프로젝트도 활성으로 재편집·계산서 처리되는 경우가 흔한데
@@ -971,7 +972,7 @@ def notify_project_field_changes(code: str, field_changes: list, latest_data: di
     # 원본 카드도 최신 데이터로 재렌더링 (스레드 답글과 독립적으로 시도)
     #   취소된 공사는 skip — 원본 카드는 '공사 취소' 회색 카드(+되돌리기 버튼)라 일반 카드로 다시 그리면
     #   취소 표시·버튼이 사라짐. 관리자 사후 정정(2026-10-16 취소 건 편집 허용)은 스레드 댓글로만 남김.
-    _cancelled = bool(re.search(r'공사\s*취소', str((latest_data or {}).get('수금 관련 특이사항') or '')))
+    _cancelled = bool(_spec_cancelled(str((latest_data or {}).get('수금 관련 특이사항') or '')))
     if _cancelled:
         logger.info(f'[PROJECT/SLACK/편집] 취소된 공사 — 원본 카드 재렌더 생략, 댓글만 ({code})')
     if latest_data is not None and not _cancelled:
@@ -1084,7 +1085,7 @@ def refresh_project_card_license(
         return False
     # 취소된 공사는 원본 카드가 '공사 취소' 회색 카드(+되돌리기 버튼) — 일반 카드로 그리면 취소 표시가 사라짐
     #   (notify_project_field_changes 와 같은 기준. 2026-10-28 거래처명 자동 변경 후 카드 갱신에도 씀)
-    if re.search(r'공사\s*취소', str(latest_data.get('수금 관련 특이사항') or '')):
+    if _spec_cancelled(str(latest_data.get('수금 관련 특이사항') or '')):
         logger.info(f'[PROJECT/SLACK/사업자] 취소된 공사 — 원본 카드 갱신 생략 ({code})')
         return False
     latest_data = _with_cached_partner(code, latest_data)

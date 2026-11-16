@@ -17,6 +17,7 @@ from typing import Dict, List, Optional
 from dashboard.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
+from dashboard.services.project_state import spec_cancelled as _spec_cancelled
 
 COMPANY_DOMAIN = '@itg-aircon.com'
 
@@ -239,7 +240,7 @@ def _sales_counts(start: date, end: date) -> Dict[date, dict]:
             d = _ymd(r.get('공사 확정'))
             if not d or not (start <= d <= end):
                 continue
-            if _re.search(r'공사\s*취소', str(r.get('수금 관련 특이사항') or '')):
+            if _spec_cancelled(str(r.get('수금 관련 특이사항') or '')):
                 continue
             s = slot(d)
             s['contract'] += 1

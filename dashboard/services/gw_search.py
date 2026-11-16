@@ -14,6 +14,7 @@ from urllib.parse import quote
 from dashboard.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
+from dashboard.services.project_state import spec_cancelled as _spec_cancelled
 
 LIMIT = 6
 _MAX_Q = 50
@@ -121,7 +122,7 @@ def search_projects(query: _Query, limit: int = LIMIT) -> tuple[list[dict], int]
         meta = ' · '.join(x for x in (_s(rec.get('담당자')), _s(rec.get('공사 시작'))[:10]) if x)
         hits.append((score, _num(code), {
             'kind': 'project', 'code': code, 'title': title, 'sub': _s(rec.get('현장 주소')), 'meta': meta,
-            'cancelled': bool(re.search(r'공사\s*취소', _s(rec.get('수금 관련 특이사항')))),
+            'cancelled': bool(_spec_cancelled(_s(rec.get('수금 관련 특이사항')))),
             'href': f'/projects?search={quote(code)}&fresh=1',
         }))
     return _rank(hits, limit)

@@ -93,6 +93,7 @@ def _changed_cells(field_changes, field_to_index, current_values, code_changed=F
 from ..constants import payment_field_column, MEMOABLE_FIELDS, PAYMENT_AMOUNT_FIELDS, ERROR_MESSAGES
 
 logger = get_logger(__name__)
+from dashboard.services.project_state import spec_cancelled as _spec_cancelled
 
 
 def convert_excel_serial_to_date(value):
@@ -800,11 +801,17 @@ def _check_optimistic_lock_update(manager, sheet_id, sheet_name, project_code, r
 
     # 시트 반영 대기 중인 내 저장의 버전도 '지금 버전'으로 인정 (2026-10-28 4차) — 저장은 큐를 거쳐 나중에
     #   시트에 쓰이는데 버전은 시트에서 바로 읽어서, 큐가 밀린 사이 다시 저장하면 본인 저장인데도 충돌로 막혔음.
+    _pend = _pending_version_get(project_code)
     if str(current_version) != str(expected_version):
-        _pend = _pending_version_get(project_code)
         if _pend and str(_pend) == str(expected_version):
             logger.info(f"[OPTIMISTIC_LOCK] 시트 반영 대기 중 버전 일치 — 통과: {project_code} v{expected_version}")
             current_version = expected_version
+    elif _pend and str(_pend) != str(expected_version):
+        # 다른 화면의 저장이 아직 시트에 안 쓰인 채 대기 중 — 시트 버전만 보면 같은 옛 버전을 든 오래된 화면이
+        #   통과해 그 저장을 덮었다(2026-11-16 상태 머신 점검 A2). 대기 버전을 '지금 버전'으로 본다
+        logger.warning(f"[OPTIMISTIC_LOCK] 다른 저장이 시트 반영 대기 중 — 충돌: {project_code} "
+                       f"expected={expected_version}, pending={_pend}")
+        current_version = _pend
 
     # 버전 불일치 → 409 Conflict
     if str(current_version) != str(expected_version):
@@ -1149,12 +1156,17 @@ def _cancelled_edit_gate(current_values, field_to_index, data, permission_level)
     """
     idx = field_to_index.get('수금 관련 특이사항')
     cur = str(current_values[idx] or '') if idx is not None and idx < len(current_values) else ''
-    if not re.search(r'공사\s*취소', cur):
+    if not _spec_cancelled(cur):
+        # 메모 칸에 '공사 취소'를 써 넣으면 스냅샷·매출 0원 요청·카드 회색이 모두 빠진 반쪽 취소가 된다 — 취소는
+        #   [공사 취소] 버튼으로만(2026-11-16 상태 머신 점검 A3)
+        if '수금 관련 특이사항' in (data or {}) and _spec_cancelled((data or {}).get('수금 관련 특이사항')):
+            return ("'공사 취소'는 메모로 적을 수 없습니다. 공사를 취소하려면 [공사 취소] 버튼을 사용하세요. "
+                    "(취소 문의 메모라면 '취소 문의'처럼 다른 말로 적어 주세요)", 400)
         return None
     if permission_level not in ('admin', 'super_admin'):
         return '취소된 공사는 관리자만 수정할 수 있습니다.', 403
-    if '수금 관련 특이사항' in (data or {}) and not re.search(
-            r'공사\s*취소', str((data or {}).get('수금 관련 특이사항') or '')):
+    if '수금 관련 특이사항' in (data or {}) and not _spec_cancelled(
+            (data or {}).get('수금 관련 특이사항')):
         return ("'공사 취소' 표기는 편집으로 지울 수 없습니다. "
                 "공사를 되살리려면 [공사 재개] 버튼을 사용하세요.", 400)
     return None
@@ -1330,6 +1342,7 @@ def update_project(project_code):
             'cells': cells,
             'field_changes': field_changes,
             'project_code': final_project_code,
+            'expect_code': project_code,   # 쓰기 직전 행 확인용 — 코드가 바뀌어도 시트 A열은 아직 옛 코드
             'version': new_version,
         }, meta={'user_email': session.get('user', {}).get('email', 'unknown')})
         _pending_version_set(final_project_code, new_version)   # 시트에 쓰일 때까지 '지금 버전'으로 인정
@@ -2935,79 +2948,19 @@ def add_project_auto():
         _bg_user_email = session.get('user', {}).get('email', 'unknown')
         _bg_ip = request.remote_addr
 
-        def _write_behind():
-            # 스레드별 GoogleSheetsManager 필수 — request thread 의 manager 를
-            # 그대로 쓰면 heap corruption (2026-07-09 크래시 사고 참조).
-            from ..services.project_service import get_sheets_manager as _gsm
-            _mgr = _gsm()
-            import time as _time
-            last_exc = None
-            for attempt in range(3):
-                try:
-                    result = _mgr.append_row(sheet_id, values)
-                    if result:
-                        _finalize_project_creation_bg(
-                            code, data, project_data,
-                            user_email=_bg_user_email, ip_address=_bg_ip,
-                        )
-                        _promote_partner_after_create(code, partner_promote, _bg_user_email)
-                        logger.info(f"[CREATE_PROJECT/BG] 시트 append + 후처리 완료: {code}")
-                        return
-                    else:
-                        raise RuntimeError('append_row returned falsy')
-                except Exception as exc:
-                    last_exc = exc
-                    wait = 2.0 * (attempt + 1)
-                    logger.warning(
-                        f"[CREATE_PROJECT/BG] 시트 append 실패 재시도 {attempt+1}/3 "
-                        f"({code}, {wait}s 후): {exc}"
-                    )
-                    _time.sleep(wait)
-            # 3회 재시도 모두 실패 → 관리자 슬랙 DM (sheet_write_queue 의 데드레터 알림 재사용)
-            logger.error(
-                f"[CREATE_PROJECT/BG] 3회 재시도 모두 실패 — {code} 시트 반영 안 됨. "
-                f"관리자 수동 확인 필요: {last_exc}",
-                exc_info=True,
-            )
-            # 관측성: sheet_write_queue 의 FAILED_KEY 에 등록 → /admin/queue-status 에 노출
-            # (전체 큐 이관은 리팩토링 리스크 커서 실패 op 만 큐에 등록)
-            try:
-                from ..services.sheet_write_queue import (
-                    _notify_admin_deadletter, FAILED_KEY,
-                )
-                from dashboard.utils.redis_client import get_redis_client
-                import json as _json_q, uuid as _uuid_q, time as _time_q
-                failed_op = {
-                    'op_id': str(_uuid_q.uuid4()),
-                    'op_type': 'project_create_append',
-                    'payload': {'tag': code, 'project_code': code},
-                    'meta': {'source': 'add_project_auto'},
-                    'created_at': _time_q.time(),
-                    'attempts': 3,
-                    'last_error': str(last_exc)[:500] if last_exc else 'unknown',
-                }
-                get_redis_client().redis.rpush(
-                    FAILED_KEY,
-                    _json_q.dumps(failed_op, ensure_ascii=False),
-                )
-                _notify_admin_deadletter(
-                    failed_op,
-                    last_exc or Exception('알 수 없는 시트 append 실패'),
-                )
-            except Exception as notify_exc:
-                logger.warning(f'[CREATE_PROJECT/BG] 관리자 알림 실패 (무시): {notify_exc}')
-            # Zombie idempotency 캐시 방어 (2026-07-09)
-            # bg thread 실패했는데 idem 캐시엔 '성공' 응답이 남아있으면 같은 idem_key 재요청 시
-            # '이미 등록됨' 으로 오답 반환하지만 시트엔 실제로 없음. 캐시 삭제해 재시도 가능하게.
-            if idem_key:
-                try:
-                    from dashboard.utils.redis_client import get_redis_client
-                    get_redis_client().redis.delete(idem_redis_key)
-                    logger.info(f'[CREATE_PROJECT/BG] Zombie 방어: idem 캐시 삭제 ({code})')
-                except Exception as del_exc:
-                    logger.warning(f'[CREATE_PROJECT/BG] idem 캐시 삭제 실패: {del_exc}')
-
-        threading.Thread(target=_write_behind, daemon=True).start()
+        # 메모리 스레드 대신 지속 큐(Redis) — 응답 직후 서버가 재시작되면 화면엔 코드가 떴는데 시트·카드가 없던 것
+        #   (2026-11-16 상태 머신 점검 A8). 실패 재시도·데드레터·관리자 알림은 큐가 맡는다. 계산 수식의 행 번호도
+        #   핸들러가 실제로 쓸 행으로 다시 만든다(예전엔 5분 캐시 길이로 정해 다른 행을 계산할 수 있었음).
+        from ..services.sheet_write_queue import enqueue as _q_enqueue
+        _q_enqueue('project_create_append', {
+            'sheet_id': sheet_id,
+            'project_code': code,
+            'data': data,
+            'project_data': project_data,
+            'user_email': _bg_user_email,
+            'ip_address': _bg_ip,
+            'partner_promote': list(partner_promote) if partner_promote else None,
+        }, meta={'user_email': _bg_user_email, 'source': 'add_project_auto'})
 
         # dedup Redis 캐시 즉시 저장 (2026-07-10 G3852/G3853/R3854/R3855 대응)
         # load_data 캐시 갱신 지연으로 dedup 실패하는 케이스 방지 — 8초 이내 재요청 즉시 감지.
@@ -3264,7 +3217,7 @@ def _check_already_cancelled(project):
     Returns:
         tuple: (is_cancelled: bool, response or None, status_code or None)
     """
-    if re.search(r'공사\s*취소', project.get('수금 관련 특이사항', '')):
+    if _spec_cancelled(project.get('수금 관련 특이사항', '')):
         return True, jsonify({'success': False, 'error': '이미 취소된 프로젝트입니다.'}), 400
     return False, None, None
 
@@ -3303,7 +3256,7 @@ def _check_already_active(project, project_code):
     Returns:
         tuple: (is_active: bool, response or None, status_code or None)
     """
-    if not re.search(r'공사\s*취소', project.get('수금 관련 특이사항', '')):
+    if not _spec_cancelled(project.get('수금 관련 특이사항', '')):
         logger.info(f"프로젝트 재개 시도 - 이미 정상 상태: {project_code}")
         return True, jsonify({
             'success': True,
@@ -3465,6 +3418,65 @@ def admin_data_integrity_check():
 from ..services.sheet_write_queue import register as _q_register
 
 
+def _queue_row(manager, payload: dict) -> int:
+    """큐 작업이 쓸 행 — 넣을 때의 행에 아직 그 공사가 있는지 쓰기 직전에 확인(2026-11-16 상태 머신 점검 A1).
+
+    그 사이 시트에서 행을 지우거나 끼우거나 정렬하면 넣을 때의 행 번호는 다른 공사 행이다. A열 코드가 다르면
+    코드로 다시 찾고, 못 찾으면 예외(큐가 재시도·데드레터) — 다른 공사 행에 쓰지 않는다. expect_code 가 없는
+    옛 작업은 예전대로."""
+    row = int(payload['row_number'])
+    expect = str(payload.get('expect_code') or '').strip()
+    if not expect:
+        return row
+    sheet_id, sheet_name = payload['sheet_id'], payload['sheet_name']
+    cur = str(manager.get_cell_value(sheet_id, sheet_name, f'A{row}') or '').strip()
+    if cur == expect:
+        return row
+    found = manager.find_row_by_project_code(sheet_id, expect, f'{sheet_name}!A:A', use_cache=False)
+    if not found:
+        raise RuntimeError(f'{expect} 행을 시트에서 못 찾음({row}행은 지금 {cur or "빈 칸"}) — 쓰지 않음')
+    logger.warning(f'[QUEUE] 행이 밀림 — {expect}: {row}행 → {found}행 (그 자리는 지금 {cur or "빈 칸"})')
+    return int(found)
+
+
+def _queue_retry_guard(manager, payload: dict, row: int) -> None:
+    """데드레터에서 다시 넣은 PM 저장 — 그 사이 다른 저장으로 버전이 바뀌었으면 옛 값으로 덮지 않고 실패로 둔다."""
+    if not payload.get('_retried') or payload.get('version') is None:
+        return
+    try:
+        col = manager.get_field_to_letter()['_version']
+        cur = int(float(str(manager.get_cell_value(payload['sheet_id'], payload['sheet_name'], f'{col}{row}') or 0)))
+    except Exception:
+        return
+    if cur != int(payload['version']) - 1:
+        raise RuntimeError(f"재시도 전에 다른 수정이 있었음(시트 버전 {cur}, 이 저장 {payload['version']}) — "
+                           f"옛 값으로 덮지 않음, PM 에서 다시 저장해 주세요")
+
+
+def _bump_version_update(manager, sheet_id: str, sheet_name: str, row: int, code: str) -> list:
+    """슬랙·취소·재개 같은 시스템 쓰기도 _version 을 올린다 — 안 올리면 그 뒤 오래 열린 PM 화면 저장이 409 없이
+    이 기록을 덮었다(G4148 유형, 2026-11-16 점검 A2-3). [batch 한 칸] 또는 []."""
+    try:
+        col = manager.get_field_to_letter()['_version']
+        cur = int(float(str(manager.get_cell_value(sheet_id, sheet_name, f'{col}{row}') or 0)))
+    except Exception as exc:
+        logger.warning(f'[QUEUE] 버전 읽기 실패 — 버전 그대로 ({code}): {exc}')
+        return []
+    new = str(cur + 1)
+    try:
+        from ..services.project_service import update_project_in_cache
+        update_project_in_cache(code, {'_version': new})
+    except Exception:
+        pass
+    return [{'range': f'{sheet_name}!{col}{row}', 'values': [[new]]}]
+
+
+def _retarget(updates: list, row: int) -> list:
+    """batch 범위의 행 번호를 바꾼다('시트!U4167' → '시트!U4168')."""
+    import re as _re
+    return [dict(u, range=_re.sub(r'(![A-Z]+)\d+$', lambda m: f'{m.group(1)}{row}', u['range'])) for u in updates]
+
+
 @_q_register('project_cancel_sheet')
 def _handle_cancel_sheet(payload: dict) -> None:
     """공사 취소 시트 write — batch_update_cells + 행 배경색 dark_grey."""
@@ -3472,10 +3484,12 @@ def _handle_cancel_sheet(payload: dict) -> None:
     manager = get_sheets_manager()
     sheet_id = payload['sheet_id']
     sheet_name = payload['sheet_name']
-    row_number = payload['row_number']
+    row_number = _queue_row(manager, payload)
     project_code = payload.get('project_code', '')
     updates = _prepare_cancel_updates(sheet_name, row_number, manager,
                                       spec=payload.get('spec', '공사 취소'))
+    if payload.get('expect_code'):
+        updates += _bump_version_update(manager, sheet_id, sheet_name, row_number, project_code)
     manager.batch_update_cells(sheet_id, updates)
     logger.info(f'[QUEUE/project_cancel] 시트 write 완료: {project_code}')
     # 배경색 (실패해도 큐 재시도 안 하도록 내부 try)
@@ -3495,7 +3509,15 @@ def _handle_sheet_batch_write(payload: dict) -> None:
     """
     from ..services.project_service import get_sheets_manager
     manager = get_sheets_manager()
-    manager.batch_update_cells(payload['sheet_id'], payload['updates'])
+    updates = payload['updates']
+    if payload.get('expect_code'):   # 공사 행 쓰기(슬랙 수정·취소·재개·매출0) — 행 확인 + 버전 +1 (11-16)
+        row = _queue_row(manager, payload)
+        if row != int(payload['row_number']):
+            updates = _retarget(updates, row)
+        if payload.get('bump_version'):
+            updates = updates + _bump_version_update(manager, payload['sheet_id'], payload['sheet_name'], row,
+                                                     payload['expect_code'])
+    manager.batch_update_cells(payload['sheet_id'], updates)
     tag = payload.get('tag', '')
     logger.info(f'[QUEUE/sheet_batch_write] 완료 (tag={tag})')
 
@@ -3508,7 +3530,7 @@ def _handle_sheet_bg_color(payload: dict) -> None:
     manager.update_row_background_color(
         spreadsheet_id=payload['sheet_id'],
         sheet_name=payload['sheet_name'],
-        row_number=payload['row_number'],
+        row_number=_queue_row(manager, payload),
         color_type=payload['color_type'],
     )
     tag = payload.get('tag', '')
@@ -3528,7 +3550,8 @@ def _handle_project_update_sheet(payload: dict) -> None:
     manager = get_sheets_manager()
     sheet_id = payload['sheet_id']
     sheet_name = payload['sheet_name']
-    row_number = payload['row_number']
+    row_number = _queue_row(manager, payload)
+    _queue_retry_guard(manager, payload, row_number)
     field_changes = payload.get('field_changes', [])
     code = payload.get('project_code', '')
     cells = payload.get('cells')
@@ -3632,6 +3655,40 @@ def _build_updated_project_from_values(current_values: list, field_to_index: dic
     return updated_project
 
 
+@_q_register('project_create_append')
+def _handle_project_create_append(payload: dict) -> None:
+    """PM 새 공사 — 시트 행 추가 + 후처리(감사·리드·슬랙 카드·거래처). 다시 돌아도 한 줄만(2026-11-16).
+
+    이미 그 코드 행이 있으면 추가를 건너뛰고(응답만 늦었던 재시도), 카드까지 있으면 후처리도 건너뛴다."""
+    from ..services.project_service import get_sheets_manager
+    manager = get_sheets_manager()
+    sheet_id, code = payload['sheet_id'], payload['project_code']
+    data = dict(payload.get('data') or {})
+    existing = manager.find_row_by_project_code(sheet_id, code, use_cache=False)
+    if existing:
+        logger.warning(f'[QUEUE/project_create] {code} 이미 시트 {existing}행에 있음 — 행 추가 생략')
+        try:
+            from dashboard.utils.redis_client import get_redis_client
+            if get_redis_client().redis.exists(f'project_card_msg:{code}'):
+                return
+        except Exception:
+            pass
+    else:
+        next_row = manager.find_next_empty_row(sheet_id)
+        if not next_row:
+            raise RuntimeError('시트의 다음 빈 행을 찾지 못함')
+        data.update(_new_row_formulas(manager.get_field_to_letter(), next_row))   # 실제로 쓸 행 기준 수식
+        values = _build_row_values(data, manager, next_row)
+        if not manager.append_row(sheet_id, values):
+            raise RuntimeError('append_row returned falsy')
+    _finalize_project_creation_bg(code, data, payload.get('project_data') or {},
+                                  user_email=payload.get('user_email') or 'unknown',
+                                  ip_address=payload.get('ip_address'))
+    pp = payload.get('partner_promote')
+    _promote_partner_after_create(code, tuple(pp) if pp else None, payload.get('user_email') or '')
+    logger.info(f'[QUEUE/project_create] 시트 추가 + 후처리 완료: {code}')
+
+
 @_q_register('project_resume_sheet')
 def _handle_resume_sheet(payload: dict) -> None:
     """공사 재개 시트 write — batch_update_cells + 행 배경색 normal."""
@@ -3639,12 +3696,14 @@ def _handle_resume_sheet(payload: dict) -> None:
     manager = get_sheets_manager()
     sheet_id = payload['sheet_id']
     sheet_name = payload['sheet_name']
-    row_number = payload['row_number']
+    row_number = _queue_row(manager, payload)
     project_code = payload.get('project_code', '')
     updates = _prepare_resume_updates(sheet_name, row_number, manager,
                                       restore_total_1=payload.get('restore_total_1'),
                                       restore_date=payload.get('restore_date'),
                                       restore_payment=payload.get('restore_payment'))
+    if payload.get('expect_code'):
+        updates += _bump_version_update(manager, sheet_id, sheet_name, row_number, project_code)
     manager.batch_update_cells(sheet_id, updates)
     logger.info(f'[QUEUE/project_resume] 시트 write 완료: {project_code}')
     try:
@@ -3714,6 +3773,7 @@ def cancel_project_api():
                 'sheet_name': sheet_name,
                 'row_number': row_number,
                 'project_code': project_code,
+                'expect_code': project_code,
                 'spec': _spec,
             }, meta={'user_email': user_email})
             updated_cells = 3  # AH/AA/AM 3셀 예상값 (응답 호환용)
@@ -3894,6 +3954,7 @@ def resume_project_api():
                 'sheet_name': sheet_name,
                 'row_number': row_number,
                 'project_code': project_code,
+                'expect_code': project_code,
                 'restore_total_1': _restore_total_1,
                 'restore_date': _restore_date,
                 'restore_payment': _restore_payment,

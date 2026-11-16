@@ -27,6 +27,7 @@ from datetime import datetime
 from dashboard.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
+from dashboard.services.project_state import spec_cancelled as _spec_cancelled
 
 _MUTEX_KEY = 'invariant_checks:running'
 _MUTEX_TTL = 300
@@ -262,7 +263,7 @@ def check_overpay_lingering(ctx):
         v = _parse_amount(r.get('미수금'))
         if not code or not isinstance(v, float) or v > -2:
             continue
-        if re.search(r'공사\s*취소', str(r.get('수금 관련 특이사항') or '')):
+        if _spec_cancelled(str(r.get('수금 관련 특이사항') or '')):
             continue
         when = None
         for s in ('잔금', '중도금', '계약금'):
