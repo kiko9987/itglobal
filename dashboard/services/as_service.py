@@ -38,6 +38,13 @@ COL_RESOLUTION = 'M'
 STATUS_REQUESTED = '요청됨'
 STATUS_ACCEPTED = '접수 완료'
 STATUS_COMPLETED = '처리 완료'
+STATUS_CANCELLED = '요청 취소'   # 잘못 올린 요청을 닫는 길(2026-11-16) — 예전엔 가짜 조치 내용으로 '완료'하거나 시트 손편집
+OPEN_STATUSES = (STATUS_REQUESTED, STATUS_ACCEPTED)
+STATUSES = (STATUS_REQUESTED, STATUS_ACCEPTED, STATUS_COMPLETED, STATUS_CANCELLED)
+
+_PENDING_STATUS = 'as_status_pending:'   # 방금 바꾼 상태(큐가 시트에 쓰기 전) — 10분
+_PENDING_LOG = 'as_log_pending:'         # 방금 덧붙인 메모/이력 전체(화면 표시용) — 10분
+_PENDING_TTL = 600
 
 
 def _get_sheet() -> Tuple[Any, str, str]:
@@ -285,23 +292,134 @@ def update_as_row(as_no: str, updates: Dict[str, Any]) -> bool:
         return False
 
 
+def _redis():
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        return get_redis_client().redis
+    except Exception:
+        return None
+
+
+def _pending(prefix: str, as_no: str) -> Optional[str]:
+    rc = _redis()
+    if rc is None:
+        return None
+    try:
+        v = rc.get(prefix + as_no)
+        return (v.decode() if isinstance(v, bytes) else v) if v is not None else None
+    except Exception:
+        return None
+
+
+def current_status(as_no: str) -> Optional[str]:
+    """지금 상태 — 큐가 시트에 쓰기 전이면 방금 바꾼 상태. 빈 칸은 '요청됨'. 못 읽으면 None."""
+    p = _pending(_PENDING_STATUS, as_no)
+    if p:
+        return p
+    data = get_as_data(as_no)
+    if data is None:
+        return None
+    return str(data.get('진행 상태', '') or '').strip() or STATUS_REQUESTED
+
+
+def transition(as_no: str, allowed_from, to: str, updates: Optional[Dict[str, Any]] = None) -> Tuple[bool, str]:
+    """A/S 상태 바꾸기 한 곳 — 슬랙·PM 공통(2026-11-16 상태 머신 점검 묶음 I).
+
+    예전엔 입구마다 '시트를 읽어 비교 → 큐에 쓰기'라, 큐가 시트에 쓰기 전 두 번째 처리(슬랙·PM 동시)도
+    옛 상태를 읽고 통과했다. 이제 A/S 별 잠금 안에서 '방금 바꾼 상태'까지 보고 비교한다. 빈 상태 칸은 '요청됨'으로
+    본다(예전엔 빈 칸이면 검사를 건너뛰어 바로 '처리 완료'가 됐다).
+    반환 (성공, 지금 상태 또는 실패 사유)."""
+    allowed = (allowed_from,) if isinstance(allowed_from, str) else tuple(allowed_from)
+    rc = _redis()
+    lock = f'as_state_lock:{as_no}'
+    got = False
+    if rc is not None:
+        import time as _t
+        for _ in range(20):                      # 최대 ~5초
+            try:
+                if rc.set(lock, '1', nx=True, ex=30):
+                    got = True
+                    break
+            except Exception:
+                break
+            _t.sleep(0.25)
+        if not got:
+            return False, '다른 처리가 진행 중입니다. 잠시 후 다시 시도해 주세요.'
+    try:
+        cur = current_status(as_no)
+        if cur is None:
+            return False, 'A/S 정보를 읽지 못했습니다. 잠시 후 다시 시도해 주세요.'
+        if cur not in allowed:
+            return False, cur
+        if not update_as_row(as_no, {**(updates or {}), COL_STATUS: to}):
+            return False, '시트에 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.'
+        if rc is not None:
+            try:
+                rc.set(_PENDING_STATUS + as_no, to, ex=_PENDING_TTL)
+            except Exception:
+                pass
+        return True, to
+    finally:
+        if got:
+            try:
+                rc.delete(lock)
+            except Exception:
+                pass
+
+
 def append_as_log(as_no: str, content: str, initial: str = '') -> Optional[str]:
     """M열(메모/이력)에 '[MM.DD HH:MM 이니셜] 내용' 한 줄 append (온라인 리드 누적 방식).
 
     접수 메모·조치 내용 등 A/S 코멘트를 새 컬럼 없이 M열 한 셀에 시간순 누적한다.
-    반환: append 후의 M열 전체 값 (실패 시 None). content 가 비면 현재 M값 그대로 반환.
-    ※ write-behind 큐 경유라 시트 반영엔 약간의 지연이 있을 수 있음(반환값으로 즉시 표시 가능).
+    반환: append 후의 M열 전체 값(화면 표시용, 실패 시 None). content 가 비면 현재 M값 그대로 반환.
+    덧붙이기는 큐 처리기(as_log_append)가 그때의 시트 값을 다시 읽어서 한다 — 예전엔 여기서 읽은 값 전체를 다시
+    써서, 직전 쓰기가 아직 큐에 있으면 그 줄이 사라졌다(2026-11-16 상태 머신 점검 A-X2).
     """
     content = (content or '').strip()
-    data = get_as_data(as_no) or {}
-    cur = str(data.get('조치 내용', '') or '')
+    base = _pending(_PENDING_LOG, as_no)
+    if base is None:
+        data = get_as_data(as_no) or {}
+        base = str(data.get('조치 내용', '') or '')
     if not content:
-        return cur
+        return base
     stamp = datetime.now().strftime('%m.%d %H:%M')
     entry = f'[{stamp} {initial}] {content}' if initial else f'[{stamp}] {content}'
+    new_val = (base.rstrip() + '\n' + entry) if base.strip() else entry
+    try:
+        from dashboard.services.sheet_write_queue import enqueue
+        enqueue('as_log_append', {'as_no': as_no, 'entry': entry})
+    except Exception as exc:
+        logger.error(f'[AS] 메모/이력 큐 실패 ({as_no}): {exc}', exc_info=True)
+        return None
+    rc = _redis()
+    if rc is not None:
+        try:
+            rc.set(_PENDING_LOG + as_no, new_val, ex=_PENDING_TTL)
+        except Exception:
+            pass
+    return new_val
+
+
+def _handle_as_log_append(payload: Dict[str, Any]) -> None:
+    """큐 처리기 — 그때의 M열을 읽어 한 줄 덧붙인다. 같은 줄이 이미 있으면 그대로(재시도 안전)."""
+    as_no, entry = payload['as_no'], payload['entry']
+    manager, sheet_id, sheet_name = _get_sheet()
+    row = find_row_by_as_no(as_no)
+    if not row:
+        raise RuntimeError(f'{as_no} 행을 찾지 못함 — 메모/이력 안 씀')
+    cur = str(manager.get_cell_value(sheet_id, sheet_name, f'{COL_RESOLUTION}{row}') or '')
+    if entry in cur:
+        return
     new_val = (cur.rstrip() + '\n' + entry) if cur.strip() else entry
-    ok = update_as_row(as_no, {COL_RESOLUTION: new_val})
-    return new_val if ok else None
+    manager.batch_update_cells(sheet_id, [{'range': f'{sheet_name}!{COL_RESOLUTION}{row}', 'values': [[new_val]]}])
+    logger.info(f'[AS] 메모/이력 덧붙임: {as_no} row={row}')
+
+
+try:
+    from dashboard.services.sheet_write_queue import register as _q_register
+    _q_register('as_log_append')(_handle_as_log_append)
+except Exception as _exc:   # 큐 모듈을 못 읽는 환경(일부 스크립트) — 덧붙이기는 큐에 넣을 때 실패로 드러남
+    logger.debug(f'[AS] 큐 처리기 등록 생략: {_exc}')
 
 
 # ─────────────────────────────────────────────────────────────

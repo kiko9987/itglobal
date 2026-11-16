@@ -218,8 +218,8 @@ def api_accept_as(as_no):
         if _cur is None:   # 못 읽으면 통과시키지 않음 (2026-10-28 5차)
             return APIResponse.error(message='A/S 정보를 읽지 못했습니다. 새로고침 후 다시 시도해 주세요.',
                                      error_code=APIErrorCode.INTERNAL_ERROR, status_code=503)
-        cur_status = str(_cur.get('진행 상태', '')).strip()
-        if cur_status and cur_status != as_service.STATUS_REQUESTED:
+        cur_status = str(_cur.get('진행 상태', '')).strip() or as_service.STATUS_REQUESTED
+        if cur_status != as_service.STATUS_REQUESTED:
             return APIResponse.error(
                 message=f'이미 처리된 A/S 입니다 (현재: {cur_status}). 새로고침 후 확인해주세요.',
                 error_code='AS_STATE_CONFLICT', status_code=409,
@@ -234,14 +234,17 @@ def api_accept_as(as_no):
 
         initial = _current_initial()
         accept_dt = datetime.now().strftime('%Y.%m.%d. %H:%M')
-        if not as_service.update_as_row(as_no, {
+        ok, why = as_service.transition(as_no, as_service.STATUS_REQUESTED, as_service.STATUS_ACCEPTED, {
             as_service.COL_ACCEPTER: initial,
             as_service.COL_ACCEPT_DATE: accept_dt,
             as_service.COL_VISITOR: visitor,
             as_service.COL_VISIT_DATE: visit_date,
-            as_service.COL_STATUS: as_service.STATUS_ACCEPTED,
-        }):
-            return APIResponse.error(message='접수를 시트에 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        })
+        if not ok:
+            if why in as_service.STATUSES:
+                return APIResponse.error(message=f'이미 처리된 A/S 입니다 (현재: {why}). 새로고침 후 확인해주세요.',
+                                         error_code='AS_STATE_CONFLICT', status_code=409)
+            return APIResponse.error(message=f'접수하지 못했습니다 — {why}',
                                      error_code=APIErrorCode.INTERNAL_ERROR, status_code=503)
         # 접수 메모(선택) — 새 컬럼 없이 M열(메모/이력)에 누적
         memo = (data.get('memo') or '').strip()
@@ -282,16 +285,19 @@ def api_complete_as(as_no):
         if _cur is None:
             return APIResponse.error(message='A/S 정보를 읽지 못했습니다. 새로고침 후 다시 시도해 주세요.',
                                      error_code=APIErrorCode.INTERNAL_ERROR, status_code=503)
-        cur_status = str(_cur.get('진행 상태', '')).strip()
-        if cur_status and cur_status != as_service.STATUS_ACCEPTED:
+        cur_status = str(_cur.get('진행 상태', '')).strip() or as_service.STATUS_REQUESTED
+        if cur_status != as_service.STATUS_ACCEPTED:
             return APIResponse.error(
                 message=f'접수 완료 상태에서만 조치완료할 수 있습니다 (현재: {cur_status}). 새로고침 후 확인해주세요.',
                 error_code='AS_STATE_CONFLICT', status_code=409,
             )
-        if not as_service.update_as_row(as_no, {
-            as_service.COL_STATUS: as_service.STATUS_COMPLETED,
-        }):
-            return APIResponse.error(message='조치완료를 시트에 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        ok, why = as_service.transition(as_no, as_service.STATUS_ACCEPTED, as_service.STATUS_COMPLETED)
+        if not ok:
+            if why in as_service.STATUSES:
+                return APIResponse.error(
+                    message=f'접수 완료 상태에서만 조치완료할 수 있습니다 (현재: {why}). 새로고침 후 확인해주세요.',
+                    error_code='AS_STATE_CONFLICT', status_code=409)
+            return APIResponse.error(message=f'조치완료하지 못했습니다 — {why}',
                                      error_code=APIErrorCode.INTERNAL_ERROR, status_code=503)
         # 조치 내용도 M열(메모/이력)에 누적 (덮어쓰지 않음)
         new_log = as_service.append_as_log(as_no, resolution, _current_initial())

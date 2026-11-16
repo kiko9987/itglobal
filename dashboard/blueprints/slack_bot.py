@@ -5737,6 +5737,29 @@ def _register_as_handlers(app):
                 logger.error(f"[SLACK/AS] 완료 모달 열기 실패: {exc}", exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
+    @app.action("as_cancel_open")
+    def handle_as_cancel_open(ack, body, client):
+        ack()
+        try:
+            _open_as_cancel_modal(client, body)   # 창은 3초 안에 — 시트 조회 없이 바로
+        except Exception as exc:
+            _notify_modal_open_failed(client, body)
+            logger.error(f"[SLACK/AS] 요청 취소 창 열기 실패: {exc}", exc_info=True)
+
+    @app.view("submit_as_cancel")
+    def handle_submit_as_cancel(ack, body, client, view):
+        reason = (((view.get("state") or {}).get("values") or {}).get("reason", {}).get("value", {}) or {}).get("value", '')
+        if not (reason or '').strip():
+            ack(response_action="errors", errors={"reason": "취소 사유를 적어 주세요."})
+            return
+        ack()
+        def _bg():
+            try:
+                _process_as_cancel_submission(client, body, view)
+            except Exception as exc:
+                logger.error(f"[SLACK/AS] submit_as_cancel 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
     @app.view("submit_as_complete")
     def handle_submit_as_complete(ack, body, client, view):
         ack()
@@ -5811,6 +5834,7 @@ def _register_as_handlers(app):
     logger.info(
         "[SLACK/AS봇] 핸들러 등록 완료: /as, submit_as_request, "
         "as_accept_open, as_accept_type, submit_as_accept, as_complete_open, submit_as_complete, "
+        "as_cancel_open, submit_as_cancel, "
         "options(as_project_code)"
     )
 
@@ -5881,6 +5905,8 @@ def _build_as_card_text(data: dict, view_state: str = 'requested', proj: Optiona
         lines.append(f"🔔 *[A/S 요청]*  `{as_no}`")
     elif view_state == 'accepted':
         lines.append(f"📥 *[A/S 접수 완료]*  `{as_no}`")
+    elif view_state == 'cancelled':
+        lines.append(f"⚪ *[A/S 요청 취소]*  `{as_no}`")
     else:
         lines.append(f"✅ *[A/S 조치 완료]*  `{as_no}`")
     lines.append("--------------------------------------------")
@@ -5901,7 +5927,7 @@ def _build_as_card_text(data: dict, view_state: str = 'requested', proj: Optiona
             lines.append(f"📅 방문 예정일 : {data.get('방문 예정일', '-') or '-'}")
             lines.append(f"✅ 접수자 : {data.get('접수자', '-') or '-'}  {data.get('접수 일자', '')}")
         _memo_log = str(data.get('조치 내용', '') or '').strip()
-        if _memo_log and view_state in ('accepted', 'completed'):
+        if _memo_log and view_state in ('accepted', 'completed', 'cancelled'):
             lines.append("--------------------------------------------")
             lines.append("📝 메모/이력 :")
             lines.append(_memo_log)
@@ -5937,7 +5963,7 @@ def _build_as_card_text(data: dict, view_state: str = 'requested', proj: Optiona
         lines.append(f"📅 방문 예정일 : {data.get('방문 예정일', '-') or '-'}")
         lines.append(f"✅ 접수자 : {data.get('접수자', '-') or '-'}  {data.get('접수 일자', '')}")
     _memo_log = str(data.get('조치 내용', '') or '').strip()
-    if _memo_log and view_state in ('accepted', 'completed'):
+    if _memo_log and view_state in ('accepted', 'completed', 'cancelled'):
         lines.append("--------------------------------------------")
         lines.append("📝 메모/이력 :")
         lines.append(_memo_log)
@@ -5979,7 +6005,7 @@ def _build_as_blocks(data: dict, view_state: str = 'requested') -> list:
                 "style": "primary",
                 "action_id": "as_accept_open",
                 "value": accept_value,
-            }],
+            }, dict(_AS_CANCEL_BTN, value=as_no)],
         })
     elif view_state == 'accepted':
         blocks.append({
@@ -5990,12 +6016,15 @@ def _build_as_blocks(data: dict, view_state: str = 'requested') -> list:
                 "style": "primary",
                 "action_id": "as_complete_open",
                 "value": as_no,
-            }],
+            }, dict(_AS_CANCEL_BTN, value=as_no)],
         })
-    # completed: no buttons
+    # completed·cancelled: no buttons
     blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "⠀"}]})
     return blocks
 
+
+_AS_CANCEL_BTN = {"type": "button", "text": {"type": "plain_text", "text": "✖️ 요청 취소", "emoji": True},
+                  "action_id": "as_cancel_open"}   # 잘못 올린 요청을 닫는 길(11-16) — value 는 as_no
 
 def as_refresh_card(as_no: str, send_dm: bool = False, dm_override: Optional[dict] = None,
                     override: Optional[dict] = None) -> tuple:
@@ -6006,7 +6035,7 @@ def as_refresh_card(as_no: str, send_dm: bool = False, dm_override: Optional[dic
     accept/complete: send_dm=False 로 기존 카드만 갱신.
     """
     from dashboard.services.as_service import (
-        get_as_data, get_project_details, STATUS_ACCEPTED, STATUS_COMPLETED,
+        get_as_data, get_project_details, STATUS_ACCEPTED, STATUS_COMPLETED, STATUS_CANCELLED,
     )
     data = get_as_data(as_no)
     if not data:
@@ -6016,6 +6045,7 @@ def as_refresh_card(as_no: str, send_dm: bool = False, dm_override: Optional[dic
         data = {**data, **override}  # write-behind 지연 우회 — PM 접수/완료가 방금 쓴 값 즉시 반영
     status = str(data.get('진행 상태', '') or '').strip()
     view_state = ('completed' if status == STATUS_COMPLETED
+                  else 'cancelled' if status == STATUS_CANCELLED
                   else 'accepted' if status == STATUS_ACCEPTED else 'requested')
     blocks = _build_as_blocks(data, view_state=view_state)
     code = str(data.get('프로젝트 코드', '') or '').strip()
@@ -6798,8 +6828,8 @@ def _handle_as_accept_type_change(client, body) -> None:
 def _process_as_accept_submission(client, body, view) -> None:
     """접수 제출 → 시트 갱신 → 카드 chat.update (State 2)."""
     from dashboard.services.as_service import (
-        update_as_row, get_as_data, append_as_log,
-        COL_ACCEPTER, COL_ACCEPT_DATE, COL_VISITOR, COL_VISIT_DATE, COL_STATUS,
+        get_as_data, append_as_log, transition as _as_transition, STATUSES as _AS_STATUSES,
+        COL_ACCEPTER, COL_ACCEPT_DATE, COL_VISITOR, COL_VISIT_DATE,
         STATUS_REQUESTED, STATUS_ACCEPTED,
     )
     from dashboard.blueprints.slack_helpers import _format_visit_date_range
@@ -6816,8 +6846,8 @@ def _process_as_accept_submission(client, body, view) -> None:
     if _cur is None:   # 못 읽으면 통과시키지 않음 (2026-10-28 5차)
         _as_tell_actor(client, body, channel, f':x: `{as_no}` 정보를 읽지 못해 접수하지 않았습니다. 잠시 후 다시 눌러 주세요.')
         return
-    cur_status = str(_cur.get('진행 상태', '')).strip()
-    if cur_status and cur_status != STATUS_REQUESTED:
+    cur_status = str(_cur.get('진행 상태', '')).strip() or STATUS_REQUESTED   # 빈 칸 = 요청됨(11-16)
+    if cur_status != STATUS_REQUESTED:
         try:
             as_refresh_card(as_no)
             uid = body.get("user", {}).get("id", "")
@@ -6861,16 +6891,23 @@ def _process_as_accept_submission(client, body, view) -> None:
     accepter = _slack_user_to_initial(client, user_id) or '-'
     accept_dt = datetime.now().strftime('%Y.%m.%d. %H:%M')
 
-    ok = update_as_row(as_no, {
+    # 상태 바꾸기는 한 곳에서(잠금 + 방금 바꾼 상태까지 확인) — 슬랙·PM 이 거의 동시에 접수해도 한 번만(11-16)
+    ok, why = _as_transition(as_no, STATUS_REQUESTED, STATUS_ACCEPTED, {
         COL_ACCEPTER: accepter,
         COL_ACCEPT_DATE: accept_dt,
         COL_VISITOR: visitor,
         COL_VISIT_DATE: visit_date,
-        COL_STATUS: STATUS_ACCEPTED,
     })
     if not ok:
-        logger.error(f'[SLACK/AS] 시트 갱신 실패 ({as_no})')
-        _as_tell_actor(client, body, channel, f':x: `{as_no}` 접수를 시트에 저장하지 못했습니다. 카드는 그대로 두었으니 잠시 후 다시 해 주세요.')
+        logger.warning(f'[SLACK/AS] 접수 안 함 ({as_no}): {why}')
+        if why in _AS_STATUSES:
+            try:
+                as_refresh_card(as_no)
+            except Exception:
+                pass
+            _as_tell_actor(client, body, channel, f'이미 처리된 A/S 입니다 (현재: {why}). 카드를 새로고침했습니다.')
+        else:
+            _as_tell_actor(client, body, channel, f':x: `{as_no}` 접수하지 않았습니다 — {why} 카드는 그대로 두었습니다.')
         return
 
     # 카드 chat.update — 시트 재조회로 완전한 데이터 사용
@@ -6928,11 +6965,68 @@ def _open_as_complete_modal(client, body) -> None:
     client.views_open(trigger_id=trigger_id, view=view)
 
 
+def _open_as_cancel_modal(client, body) -> None:
+    """[✖️ 요청 취소] → 사유 창. 잘못 올린 A/S 를 가짜 조치 내용 없이 닫는다(2026-11-16)."""
+    as_no = (body["actions"][0].get("value") or '').strip()
+    metadata = json.dumps({"as_no": as_no, "channel": body.get("channel", {}).get("id", ""),
+                           "message_ts": body.get("message", {}).get("ts", "")}, ensure_ascii=False)
+    client.views_open(trigger_id=body["trigger_id"], view={
+        "type": "modal", "callback_id": "submit_as_cancel", "private_metadata": metadata,
+        "title": {"type": "plain_text", "text": "A/S 요청 취소"},
+        "submit": {"type": "plain_text", "text": "요청 취소"},
+        "close": {"type": "plain_text", "text": "닫기"},
+        "blocks": [
+            {"type": "section", "text": {"type": "mrkdwn",
+                                         "text": f"`{as_no}` 요청을 취소합니다. 같은 공사에 새 A/S 를 올릴 수 있게 됩니다."}},
+            {"type": "input", "block_id": "reason", "label": {"type": "plain_text", "text": "취소 사유"},
+             "element": {"type": "plain_text_input", "action_id": "value",
+                         "placeholder": {"type": "plain_text", "text": "예: 잘못 등록함 · 고객이 자체 해결"}}},
+        ],
+    })
+
+
+def _process_as_cancel_submission(client, body, view) -> None:
+    """요청 취소 제출 → 상태 '요청 취소' + 메모/이력에 사유 → 카드 회색(버튼 없음)."""
+    from dashboard.services.as_service import (
+        append_as_log, transition as _as_transition, STATUSES as _AS_STATUSES,
+        OPEN_STATUSES as _AS_OPEN, STATUS_CANCELLED,
+    )
+    metadata = json.loads(view.get("private_metadata") or "{}")
+    as_no = metadata.get("as_no", '')
+    channel = metadata.get("channel", '')
+    if not as_no:
+        return
+    reason = ((view["state"]["values"].get("reason", {}).get("value", {}) or {}).get("value", '') or '').strip()
+    user_id = body.get("user", {}).get("id", "")
+    who = _slack_user_to_initial(client, user_id) or '-'
+    ok, why = _as_transition(as_no, _AS_OPEN, STATUS_CANCELLED)
+    if not ok:
+        logger.warning(f'[SLACK/AS] 요청 취소 안 함 ({as_no}): {why}')
+        if why in _AS_STATUSES:
+            try:
+                as_refresh_card(as_no)
+            except Exception:
+                pass
+            _as_tell_actor(client, body, channel, f'취소할 수 없는 상태입니다 (현재: {why}). 카드를 새로고침했습니다.')
+        else:
+            _as_tell_actor(client, body, channel, f':x: `{as_no}` 요청 취소하지 않았습니다 — {why}')
+        return
+    new_log = append_as_log(as_no, f'요청 취소 — {reason}', who)
+    override = {'진행 상태': STATUS_CANCELLED}
+    if new_log is not None:
+        override['조치 내용'] = new_log
+    try:
+        as_refresh_card(as_no, override=override)
+    except Exception as exc:
+        logger.warning(f'[SLACK/AS] 요청 취소 카드 갱신 실패 ({as_no}): {exc}')
+    logger.info(f'[SLACK/AS] 요청 취소: {as_no} by {who} — {reason}')
+
+
 def _process_as_complete_submission(client, body, view) -> None:
     """조치 완료 제출 → 시트 갱신 → 카드 chat.update (State 3)."""
     from dashboard.services.as_service import (
-        update_as_row, get_as_data, append_as_log,
-        COL_STATUS, STATUS_ACCEPTED, STATUS_COMPLETED,
+        get_as_data, append_as_log, transition as _as_transition, STATUSES as _AS_STATUSES,
+        STATUS_REQUESTED, STATUS_ACCEPTED, STATUS_COMPLETED,
     )
 
     metadata = json.loads(view.get("private_metadata") or "{}")
@@ -6954,8 +7048,8 @@ def _process_as_complete_submission(client, body, view) -> None:
     if _cur is None:
         _as_tell_actor(client, body, channel, f':x: `{as_no}` 정보를 읽지 못해 조치완료하지 않았습니다. 잠시 후 다시 눌러 주세요.')
         return
-    cur_status = str(_cur.get('진행 상태', '')).strip()
-    if cur_status and cur_status != STATUS_ACCEPTED:
+    cur_status = str(_cur.get('진행 상태', '')).strip() or STATUS_REQUESTED   # 빈 칸 = 요청됨 → 접수부터(11-16)
+    if cur_status != STATUS_ACCEPTED:
         try:
             as_refresh_card(as_no)
             uid = body.get("user", {}).get("id", "")
@@ -6969,10 +7063,17 @@ def _process_as_complete_submission(client, body, view) -> None:
 
     user_id = body.get("user", {}).get("id", "")
     completer = _slack_user_to_initial(client, user_id) or '-'
-    ok = update_as_row(as_no, {COL_STATUS: STATUS_COMPLETED})
+    ok, why = _as_transition(as_no, STATUS_ACCEPTED, STATUS_COMPLETED)
     if not ok:
-        logger.error(f'[SLACK/AS] 완료 갱신 실패 ({as_no})')
-        _as_tell_actor(client, body, channel, f':x: `{as_no}` 조치완료를 시트에 저장하지 못했습니다. 카드는 그대로 두었으니 잠시 후 다시 해 주세요.')
+        logger.warning(f'[SLACK/AS] 조치완료 안 함 ({as_no}): {why}')
+        if why in _AS_STATUSES:
+            try:
+                as_refresh_card(as_no)
+            except Exception:
+                pass
+            _as_tell_actor(client, body, channel, f'조치완료할 수 없는 상태입니다 (현재: {why}). 카드를 새로고침했습니다.')
+        else:
+            _as_tell_actor(client, body, channel, f':x: `{as_no}` 조치완료하지 않았습니다 — {why} 카드는 그대로 두었습니다.')
         return
     # 조치 내용도 M열(메모/이력)에 누적 (덮어쓰지 않음). 카드엔 방금 값 직접 반영(지연 우회).
     new_log = append_as_log(as_no, resolution, completer)
