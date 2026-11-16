@@ -1357,6 +1357,22 @@ def test_license_note_follows_invoice_rules(se, monkeypatch):
     assert '사업자명이 없어요' in se.license_note('P-')
 
 
+def test_edit_view_loads_folder_docs_and_license_note(se, monkeypatch):
+    """보완 요청 → [✏️ 수정하기] 창에도 공사 폴더 서류·등록증 안내(11-17 KiKO). 미리 고르지는 않음(두 번 붙음 방지)."""
+    calls = []
+    monkeypatch.setattr(se, 'folder_docs', lambda code, precheck=False: calls.append(precheck) or
+                        [{'id': 'P2', 'name': '최종 견적.pdf', 'note': '', 'checked': precheck}])
+    monkeypatch.setattr(se, '_form_notes', lambda form, code: '✅ 사업자등록증 있음')
+    row = {'id': 7, 'form': forms.FORM_CONTRACT, 'project_code': 'G4049-JW',
+           'extra': json.dumps({'f': dict(CONTRACT, project='G4049-JW')}, ensure_ascii=False)}
+    view = se.edit_view(row)
+    txt = json.dumps(view, ensure_ascii=False)
+    assert '최종 견적.pdf' in txt and '✅ 사업자등록증 있음' in txt and calls == [False]
+    blk = next(b for b in view['blocks'] if b.get('block_id') == forms.FOLDER_DOCS_BLOCK)
+    assert 'initial_options' not in blk['element']
+    assert json.loads(view['private_metadata'])['edit'] == 7
+
+
 def test_contract_blocked_without_license(se, monkeypatch):
     """계약서 요청 — 사업자명 있는데 등록증 없으면 제출을 막고 공사 카드 스레드로 돌려보낸다(11-17 KiKO).
     거래처 탭만 있음·사업자명 없음(개인일 수 있음)·조회 실패는 통과."""
