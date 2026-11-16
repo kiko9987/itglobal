@@ -826,6 +826,8 @@ def _register_payment_handlers(app):
                         try:
                             from dashboard.utils.redis_client import get_redis_client
                             get_redis_client().redis.delete(f"sms_intake:{intake_id}")
+                            from dashboard.utils import durable_kv as _dkv
+                            _dkv.delete(f"sms_intake:{intake_id}")
                         except Exception:
                             pass
                     return
@@ -931,6 +933,8 @@ def _register_payment_handlers(app):
                 try:
                     from dashboard.utils.redis_client import get_redis_client
                     get_redis_client().redis.delete(f"sms_intake:{intake_id}")
+                    from dashboard.utils import durable_kv as _dkv
+                    _dkv.delete(f"sms_intake:{intake_id}")
                 except Exception:
                     pass
             except Exception as exc:
@@ -2129,6 +2133,8 @@ def _do_intake_transfer(client, user, channel, ts, intake_id, code, stage):
         if rc is not None:
             try:
                 rc.delete(f"sms_intake:{intake_id}")   # 처리 완료 — 지정·확인 대상 아님
+                from dashboard.utils import durable_kv as _dkv
+                _dkv.delete(f"sms_intake:{intake_id}")
             except Exception:
                 pass
         diff = ('' if int(req.get('amount') or 0) == amt else
@@ -2373,6 +2379,8 @@ def _update_intake(intake_id, **fields):
         d = json.loads(raw) if raw else {}
         d.update(fields)
         rc.set(f"sms_intake:{intake_id}", json.dumps(d), ex=INTAKE_TTL)
+        from dashboard.utils import durable_kv as _dkv   # 지정 내용도 DB 사본에(11-16)
+        _dkv.put(f"sms_intake:{intake_id}", json.dumps(d), INTAKE_TTL)
     except Exception as exc:
         logger.warning(f"[SLACK/수금봇] 인입 갱신 실패: {exc}")
 
@@ -14329,6 +14337,9 @@ def _same_amount_updates(a: dict, b: dict) -> bool:
     return _norm(a) == _norm(b)
 
 
+_PENDING_REQ_TTL = 60 * 60 * 24 * 400   # 금액 수정·매출 0원 반영 요청 대기(반영되면 지움, 11-16 60일→400일)
+
+
 def _find_pending_amount_request(code: str):
     """같은 프로젝트의 '미반영' 금액수정 요청 pending 을 찾는다 (중복 방지용, 2026-09-09).
 
@@ -14434,9 +14445,11 @@ def _post_amount_edit_request_card(
             'biz': biz, 'addr': addr, 'requested_at': now_str,
             'card_text': text,
         }
-        rc.set(f'project_amount_req:{channel_id}:{ts}',
-               json.dumps(payload, ensure_ascii=False, default=str),
-               ex=60 * 60 * 24 * 60)
+        # 400일 + DB 사본 — 60일이면 오래 걸린 요청이 대기 목록에서 조용히 빠졌다(11-16). 반영(✅) 때 지운다
+        _req = json.dumps(payload, ensure_ascii=False, default=str)
+        rc.set(f'project_amount_req:{channel_id}:{ts}', _req, ex=_PENDING_REQ_TTL)
+        from dashboard.utils import durable_kv as _dkv
+        _dkv.put(f'project_amount_req:{channel_id}:{ts}', _req, _PENDING_REQ_TTL)
     except Exception as exc:
         logger.warning(f'[SLACK/공사금액] pending 저장 실패 ({code}): {exc}')
     logger.info(f'[SLACK/공사금액] 수정 요청 카드 발송: {code} ts={ts}')
@@ -14510,6 +14523,8 @@ def _maybe_apply_amount_request(client, channel: str, ts: str, checker_user_id: 
 
     # ── 정상 완료 처리 (반영 확인됨 또는 조회 불가로 검증 skip) ──
     rc.delete(key)  # pending 소비
+    from dashboard.utils import durable_kv as _dkv
+    _dkv.delete(key)
     logger.info(f'[SLACK/공사금액] ✅ 완료 처리 {code} by {checker_ini} (요청 {requester_ini}) — 경영지원 직접 반영')
     _mark_amount_request_done(channel, ts, data, checker_ini)
     _dm_amount_request_done(requester_id, code, data, checker_ini)
@@ -14890,8 +14905,10 @@ def _send_cancel_money_request_card(project: dict, reason: str,
             'biz': biz, 'addr': addr, 'amt_disp': amt_disp, 'requested_at': now_str,
             'card_text': text,
         }
-        rc.set(f'project_cancel_money_req:{channel_id}:{ts}',
-               json.dumps(payload, ensure_ascii=False, default=str), ex=60 * 60 * 24 * 60)
+        _req = json.dumps(payload, ensure_ascii=False, default=str)
+        rc.set(f'project_cancel_money_req:{channel_id}:{ts}', _req, ex=_PENDING_REQ_TTL)
+        from dashboard.utils import durable_kv as _dkv   # 400일 + DB 사본(11-16)
+        _dkv.put(f'project_cancel_money_req:{channel_id}:{ts}', _req, _PENDING_REQ_TTL)
     except Exception as exc:
         logger.warning(f'[SLACK/취소매출0] pending 저장 실패 ({code}): {exc}')
     logger.info(f'[SLACK/취소매출0] 매출0 반영 요청 카드 발송: {code} ts={ts}')
@@ -14974,6 +14991,8 @@ def _maybe_apply_cancel_money_request(client, channel: str, ts: str, checker_use
         rsn = result.get('reason', '')
         if rsn == 'not_cancelled':
             rc.delete(key)  # 재개됨 → 매출0 불필요, pending 소비
+            from dashboard.utils import durable_kv as _dkv
+            _dkv.delete(key)
             try:
                 client.chat_postMessage(channel=channel, thread_ts=ts,
                     text=f':information_source: `{code}` 는 취소가 해제(재개)되어 매출 0원 처리를 건너뜁니다.')
@@ -14990,6 +15009,8 @@ def _maybe_apply_cancel_money_request(client, channel: str, ts: str, checker_use
         return True
 
     rc.delete(key)  # pending 소비
+    from dashboard.utils import durable_kv as _dkv
+    _dkv.delete(key)
     _mark_project_cancel_money_done(channel, ts, data, checker_ini)
     _dm_project_cancel_done(requester_id, code, data, checker_ini)
     logger.info(f'[SLACK/취소매출0] ✅ 매출 0원 반영 완료 {code} by {checker_ini} (요청 {requester_ini})')
@@ -15251,6 +15272,8 @@ def _withdraw_cancel_money_requests(code: str, initial: str) -> None:
             except Exception as exc:
                 logger.warning(f'[SLACK/공사재개] 요청 카드 철회 표시 실패 (ts={ts}): {exc}')
         rc.delete(k)
+        from dashboard.utils import durable_kv as _dkv
+        _dkv.delete(ks)
         logger.info(f'[SLACK/공사재개] 매출 0원 요청 철회: {code} ts={ts}')
 
 
@@ -17063,15 +17086,14 @@ def post_invoice_request(code, biz, addr, amt_digits, vat_val, email, memo,
     try:
         from dashboard.utils.redis_client import get_redis_client
         rc = get_redis_client().redis
-        rc.setex(
-            f'invoice_card:{channel_id}:{ts}',
-            86400 * 730,
-            json.dumps({
-                'code': code, 'biz': biz, 'amt': amt_digits, 'vat': vat_val,
-                'email': email, 'thread_url': thread_url, 'orig_text': text,
-                'stages': stages_csv, 'replace': replace, 'doc': doc, 'crno': crno,
-            }, ensure_ascii=False),
-        )
+        _meta = json.dumps({
+            'code': code, 'biz': biz, 'amt': amt_digits, 'vat': vat_val,
+            'email': email, 'thread_url': thread_url, 'orig_text': text,
+            'stages': stages_csv, 'replace': replace, 'doc': doc, 'crno': crno,
+        }, ensure_ascii=False)
+        from dashboard.utils import durable_kv as _dkv   # DB 사본 — Redis 가 비면 되채움(11-16)
+        _dkv.put(f'invoice_card:{channel_id}:{ts}', _meta, 86400 * 730)
+        rc.setex(f'invoice_card:{channel_id}:{ts}', 86400 * 730, _meta)
     except Exception as red_exc:
         logger.warning(f"[SLACK/계산서] Redis metadata 저장 실패: {red_exc}")
 

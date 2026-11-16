@@ -201,7 +201,17 @@ def ingest_deposit(text: str, source: str = 'sms', cash_receiver: str = '',
 
     intake_id = dedup_hash(source, text)
     if rc is not None:
-        if not rc.set(f'sms_intake:seen:{intake_id}', '1', nx=True, ex=_DEDUP_TTL):
+        try:
+            if not rc.set(f'sms_intake:seen:{intake_id}', '1', nx=True, ex=_DEDUP_TTL):
+                return {'status': 'duplicate', 'id': intake_id}
+        except Exception as exc:
+            # Redis 장애 중에도 입금 카드는 올린다 — 예전엔 여기서 예외가 나 HTTP 500, 폰 앱이 다시 안 보내면
+            #   그 입금 카드가 영영 없었다(2026-11-16 상태 머신 점검). 중복 표시는 DB 로
+            logger.warning(f'[SMS_INBOUND] Redis 중복 표시 실패 — DB 로 대신: {exc}')
+            rc = None
+    if rc is None:
+        from dashboard.utils import durable_kv
+        if not durable_kv.add_once(f'sms_intake:seen:{intake_id}', _DEDUP_TTL):
             return {'status': 'duplicate', 'id': intake_id}
 
     if is_cash:
@@ -224,15 +234,18 @@ def ingest_deposit(text: str, source: str = 'sms', cash_receiver: str = '',
     if is_cash:
         preview['cash'] = True         # 카드에 '현금 수령 변환' 배지 표시용
 
-    # 원문(잔액 제거본) 보관 — 모달 제출 시 시트에 기록할 내용
+    # 원문(잔액 제거본) 보관 — 모달 제출 시 시트에 기록할 내용. DB 에도 사본(Redis 가 비면 되채움, 11-16)
+    _rec = json.dumps({
+        'text': clean, 'sender': source, 'device': source, 'origin': origin,
+        'preview': preview, 'ts': int(time.time()),
+    })
+    from dashboard.utils import durable_kv
+    durable_kv.put(f'sms_intake:{intake_id}', _rec, _INTAKE_TTL)
     if rc is not None:
         try:
-            rc.set(f'sms_intake:{intake_id}', json.dumps({
-                'text': clean, 'sender': source, 'device': source, 'origin': origin,
-                'preview': preview, 'ts': int(time.time()),
-            }), ex=_INTAKE_TTL)
+            rc.set(f'sms_intake:{intake_id}', _rec, ex=_INTAKE_TTL)
         except Exception as exc:
-            logger.warning(f'[SMS_INBOUND] 원문 보관 실패: {exc}')
+            logger.warning(f'[SMS_INBOUND] 원문 보관 실패(DB 사본은 있음 — Redis 가 돌아오면 되채움): {exc}')
 
     if not _post_intake_card(intake_id, clean, preview):
         # 카드를 못 올렸으면 중복 표시를 풀어 둠 — 같은 문자를 다른 폰(3대 동시 포워딩)·수동 붙여넣기로

@@ -150,6 +150,37 @@ def _safe_ops_watch():
         logger.warning(f'[SCHED] 운영 감시 실패: {exc}')
 
 
+_WIPE_CHECK_EVERY_SEC = 20
+_wipe_checked_at = 0.0
+
+
+def _check_redis_wiped() -> None:
+    """Redis 가 살아 있는데 비어 있는지(PING 으론 모름) — 세대 표시로 감지해 DB 사본을 되채우고 관리자에게 알림.
+    (2026-11-16 상태 머신 점검 묶음 D) 수금 폴러는 비면 조용히 기준값만 다시 잡고, 공사 카드 리컨사일러는 대상이
+    0 이 되어 멈추고, 유령 코드 점검도 0건이 되는데 아무도 몰랐다. 20초에 한 번만."""
+    global _wipe_checked_at
+    now = time.time()
+    if now - _wipe_checked_at < _WIPE_CHECK_EVERY_SEC:
+        return
+    _wipe_checked_at = now
+    try:
+        from dashboard.utils import durable_kv
+        from dashboard.utils.redis_client import get_redis_client
+        res = durable_kv.check_and_restore(get_redis_client().redis)
+    except Exception as exc:
+        logger.warning(f'[SCHED] Redis 비움 점검 실패: {exc}')
+        return
+    if res and res.get('wiped'):
+        _notify_admin(
+            'redis_wiped',
+            f":rotating_light: *Redis 가 비워졌습니다* (재시작·flush 추정). 입금 인입·계산서 요청·금액 요청 "
+            f"{res.get('restored', 0)}건은 DB 사본으로 되채웠습니다.\n"
+            "확인할 것: ① 그사이 들어온 입금의 #수금_관리 카드 누락(수금 폴러는 기준값을 새로 잡음) "
+            "② 공사확정 카드 연결(project_card_msg) — 없으면 리컨사일러·유령 코드 점검이 멈춤 "
+            "③ 방문·리드 카드 연결. Redis AOF 설정도 확인해 주세요."
+        )
+
+
 def _redis_healthy() -> bool:
     """Redis ping 체크 — 죽었으면 모든 sync 작업 skip (폭주 방지 circuit breaker).
     Redis가 죽으면 dedup 키 조회 실패 → 모든 리드를 신규로 인식 → 슬랙 메시지 폭주.
@@ -164,6 +195,8 @@ def _redis_healthy() -> bool:
                 ':rotating_light: *Redis 다운* — 모든 sync 작업 정지됨. '
                 'Docker container 상태 확인 필요 (`docker ps | grep redis`).'
             )
+        else:
+            _check_redis_wiped()
         return ok
     except Exception as exc:
         logger.error(f'[SCHED] Redis 헬스체크 실패: {exc}')
