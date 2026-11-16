@@ -600,6 +600,10 @@ def edit_view(row: dict) -> dict:
                            'parsed': {'date_md': '', 'grn': '', 'amount': int(row.get('amount') or 0),
                                       'partner': row.get('partner') or ''}}
         prefill = {k: row.get(k) for k in ea.EDIT_COLUMNS}
+        mv = ea.extra(row).get('fund_move')
+        if mv:   # 법인 간 이체 — 같은 확인 창(현장·금액·보내는 법인은 그 입금 그대로)
+            meta.update(move=mv, project=mv['code'])
+            return ea.new_request_view(meta, mv['code'], mv['code'], prefill=prefill)
         label = project_display(code, _project_rec(code)) if code else ''
         prefill['_project_label'] = label
         if row.get('origin_ts') and code:   # 계산서 글 현장 지정과 어긋나지 않게 현장도 고정(11-05 점검)
@@ -827,6 +831,51 @@ def _register_invoice_pick(app) -> None:
         except Exception as exc:
             logger.error(f'{_LOG} 거래처 선택 반영 실패: {exc}', exc_info=True)
 
+    @app.action(ea.A_COST)
+    def handle_cost_pick(ack, body, client):
+        """원가 분류 — '법인 간 이체'면 옮길 입금(결재 안 올라간 자금 이동 요청)을 고르게(11-16).
+        한 건뿐이면 바로 그 입금으로 채운 창, 없으면 직접 입력(받는 통장은 공사 법인 통장)."""
+        ack()
+        try:
+            view = body['view']
+            meta = json.loads(view.get('private_metadata') or '{}')
+            sel = (body['actions'][0].get('selected_option') or {}).get('value') or ''
+            was = meta.get('move_opts') is not None or meta.get('move_manual')
+            meta.pop('move_opts', None)
+            meta.pop('move_manual', None)
+            if sel != ea.COST_MOVE:
+                if was:   # 법인 간 이체에서 다른 분류로 — 안내·고르기 칸을 걷는다
+                    client.views_update(view_id=view['id'], hash=view.get('hash'), view=_new_view(meta))
+                return
+            code = meta.get('project') or _view_project(view)
+            moves = ea.open_moves(code)
+            if code and len(moves) == 1:
+                _set_move(meta, moves[0])
+            elif moves:
+                meta['move_opts'] = [ea.move_option(m) for m in moves[:20]]
+            else:
+                _set_move_manual(meta, code)
+            client.views_update(view_id=view['id'], hash=view.get('hash'), view=_new_view(meta))
+        except Exception as exc:
+            logger.error(f'{_LOG} 원가 분류 선택 반영 실패: {exc}', exc_info=True)
+
+    @app.action(ea.A_MOVE_PICK)
+    def handle_move_pick(ack, body, client):
+        ack()
+        try:
+            view = body['view']
+            meta = json.loads(view.get('private_metadata') or '{}')
+            sel = (body['actions'][0].get('selected_option') or {}).get('value') or ''
+            meta.pop('move_opts', None)
+            hit = next((m for m in ea.open_moves() if m['key'][:150] == sel), None)
+            if hit:
+                _set_move(meta, hit)
+            else:   # '직접 입력' 또는 그 사이 다른 사람이 올린 입금
+                _set_move_manual(meta, meta.get('project') or _view_project(view))
+            client.views_update(view_id=view['id'], hash=view.get('hash'), view=_new_view(meta))
+        except Exception as exc:
+            logger.error(f'{_LOG} 옮길 입금 선택 반영 실패: {exc}', exc_info=True)
+
     @app.action(ea.A_BRANCH)
     def handle_branch_pick(ack, body, client):
         """계산서로 거래처가 정해진 창의 「지점 계좌」 — 고르면 은행·계좌를 채운다(11-16)."""
@@ -841,6 +890,95 @@ def _register_invoice_pick(app) -> None:
             client.views_update(view_id=view['id'], hash=view.get('hash'), view=_new_view(meta))
         except Exception as exc:
             logger.error(f'{_LOG} 지점 계좌 선택 반영 실패: {exc}', exc_info=True)
+
+
+# ── 법인 간 이체 — 매니저 DM (11-16) ─────────────────────────────────
+def _move_dm_blocks(m: dict, row: Optional[dict] = None) -> list:
+    from dashboard.services.lead_helpers import slack_esc   # 입금자 이름은 은행 문자에서 읽은 글
+    frm, to = ea.ENTITY_SHORT.get(m['from'], m['from']), ea.ENTITY_SHORT.get(m['to'], m['to'])
+    if row:
+        link = _card_link(row)
+        text = (f"✅ *법인 간 이체 결재를 올렸어요* — {ea.title(row)}\n{slack_esc(ea.move_summary(m))}"
+                + (f"\n<{link}|결재 카드 보기>" if link else ''))
+        return [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}}]
+    text = (f"🔁 *법인 간 이체 결재를 올려 주세요*\n"
+            f"{slack_esc(ea.move_summary(m))}\n"
+            f"{to} 공사 입금이 {frm} 통장으로 들어왔어요. {to} 통장으로 옮기려면 결재가 필요해요.\n"
+            f"버튼을 누르면 내용이 채워진 창이 열려요. 확인하고 [요청]을 누르면 돼요.")
+    return [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}},
+            {'type': 'actions', 'elements': [{
+                'type': 'button', 'action_id': ea.A_MOVE_OPEN, 'style': 'primary',
+                'text': {'type': 'plain_text', 'text': '📝 결재 올리기'},
+                'value': json.dumps(m, ensure_ascii=False)}]}]
+
+
+def notify_fund_move(uid: str, code: str) -> int:
+    """#입금_관리 [지정] 두 번(자금 이동 요청 기록) 뒤 — 지정한 매니저에게 [📝 결재 올리기] DM. 보낸 수.
+
+    같은 요청엔 한 번만(approval_kv 'move_dm:키'). 결재가 이미 올라간 요청은 건너뛴다."""
+    client = eap_client()
+    if not (client and uid and code):
+        return 0
+    try:
+        from dashboard.services import fund_transfer as ft
+        ft.invalidate()
+        reqs = ft.pending_requests(force=True)   # 방금 메모에 쓴 요청이 보이게
+    except Exception as exc:
+        logger.error(f'{_LOG} 자금 이동 요청 조회 실패 ({code}): {exc}', exc_info=True)
+        return 0
+    n = 0
+    for m in ea.open_moves(code, reqs):
+        k = 'move_dm:' + m['key']
+        if ea.kv_get(k):
+            continue
+        try:
+            ch = client.conversations_open(users=uid)['channel']['id']
+            r = client.chat_postMessage(channel=ch, text=f"법인 간 이체 결재를 올려 주세요 — {m['code']}",
+                                        blocks=_move_dm_blocks(m))
+            ea.kv_set(k, json.dumps({'ch': ch, 'ts': r['ts'], 'uid': uid}))
+            n += 1
+            logger.info(f"{_LOG} 법인 간 이체 결재 안내 DM: {m['key']} → {uid}")
+        except Exception as exc:
+            logger.error(f'{_LOG} 법인 간 이체 안내 DM 실패 ({code} → {uid}): {exc}', exc_info=True,
+                         extra={'force_alert': True})
+    return n
+
+
+def _mark_move_dm_done(row: dict) -> None:
+    """결재가 올라가면 매니저 DM 을 '올렸어요'로 바꾼다(버튼을 걷어 두 번 못 누르게)."""
+    m = ea.extra(row).get('fund_move')
+    if not m:
+        return
+    try:
+        ref = json.loads(ea.kv_get('move_dm:' + m['key']) or '{}')
+        if ref.get('ch') and ref.get('ts'):
+            eap_client().chat_update(channel=ref['ch'], ts=ref['ts'], text=f"법인 간 이체 결재 올림 — {ea.title(row)}",
+                                     blocks=_move_dm_blocks(m, row))
+    except Exception as exc:
+        logger.warning(f'{_LOG} 법인 간 이체 안내 DM 고치기 실패 ({ea.title(row)}): {exc}')
+
+
+def _view_project(view: dict) -> str:
+    """창에서 고른 현장 코드(아직 안 골랐으면 '')."""
+    blk = ((view.get('state') or {}).get('values') or {}).get('project') or {}
+    return ((blk.get(ea.A_PROJECT) or {}).get('selected_option') or {}).get('value') or ''
+
+
+def _set_move(meta: dict, move: dict) -> None:
+    """법인 간 이체 창으로 — 현장·금액·보내는 법인은 그 입금 그대로, 받는 통장은 공사 법인 통장."""
+    meta.update(move=move, project=move['code'], payee=dict(ea.ENTITY_PAYEE[move['to']]))
+    meta['pv'] = int(meta.get('pv') or 0) + 1
+
+
+def _set_move_manual(meta: dict, code: str) -> None:
+    """옮길 입금이 목록에 없을 때 — 일반 창 그대로 두고, 공사 법인을 알면 거래처·받는 통장만 채운다."""
+    meta['move_manual'] = True
+    to = (code or '')[:1]
+    if to in ea.ENTITY_PAYEE:
+        meta.update(partner=ea.ENTITY_PAYEE[to]['payee_name'], payee=dict(ea.ENTITY_PAYEE[to]))
+        for k in ('branch', 'branch_list', 'partner_opt'):
+            meta.pop(k, None)
+        meta['pv'] = int(meta.get('pv') or 0) + 1
 
 
 def _set_payee_prefill(meta: dict, partner: str, account: Optional[str] = None) -> None:
@@ -913,7 +1051,8 @@ def validate_new_submit(view: dict):
     if not errs:
         # 현장 코드 앞글자(G/R)와 고른 사업자가 다르면 한 번 묻는다 — 5일 12건 중 3건이 이것(11-11 점검).
         # 정말 다른 사업자로 보내는 경우가 있어 막지는 않고, 같은 창에서 한 번 더 누르면 통과
-        msg = ea.grn_mismatch(f.get('project_code'), f.get('grn'))
+        # 법인 간 이체는 일부러 다른 법인 통장에서 보낸다(11-16) — move_errors 가 방향을 따로 본다
+        msg = '' if f.get('cost_category') == ea.COST_MOVE else ea.grn_mismatch(f.get('project_code'), f.get('grn'))
         if msg and _grn_warn_once(view.get('id', ''), f.get('project_code'), f.get('grn')):
             bid = 'grn' if 'grn' in values else ('invoice' if 'invoice' in values else 'project')
             errs[bid] = msg
@@ -953,6 +1092,7 @@ def process_new_submit(uid: str, f: dict) -> dict:
     row = ea.create(ea.FORM_FUND, uid, name, f)
     _audit(row, 'request', name)
     row = start(row)
+    _mark_move_dm_done(row)   # 법인 간 이체 — 매니저 안내 DM 버튼 걷기(11-16)
     if row.get('origin_ts'):
         threading.Thread(target=post_invoice_files, args=(row,), daemon=True).start()
     _post_files_bg(row, f.get('_files') or [], name)
@@ -2119,6 +2259,24 @@ def register_eapproval_handlers(app) -> None:
                            origin='shortcut' if push else 'menu', push=push)
         except Exception as exc:
             logger.error(f'{_LOG} 새 요청 창 열기 실패: {exc}', exc_info=True)
+
+    @app.action(ea.A_MOVE_OPEN)
+    def handle_move_open(ack, body, client):
+        """매니저 DM [📝 결재 올리기] — 채워진 법인 간 이체 창(trigger 3초라 DB 확인만 하고 바로 연다)."""
+        ack()
+        try:
+            m = json.loads(body['actions'][0]['value'])
+            dup = ea.find_move_approval(m.get('key'))
+            if dup:
+                _ephemeral(client, body, f"🔒 이 입금으로 올린 {ea.title(dup)}"
+                                         f"({ea.initial(dup.get('requester_name'))}·{ea.status_label(dup)[1]})이 이미 있어요.")
+                return
+            meta = {'origin': 'move_dm'}
+            _set_move(meta, m)
+            client.views_open(trigger_id=body['trigger_id'], view=_new_view(meta))
+        except Exception as exc:
+            logger.error(f'{_LOG} 법인 간 이체 창 열기 실패: {exc}', exc_info=True)
+            _ephemeral(client, body, ':warning: 창을 열지 못했어요. 잠시 뒤 다시 눌러 주세요.')
 
     @app.options(ea.A_PROJECT)
     def handle_project_options(ack, body):

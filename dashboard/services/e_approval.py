@@ -68,6 +68,9 @@ A_PROJECT_FORM_PICK = 'eap_project_form_pick'   # 공사확정 카드 「📋 �
 A_INVOICE = 'eap_invoice'             # 자금집행 모달 「계산서」 external_select(현장 미지정 계산서 글)
 A_PARTNER = 'eap_partner'             # 자금집행 모달 「거래처」 external_select(아는 거래처 + 새 거래처)
 A_BRANCH = 'eap_branch'               # 계산서로 거래처가 정해졌을 때 「지점 계좌」 static_select(11-16)
+A_COST = 'eap_cost'                   # 자금집행 「원가 분류」 — '법인 간 이체'를 고르면 창이 바뀐다(11-16)
+A_MOVE_PICK = 'eap_move_pick'         # 법인 간 이체 — 옮길 입금(대기 중인 자금 이동 요청) 고르기
+A_MOVE_OPEN = 'eap_move_open'         # 매니저 DM [📝 결재 올리기] — 채워진 법인 간 이체 창 열기
 CB_NEW, CB_REJECT = 'eap_new_submit', 'eap_reject_submit'
 A_REVISE, CB_REVISE = 'eap_revise', 'eap_revise_submit'   # [✏️ 수정 요청] → 무엇을 고칠지 적는 창(11-05)
 A_EDIT = 'eap_edit'                                         # [✏️ 수정하기] → 원래 값이 채워진 양식 창
@@ -705,7 +708,8 @@ def requester_can_cancel(row: dict) -> bool:
 
 
 # extra 중 시스템이 붙이는 표시 칸 — 수정 기록('바뀐 칸')에 넣지 않는다
-_SYSTEM_EXTRA = ('f', 'payee_saved', 'payee_changed', 'payee_known', 'payee_unlisted', 'dup_of', 'old_prepaid', 'inv_by', 'inv_by_other', 'job')
+_SYSTEM_EXTRA = ('f', 'payee_saved', 'payee_changed', 'payee_known', 'payee_unlisted', 'dup_of', 'old_prepaid', 'inv_by', 'inv_by_other', 'job',
+                 'fund_move')
 
 # 다시 올릴 때 고칠 수 있는 장부 칸(양식 값 전부는 extra 에)
 EDIT_COLUMNS = ('project_code', 'cost_category', 'content', 'evidence', 'grn', 'partner', 'payee_name',
@@ -1252,6 +1256,9 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
         cost = _short_cost(row)
         if cost:
             lines.append(f'분류: {cost}')
+        mv = extra(row).get('fund_move')
+        if mv:   # 법인 간 이체 — 어느 입금을 옮기는지(11-16)
+            lines.append(f'옮기는 입금: {move_summary(mv)}')
         if content:
             lines.append(f'내용: {content}')
         # 예금주가 '(주)컴퓨존'이면 괄호가 겹쳐 '((주)컴퓨존)' — 예금주는 · 뒤로(11-06)
@@ -1259,7 +1266,8 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
                      + (' · 예전 계좌 자동 채움' if extra(row).get('payee_saved') else '')
                      + (f" · ✅ 확인된 계좌({extra(row)['payee_known']})" if extra(row).get('payee_known') else ''))
         lines += fund_warning_lines(row)
-        lines.append(f"증빙: {row.get('evidence') or '-'} (VAT 포함 금액)")
+        if row.get('cost_category') != COST_MOVE:   # 법인 간 이체는 증빙·VAT 가 없다
+            lines.append(f"증빙: {row.get('evidence') or '-'} (VAT 포함 금액)")
         if quote_amount:
             # 공사현황 「총액 1」 = 공사 전체 금액 — '고객 견적'이라 쓰면 항목 견적으로 오해(11-06 검수)
             lines.append(f'공사 총액: {int(quote_amount):,}원 (VAT 별도)')
@@ -1955,7 +1963,8 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
     맨 위 「계산서」에서 #영업_관리에 올라온 현장 미지정 계산서를 고르면 거래처·금액·G/R 은 그 글 값으로
     정해지고(meta['inv']), 제출하면 그 글의 현장 지정까지 함께 끝난다. '계산서 없음'이면 직접 입력(선지급).
     fixed_project 면 현장 고르기 없이 고정(공사확정 카드에서)."""
-    from dashboard.services.purchase_invoice_assign import COST_CATEGORIES
+    if meta.get('move'):   # 법인 간 이체 — 정해진 값은 숨기고 확인만(11-16)
+        return move_request_view(meta, prefill)
     inv = meta.get('inv')
     inv_el = {'type': 'external_select', 'action_id': A_INVOICE, 'min_query_length': 0,
               'placeholder': {'type': 'plain_text', 'text': '#영업_관리에 올라온 계산서 고르기'}}
@@ -2000,9 +2009,25 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
         {'type': 'input', 'block_id': 'evidence', 'label': {'type': 'plain_text', 'text': '증빙'},
          'element': {'type': 'static_select', 'action_id': 'evidence', 'options': ev_opts,
                      'initial_option': ev_opts[0]}},
+        # '법인 간 이체'를 고르면 옮길 입금을 고르게 창이 바뀐다(dispatch, 11-16)
         {'type': 'input', 'block_id': 'cost', 'label': {'type': 'plain_text', 'text': '원가 분류'},
-         'element': {'type': 'static_select', 'action_id': 'cost', 'options': _opts(COST_CATEGORIES),
+         'dispatch_action': True,
+         'element': {'type': 'static_select', 'action_id': A_COST, 'options': _opts(fund_cost_categories()),
                      'placeholder': {'type': 'plain_text', 'text': '원가 분류'}}},
+    ]
+    if meta.get('move_opts') is not None:   # 법인 간 이체 — 옮길 입금 고르기
+        opts = [o for o in meta['move_opts']][:20] + [move_option(None)]
+        blocks.append({'type': 'input', 'block_id': 'move_pick', 'dispatch_action': True, 'optional': True,
+                       'label': {'type': 'plain_text', 'text': '옮길 입금'},
+                       'element': {'type': 'static_select', 'action_id': A_MOVE_PICK, 'options': opts,
+                                   'placeholder': {'type': 'plain_text', 'text': '잘못 들어온 입금 고르기'}},
+                       'hint': {'type': 'plain_text', 'text':
+                                '고르면 금액·받는 통장이 채워져요. 목록에 없으면 「직접 입력」을 고르세요.'}})
+    elif meta.get('move_manual'):
+        blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
+                       '🔁 법인 간 이체 — 「사업자 구분」은 돈이 잘못 들어온 법인, 받는 통장은 공사 법인 통장이에요. '
+                       '증빙은 없어도 돼요.'}]})
+    blocks += [
         # 계산서를 골라도 필수(11-09 KiKO) — 최종 승인(JW·YG)이 '왜 나가는 돈인지' 보고 판단한다
         {'type': 'input', 'block_id': 'content',
          'label': {'type': 'plain_text', 'text': '내용'},
@@ -2101,7 +2126,7 @@ def read_new_request(view: dict) -> Dict:
     meta = json.loads(view.get('private_metadata') or '{}')
     f = {
         'project_code': meta.get('project') or _sel('project', A_PROJECT),
-        'evidence': _sel('evidence'), 'cost_category': _sel('cost'), 'content': _txt('content'),
+        'evidence': _sel('evidence'), 'cost_category': _sel('cost', A_COST) or _sel('cost'), 'content': _txt('content'),
         'partner': partner_from_value(_sel('partner', A_PARTNER)) or meta.get('partner', ''),
         'amount': parse_amount(_txt('amount')), 'grn': _sel('grn'),
         'payee_name': field_value(v, 'payee_name'), 'bank': field_value(v, 'bank'),
@@ -2121,8 +2146,9 @@ def read_new_request(view: dict) -> Dict:
     if meta.get('edit'):
         f['_edit'] = int(meta['edit'])
     f['_files'] = forms.read_attachments(view)
-    if not inv:
+    if not inv and not meta.get('move'):
         f['_bad'] = amount_errors({'amount': _txt('amount')})
+    apply_move_fields(f, meta)   # 법인 간 이체 — 정해진 값(11-16)
     return f
 
 
@@ -2162,6 +2188,8 @@ def complete_new_request(f: Dict) -> Dict[str, str]:
     if 'account' not in errs:
         errs.update(validate_transfer(f.get('payee_name'), f.get('bank'), f.get('account')))
     mark_payee_saved(f)
+    if not errs:
+        errs.update(move_errors(f))   # 법인 간 이체 — 보내는 법인·같은 입금 두 번(11-16)
     return errs
 
 
@@ -2193,6 +2221,178 @@ def mark_payee_saved(f: Dict) -> None:
     else:
         x.pop('payee_changed', None)
     f['extra'] = x
+
+
+# ── 법인 간 이체 (11-16) ─────────────────────────────────────────────
+# 고객이 다른 법인 통장으로 입금 → #입금_관리 [지정] 두 번(자금 이동 요청) → 매니저 DM [📝 결재 올리기] →
+# 채워진 창을 확인하고 요청 → 승인 → 샛별님 이체 → 그룹/글로벌 통장 입금 문자로 [법인 간 이체로 처리].
+# 결재는 그 자금 이동 요청(시트 메모 줄)과 extra['fund_move'] 로 연결 — 같은 입금으로 두 번 못 올린다.
+COST_MOVE = '이동:법인간'
+EVIDENCE_MOVE = '없음 (법인 간 이체)'
+ENTITY_SHORT = {'G': '글로벌', 'R': '글로벌그룹'}
+ENTITY_PAYEE = {   # 받는 통장 — 그룹 기업은행(하도급지킴이)은 관공서 전용이라 하나은행
+    'G': {'payee_name': '(주)아이티글로벌', 'bank': 'IBK기업은행', 'account': '452-039388-01-011'},
+    'R': {'payee_name': '(주)아이티글로벌그룹', 'bank': '하나은행', 'account': '255-910014-31304'},
+}
+MOVE_PICK_MANUAL = 'manual'
+
+
+def fund_cost_categories() -> List[Tuple[str, str]]:
+    from dashboard.services.purchase_invoice_assign import COST_CATEGORIES, FUND_ONLY_COST
+    return list(COST_CATEGORIES) + list(FUND_ONLY_COST)
+
+
+def move_from_req(req: dict) -> dict:
+    """자금 이동 요청(fund_transfer.pending_requests 한 줄) → 결재에 붙일 연결 정보."""
+    m = {k: req.get(k) for k in ('code', 'stage', 'partner', 'bank', 'from', 'to', 'date')}
+    m['amount'] = int(req.get('amount') or 0)
+    m['key'] = move_key(m)
+    return m
+
+
+def move_key(m: dict) -> str:
+    return (f"{m.get('code')}|{m.get('stage')}|{m.get('from')}>{m.get('to')}|{int(m.get('amount') or 0)}|"
+            f"{partner_key(m.get('partner') or '')}|{m.get('date') or ''}")
+
+
+def _md(date: str) -> str:
+    """'2026/11/16' → '11/16'."""
+    parts = re.split(r'[/\-.]', date or '')
+    return '/'.join(parts[-2:]) if len(parts) >= 2 else (date or '')
+
+
+def move_summary(m: dict) -> str:
+    who = ' '.join(x for x in ((m.get('partner') or '').strip(), _md(m.get('date') or '')) if x)
+    return (f"{m.get('code')} {m.get('stage')} 입금({who + ' ' if who else ''}{int(m.get('amount') or 0):,}원) · "
+            f"{ENTITY_SHORT.get(m.get('from'), m.get('from'))} 통장 → {ENTITY_SHORT.get(m.get('to'), m.get('to'))} 통장")
+
+
+def move_content(m: dict) -> str:
+    who = (m.get('partner') or '').strip()
+    return (f"{m.get('code')} {m.get('stage')} 입금" + (f"({who} {_md(m.get('date') or '')})" if who else '')
+            + f"이 {ENTITY_SHORT.get(m.get('from'), '')} 통장으로 들어와 {ENTITY_SHORT.get(m.get('to'), '')} 통장으로 옮김")
+
+
+def find_move_approval(key: str, exclude_id: Optional[int] = None) -> Optional[dict]:
+    """그 자금 이동 요청으로 올린 결재(반려·취소 제외)."""
+    if not key:
+        return None
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        rows = conn.execute(
+            "SELECT * FROM approvals WHERE form=? AND status NOT IN (?, ?) AND extra LIKE ? ORDER BY id DESC",
+            (FORM_FUND, REJECTED, CANCELLED, '%fund_move%')).fetchall()
+    for r in rows:
+        d = dict(r)
+        if d['id'] != exclude_id and (extra(d).get('fund_move') or {}).get('key') == key:
+            return d
+    return None
+
+
+def open_moves(project_code: str = '', reqs: Optional[List[dict]] = None) -> List[dict]:
+    """결재가 아직 안 올라간 자금 이동 요청 → [move] (현장을 주면 그 현장만)."""
+    if reqs is None:
+        try:
+            from dashboard.services.fund_transfer import pending_requests
+            reqs = pending_requests()
+        except Exception as exc:
+            logger.warning(f'[전자결재] 자금 이동 요청 조회 실패: {exc}')
+            reqs = []
+    out = []
+    for r in reqs:
+        if project_code and r.get('code') != project_code:
+            continue
+        m = move_from_req(r)
+        if m['from'] in ENTITY_PAYEE and m['to'] in ENTITY_PAYEE and not find_move_approval(m['key']):
+            out.append(m)
+    return out
+
+
+def move_option(m: Optional[dict]) -> dict:
+    if not m:
+        return {'text': {'type': 'plain_text', 'text': '목록에 없음 (직접 입력)'}, 'value': MOVE_PICK_MANUAL}
+    return {'text': {'type': 'plain_text', 'text': move_summary(m)[:75]}, 'value': m['key'][:150]}
+
+
+def apply_move_fields(f: Dict, meta: dict) -> None:
+    """법인 간 이체 — 정해진 값 채우기(창에 안 보이는 칸). 원가 분류가 '법인 간 이체'면 직접 입력도."""
+    mv = meta.get('move')
+    if mv:
+        f.update(project_code=mv['code'], cost_category=COST_MOVE, grn=mv['from'], amount=int(mv['amount']))
+        x = dict(f.get('extra') or {})
+        x['fund_move'] = mv
+        f['extra'] = x
+    if f.get('cost_category') != COST_MOVE:
+        return
+    f['evidence'] = EVIDENCE_MOVE
+    to = (f.get('project_code') or '')[:1]
+    if not f.get('partner') and to in ENTITY_PAYEE:
+        f['partner'] = ENTITY_PAYEE[to]['payee_name']
+
+
+def move_errors(f: Dict) -> Dict[str, str]:
+    """법인 간 이체 검사 + 직접 입력이면 맞는 자금 이동 요청을 찾아 연결. 오류 {block_id: 문구}."""
+    if f.get('cost_category') != COST_MOVE:
+        return {}
+    code = f.get('project_code') or ''
+    to, frm = code[:1], f.get('grn') or ''
+    if to not in ENTITY_PAYEE:
+        return {'cost': '법인 간 이체는 글로벌(G)·글로벌그룹(R) 공사에서만 쓸 수 있어요.'}
+    if frm == to or frm not in ENTITY_PAYEE:
+        return {'grn': f'돈이 잘못 들어온 법인을 골라 주세요. 이 공사는 {ENTITY_SHORT[to]}({to}) 공사라 '
+                       f'{ENTITY_SHORT["G" if to == "R" else "R"]} 통장에서 보내요.'}
+    x = dict(f.get('extra') or {})
+    if not x.get('fund_move'):
+        hit = next((m for m in open_moves(code) if m['from'] == frm and m['to'] == to
+                    and m['amount'] == int(f.get('amount') or 0)), None)
+        if hit:
+            x['fund_move'] = hit
+            f['extra'] = x
+    mv = x.get('fund_move')
+    if mv:
+        dup = find_move_approval(mv.get('key'), exclude_id=f.get('_edit'))
+        if dup:
+            return {'content': f"이 입금으로 올린 {title(dup)}({initial(dup.get('requester_name'))}·"
+                               f"{status_label(dup)[1]})이 이미 있어요."}
+    return {}
+
+
+def move_request_view(meta: dict, prefill: Optional[dict] = None) -> dict:
+    """[📝 결재 올리기]·옮길 입금을 고른 창 — 현장·금액·보내는 법인·받는 통장이 정해져 있고 확인만 한다."""
+    from dashboard.services.lead_helpers import slack_esc   # 입금자 이름은 은행 문자에서 읽은 글
+    mv = meta['move']
+    p = prefill or {}
+    to = mv['to']
+    payee = meta.get('payee') or ENTITY_PAYEE.get(to)
+    blocks: List[dict] = [
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': (
+            f"🔁 *법인 간 이체*\n{slack_esc(move_summary(mv))}\n"
+            f"*{int(mv['amount']):,}원*을 {ENTITY_SHORT.get(mv['from'])} 통장에서 {ENTITY_SHORT.get(to)} 통장으로 보내요.")}},
+        {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
+            '현장·금액·보내는 통장은 입금 기록 그대로예요. 내용과 받는 통장을 확인하고 요청해 주세요. '
+            '원가에는 안 들어가요.'}]},
+        {'type': 'input', 'block_id': 'content', 'label': {'type': 'plain_text', 'text': '내용'},
+         'element': {'type': 'plain_text_input', 'action_id': 'content', 'max_length': 300,
+                     'initial_value': (p.get('content') or move_content(mv))[:300]}},
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': f'*받는 통장* — {ENTITY_SHORT.get(to)} 통장'}},
+    ]
+    pv = int(meta.get('pv') or 0)
+    blocks += transfer_input_blocks(payee, urgency=p.get('urgency') or '일반', sfx=f'_{pv}' if pv else '')
+    blocks.append({'type': 'input', 'block_id': 'memo', 'optional': True,
+                   'label': {'type': 'plain_text', 'text': '비고 (특이사항)'},
+                   'element': {'type': 'plain_text_input', 'action_id': 'memo', 'multiline': True,
+                               'max_length': 1000}})
+    if p.get('memo'):
+        _set_initial(blocks, 'memo', p['memo'])
+    title_, submit = forms.edit_texts(meta, '법인 간 이체', '요청')
+    return {
+        'type': 'modal', 'callback_id': CB_NEW,
+        'title': {'type': 'plain_text', 'text': title_},
+        'submit': {'type': 'plain_text', 'text': submit},
+        'close': {'type': 'plain_text', 'text': '취소'}, 'notify_on_close': True,
+        'private_metadata': json.dumps(meta, ensure_ascii=False),
+        'blocks': blocks,
+    }
 
 
 # ── 비품 신청 모달 (11-01) ────────────────────────────────────────────

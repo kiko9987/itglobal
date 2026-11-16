@@ -56,7 +56,9 @@ COST_CATEGORIES = [
     ('공통비:수선', '공통비 · 사무실 수선'),
     ('공통비:운영', '공통비 · 기타 운영비'),
 ]
-_COST_LABEL = dict(COST_CATEGORIES)
+# 자금집행 창에만 있는 분류 — 매입 계산서 현장 지정에는 안 나온다(11-16 법인 간 이체: 고객 돈을 맞는 법인으로 옮김)
+FUND_ONLY_COST = [('이동:법인간', '법인 간 이체 (원가 아님)')]
+_COST_LABEL = dict(COST_CATEGORIES + FUND_ONLY_COST)
 
 
 def cost_project_error(cost: str, project_code: str) -> str:

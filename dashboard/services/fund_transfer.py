@@ -51,6 +51,17 @@ def names_match(a: str, b: str) -> bool:
     return na.startswith(nb) or nb.startswith(na)
 
 
+_OWN_NAMES = ('아이티글로벌그룹', '아이티글로벌')
+
+
+def is_own_entity_name(name: str) -> bool:
+    """입금자(또는 받는 분)가 우리 법인 이름인지 — 경영지원이 법인 간 이체할 때 받는 분 표시를 따로 안 적으면
+    은행 문자엔 보낸 법인 이름이 찍힌다(2026-11-16 KiKO: 법인 간 이체에 고객 이름을 적는 건 맞지 않다).
+    은행이 자른 이름('아이티글로')도. 4글자 미만은 판정 안 함."""
+    n = norm_name(name)
+    return len(n) >= 4 and any(o.startswith(n) or n.startswith(o) for o in _OWN_NAMES)
+
+
 def _blocks(note: str) -> List[str]:
     return [b for b in re.split(r'\n\s*\n', note or '') if b.strip()]
 
@@ -188,15 +199,16 @@ def deposit_entity(text: str, preview: Optional[dict] = None) -> str:
 
 
 def match_deposit(text: str, preview: dict, reqs: Optional[List[Dict]] = None) -> List[Dict]:
-    """이체로 들어온 입금 ↔ 대기 요청 후보 (도착 사업자·금액·이름 앞부분 일치)."""
+    """이체로 들어온 입금 ↔ 대기 요청 후보 (도착 사업자·금액 + 이름: 처음 입금자 앞부분 또는 우리 법인 이름)."""
     to = deposit_entity(text, preview)
     if to not in ('G', 'R'):
         return []
     amt = abs(int((preview or {}).get('amount') or 0))
     name = (preview or {}).get('partner') or ''
+    own = is_own_entity_name(name)
     reqs = pending_requests() if reqs is None else reqs
     return [r for r in reqs
-            if r['to'] == to and r['amount'] == amt and names_match(r['partner'], name)]
+            if r['to'] == to and r['amount'] == amt and (own or names_match(r['partner'], name))]
 
 
 def outflow_evidence(req: Dict, since_ts: int) -> Optional[Dict]:
@@ -205,7 +217,8 @@ def outflow_evidence(req: Dict, since_ts: int) -> Optional[Dict]:
         from dashboard.blueprints.sms_inbound import recent_outflows
         for o in reversed(recent_outflows(since_ts)):
             if (o.get('acct_code') == req['from'] and int(o.get('amount') or 0) == req['amount']
-                    and names_match(o.get('partner', ''), req['partner'])):
+                    and (names_match(o.get('partner', ''), req['partner'])
+                         or is_own_entity_name(o.get('partner', '')))):
                 return o
     except Exception:
         pass
