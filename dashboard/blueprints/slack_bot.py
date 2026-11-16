@@ -4878,6 +4878,70 @@ def _norm_edit_val(v) -> str:
     return '' if s == '-' else s
 
 
+# ── 공사 수정 창: 연 때 값 기억 (2026-11-16 상태 머신 점검 A7) ──
+#   예전엔 제출 때 '지금 캐시'와 비교해 다른 칸을 모두 썼다 → 창을 열어 둔 사이 다른 사람이 바꾼 칸이
+#   창의 옛 값으로 되돌아감. 이제 창을 연 때 값(지문)을 private_metadata 에 넣어 두고
+#   ① 직원이 실제로 바꾼 칸만 쓰고 ② 그 칸을 그 사이 다른 사람도 바꿨으면 저장하지 않는다.
+_EDIT_FORM_FIELDS = ('거래처명', '공사 내용', '도급 구분', '시공자', '총액 1', '부가세', '공사 시작', '공사 종료')
+
+
+def _edit_fp(s) -> str:
+    import hashlib
+    return hashlib.sha1(str(s if s is not None else '').encode('utf-8')).hexdigest()[:12]
+
+
+def _edit_form_snapshot(project: dict) -> dict:
+    """공사 수정 창에 미리 채우는 값과 같은 모양으로 정규화한 칸별 값 (창 열 때·제출 때 같은 규칙)."""
+    def _val(field):
+        v = (project or {}).get(field, '')
+        return '' if v in (None, '-', 'None') else str(v).strip()
+
+    from dashboard.services.partner_names import card_partner as _cp
+    partner = _cp(_val('거래처명'))
+    partner = '' if partner == '-' else partner[:75]
+    ct = [t.strip() for t in re.split(r'[,/]', _val('도급 구분')) if t.strip()]
+    cr = [n.strip() for n in re.split(r'[,/]', _val('시공자')) if n.strip()]
+    amt = ''
+    raw_amt = (project or {}).get('총액 1', '')
+    if raw_amt not in (None, '', '-'):
+        try:
+            amt = str(int(float(str(raw_amt).replace(',', '').strip())))
+        except (ValueError, TypeError):
+            amt = str(raw_amt).strip()
+    vat_raw = (project or {}).get('부가세')
+    vat = (vat_raw is True or vat_raw == 1
+           or (isinstance(vat_raw, str) and vat_raw.strip().upper() in ('TRUE', 'Y', 'YES', '1')))
+    start, end = _val('공사 시작'), _val('공사 종료')
+    return {
+        '거래처명': partner,
+        '공사 내용': _norm_edit_val(_val('공사 내용')),
+        '도급 구분': ', '.join(t for t in ct if t in _CONTRACT_TYPE_OPTIONS),
+        '시공자': ', '.join(cr),
+        '총액 1': amt,
+        '부가세': 'Y' if vat else 'N',
+        '공사 시작': start[:10] if len(start) >= 10 else '',
+        '공사 종료': end[:10] if len(end) >= 10 else '',
+    }
+
+
+def _edit_form_base(project: dict) -> dict:
+    return {f: _edit_fp(v) for f, v in _edit_form_snapshot(project).items()}
+
+
+def _edit_form_changes(base: dict, submitted: dict, current: dict):
+    """(직원이 바꾼 칸, 그 사이 남도 바꿔 부딪힌 칸). submitted 값 None = '비워 두면 안 바꿈' 칸이 빈칸."""
+    changed, conflicts = set(), []
+    cur = _edit_form_snapshot(current)
+    for f in _EDIT_FORM_FIELDS:
+        sub = submitted.get(f)
+        if sub is None or f not in base or _edit_fp(sub) == base[f]:
+            continue
+        changed.add(f)
+        if _edit_fp(cur[f]) != base[f] and sub != cur[f]:
+            conflicts.append(f)
+    return changed, conflicts
+
+
 def _amt_int(v) -> int:
     """금액 문자열/숫자를 정수로 정규화 (콤마·공백·빈값 방어). 반영 여부 비교용."""
     try:
@@ -14127,6 +14191,24 @@ def _open_project_edit_modal(client, body) -> None:
             pass
         return
 
+    # 취소된 공사는 슬랙에서 고치지 않음 — 카드 취소 기능 전에 취소된 옛 카드는 버튼이 살아 있다 (2026-11-16 A7)
+    from dashboard.services.project_state import spec_cancelled
+    if spec_cancelled(project.get('수금 관련 특이사항')):
+        try:
+            client.views_update(view_id=view_id, view={
+                "type": "modal", "callback_id": "submit_project_edit",
+                "title": {"type": "plain_text", "text": "공사 내용 수정"},
+                "close": {"type": "plain_text", "text": "닫기"},
+                "blocks": [{"type": "section", "text": {"type": "mrkdwn",
+                    "text": (f":no_entry: `{code}`는 취소된 공사라 여기서 고칠 수 없습니다.\n"
+                             "다시 진행하는 공사라면 카드의 [↩️ 취소 되돌리기]를 먼저 눌러 주세요.")}}],
+            })
+        except Exception:
+            pass
+        return
+    metadata = json.dumps({'code': code, 'channel': channel, 'message_ts': message_ts,
+                           'base': _edit_form_base(project)}, ensure_ascii=False)
+
     # pre-fill 값 준비
     def _val(field):
         v = project.get(field, '')
@@ -14358,6 +14440,45 @@ def _process_project_edit_submission(client, body, view) -> None:
         updates['공사 시작'] = start_date
     if end_date and end_date != (project.get('공사 종료') or '')[:10]:
         updates['공사 종료'] = end_date
+
+    def _tell(text):
+        try:
+            client.chat_postEphemeral(channel=channel, user=user_id, text=text)
+        except Exception:
+            pass
+
+    # 창을 연 사이 취소됐으면 저장 안 함 (2026-11-16 A7)
+    from dashboard.services.project_state import spec_cancelled
+    if spec_cancelled(project.get('수금 관련 특이사항')):
+        _tell(f':no_entry: `{code}`는 그 사이 취소된 공사라 저장하지 않았습니다.')
+        return
+
+    # 창을 연 때 값과 비교 — 직원이 바꾼 칸만 쓰고, 그 칸을 남도 바꿨으면 멈춤.
+    #   'base' 없는 창(배포 전에 열린 창)은 예전처럼 지금 값과 비교.
+    base = metadata.get('base')
+    if isinstance(base, dict) and base:
+        _digits = ''.join(ch for ch in amount_raw if ch.isdigit())
+        submitted = {
+            '거래처명': partner.strip() or None,
+            '공사 내용': _norm_edit_val(content) or None,
+            '도급 구분': new_contract,
+            '시공자': new_contractor,
+            '총액 1': str(int(_digits)) if _digits else None,
+            '부가세': 'Y' if vat_sep else 'N',
+            '공사 시작': start_date or None,
+            '공사 종료': end_date or None,
+        }
+        changed, conflicts = _edit_form_changes(base, submitted, project)
+        if conflicts:
+            logger.info(f'[SLACK/공사수정] 창 연 뒤 다른 수정과 부딪혀 저장 안 함 ({code}): {conflicts}')
+            _tell(f":warning: `{code}` 창을 연 뒤 다른 사람이 *{'·'.join(conflicts)}*을(를) 바꿔서 "
+                  "아무것도 저장하지 않았습니다.\n카드의 [✏️ 내용 수정]을 다시 눌러 지금 내용을 보고 고쳐 주세요.")
+            return
+        _kept = {k: v for k, v in updates.items() if k in changed}
+        if len(_kept) != len(updates):
+            logger.info(f'[SLACK/공사수정] 직원이 안 바꾼 칸은 쓰지 않음 ({code}): '
+                        f'{sorted(set(updates) - set(_kept))}')
+        updates = _kept
 
     if not updates:
         try:
@@ -15400,9 +15521,14 @@ def apply_project_uncancel_to_slack(code: str, project: dict = None, initial: st
             from dashboard.services.project_slack_notifier import _build_blocks, _thread_permalink
             from dashboard.services.business_license_handler import verify_license_exists
             from dashboard.services.project_service import get_project_records
-            records = get_project_records(force_refresh=True) or []
+            # 캐시 + 넘겨받은 재개 뒤 값. 예전엔 시트를 강제로 다시 읽었는데, 재개 쓰기가 아직 큐에 있어
+            #   총액 0·확정일 빈칸 같은 취소 때 값으로 카드가 그려지고 캐시까지 되돌아갔다 (2026-11-16 점검 A6).
+            #   PM·슬랙 재개는 캐시를 이미 고쳐 두고, 리컨사일러는 시트에서 읽은 행을 넘긴다.
+            records = get_project_records() or []
             latest = next((r for r in records
-                           if (r.get('프로젝트 코드') or '').strip() == code), None) or (project or {})
+                           if (r.get('프로젝트 코드') or '').strip() == code), None) or {}
+            if project:
+                latest = {**latest, **project}
             try:
                 license_attached = verify_license_exists(code)
             except Exception:

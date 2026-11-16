@@ -377,6 +377,10 @@ def perform_edit(
     project = _load_project(code)
     if not project:
         return {'ok': False, 'reason': 'not_found'}
+    # 취소된 공사는 슬랙 수정으로 고치지 않음 (PM 은 관리자만 허용). 2026-11-16 점검 A7
+    from dashboard.services.project_state import spec_cancelled
+    if spec_cancelled(project.get('수금 관련 특이사항')):
+        return {'ok': False, 'reason': 'already_cancelled'}
 
     manager, sheet_id, sheet_name = _get_sheet_context()
     row_number = _find_row_number(manager, sheet_id, sheet_name, code)
