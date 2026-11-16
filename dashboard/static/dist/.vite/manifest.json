@@ -51,7 +51,7 @@
     ]
   },
   "js/pages/project-list.js": {
-    "file": "js/project-list.CLLfBf2w.js",
+    "file": "js/project-list.DkA3WDXp.js",
     "name": "project-list",
     "src": "js/pages/project-list.js",
     "isEntry": true,
@@ -61,6 +61,7 @@
       "_vendor.BVEW5EMY.js"
     ],
     "dynamicImports": [
+      "_components.BMPeLaTi.js",
       "_components.BMPeLaTi.js",
       "_components.BMPeLaTi.js",
       "_components.BMPeLaTi.js",

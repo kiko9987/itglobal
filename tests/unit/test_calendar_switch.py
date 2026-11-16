@@ -35,3 +35,19 @@ def test_disabled_calls_are_noop(monkeypatch):
     assert cs.create_project_calendar_event({'프로젝트 코드': 'R4015-SJ'}) is None
     cs.update_project_calendar_event({'프로젝트 코드': 'R4015-SJ'})
     cs.delete_project_calendar_event('R4015-SJ')
+
+
+def test_manual_sync_button_when_paused_returns_notice(monkeypatch):
+    """연동을 꺼 둔 동안 [캘린더 동기화] 단추: 동기화는 안 돌고 '실패'가 아닌 안내만 (부장님 결정 11-17)."""
+    from flask import Flask
+    from dashboard.blueprints import projects
+    monkeypatch.setenv('GOOGLE_CALENDAR_ENABLED', 'false')
+    view = projects.manual_calendar_sync
+    while hasattr(view, '__wrapped__'):          # 관리자 검사(@admin_required)는 따로 시험함 — 여기선 본문만
+        view = view.__wrapped__
+    with Flask(__name__).test_request_context('/api/projects/calendar/sync', method='POST'):
+        resp = view()
+    data = resp.get_json()
+    assert resp.status_code == 200
+    assert data['disabled'] is True and data['success'] is False
+    assert data['message'] == projects.CALENDAR_PAUSED_MESSAGE

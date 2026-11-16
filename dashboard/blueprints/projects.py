@@ -4153,6 +4153,9 @@ def resume_project_api():
 
 
 
+CALENDAR_PAUSED_MESSAGE = '캘린더 연동은 잠시 꺼 두었어요. 다시 켜면 이 단추로 동기화할 수 있어요.'
+
+
 @projects_bp.route('/api/projects/calendar/sync', methods=['POST'])
 @admin_required   # 공사 날짜를 지울 수 있는 동작 — 관리자만 (2026-11-13 보안 점검, 예전엔 로그인만)
 def manual_calendar_sync():
@@ -4160,7 +4163,9 @@ def manual_calendar_sync():
     from dashboard.services.calendar_service import is_calendar_enabled
     if not is_calendar_enabled():
         # 연동을 꺼 둔 동안엔 버튼으로도 돌지 않게 (예전엔 스위치가 5분 동기화만 막았음)
-        return jsonify({'success': False, 'error': '캘린더 연동이 꺼져 있어 동기화하지 않습니다.'}), 400
+        # 단추는 나중에 다시 켤 때를 위해 남겨 두고, 누르면 '실패'가 아니라 안내만 (부장님 결정 11-17)
+        return jsonify({'success': False, 'disabled': True,
+                        'message': CALENDAR_PAUSED_MESSAGE, 'error': CALENDAR_PAUSED_MESSAGE})
     try:
         logger.info(f"[CALENDAR_SYNC] 수동 동기화 시작 - 사용자: {session.get('user', {}).get('email', 'unknown')}")
 

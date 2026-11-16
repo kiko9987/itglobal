@@ -240,6 +240,16 @@ export function exposeGlobalAPI(app) {
 
         const data = await response.json();
 
+        // 연동을 꺼 둔 동안: 단추는 남기고 안내만 (부장님 결정 11-17) — '실패' 표시·경고 알림 대신
+        if (data.disabled) {
+          if (btn) buttonStateManager.reset(btn);
+          try {
+            const { default: Toast } = await import('../components/Toast.js');
+            new Toast().show(data.message || '캘린더 연동은 잠시 꺼 두었어요.', 'info', 5000);
+          } catch (_) { /* 알림 실패는 무시 */ }
+          return;
+        }
+
         if (!data.success) {
           throw new Error(data.error || '동기화에 실패했습니다.');
         }
