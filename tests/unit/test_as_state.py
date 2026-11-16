@@ -156,5 +156,32 @@ def test_cancel_submission(env, monkeypatch):
     assert told and '취소할 수 없는 상태' in told[-1]
 
 
+def _pm_cancel(monkeypatch, body):
+    from flask import Flask
+    import dashboard.blueprints.as_mgmt as am
+    synced = []
+    monkeypatch.setattr(am, '_sync_slack', lambda no, **k: synced.append(k.get('override')))
+    monkeypatch.setattr(am, '_current_initial', lambda: 'KK')
+    app = Flask(__name__)
+    with app.test_request_context(json=body):
+        resp = am.api_cancel_as.__wrapped__('AS-0111')
+    resp = resp[0] if isinstance(resp, tuple) else resp
+    return resp.status_code, resp.get_json(), synced
+
+
+def test_pm_cancel(env, monkeypatch):
+    """PM 화면 [요청 취소] — 슬랙과 같은 전이·이력·카드 갱신 (2026-11-16)."""
+    code, js, synced = _pm_cancel(monkeypatch, {'reason': '중복 요청'})
+    assert code == 200 and env.writes[-1] == {'L': svc.STATUS_CANCELLED}
+    assert synced[-1]['진행 상태'] == svc.STATUS_CANCELLED and '요청 취소 — 중복 요청' in synced[-1]['조치 내용']
+    code, js, _ = _pm_cancel(monkeypatch, {'reason': '또'})                             # 이미 취소 → 409
+    assert code == 409 and '취소할 수 없는 상태' in js['error']['message']
+
+
+def test_pm_cancel_needs_reason(env, monkeypatch):
+    code, js, synced = _pm_cancel(monkeypatch, {'reason': '  '})
+    assert code == 400 and env.writes == [] and synced == []
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))

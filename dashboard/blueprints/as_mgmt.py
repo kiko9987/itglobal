@@ -314,3 +314,34 @@ def api_complete_as(as_no):
             message='조치 완료 중 오류가 발생했습니다',
             error_code=APIErrorCode.INTERNAL_ERROR, status_code=500,
         )
+
+
+@as_bp.route('/cancel/<as_no>', methods=['POST'])
+@editor_required
+def api_cancel_as(as_no):
+    """요청 취소 (요청됨·접수 완료에서만). body: {reason} — 슬랙 [요청 취소]와 같은 처리 (2026-11-16)."""
+    try:
+        data = request.get_json(silent=True) or {}
+        reason = (data.get('reason') or '').strip()
+        if not reason:
+            return APIResponse.error(message='취소 사유를 적어 주세요',
+                                     error_code=APIErrorCode.VALIDATION_ERROR, status_code=400)
+        ok, why = as_service.transition(as_no, as_service.OPEN_STATUSES, as_service.STATUS_CANCELLED)
+        if not ok:
+            if why in as_service.STATUSES:
+                return APIResponse.error(
+                    message=f'취소할 수 없는 상태입니다 (현재: {why}). 새로고침 후 확인해주세요.',
+                    error_code='AS_STATE_CONFLICT', status_code=409)
+            return APIResponse.error(message=f'요청 취소하지 못했습니다 — {why}',
+                                     error_code=APIErrorCode.INTERNAL_ERROR, status_code=503)
+        new_log = as_service.append_as_log(as_no, f'요청 취소 — {reason}', _current_initial())
+        overr = {'진행 상태': as_service.STATUS_CANCELLED}
+        if new_log is not None:
+            overr['조치 내용'] = new_log
+        _sync_slack(as_no, override=overr)
+        logger.info(f'[AS] PM 요청 취소: {as_no} — {reason}')
+        return APIResponse.success(data={'as_no': as_no})
+    except Exception as exc:
+        logger.error(f'[AS] 요청 취소 실패 ({as_no}): {exc}', exc_info=True)
+        return APIResponse.error(message='요청 취소 중 오류가 발생했습니다',
+                                 error_code=APIErrorCode.INTERNAL_ERROR, status_code=500)

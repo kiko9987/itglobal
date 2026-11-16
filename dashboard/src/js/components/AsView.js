@@ -294,6 +294,19 @@ export default class AsView {
     }, { icon: 'fa-flag-checkered', submitLabel: '조치 완료' });
   }
 
+  /** 요청 취소 — 잘못 올린 요청을 닫음(요청됨·접수 완료에서만). 사유는 메모/이력에 남고 슬랙 카드도 회색으로. */
+  openCancel(asNo) {
+    this._showModal(`A/S 요청 취소 — ${asNo}`, `
+      <div class="mb-2 small text-muted">취소하면 다시 되돌릴 수 없습니다. 같은 현장 A/S가 다시 필요하면 새로 요청해 주세요.</div>
+      <div class="mb-2"><label class="form-label">취소 사유 <span class="text-danger">*</span></label>
+        <textarea id="asCancelReason" class="form-control" rows="3" placeholder="예) 중복 요청 / 고객이 요청 철회 / 다른 현장에 잘못 등록"></textarea></div>
+    `, async (el) => {
+      const reason = el.querySelector('#asCancelReason').value.trim();
+      if (!reason) return '취소 사유를 적어 주세요.';
+      return this._post(`/api/as/cancel/${encodeURIComponent(asNo)}`, { reason });
+    }, { icon: 'fa-ban', submitLabel: '요청 취소' });
+  }
+
   openManualRequest() {
     this._showModal('수동 A/S 요청 (코드 없는 옛 공사)', `
       <div class="mb-2"><label class="form-label">현장 주소 *</label>

@@ -1366,13 +1366,20 @@ export default class ProjectRowAccordion {
       const a = window.asView && window.asView.byCode && window.asView.byCode[String(projectCode || '').trim()];
       const st = a ? String(a['진행 상태'] || '').trim() : '';
       const asNo = a ? a['No'] : '';
+      // 잘못 올린 요청을 닫는 [요청 취소] — 슬랙 A/S 카드와 같은 처리 (2026-11-16)
+      const cancelBtn = `
+      <button type="button" class="btn btn-outline-secondary btn-sm construction-action-btn"
+              title="A/S 요청 취소 (${asNo})"
+              onclick="window.asView && window.asView.openCancel('${asNo}')">
+        <i class="fas fa-ban"></i><span>요청 취소</span>
+      </button>`;
       if (st === '요청됨') {
         return `
       <button type="button" class="btn btn-primary btn-sm construction-action-btn"
               title="A/S 접수 (${asNo})"
               onclick="window.asView && window.asView.openAccept('${asNo}')">
         <i class="fas fa-clipboard-check"></i><span>A/S 접수</span>
-      </button>
+      </button>${cancelBtn}
     `;
       }
       if (st === '접수 완료') {
@@ -1381,7 +1388,7 @@ export default class ProjectRowAccordion {
               title="A/S 조치 완료 (${asNo})"
               onclick="window.asView && window.asView.openComplete('${asNo}')">
         <i class="fas fa-flag-checkered"></i><span>A/S 완료</span>
-      </button>
+      </button>${cancelBtn}
     `;
       }
     }
