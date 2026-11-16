@@ -674,10 +674,12 @@ div.dt-container .bottom {
   /* 프로젝트 코드(종류 배지·코드·복사 아이콘)를 칸 가운데로(부장님 요청 11-16). 그냥 가운데 정렬하면 코드 길이
      (R4296-JSH / R4295-JW)에 따라 시작점이 들쭉날쭉해서, 덩어리를 가장 긴 코드 폭(10.1em ≈ 141px)의 같은 상자에
      넣고 상자는 가운데, 상자 안은 왼쪽부터 → 시작점이 한 줄로 맞으면서 전체는 가운데. */
+  /* 상자를 칸 가운데가 아니라 오른쪽 여백 10px 에 맞춤 — 머리글은 '프로젝트 코드' 글자 + 오른쪽 정렬 화살표가
+     한 묶음이라, 글자 가운데에 맞추면 값이 왼쪽으로 쏠려 보였음(부장님 지적 11-16). 약 10px 오른쪽으로. */
   html body .table-wrapper #projectsTable tbody tr:not(.accordion-row) > td:first-child {
-    text-align: center !important;
+    text-align: right !important;
     padding-left: 8px !important;
-    padding-right: 8px !important;
+    padding-right: 10px !important;
   }
 
   html body .table-wrapper #projectsTable tbody tr:not(.accordion-row) > td:first-child .code-with-copy {
