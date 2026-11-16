@@ -372,10 +372,10 @@ export default class UserModal {
       let html = '<tr>';
 
       // 사용자 이름
-      html += `<td class="text-center">${user.name}</td>`;
+      html += `<td class="text-center">${escHtml(user.name || '')}</td>`;
 
       // 이메일
-      html += `<td class="text-center">${user.email}</td>`;
+      html += `<td class="text-center">${escHtml(user.email || '')}</td>`;
 
       // 권한 드롭다운
       html += '<td class="text-center">';
@@ -410,6 +410,7 @@ export default class UserModal {
                  class="form-control form-control-sm project-code-display-input"
                  data-user-email="${userEmailEscaped}"
                  placeholder="-"
+                 aria-label="${safeName} 프로젝트 코드 접미사"
                  maxlength="3"
                  style="max-width: 50px; font-size: 0.8rem; padding: 0.2rem 0.4rem; text-transform: uppercase; background-color: #e9ecef; color: #6c757d; border-color: #ced4da;"
                  disabled
@@ -417,8 +418,9 @@ export default class UserModal {
           <button class="btn btn-sm btn-outline-primary edit-project-code-btn"
                   data-user-email="${userEmailEscaped}"
                   title="접미사 수정"
+                  aria-label="접미사 수정"
                   style="display: none; padding: 0.15rem 0.4rem;">
-            <i class="fas fa-edit fa-xs"></i>
+            <i class="fas fa-edit fa-xs" aria-hidden="true"></i>
           </button>
 
           <!-- 편집 모드 (숨김) -->
@@ -426,20 +428,23 @@ export default class UserModal {
                  class="form-control form-control-sm project-code-suffix-input"
                  data-user-email="${userEmailEscaped}"
                  placeholder="접미사"
+                 aria-label="${safeName} 프로젝트 코드 접미사"
                  maxlength="3"
                  style="max-width: 50px; font-size: 0.8rem; padding: 0.2rem 0.4rem; text-transform: uppercase; display: none;"
                  disabled>
           <button class="btn btn-sm btn-success save-project-code-btn"
                   data-user-email="${userEmailEscaped}"
                   title="저장"
+                  aria-label="저장"
                   style="display: none; padding: 0.15rem 0.4rem;">
-            <i class="fas fa-check fa-xs"></i>
+            <i class="fas fa-check fa-xs" aria-hidden="true"></i>
           </button>
           <button class="btn btn-sm btn-secondary cancel-project-code-btn"
                   data-user-email="${userEmailEscaped}"
                   title="취소"
+                  aria-label="취소"
                   style="display: none; padding: 0.15rem 0.4rem;">
-            <i class="fas fa-times fa-xs"></i>
+            <i class="fas fa-times fa-xs" aria-hidden="true"></i>
           </button>
         </div>
       `;

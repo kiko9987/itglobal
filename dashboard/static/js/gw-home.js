@@ -57,7 +57,7 @@
     if (!A.linked) {
       box.innerHTML = '<div class="gw-empty">' + (A.unavailable
         ? '슬랙 확인이 잠시 안 돼요. 잠시 뒤 새로 고쳐 주세요.'
-        : '인사카드에 슬랙 계정이 연결되지 않아 결재를 찾지 못했습니다.') + '</div>';
+        : '인사카드에 슬랙 계정이 연결되지 않아 결재를 볼 수 없어요. 경영지원에 연결을 요청해 주세요.') + '</div>';
       return;
     }
     function list(rows, empty) {
@@ -80,7 +80,7 @@
   // ── 내 휴가 ──────────────────────────────────────
   function renderLeave(L) {
     var box = el('homeLeave');
-    if (!L) { box.innerHTML = '<div class="gw-empty">인사카드가 연결되지 않았습니다.</div>'; return; }
+    if (!L) { box.innerHTML = '<div class="gw-empty">내 계정에 연결된 인사카드가 없어 휴가를 볼 수 없어요. 경영지원에 연결을 요청해 주세요.</div>'; return; }
     var h = '<div class="gw-home-big"><span class="k">남은 연차</span><span class="v">' + (L.balance == null ? '-' : days(L.balance)) + '</span></div>';
     if (L.grants && L.grants.length) {
       var g = L.grants[0];
@@ -166,7 +166,15 @@
         '<button type="button" class="gw-todo-close" aria-label="' + esc(t.title) + ' 닫기">닫기</button>';
       card.querySelector('.gw-todo-close').addEventListener('click', function () {
         hideTodo(t);
+        // 누른 단추가 사라지며 포커스가 페이지 맨 앞으로 튀던 것(11-16 점검) → 다음 카드 닫기, 없으면 이전, 없으면 화면 제목
+        var near = card.nextElementSibling || card.previousElementSibling;
         card.remove();
+        var to = near && near.querySelector('.gw-todo-close');
+        if (!to) {
+          to = document.querySelector('.gw-page-title');
+          if (to && !to.hasAttribute('tabindex')) to.setAttribute('tabindex', '-1');
+        }
+        if (to) to.focus();
       });
       box.appendChild(card);
     });
@@ -175,7 +183,7 @@
   // ── 이번 달 영업: 숫자 칸 → 날짜별 막대 ──────────────────
   var METRICS = [
     { key: 'inquiry', label: '문의', goal: true },
-    { key: 'visit', label: '방문 잡음', goal: true },
+    { key: 'visit', label: '방문 예약', goal: true },
     { key: 'contract', label: '계약', goal: false }
   ];
   var salesData = null;
@@ -267,10 +275,13 @@
       if (m.key === 'contract' && d.amount) line += ' · ' + won(d.amount);
       if (!d.workday) line += ' (휴일)';
       tip.textContent = line;
+      tip.style.display = 'block';   // 폭을 재려면 먼저 보이게
       var br = svgEl.getBoundingClientRect(), bb = box.getBoundingClientRect(), rb = r.getBoundingClientRect();
-      tip.style.left = (rb.left - bb.left + rb.width / 2) + 'px';
+      // 말풍선은 가운데 기준(translate -50%)이라 첫날·마지막 날에선 반쯤 칸 밖으로 잘렸다(11-16 점검) → 칸 안으로 제한
+      var half = tip.offsetWidth / 2, cx = rb.left - bb.left + rb.width / 2;
+      var lo = half + 4, hi = box.clientWidth - half - 4;
+      tip.style.left = (hi < lo ? box.clientWidth / 2 : Math.max(lo, Math.min(hi, cx))) + 'px';
       tip.style.top = (br.top - bb.top + (y(d[m.key]) / H) * br.height - 6) + 'px';
-      tip.style.display = 'block';
     }
     hits.forEach(function (r) {
       var i = Number(r.getAttribute('data-i'));
@@ -293,8 +304,10 @@
   function renderSales() {
     renderSalesTiles();
     renderSalesChart();
-    el('homeSalesNote').textContent = '문의 = 리드 시트 상담 시간 날짜(모든 경로) · 방문 잡음 = 그 문의 중 방문 예약 이후 상태 · ' +
-      '계약 = 공사현황 공사 확정 날짜(취소 제외) · 흐린 막대 = 주말·공휴일 · 5분마다 새로 셈';
+    // 집계 규칙은 services/gw_home.py _sales_counts 와 맞춤: 방문은 문의 행의 상태로 세서 문의 날짜에 들어간다
+    el('homeSalesNote').textContent = '문의는 리드 시트의 상담 날짜 기준이에요(모든 경로). ' +
+      '방문 예약은 그 문의 가운데 방문 예약까지 간 건이고, 문의한 날에 들어가요. ' +
+      '계약은 공사현황의 공사 확정 날짜 기준이며 취소된 공사는 빼요. 흐린 막대는 주말·공휴일이고, 숫자는 5분마다 새로 계산해요.';
   }
 
   if (el('homeSalesTiles')) {

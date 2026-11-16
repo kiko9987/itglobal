@@ -44,8 +44,17 @@
     return '<ul class="gw-ye-files">' + docs.map(function (d) {
       return '<li><i class="fas fa-file-alt" aria-hidden="true"></i> <a href="/api/hr/documents/' + d.id + '?view=1" target="_blank" rel="noopener">' +
         esc(d.file_name) + '</a> <span class="text-muted">' + kb(d.size) + '</span>' +
-        (deletable ? ' <button type="button" class="btn btn-sm btn-link text-danger p-0 ms-1" data-ye-del="' + d.id + '">삭제</button>' : '') + '</li>';
+        (deletable ? ' <button type="button" class="btn btn-sm btn-link text-danger p-0 ms-1" data-ye-del="' + d.id + '" aria-label="' + esc(d.file_name) + ' 삭제">삭제</button>' : '') + '</li>';
     }).join('') + '</ul>';
+  }
+
+  // 저장·제출 결과만 낭독기에 짧게 알림(화면 전체 aria-live 는 다시 그릴 때마다 통째로 읽혀 뺐음).
+  // 같은 말을 연달아 넣어도 다시 읽히게 한 번 비웠다가 넣음
+  function announce(msg) {
+    var sr = document.getElementById('yeSr');
+    if (!sr) return;
+    sr.textContent = '';
+    setTimeout(function () { sr.textContent = msg; }, 60);
   }
 
   function uploader(kind, label, multiple) {
@@ -66,9 +75,17 @@
         .catch(function (e) { box.innerHTML = '<div class="gw-empty">' + esc(e.message) + '</div>'; });
     };
 
-    var save = function (patch) {
-      return api('/api/yearend/me', { method: 'POST', body: patch }).then(function (j) { data = j.ye; render(); })
-        .catch(function (e) { window.alert(e.message); load(); });
+    var submitting = false;   // 제출 중엔 앞서 보낸 저장 결과로 화면을 다시 그리지 않음(늦게 온 응답이 제출 화면을 덮지 않게)
+
+    // quiet: 글 칸 저장 — 화면을 다시 그리지 않음. 칸에서 바로 [제출하기]를 누르면 change(저장)가 먼저 일어나는데,
+    // 그때 다시 그리면 누르던 단추가 바뀌어 클릭이 사라졌음
+    var save = function (patch, quiet) {
+      return api('/api/yearend/me', { method: 'POST', body: patch }).then(function (j) {
+        if (submitting) return;
+        data = j.ye;
+        if (!quiet) render();
+        announce('저장했어요.');
+      }).catch(function (e) { if (submitting) return; window.alert(e.message); load(); });
     };
 
     var guideBulk = '<ol class="gw-ye-steps">' +
@@ -146,8 +163,14 @@
         h += '<div class="gw-panel">';
         if (editable) {
           var probs = v.problems || [];
-          h += probs.length ? '<ul class="gw-ye-probs">' + probs.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ul>' :
-            '<p class="gw-panel-desc">다 됐어요. 제출하면 경영지원이 확인해요.</p>';
+          // '바뀐 내용을 적어 주세요'는 서버가 맨 마지막에 넣음 → 글을 치는 동안 화면에서 바로 지우고 [제출하기]를 켜려고 표시해 둠
+          // (내용이 이미 있으면 숨긴 채로 하나 넣어 둬, 다 지웠을 때 다시 보이게)
+          var famProb = s.family_status === 'changed' && !(s.family_note || '').trim();
+          h += '<ul class="gw-ye-probs" id="yeProbs"' + (probs.length ? '' : ' hidden') + '>' + probs.map(function (p, i) {
+            return '<li' + (famProb && i === probs.length - 1 ? ' data-ye-prob="famnote"' : '') + '>' + esc(p) + '</li>';
+          }).join('') +
+            (s.family_status === 'changed' && !famProb ? '<li data-ye-prob="famnote" hidden>바뀐 부양가족 내용을 적어 주세요.</li>' : '') + '</ul>' +
+            '<p class="gw-panel-desc" id="yeReady"' + (probs.length ? ' hidden' : '') + '>다 됐어요. 제출하면 경영지원이 확인해요.</p>';
           h += '<button type="button" class="btn btn-primary" id="yeSubmit"' + (probs.length ? ' disabled' : '') + '>제출하기</button>';
         } else if (s.status === 'submitted') {
           h += '<p class="gw-panel-desc">' + esc(md(s.submitted_at)) + '에 제출했어요. 경영지원이 확인 중이에요.</p>' +
@@ -179,8 +202,11 @@
       if (!editable) {
         var ro = document.getElementById('yeReopen');
         if (ro) ro.addEventListener('click', function () {
-          api('/api/yearend/me/reopen', { method: 'POST' }).then(function (j) { data = j.ye; render(); })
-            .catch(function (e) { window.alert(e.message); });
+          ro.disabled = true;   // 처리 중 두 번 눌리지 않게
+          api('/api/yearend/me/reopen', { method: 'POST' }).then(function (j) {
+            data = j.ye; render();
+            announce('다시 고칠 수 있어요. 고친 뒤 다시 제출해 주세요.');
+          }).catch(function (e) { ro.disabled = false; window.alert(e.message); });
         });
         return;
       }
@@ -197,8 +223,19 @@
       ['yeFamNote', 'yeNote'].forEach(function (id) {
         var el = document.getElementById(id);
         if (el) el.addEventListener('change', function () {
-          var patch = {}; patch[id === 'yeNote' ? 'note' : 'family_note'] = el.value; save(patch);
+          var patch = {}; patch[id === 'yeNote' ? 'note' : 'family_note'] = el.value; save(patch, true);
         });
+      });
+      // 바뀐 부양가족 내용: 치는 동안 '적어 주세요' 안내를 지우고 [제출하기]를 켬(저장은 change·제출 때)
+      var famNote = document.getElementById('yeFamNote');
+      var famLi = box.querySelector('[data-ye-prob="famnote"]');
+      if (famNote && famLi) famNote.addEventListener('input', function () {
+        famLi.hidden = !!famNote.value.trim();
+        var left = Array.prototype.filter.call(box.querySelectorAll('#yeProbs li'), function (li) { return !li.hidden; }).length;
+        var ul = document.getElementById('yeProbs'), ready = document.getElementById('yeReady'), sb = document.getElementById('yeSubmit');
+        if (ul) ul.hidden = !left;
+        if (ready) ready.hidden = !!left;
+        if (sb && !submitting) sb.disabled = !!left;
       });
       box.querySelectorAll('[data-ye-del]').forEach(function (btn) {
         btn.addEventListener('click', function () {
@@ -241,10 +278,14 @@
         var n = document.getElementById('yeNote'); if (n) patch.note = n.value;
         var fn = document.getElementById('yeFamNote'); if (fn) patch.family_note = fn.value;
         sub.disabled = true;
+        submitting = true;
         api('/api/yearend/me', { method: 'POST', body: patch })
           .then(function () { return api('/api/yearend/me/submit', { method: 'POST' }); })
-          .then(function (j) { data = j.ye; render(); })
-          .catch(function (e) { window.alert(e.message); load(); });
+          .then(function (j) {
+            submitting = false; data = j.ye; render();
+            announce('제출했어요. 경영지원이 확인해요.');
+          })
+          .catch(function (e) { submitting = false; window.alert(e.message); load(); });
       });
     };
 
@@ -312,6 +353,8 @@
   };
 
   var post = function (url, body) { return api(url + (url.indexOf('?') < 0 ? '?year=' + A.year : ''), { method: 'POST', body: body }); };
+  // 다시 불러온 뒤 결과를 낭독기에 짧게
+  var reloadSay = function (msg) { return function () { return loadAdmin().then(function () { announce(msg); }); }; };
 
   var bindAdmin = function () {
     document.getElementById('yeSaveSeason').addEventListener('click', function () {
@@ -322,14 +365,14 @@
       if (st === 'closed' && A.season.status !== 'closed' && !window.confirm('연말정산 자료 받기를 마감합니다. 직원들은 더 이상 제출하거나 고칠 수 없어요. 계속할까요?')) return;
       sb.disabled = true;
       post('/api/yearend/admin/season', { status: st, due_date: document.getElementById('yeDue').value, notice: document.getElementById('yeNotice').value })
-        .then(loadAdmin).catch(function (e) { sb.disabled = false; window.alert(e.message); });
+        .then(reloadSay('저장했어요.')).catch(function (e) { sb.disabled = false; window.alert(e.message); });
     });
     var nb = document.getElementById('yeNotify');
     if (nb) nb.addEventListener('click', function () {
-      if (!window.confirm('아직 제출하지 않았거나 보완 요청을 받은 직원에게 슬랙 알림을 보냅니다.')) return;
+      if (!window.confirm('아직 제출하지 않았거나 보완 요청을 받은 직원에게 슬랙 알림을 보낼까요?')) return;
       nb.disabled = true;
       post('/api/yearend/admin/notify', {}).then(function (j) {
-        window.alert('보냄 ' + j.sent.length + '명' + (j.skipped.length ? '\n못 보냄(슬랙 연결 없음): ' + j.skipped.join(', ') : ''));
+        window.alert(j.sent.length + '명에게 알림을 보냈어요.' + (j.skipped.length ? '\n슬랙이 연결되지 않아 못 보낸 사람: ' + j.skipped.join(', ') : ''));
         nb.disabled = false;
       }).catch(function (e) { window.alert(e.message); nb.disabled = false; });
     });
@@ -342,7 +385,7 @@
       b.addEventListener('click', function () {
         if (!window.confirm(b.getAttribute('data-name') + ' 님 자료 확인을 마치고 「완료」로 바꿀까요?')) return;
         busyRow(b, true);
-        post('/api/yearend/admin/' + b.getAttribute('data-done') + '/status', { status: 'done' }).then(loadAdmin)
+        post('/api/yearend/admin/' + b.getAttribute('data-done') + '/status', { status: 'done' }).then(reloadSay(b.getAttribute('data-name') + ' 님을 완료로 바꿨어요.'))
           .catch(function (e) { busyRow(b, false); window.alert(e.message); });
       });
     });
@@ -350,7 +393,7 @@
       b.addEventListener('click', function () {
         if (!window.confirm(b.getAttribute('data-name') + ' 님을 「제출」 상태로 되돌릴까요?')) return;
         busyRow(b, true);
-        post('/api/yearend/admin/' + b.getAttribute('data-undone') + '/status', { status: 'submitted' }).then(loadAdmin)
+        post('/api/yearend/admin/' + b.getAttribute('data-undone') + '/status', { status: 'submitted' }).then(reloadSay(b.getAttribute('data-name') + ' 님을 제출 상태로 되돌렸어요.'))
           .catch(function (e) { busyRow(b, false); window.alert(e.message); });
       });
     });
@@ -362,7 +405,7 @@
         post('/api/yearend/admin/' + b.getAttribute('data-return') + '/status', { status: 'returned', reason: reason })
           .then(function (j) {
             if (j.notified === false) window.alert('보완 요청은 저장했지만 슬랙 알림은 못 보냈어요. 직원에게 직접 알려 주세요.');
-            loadAdmin();
+            reloadSay('보완 요청을 저장했어요.')();
           })
           .catch(function (e) { busyRow(b, false); window.alert(e.message); });
       });
@@ -383,7 +426,10 @@
         inp.value = '';
         busyRow(inp, true);
         api('/api/yearend/admin/' + inp.getAttribute('data-result') + '/result?year=' + A.year, { method: 'POST', form: fd })
-          .then(function (j) { if (!j.notified) window.alert('업로드했어요. 슬랙 알림은 보내지 못했어요(슬랙 연결 없음).'); loadAdmin(); })
+          .then(function (j) {
+            if (!j.notified) window.alert('업로드했어요. 슬랙이 연결되지 않아 알림은 못 보냈어요.');
+            reloadSay(inp.getAttribute('data-name') + ' 님 영수증을 올렸어요.')();
+          })
           .catch(function (e) { busyRow(inp, false); window.alert(e.message); });
       });
     });

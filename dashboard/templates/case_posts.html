@@ -43,6 +43,8 @@
   .cp-thumb .cp-mask { position: absolute; top: 4px; left: 4px; background: #fa5252; color: #fff; font-size: .7rem; border-radius: 6px; padding: 1px 5px; }
   .cp-thumb .cp-pdf { height: 110px; display: flex; align-items: center; justify-content: center; font-size: 2rem; color: #e03131; }
   .cp-field label { font-size: .8rem; font-weight: 700; color: #495057; display: flex; justify-content: space-between; align-items: center; margin: 10px 0 4px; }
+  .cp-field .cp-field-head { font-size: .8rem; font-weight: 700; color: #495057; display: flex; justify-content: space-between; align-items: center; margin: 10px 0 4px; }
+  .cp-field .cp-field-head label { display: inline; margin: 0; font-size: inherit; }
   .cp-field textarea, .cp-field input { width: 100%; border: 1px solid #ced4da; border-radius: 6px; padding: 8px; font-size: .92rem; line-height: 1.6; }
   .cp-field textarea.cp-body { min-height: 320px; }
   .cp-tabs { display: flex; gap: 6px; border-bottom: 1px solid #dee2e6; margin-bottom: 6px; }
@@ -56,6 +58,11 @@
   @media (max-width: 576px) {
     .cp-wrap { padding: 8px 10px 60px; }
     .cp-jobs .cp-hide-sm { display: none; }
+  }
+  /* 휴대폰 누를 자리 44px — 검색칸·[접수하기]·목록 새로고침이 35~38px 이었음 (11-16 최종 점검) */
+  @media (max-width: 767.98px) {
+    #cpSearch { min-height: 44px; }
+    #cpSubmit, #cpReload { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; }
   }
 </style>
 {% endblock %}
@@ -419,15 +426,17 @@
     box.append(acts);
   }
   function field(label, key, value, kind) {
+    const id = 'cpf-' + key.replace(/\./g, '-');
     const input = kind === 'input'
-      ? el('input', { type: 'text', 'data-key': key })
-      : el('textarea', { class: 'cp-body', 'data-key': key });
+      ? el('input', { type: 'text', id, 'data-key': key })
+      : el('textarea', { class: 'cp-body', id, 'data-key': key });
     input.value = value || '';
     const counter = el('span', { class: 'cp-count', text: (value || '').length + '자' });
     input.addEventListener('input', () => { counter.textContent = input.value.length + '자'; state.dirty = true; });
     return el('div', { class: 'cp-field' },
-      el('label', {}, el('span', {}, label + ' ', counter),
-        el('button', { type: 'button', class: 'btn btn-sm btn-outline-primary', onclick: (e) => copyText(input.value, e.currentTarget) }, el('i', { class: 'far fa-copy me-1' }), '복사')),
+      // 이름표는 입력칸과 for/id 로 잇고, [복사] 단추는 이름표 밖(같은 줄)에 둔다
+      el('div', { class: 'cp-field-head' }, el('span', {}, el('label', { for: id, text: label }), ' ', counter),
+        el('button', { type: 'button', class: 'btn btn-sm btn-outline-primary', 'aria-label': label + ' 복사', onclick: (e) => copyText(input.value, e.currentTarget) }, el('i', { class: 'far fa-copy me-1', 'aria-hidden': 'true' }), '복사')),
       input);
   }
   function listBlock(title, items, empty) {

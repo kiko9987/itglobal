@@ -17,10 +17,11 @@
     {% endif %}
   </div>
   {% if person_id %}
-  <div id="lvFlash" class="gw-lv-flash" role="status" aria-live="polite" hidden></div>
-  <div id="lvMine" aria-live="polite"><div class="gw-empty">불러오는 중…</div></div>
+  {# tabindex -1: 휴가 취소 뒤 포커스를 결과 안내로 옮김. 화면 전체 aria-live 는 다시 그릴 때마다 통째로 읽혀서 뺌(11-16) #}
+  <div id="lvFlash" class="gw-lv-flash" role="status" aria-live="polite" tabindex="-1" hidden></div>
+  <div id="lvMine"><div class="gw-empty">불러오는 중…</div></div>
   {% else %}
-  <div class="gw-empty gw-empty-box">아직 인사카드가 연결되지 않았습니다. 경영지원에 문의해 주세요.</div>
+  <div class="gw-empty gw-empty-box">아직 인사카드가 연결되지 않았어요. 경영지원에 말씀해 주세요.</div>
   {% endif %}
 </div>
 

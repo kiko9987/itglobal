@@ -66,21 +66,34 @@
     }).catch(function (e) { showErr('gwPilotError', e.message); });
   }
 
+  // 성공하면 true, 실패하면 false 로 끝남 — [추가]는 성공했을 때만 입력칸을 비움(실패하면 친 메일이 그대로 남게)
   function setPilot(email, on) {
     showErr('gwPilotError', '');
-    api('/api/gw/pilots', { email: email, on: on }).then(function (j) {
+    return api('/api/gw/pilots', { email: email, on: on }).then(function (j) {
       data.pilots = j.pilots;
       data.open_all = j.open_all;
       render();
-    }).catch(function (e) { showErr('gwPilotError', e.message); });
+      return true;
+    }).catch(function (e) { showErr('gwPilotError', e.message); return false; });
   }
 
   function saveRole(key, emails) {
     showErr(ROLE_ERR[key], '');
-    api('/api/gw/roles', { key: key, emails: emails }).then(function (j) {
+    return api('/api/gw/roles', { key: key, emails: emails }).then(function (j) {
       data[key] = j[key];
       render();
-    }).catch(function (e) { showErr(ROLE_ERR[key], e.message); });
+      return true;
+    }).catch(function (e) { showErr(ROLE_ERR[key], e.message); return false; });
+  }
+
+  // [추가] 처리 중엔 단추를 잠그고, 성공한 뒤에만 칸을 비움
+  function addFlow(btn, input, req) {
+    btn.disabled = true;
+    req.then(function (ok) {
+      btn.disabled = false;
+      if (ok) input.value = '';
+      else input.focus();
+    });
   }
 
   function valid(email) {
@@ -91,8 +104,7 @@
     var input = document.getElementById('gwPilotInput');
     var email = input.value.trim().toLowerCase();
     if (!valid(email)) { showErr('gwPilotError', '이메일을 정확히 입력하세요.'); input.focus(); return; }
-    input.value = '';
-    setPilot(email, true);
+    addFlow(this, input, setPilot(email, true));
   });
   document.getElementById('gwPilotInput').addEventListener('input', function () { showErr('gwPilotError', ''); });
 
@@ -103,8 +115,7 @@
       var email = input.value.trim().toLowerCase();
       if (!valid(email)) { showErr(ROLE_ERR[key], '이메일을 정확히 입력하세요.'); input.focus(); return; }
       if (data[key].indexOf(email) !== -1) { showErr(ROLE_ERR[key], '이미 들어 있어요.'); input.focus(); return; }
-      input.value = '';
-      saveRole(key, data[key].concat([email]));
+      addFlow(btn, input, saveRole(key, data[key].concat([email])));
     });
   });
 

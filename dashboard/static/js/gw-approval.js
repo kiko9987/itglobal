@@ -37,6 +37,7 @@
             : '처리하지 못했어요. 잠시 뒤 다시 해 주세요. (오류 ' + r.status + ')';
           var err = new Error(j.message || j.error || fallback);
           err.stale = !!j.stale;
+          err.status = r.status;
           throw err;
         }
         return j;
@@ -98,7 +99,7 @@
     else if (!e.shiftKey && cur === last) { e.preventDefault(); first.focus(); }
   }
   // 반려·수정 요청 사유를 적던 중에 바깥·✕·Esc 로 닫으면 글이 말없이 사라졌음 → 한 번 묻는다(11-16 점검).
-  // 사유 칸이 닫혀 있거나(보냄·[취소]) 비어 있으면 묻지 않음
+  // 사유 칸이 닫혀 있거나(보냄·[닫기]) 비어 있으면 묻지 않음
   function reasonPending() {
     var box = $('apReason'), t = $('apReasonText');
     return !!(box && !box.hidden && t && t.value.trim());
@@ -115,12 +116,24 @@
     });
   }
 
+  // 칸 값 — 줄이 http(s):// 로 시작하면 그 주소를 누를 수 있는 링크로(비품 신청 '상품 링크', 11-16 점검).
+  // javascript: 같은 다른 주소는 글자 그대로. 주소·글자 모두 esc() 를 거친다
+  function valueHtml(v) {
+    return String(v == null ? '' : v).split('\n').map(function (line) {
+      var m = /^(\s*)(https?:\/\/\S+)(.*)$/i.exec(line);
+      if (m) {
+        return esc(m[1]) + '<a href="' + esc(m[2]) + '" target="_blank" rel="noopener">' + esc(m[2]) + '</a>' + esc(m[3]);
+      }
+      return esc(line);
+    }).join('<br>');
+  }
+
   function fieldsHtml(fields) {
     if (!fields || !fields.length) return '<div class="gw-log">적힌 칸이 없어요.</div>';
     var h = '<dl class="gw-dl gw-dl-1col">';
     fields.forEach(function (f) {
       if (f.section) h += '</dl><div class="gw-ap-section">' + esc(f.section) + '</div><dl class="gw-dl gw-dl-1col">';
-      h += '<div' + (f.wide ? ' class="gw-dl-wide"' : '') + '><dt>' + esc(f.label) + '</dt><dd>' + esc(f.value).replace(/\n/g, '<br>') + '</dd></div>';
+      h += '<div' + (f.wide ? ' class="gw-dl-wide"' : '') + '><dt>' + esc(f.label) + '</dt><dd>' + valueHtml(f.value) + '</dd></div>';
     });
     return h + '</dl>';
   }
@@ -184,11 +197,16 @@
     }
 
     var timer = null;
+    // 요청 번호 — 탭·필터를 빨리 바꾸면 먼저 보낸 요청의 응답이 늦게 와서 지금 고른 탭을 덮어쓰던 것(11-16 점검).
+    // 마지막으로 보낸 요청의 응답만 그린다
+    var listSeq = 0;
     function load() {
       setTabs();
       var f = filters();
       $('apExcel').href = '/api/approval/export.xlsx?' + qs(f);
+      var seq = ++listSeq;
       api('/api/approval/list?' + qs(f)).then(function (j) {
+        if (seq !== listSeq) return;
         state.box = j.box;
         $('apCntTodo').textContent = j.counts.todo;
         $('apCntMine').textContent = j.counts.mine;
@@ -207,6 +225,7 @@
         setTabs();
         renderRows(j.items);
       }).catch(function (e) {
+        if (seq !== listSeq) return;
         $('apRows').innerHTML = '<tr><td colspan="8" class="gw-empty">' + esc(e.message) + '</td></tr>';
       });
     }
@@ -219,7 +238,10 @@
         return;
       }
       $('apRows').innerHTML = items.map(function (it) {
-        return '<tr data-id="' + it.id + '" tabindex="0"' + (it.my_turn ? ' class="my-turn"' : '') + '>' +
+        // 줄 전체가 누르는 자리 — 화면 읽기엔 '단추'로, 이름은 번호·내용·상태(Enter·Space 로 열림, 아래 keydown)
+        var label = '결재 #' + it.id + ' ' + (it.what || it.form_label || '') + ', ' + (it.status_label || '') +
+          (it.my_turn ? ', 내 차례' : '') + ' 열기';
+        return '<tr data-id="' + it.id + '" tabindex="0" role="button" aria-label="' + esc(label) + '"' + (it.my_turn ? ' class="my-turn"' : '') + '>' +
           '<td class="muted">#' + it.id + '</td>' +
           '<td>' + esc(it.form_label) + '</td>' +
           '<td class="main">' + (it.urgent ? '<span class="gw-badge gw-badge-urgent">긴급</span> ' : '') + esc(it.what) + '</td>' +
@@ -301,7 +323,8 @@
             (warnedPrimary ? '<span class="visually-hidden"> (경고 있음)</span>' : '') + '</button>';
         }).join('') + '</div>' +
         '<div class="gw-ap-reason" id="apReason" hidden><textarea class="form-control" rows="3" maxlength="300" id="apReasonText" aria-label="사유"></textarea>' +
-        '<div class="gw-ap-reason-btns"><button type="button" class="btn btn-sm btn-outline-secondary" id="apReasonCancel">취소</button>' +
+        // 사유 칸 닫기 — '취소'는 결재 [취소] 처리와 헷갈려서 [닫기](11-16 점검)
+        '<div class="gw-ap-reason-btns"><button type="button" class="btn btn-sm btn-outline-secondary" id="apReasonCancel">닫기</button>' +
         '<button type="button" class="btn btn-sm btn-primary" id="apReasonOk">보내기</button></div></div>' +
         '<div class="gw-form-error" id="apActError" role="alert"></div>';
       }
@@ -369,7 +392,7 @@
         }
         send(pending, r);
       });
-      // 처리 중엔 사유 칸의 [보내기]·[취소]도 막음 — 처리 단추만 막아 두 번 누르면 두 번째에 '이미 처리된 결재' 오류가 떴음
+      // 처리 중엔 사유 칸의 [보내기]·[닫기]도 막음 — 처리 단추만 막아 두 번 누르면 두 번째에 '이미 처리된 결재' 오류가 떴음
       function lock(on) {
         box.querySelectorAll('button').forEach(function (x) { x.disabled = on; });
         ['apReasonOk', 'apReasonCancel'].forEach(function (id) { var x = $(id); if (x) x.disabled = on; });
@@ -385,11 +408,22 @@
         api('/api/approval/' + d.id + '/act', { method: 'POST', body: { action: act, reason: reason, rev: d.rev } })
           .then(function (j) { renderDoc(j.doc); load(); })
           .catch(function (e) {
-            if (e.stale) {   // 바뀐 내용으로 다시 그리고 안내를 남긴다
+            // 내용이 바뀌었거나(stale) 다른 사람이 먼저 처리해 409 '이미 처리된 결재예요'가 오면 —
+            // 옛 단추가 그대로 남아 또 누르게 되던 것(11-16 점검) → 지금 상태로 다시 그리고 목록도 새로
+            var conflict = e.stale || (e.status === 409 && /^(이미 처리된 결재|지금 단계에서는)/.test(e.message));
+            if (conflict) {
               api('/api/approval/' + d.id).then(function (j) {
                 renderDoc(j.doc);
                 var el = $('apActError');
-                if (el) el.textContent = e.message; else window.alert(e.message);
+                if (el) {
+                  el.textContent = e.message;
+                } else {   // 처리 단추가 없어진 화면 — 안내를 본문 맨 위에
+                  var note = document.createElement('div');
+                  note.className = 'gw-ap-warn';
+                  note.setAttribute('role', 'alert');
+                  note.textContent = e.message;
+                  $('apDoc').insertBefore(note, $('apDoc').firstChild);
+                }
                 load();
               }).catch(function () {
                 lock(false);
@@ -414,19 +448,24 @@
   if (arPage) {
     var ar = { page: 1, loaded: false };
     var arTimer = null;
-    function arLoad() {
+    var arSeq = 0;   // 마지막 요청의 응답만 그림(검색어 입력·쪽 넘김이 겹칠 때)
+    // focusDir = 쪽 넘김 단추로 불렀을 때 그 방향('prev'|'next') — 다시 그린 뒤 같은 단추로 포커스(11-16 점검)
+    function arLoad(focusDir) {
       var f = { form: $('arForm').value, from: $('arFrom').value, to: $('arTo').value, q: $('arQ').value.trim(), page: ar.page };
       var q = Object.keys(f).filter(function (k) { return f[k]; }).map(function (k) { return k + '=' + encodeURIComponent(f[k]); }).join('&');
       arPage.querySelector('.gw-ap-filters').classList.toggle('has-active-filters', !!(f.form || f.from || f.to || f.q));
       $('arForm').classList.toggle('on', !!f.form);
+      var seq = ++arSeq;
       api('/api/approval/archive?' + q).then(function (j) {
+        if (seq !== arSeq) return;
         if (!ar.loaded) {
           j.forms.forEach(function (x) { var o = document.createElement('option'); o.value = x; o.textContent = x; $('arForm').appendChild(o); });
           ar.loaded = true;
         }
         $('arCount').textContent = j.total.toLocaleString('ko-KR') + '건';
         $('arRows').innerHTML = j.items.length ? j.items.map(function (it) {
-          return '<tr data-doc="' + esc(it.doc_no) + '" tabindex="0"><td class="muted">' + esc(it.doc_no) + '</td><td>' + esc(it.form) + '</td>' +
+          var label = '문서 ' + (it.doc_no || '') + ' ' + (it.title || '') + ', ' + (it.status || '') + ' 열기';
+          return '<tr data-doc="' + esc(it.doc_no) + '" tabindex="0" role="button" aria-label="' + esc(label) + '"><td class="muted">' + esc(it.doc_no) + '</td><td>' + esc(it.form) + '</td>' +
             '<td class="main">' + esc(it.title) + (it.attachments ? ' <i class="fas fa-paperclip muted" role="img" aria-label="플렉스 첨부 ' + it.attachments + '개" title="플렉스 첨부 ' + it.attachments + '개(파일은 옮기지 않았어요)"></i>' : '') + '</td>' +
             '<td>' + esc(it.project_code || '') + '</td><td>' + esc(it.partner || '') + '</td>' +
             '<td class="num">' + (it.amount ? won(it.amount) : '') + '</td><td>' + esc(it.writer) + '</td>' +
@@ -435,17 +474,25 @@
         }).join('') : '<tr><td colspan="9" class="gw-empty">맞는 문서가 없어요.</td></tr>';
         var pages = Math.max(1, Math.ceil(j.total / j.size));
         $('arPager').innerHTML = pages > 1
-          ? '<button type="button" class="btn btn-sm btn-outline-secondary" data-p="' + (j.page - 1) + '"' + (j.page <= 1 ? ' disabled' : '') + '>이전</button>' +
+          ? '<button type="button" class="btn btn-sm btn-outline-secondary" data-p="' + (j.page - 1) + '" data-dir="prev"' + (j.page <= 1 ? ' disabled' : '') + '>이전</button>' +
             '<span>' + j.page + ' / ' + pages + '</span>' +
-            '<button type="button" class="btn btn-sm btn-outline-secondary" data-p="' + (j.page + 1) + '"' + (j.page >= pages ? ' disabled' : '') + '>다음</button>'
+            '<button type="button" class="btn btn-sm btn-outline-secondary" data-p="' + (j.page + 1) + '" data-dir="next"' + (j.page >= pages ? ' disabled' : '') + '>다음</button>'
           : '';
+        // 쪽을 넘기면 단추가 새로 그려져 포커스가 사라졌음 → 같은 방향 단추로, 끝 쪽이라 막혔으면 반대 단추로
+        if (focusDir) {
+          var same = $('arPager').querySelector('button[data-dir="' + focusDir + '"]:not([disabled])');
+          var other = $('arPager').querySelector('button[data-dir]:not([disabled])');
+          var target = same || other;
+          if (target) target.focus({ preventScroll: true });
+        }
       }).catch(function (e) {
+        if (seq !== arSeq) return;
         $('arRows').innerHTML = '<tr><td colspan="9" class="gw-empty">' + esc(e.message) + '</td></tr>';
       });
     }
     $('arPager').addEventListener('click', function (e) {
       var b = e.target.closest('button[data-p]');
-      if (b && !b.disabled) { ar.page = Number(b.getAttribute('data-p')); arLoad(); }
+      if (b && !b.disabled) { ar.page = Number(b.getAttribute('data-p')); arLoad(b.getAttribute('data-dir')); }
     });
     ['arForm', 'arFrom', 'arTo'].forEach(function (id) { $(id).addEventListener('change', function () { ar.page = 1; arLoad(); }); });
     $('arQ').addEventListener('input', function () { clearTimeout(arTimer); arTimer = setTimeout(function () { ar.page = 1; arLoad(); }, 250); });

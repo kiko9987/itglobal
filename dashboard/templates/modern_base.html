@@ -252,7 +252,7 @@
                                     <tr>
                                         <td class="text-muted">시트에 없는 캘린더 연결</td>
                                         <td class="text-end">
-                                            <span class="badge bg-success" id="orphanedMappingsBadge">0</span>
+                                            <span class="badge bg-secondary" id="orphanedMappingsBadge">-</span>
                                         </td>
                                     </tr>
                                     <tr>
@@ -807,6 +807,7 @@
                     const orphanedCount = result.orphaned_mappings;
                     const orphanedBadge = document.getElementById('orphanedMappingsBadge');
                     orphanedBadge.textContent = orphanedCount;
+                    orphanedBadge.dataset.count = String(orphanedCount);
 
                     // 불일치 매핑에 따른 뱃지 색상 변경
                     orphanedBadge.className = 'badge ';
@@ -846,29 +847,52 @@
                     }
                 } else {
                     console.error('캘린더 매핑 상태 조회 실패:', result.error);
+                    markCalendarMappingUnknown();
                 }
             } catch (error) {
                 console.error('캘린더 매핑 상태 조회 실패:', error);
+                markCalendarMappingUnknown();
             }
         };
+
+        // 조회 실패 시 초록 '0'(문제 없음)으로 남아 있던 것 → 회색 '확인 못 함'
+        function markCalendarMappingUnknown() {
+            const totalEl = document.getElementById('totalMappingsInline');
+            if (totalEl) totalEl.textContent = '-';
+            const badge = document.getElementById('orphanedMappingsBadge');
+            if (badge) {
+                badge.className = 'badge bg-secondary';
+                badge.textContent = '확인 못 함';
+                delete badge.dataset.count;
+            }
+            const warning = document.getElementById('orphanedMappingWarning');
+            if (warning) warning.style.display = 'none';
+        }
 
         // 캘린더 매핑 정리
         window.cleanupCalendarMappings = async function() {
             const cleanupBtn = document.getElementById('calendarCleanupBtn');
             const orphanedBadge = document.getElementById('orphanedMappingsBadge');
-            const orphanedCount = parseInt(orphanedBadge.textContent || '0');
+            const orphanedCount = parseInt(orphanedBadge.dataset.count ?? '', 10);
+
+            // 연결 상태를 못 읽었으면 지울 개수를 모름 → 다시 조회만
+            if (Number.isNaN(orphanedCount)) {
+                showSequenceAlert('확인 필요', '캘린더 연결 상태를 확인하지 못했습니다. 다시 불러온 뒤 눌러 주세요.', 'warning');
+                loadCalendarMappingStatus();
+                return;
+            }
 
             // 불일치 매핑 = 0일 때: 피드백 후 리턴 (아코디언 방식)
             if (orphanedCount === 0) {
-                cleanupBtn.innerHTML = '<i class="fas fa-check me-1"></i>정리 완료';
+                cleanupBtn.innerHTML = '<i class="fas fa-check me-1" aria-hidden="true"></i>지울 연결 없음';
                 setTimeout(() => {
-                    cleanupBtn.innerHTML = '<i class="fas fa-broom me-1"></i>매핑 정리';
+                    cleanupBtn.innerHTML = '<i class="fas fa-broom me-1" aria-hidden="true"></i>캘린더 연결 정리';
                 }, 2000);
                 return;
             }
 
             // 불일치 매핑 > 0일 때: 확인 후 실제 정리 진행
-            if (!confirm('불일치 매핑을 정리하시겠습니까?\n\nGoogle Sheets에 없는 프로젝트 코드의 캘린더 매핑이 삭제됩니다.')) {
+            if (!confirm('시트에 없는 캘린더 연결을 지울까요?\n지운 연결은 되돌릴 수 없어요.')) {
                 return;
             }
 
@@ -888,21 +912,23 @@
 
                 if (result.success) {
                     showSequenceAlert('성공', result.message, 'success');
-                    cleanupBtn.innerHTML = '<i class="fas fa-broom me-1"></i>매핑 정리';
+                    // 성공 뒤에도 단추가 꺼진 채로 남아 다시 누를 수 없었음 → 다시 켬
+                    cleanupBtn.disabled = false;
+                    cleanupBtn.innerHTML = '<i class="fas fa-broom me-1" aria-hidden="true"></i>캘린더 연결 정리';
                     // 1.5초 후 자동 새로고침
                     setTimeout(() => {
                         loadCalendarMappingStatus();
                     }, 1500);
                 } else {
-                    showSequenceAlert('실패', result.message || '매핑 정리에 실패했습니다.', 'danger');
+                    showSequenceAlert('실패', result.message || '캘린더 연결을 지우지 못했습니다.', 'danger');
                     cleanupBtn.disabled = false;
-                    cleanupBtn.innerHTML = '<i class="fas fa-broom me-1"></i>매핑 정리';
+                    cleanupBtn.innerHTML = '<i class="fas fa-broom me-1" aria-hidden="true"></i>캘린더 연결 정리';
                 }
             } catch (error) {
                 console.error('캘린더 매핑 정리 실패:', error);
                 showSequenceAlert('오류', '서버와 통신 중 오류가 발생했습니다.', 'danger');
                 cleanupBtn.disabled = false;
-                cleanupBtn.innerHTML = '<i class="fas fa-broom me-1"></i>매핑 정리';
+                cleanupBtn.innerHTML = '<i class="fas fa-broom me-1" aria-hidden="true"></i>캘린더 연결 정리';
             }
         };
 

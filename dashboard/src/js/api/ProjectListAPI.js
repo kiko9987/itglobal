@@ -54,7 +54,7 @@ export function exposeGlobalAPI(app) {
           try {
             const icon = btn.querySelector('i');
             const iconHtml = icon ? icon.outerHTML : '<i class="fas fa-circle-notch fa-spin me-1"></i>';
-            btn.innerHTML = `${iconHtml}Google Sheets 재로드 중...`;
+            btn.innerHTML = `${iconHtml}시트에서 다시 불러오는 중…`;
           } catch (_) {}
         }
       }, 3000);
@@ -62,7 +62,7 @@ export function exposeGlobalAPI(app) {
       try {
         // 버튼을 로딩 상태로 변경
         if (btn) {
-          buttonStateManager.setLoading(btn, '새로고침 중...');
+          buttonStateManager.setLoading(btn, '새로고침 중…');
         }
 
         // 1단계: 서버 캐시 삭제 (DOM 요소 없이 직접 API 호출)

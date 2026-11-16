@@ -590,7 +590,12 @@ export default class FieldMemoButton {
 
     } catch (error) {
       logger.error('[ERROR] 메모 저장 오류:', error);
-      alert('메모 저장 중 오류가 발생했습니다.');
+      const failMsg = '메모를 저장하지 못했습니다. 잠시 뒤 다시 저장해 주세요.';
+      if (typeof window.showSystemAlert === 'function') {
+        window.showSystemAlert(failMsg, 'error');
+      } else {
+        alert(failMsg);
+      }
     }
   }
 

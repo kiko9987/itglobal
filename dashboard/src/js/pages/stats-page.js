@@ -190,6 +190,7 @@ class StatsManager {
     }
 
     createCharts() {
+        this.labelChartCanvases();
         this.setupManagerColors();
         this.createMonthly2025Chart();
         this.createMonthly2026Chart();
@@ -199,6 +200,20 @@ class StatsManager {
         this.createCompany2026Chart();
         this.createCompanyCompareChart();
         this.createTrendChart();
+    }
+
+    /** 차트 8개 canvas 에 화면 읽기 프로그램용 이름(차트 제목)을 붙임 — 그림만으론 무엇인지 알 수 없었음 */
+    labelChartCanvases() {
+        const ids = ['monthly2025Chart', 'monthly2026Chart', 'personal2025Chart', 'personal2026Chart',
+            'company2025Chart', 'company2026Chart', 'companyCompareChart', 'trendChart'];
+        ids.forEach((id) => {
+            const canvas = document.getElementById(id);
+            if (!canvas) return;
+            const title = canvas.closest('.chart-container')?.querySelector('.chart-title');
+            const name = (title?.textContent || '').replace(/\s+/g, ' ').trim();
+            canvas.setAttribute('role', 'img');
+            if (name) canvas.setAttribute('aria-label', name + ' 차트');
+        });
     }
 
     createMonthly2025Chart() {
@@ -560,6 +575,7 @@ class StatsManager {
                 y: {
                     beginAtZero: true,
                     ticks: {
+                        precision: 0,   // 소수 눈금이 '0억 0억 1억'처럼 겹쳐 보였음 → 억 단위 정수만
                         callback: (value) => Math.floor(value) + '억'
                     }
                 },

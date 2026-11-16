@@ -10,12 +10,13 @@
 <div class="gw-page gw-page-narrow">
   <div class="gw-page-head">
     <h1 class="gw-page-title" id="yeTitle">연말정산</h1>
-    {% if is_hr_admin %}<a class="btn btn-sm btn-outline-secondary" href="/yearend/admin">현황판</a>{% endif %}
+    {% if is_hr_admin %}<a class="btn btn-sm btn-outline-secondary gw-ye-nav" href="/yearend/admin">현황판</a>{% endif %}
   </div>
   {% if person_id %}
-  <div id="yeBox" aria-live="polite"><div class="gw-empty">불러오는 중…</div></div>
+  <div id="yeBox"><div class="gw-empty">불러오는 중…</div></div>
+  <div class="visually-hidden" role="status" id="yeSr"></div>
   {% else %}
-  <div class="gw-empty gw-empty-box">아직 인사카드가 연결되지 않았습니다. 경영지원에 문의해 주세요.</div>
+  <div class="gw-empty gw-empty-box">아직 인사카드가 연결되지 않았어요. 경영지원에 말씀해 주세요.</div>
   {% endif %}
 </div>
 {% endblock %}

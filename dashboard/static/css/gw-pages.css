@@ -120,7 +120,8 @@
   background: #f8fafc;
 }
 
-.gw-list-item[aria-selected="true"] {
+.gw-list-item[aria-selected="true"],
+.gw-list-item[aria-current="true"] {
   background: #fff4ef;
 }
 
@@ -1947,7 +1948,7 @@ body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7
     min-width: 20px;
     padding: 0 6px;
     border-radius: 9999px;
-    background: #ff6f0f;
+    background: #c2410c;   /* #ff6f0f 위 흰 글자 2.8:1 → 5.2:1(11-16 점검) */
     color: #ffffff;
     font-size: 12px;
     line-height: 20px;
@@ -1970,6 +1971,9 @@ body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7
   #arPage .gw-page-head .gw-page-title { flex: 1 1 100%; }
   .gw-ap-tablewrap:has(#arRows) { overflow-x: visible; }
   .gw-ap-table:has(#arRows) { min-width: 0; }
+  /* 표가 display:table 로 남아 폭이 374px(부모 343px)로 늘어 화면이 옆으로 16px 밀리던 것(11-16 운영 실측) */
+  .gw-ap-table:has(#arRows),
+  .gw-ap-table:has(#apRows) { display: block; width: 100%; }
   .gw-ap-table:has(#arRows) thead { display: none; }
   #arRows,
   #arRows tr { display: block; }
@@ -1993,6 +1997,9 @@ body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7
   #arRows tr[data-doc] td:nth-child(5),
   #arRows tr[data-doc] td:nth-child(7),
   #arRows tr[data-doc] td:nth-child(9) { order: 5; font-size: 0.82rem; color: #6b7079; white-space: nowrap; }
+  /* 현장·거래처가 길면(예: 30자 넘는 상호) 한 줄 고정이라 카드 밖으로 2px 넘쳤음 → 이 둘만 줄바꿈 (11-16 실측) */
+  #arRows tr[data-doc] td:nth-child(4),
+  #arRows tr[data-doc] td:nth-child(5) { white-space: normal; overflow-wrap: anywhere; min-width: 0; max-width: 100%; }
   #arRows tr:not([data-doc]) td { display: block; }
 }
 
@@ -2106,6 +2113,29 @@ body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7
     min-height: 44px;
   }
 
+  /* 결재 [승인]·[반려](38px)·사유 [닫기]/[보내기]·보관함 [이전]/[다음]·휴가 달력 ◀ ▶ [이번 달]·
+     머리 [새 결재 (슬랙)] — btn-sm 이라 31~38px 였음(11-16 B급 점검) */
+  .gw-ap-actions .btn,
+  .gw-ap-reason-btns .btn,
+  .gw-ap-pager .btn,
+  .gw-cal-head .btn,
+  .gw-approval .gw-page-actions .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: auto;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* 휴가 창 ✕ 단추 */
+  #lvPersonModal .btn-close,
+  #lvDayModal .btn-close {
+    box-sizing: border-box;
+    width: 44px;
+    height: 44px;
+  }
+
   .gw-chip-select,
   .gw-chip-date,
   .gw-chip-search,
@@ -2148,10 +2178,12 @@ body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7
 .gw-chip button { color: #1e293b; }          /* 설정 화면 칩 × 4.34:1 */
 #lvToday { color: #1d4ed8; }                 /* 휴가 현황 [이번 달] 4.30:1 */
 .gw-doc-act .btn-outline-danger { color: #b91c1c; }   /* 서류 [삭제] 3.76:1(테두리는 그대로) */
-.gw-list-item[aria-selected="true"] .gw-list-sub { color: #475569; }   /* 고른 줄 보조 글자 4.41:1 */
+.gw-list-item[aria-selected="true"] .gw-list-sub,
+.gw-list-item[aria-current="true"] .gw-list-sub { color: #475569; }   /* 고른 줄 보조 글자 4.41:1 */
 
 /* 고른 줄: 바탕색(#fff4ef)만으로는 흰 바탕과 거의 같아 안 보였음 → 왼쪽 굵은 선 */
-.gw-list-item[aria-selected="true"] {
+.gw-list-item[aria-selected="true"],
+.gw-list-item[aria-current="true"] {
   box-shadow: inset 3px 0 0 #2a3038;
 }
 
@@ -2169,4 +2201,90 @@ body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7
     align-items: center;
     min-height: 26px;
   }
+}
+
+/* ── 11-16 B급 점검: 결재함·플렉스 보관함·휴가 ── */
+
+/* 결재 서랍이 열린 동안 뒤 목록이 같이 스크롤되던 것 */
+body.gw-drawer-open {
+  overflow: hidden;
+}
+
+/* 결재 상세 '상품 링크' 같은 긴 주소가 창 밖으로 밀지 않게 */
+.gw-drawer .gw-dl dd a {
+  overflow-wrap: anywhere;
+}
+
+/* 휴가 달력: 휴가자가 있는 날짜 칸은 누르면 그날 목록 창(gw-leave.js openDay) */
+.gw-cal-day.has {
+  cursor: pointer;
+}
+
+.gw-cal-day.has:focus-visible {
+  outline: 2px solid #2a3038;
+  outline-offset: -2px;
+}
+
+@media (hover: hover) {
+  .gw-cal-day.has:hover {
+    background: #fffaf5;
+  }
+}
+
+/* 그날 휴가자 목록 — 다가오는 휴가 카드(.gw-lv-upcoming)와 같은 모양 */
+.gw-lv-day-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gw-lv-day-list li {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+.gw-lv-day-main {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.gw-lv-day-sub {
+  margin-top: 2px;
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+/* ── 11-16 최종 점검 B: 인사·연말정산·설정 ───────────────────────────── */
+/* 설정 칩 × 단추 PC 22px → 24px (휴대폰 44px 는 위 규칙) */
+@media (min-width: 768px) {
+  .gw-chip button { width: 24px; height: 24px; }
+}
+@media (max-width: 767.98px) {
+  /* 구성원·연말정산·현황판 작은 단추 44px */
+  #hrAddBtn,
+  .gw-card-actions .btn,
+  .gw-dev-head .btn,
+  .gw-doc-upload .btn,
+  #yeReopen,
+  #yeSubmit,
+  .gw-ye-nav,
+  .gw-ye-season-form .btn,
+  .gw-ye-actions .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+  }
+  /* 퇴사자 보기 스위치: 줄 전체 44px, 이름표를 눌러도 켜짐 */
+  .gw-list-switch.form-switch { display: flex; align-items: center; gap: 8px; min-height: 44px; padding-left: 0; }
+  .gw-list-switch .form-check-input { float: none; margin: 0; width: 2.5em; height: 1.4em; flex-shrink: 0; }
+  .gw-list-switch .form-check-label { display: flex; align-items: center; min-height: 44px; flex: 1; }
+  /* 연말정산 동의 체크: 이름표가 입력을 감싸므로 줄 높이 44px */
+  .gw-ye-check { min-height: 44px; }
+  .gw-ye-check input[type="checkbox"] { width: 20px; height: 20px; flex-shrink: 0; }
 }

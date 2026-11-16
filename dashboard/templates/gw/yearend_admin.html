@@ -10,9 +10,10 @@
 <div class="gw-page">
   <div class="gw-page-head">
     <h1 class="gw-page-title" id="yeAdminTitle">연말정산 현황</h1>
-    <a class="btn btn-sm btn-outline-secondary" href="/yearend">내 연말정산</a>
+    <a class="btn btn-sm btn-outline-secondary gw-ye-nav" href="/yearend">내 연말정산</a>
   </div>
-  <div id="yeAdmin" aria-live="polite"><div class="gw-empty">불러오는 중…</div></div>
+  <div id="yeAdmin"><div class="gw-empty">불러오는 중…</div></div>
+  <div class="visually-hidden" role="status" id="yeSr"></div>
 </div>
 {% endblock %}
 

@@ -19,12 +19,13 @@
   <section id="lvCalPane" role="tabpanel" aria-labelledby="lvTabCal">
     <div class="gw-cal-head">
       <button type="button" class="btn btn-sm btn-outline-secondary" id="lvPrev" aria-label="이전 달"><i class="fas fa-chevron-left" aria-hidden="true"></i></button>
-      <h2 class="gw-cal-title" id="lvMonthTitle"></h2>
+      <h2 class="gw-cal-title" id="lvMonthTitle" aria-live="polite"></h2>
       <button type="button" class="btn btn-sm btn-outline-secondary" id="lvNext" aria-label="다음 달"><i class="fas fa-chevron-right" aria-hidden="true"></i></button>
       <button type="button" class="btn btn-sm btn-link" id="lvToday">이번 달</button>
       <span class="gw-cal-legend"><span class="gw-chip-ok">승인</span><span class="gw-chip-wait">승인 대기</span></span>
     </div>
-    <div class="gw-cal" id="lvCal" aria-live="polite"></div>
+    {# 달 전체 aria-live 는 넘길 때마다 칸 수십 개를 통째로 읽어서 뺌 — 달 제목만 읽힘(11-16) #}
+    <div class="gw-cal" id="lvCal"></div>
   </section>
 
   <section id="lvListPane" role="tabpanel" aria-labelledby="lvTabList" hidden>
@@ -35,6 +36,19 @@
       </table>
     </div>
   </section>
+</div>
+
+{# 그날 휴가자 — 휴대폰 달력 칸이 좁아 이름이 잘려서, 휴가자가 있는 날짜 칸을 누르면(키보드 Enter·Space) 목록(11-16) #}
+<div class="modal fade" id="lvDayModal" tabindex="-1" aria-labelledby="lvDayTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="lvDayTitle">휴가</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
+      </div>
+      <div class="modal-body" id="lvDayBody"></div>
+    </div>
+  </div>
 </div>
 
 <div class="modal fade" id="lvPersonModal" tabindex="-1" aria-labelledby="lvPersonTitle" aria-hidden="true">

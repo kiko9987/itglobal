@@ -355,7 +355,7 @@ export default class InvoiceLicense {
       : (iss && iss.warn ? `
       <div class="mb-2 small" style="background:#f8f9fa; border:1px solid var(--gray-200); border-radius:6px; padding:0.5rem 0.65rem; white-space:pre-line;">${esc(iss.warn)}</div>` : '');
     const replaceHtml = active.length ? `
-      <div class="mb-2" id="ilRepBox" ${split ? 'style="display:none;"' : ''}><label class="form-label">기존 발행 계산서 <span class="text-muted small">(수정발행 시 선택)</span></label>
+      <div class="mb-2" id="ilRepBox" role="group" aria-labelledby="ilRepLabel" ${split ? 'style="display:none;"' : ''}><label class="form-label" id="ilRepLabel">기존 발행 계산서 <span class="text-muted small">(수정발행 시 선택)</span></label>
         ${active.map((it, i) => `
           <div class="form-check" data-rep-stage="${esc(it.stage)}">
             <input class="form-check-input" type="checkbox" id="ilRep${i}" data-rep="${i}">
@@ -374,37 +374,37 @@ export default class InvoiceLicense {
         여러 사람이 나눠 내는 공사라면 <a href="#" data-pl-open>부담자 설정</a>을 먼저 해 주세요.</div>` : '';
 
     const stageBlock = split ? `
-      <div class="mb-2"><label class="form-label">누구 계산서인가요</label>
+      <div class="mb-2"><label class="form-label" for="ilStage">누구 계산서인가요</label>
         <select id="ilStage" class="form-select">${stageOptions}</select>
         <div class="small text-muted mt-1">나눠 내는 공사입니다. 고른 사람 기준으로 아래 칸이 채워집니다.</div>
         <div id="ilStageHint" class="small mt-1" style="display:none; color:#0a7ea4;"></div></div>` : `
-      <div class="mb-2"><label class="form-label">발행 단계 <span class="text-muted small">(금액=총액이면 나머지 자동 '-')</span></label>
+      <div class="mb-2"><label class="form-label" for="ilStage">발행 단계 <span class="text-muted small">(금액=총액이면 나머지 자동 '-')</span></label>
         <select id="ilStage" class="form-select">${stageOptions}</select>
         <div id="ilStageHint" class="small mt-1" style="display:none; color:#0a7ea4;"></div></div>`;
     // 나눠 내는 공사: 부담자를 고르기 전엔 사업자명·금액·이메일이 비어 있음 — 왜 비었는지 안내 (2026-10-28)
     const SPLIT_PH = '부담자 선택 시 자동으로 기입됩니다';
     const body = `
       ${split ? stageBlock : ''}
-      <div class="mb-2"><label class="form-label">사업자명</label>
-        <input id="ilBiz" type="text" class="form-control" value="${esc(split ? '' : biz)}" placeholder="${split ? SPLIT_PH : '예: (주)아이티글로벌'}"></div>
-      <div class="mb-2"><label class="form-label">현장 주소</label>
-        <input id="ilAddr" type="text" class="form-control" value="${esc(addr)}" placeholder="현장 주소"></div>
+      <div class="mb-2"><label class="form-label" for="ilBiz">사업자명</label>
+        <input id="ilBiz" type="text" class="form-control" autocomplete="off" value="${esc(split ? '' : biz)}" placeholder="${split ? SPLIT_PH : '예: (주)아이티글로벌'}"></div>
+      <div class="mb-2"><label class="form-label" for="ilAddr">현장 주소</label>
+        <input id="ilAddr" type="text" class="form-control" autocomplete="off" value="${esc(addr)}" placeholder="현장 주소"></div>
       ${payerHint}
       ${issuedHtml}
       ${replaceHtml}
       <div class="row">
-        <div class="col mb-2"><label class="form-label">발행 금액 <span class="text-muted small">(원)</span></label>
-          <input id="ilAmt" type="text" inputmode="numeric" class="form-control" value="${esc(split ? '' : amtDisp)}" placeholder="${split ? SPLIT_PH : '예: 9,600,000'}"></div>
-        <div class="col mb-2"><label class="form-label">부가세</label>
+        <div class="col mb-2"><label class="form-label" for="ilAmt">발행 금액 <span class="text-muted small">(원)</span></label>
+          <input id="ilAmt" type="text" inputmode="numeric" class="form-control" autocomplete="off" value="${esc(split ? '' : amtDisp)}" placeholder="${split ? SPLIT_PH : '예: 9,600,000'}"></div>
+        <div class="col mb-2"><label class="form-label" for="ilVat">부가세</label>
           <select id="ilVat" class="form-select">
             <option value="sep" ${vatSep ? 'selected' : ''}>VAT 별도</option>
             <option value="incl" ${vatSep ? '' : 'selected'}>VAT 포함</option>
           </select></div>
       </div>
-      <div class="mb-2"><label class="form-label">이메일 <span class="text-muted small">(계산서 수신)</span></label>
-        <input id="ilEmail" type="text" class="form-control" value="${esc(split ? '' : email)}" placeholder="${split ? SPLIT_PH : 'example@company.com'}"></div>
+      <div class="mb-2"><label class="form-label" for="ilEmail">이메일 <span class="text-muted small">(계산서 수신)</span></label>
+        <input id="ilEmail" type="email" autocomplete="email" spellcheck="false" class="form-control" value="${esc(split ? '' : email)}" placeholder="${split ? SPLIT_PH : 'example@company.com'}"></div>
       ${split ? '' : stageBlock}
-      <div class="mb-1"><label class="form-label">요청사항 <span class="text-muted small">(선택)</span></label>
+      <div class="mb-1"><label class="form-label" for="ilMemo">요청사항 <span class="text-muted small">(선택)</span></label>
         <textarea id="ilMemo" class="form-control" rows="2" placeholder="청구/영수 발행·특이사항 등"></textarea></div>
     `;
 
@@ -807,8 +807,8 @@ export default class InvoiceLicense {
           <div class="modal-header" style="background-color:#fafbfc; border-bottom:1px solid var(--gray-200); padding:1.1rem 1.25rem;">
             <h5 class="modal-title" style="font-weight:600; color:var(--gray-900); display:flex; align-items:center; gap:0.5rem;">
               <i class="fas ${icon}" style="color:#17a2b8;"></i>${esc(title)}</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-          <div class="modal-body">${bodyHtml}<div id="ilModalAlert" class="text-danger small mt-2" style="white-space:pre-line;"></div></div>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button></div>
+          <div class="modal-body">${bodyHtml}<div id="ilModalAlert" class="text-danger small mt-2" role="alert" style="white-space:pre-line;"></div></div>
           <div class="modal-footer" style="background-color:var(--gray-50); border-top:1px solid var(--gray-200); padding:1rem 1.25rem;">
             <button type="button" class="btn as-btn-cancel" data-bs-dismiss="modal">취소</button>
             <button type="button" class="btn as-btn-submit" id="ilModalSubmit">${esc(submitLabel)}</button>
@@ -839,7 +839,7 @@ export default class InvoiceLicense {
           <div class="modal-header" style="background-color:#fafbfc; border-bottom:1px solid var(--gray-200); padding:1.1rem 1.25rem;">
             <h5 class="modal-title" style="font-weight:600; color:var(--gray-900); display:flex; align-items:center; gap:0.5rem;">
               <i class="fas ${icon}" style="color:${color};"></i>${esc(title)}</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button></div>
           <div class="modal-body" style="padding:1.25rem;">
             <div style="display:flex; gap:0.75rem; align-items:flex-start;">
               <i class="fas ${icon}" style="color:${color}; font-size:1.6rem; line-height:1; margin-top:0.1rem;"></i>

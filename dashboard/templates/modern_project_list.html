@@ -54,7 +54,7 @@
                     <li><strong>문서 폴더 열기:</strong> "문서 폴더" 링크 클릭 (사전 <em>install-itg-folder.bat</em> 설치 필요)</li>
                     <li><strong>내 프로젝트만 보기:</strong> 필터 영역 체크박스로 담당자 자동 필터</li>
                 </ul>
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="닫기"
                         onclick="localStorage.setItem('itg_onboarding_dismissed','1')"></button>
             </div>
             <script>
@@ -73,9 +73,9 @@
             <!-- Viewer 권한 안내 배너 (2026-07-08) -->
             <div class="alert alert-info alert-dismissible fade show mb-3" role="alert" style="border-left: 4px solid #0d6efd;">
                 <i class="fas fa-info-circle me-2"></i>
-                <strong>조회 전용 권한입니다.</strong>
-                프로젝트 편집·취소·재개 기능을 사용하려면 관리자(kiko@itg-aircon.com)에게 <strong>편집 권한(editor)</strong> 승격을 요청하세요.
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                <strong>조회만 할 수 있는 권한입니다.</strong>
+                공사 편집·취소·재개가 필요하면 관리자(kiko@itg-aircon.com)에게 <strong>편집 권한</strong>을 요청해 주세요.
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="닫기"></button>
             </div>
             {% endif %}
 
@@ -128,9 +128,9 @@
                 <div id="tableLoadingOverlay" class="table-loading-overlay" style="display: flex;">
                     <div class="loading-content">
                         <div class="custom-spinner" role="status">
-                            <span class="visually-hidden">로딩 중...</span>
+                            <span class="visually-hidden">불러오는 중…</span>
                         </div>
-                        <p class="loading-text mt-3">데이터 로딩 중</p>
+                        <p class="loading-text mt-3">공사 목록 불러오는 중…</p>
                     </div>
                 </div>
 
@@ -325,7 +325,7 @@
                         <div id="auditLogsAlert" class="ms-3 audit-logs-alert"></div>
                     </div>
                     <div class="d-flex align-items-center">
-                        <select id="auditLogsDays" class="form-select form-select-sm me-2 audit-logs-days-select">
+                        <select id="auditLogsDays" class="form-select form-select-sm me-2 audit-logs-days-select" aria-label="조회 기간">
                             <option value="1">오늘</option>
                             <option value="3">3일</option>
                             <option value="7" selected>7일</option>
@@ -352,7 +352,7 @@
                             <tbody id="auditLogsTableBody">
                                 <tr>
                                     <td colspan="8" class="text-center">
-                                        <i class="fas fa-spinner fa-spin"></i> 로딩 중...
+                                        <i class="fas fa-spinner fa-spin" aria-hidden="true"></i> 불러오는 중…
                                     </td>
                                 </tr>
                             </tbody>

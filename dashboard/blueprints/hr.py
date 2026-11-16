@@ -311,7 +311,7 @@ def api_leave_me():
     from dashboard.services import leave_view, leave_web
     p = _my_person()
     if not p:
-        return jsonify({'success': False, 'message': '인사카드가 연결되지 않았습니다.'}), 404
+        return jsonify({'success': False, 'message': '아직 인사카드가 연결되지 않았어요. 경영지원에 말씀해 주세요.'}), 404
     user = session.get('user') or {}
     try:
         form = leave_web.form_info(user)
@@ -509,7 +509,7 @@ def api_ye_me():
     from dashboard.services import yearend as ye
     p = _my_person()
     if not p:
-        return jsonify({'success': False, 'message': '인사카드가 연결되지 않았습니다.'}), 404
+        return jsonify({'success': False, 'message': '아직 인사카드가 연결되지 않았어요. 경영지원에 말씀해 주세요.'}), 404
     v = ye.my_view(p, _ye_year())
     v['problems'] = ye.problems(v)
     return jsonify({'success': True, 'ye': v})
@@ -521,7 +521,7 @@ def api_ye_save():
     from dashboard.services import yearend as ye
     p = _my_person()
     if not p:
-        return jsonify({'success': False, 'message': '인사카드가 연결되지 않았습니다.'}), 404
+        return jsonify({'success': False, 'message': '아직 인사카드가 연결되지 않았어요. 경영지원에 말씀해 주세요.'}), 404
     try:
         ye.save_answers(p['id'], _ye_year(), request.get_json(silent=True) or {})
         v = ye.my_view(p, _ye_year())

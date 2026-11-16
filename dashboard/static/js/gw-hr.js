@@ -197,9 +197,9 @@
     var h = '<div class="gw-dev-head"><strong>로그인된 휴대폰</strong>' +
       '<button type="button" class="btn btn-sm btn-primary" id="hrDevCodeBtn"><i class="fas fa-mobile-alt me-1" aria-hidden="true"></i>로그인 번호 만들기</button></div>';
     if (code) {
-      h += '<div class="visually-hidden" role="status">로그인 번호 ' + esc(code.code.split('').join(' ')) + ' 을 만들었어요.</div>' +
-        '<div class="gw-dev-code"><div class="gw-dev-code-num">' + esc(code.code.replace(/(\d{3})(\d{3})/, '$1 $2')) + '</div>' +
-        '<div class="gw-dev-code-help">' + esc(p.name) + ' 님 휴대폰 로그인 화면의 <strong>「번호로 로그인」</strong>에 이 번호를 넣어 주세요. ' +
+      h += '<div class="visually-hidden" role="status" id="hrDevSr">로그인 번호 ' + esc(code.code.split('').join(' ')) + ' 을 만들었어요.</div>' +
+        '<div class="gw-dev-code"><div class="gw-dev-code-num" id="hrDevNum">' + esc(code.code.replace(/(\d{3})(\d{3})/, '$1 $2')) + '</div>' +
+        '<div class="gw-dev-code-help" id="hrDevHelp">' + esc(p.name) + ' 님 휴대폰 로그인 화면의 <strong>「번호로 로그인」</strong>에 이 번호를 넣어 주세요. ' +
         '<span id="hrDevLeft">' + code.minutes + '분</span> 동안 한 번만 쓸 수 있어요.</div></div>';
     }
     var list = j.devices || [];
@@ -241,8 +241,16 @@
       var el = document.getElementById('hrDevLeft');
       if (!el) { clearInterval(codeTimer); return; }
       var s = Math.max(0, Math.round((end - Date.now()) / 1000));
-      el.textContent = s ? Math.floor(s / 60) + '분 ' + (s % 60) + '초' : '시간이 지나 쓸 수 없어요 —';
-      if (!s) clearInterval(codeTimer);
+      if (s) { el.textContent = Math.floor(s / 60) + '분 ' + (s % 60) + '초'; return; }
+      clearInterval(codeTimer);
+      // 만료: 안내 문장을 통째로 바꿔 ' 동안 한 번만 쓸 수 있어요.'가 뒤에 붙지 않게, 지난 번호는 흐리게
+      var msg = '시간이 지나 이 번호는 쓸 수 없어요. 「로그인 번호 만들기」로 새 번호를 만들어 주세요.';
+      var help = document.getElementById('hrDevHelp');
+      if (help) help.textContent = msg; else el.textContent = msg;
+      var num = document.getElementById('hrDevNum');
+      if (num) { num.style.opacity = '0.4'; num.style.textDecoration = 'line-through'; }
+      var sr = document.getElementById('hrDevSr');
+      if (sr) sr.textContent = msg;
     }, 1000);
   }
 
@@ -331,7 +339,7 @@
   function bindPrivate(p) {
     cardEl.querySelectorAll('[data-doc-del]').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        if (!window.confirm('이 서류를 지웁니다. 되돌릴 수 없습니다.')) return;
+        if (!window.confirm('이 서류를 지울까요? 지우면 되돌릴 수 없어요.')) return;
         api('/api/hr/documents/' + btn.getAttribute('data-doc-del'), { method: 'DELETE' })
           .then(function () { loadCard(p.id); })
           .catch(function (e) { window.alert(e.message); });
@@ -410,16 +418,24 @@
       return [p.name, p.department, p.job_role, p.job_rank, p.job_title].join(' ').toLowerCase().indexOf(q) !== -1;
     });
     countEl.textContent = rows.length + '명';
+    // 다시 그려도 키보드 포커스가 같은 사람 줄에 남게
+    var ae = document.activeElement;
+    var focusId = ae && listEl.contains(ae) && ae.getAttribute('data-id');
+    // 목록은 보통 단추 목록(listbox·option 역할은 화살표 키 조작까지 약속하므로 뺌) — 고른 사람은 aria-current 로
     listEl.innerHTML = rows.map(function (p) {
       var sub = [p.department, p.job_rank].filter(Boolean).join(' · ');
-      return '<li><button type="button" role="option" class="gw-list-item' + (p.status === '퇴사' ? ' resigned' : '') +
-        '" data-id="' + p.id + '" aria-selected="' + (p.id === state.selectedId) + '">' +
+      return '<li><button type="button" class="gw-list-item' + (p.status === '퇴사' ? ' resigned' : '') +
+        '" data-id="' + p.id + '"' + (p.id === state.selectedId ? ' aria-current="true"' : '') + '>' +
         '<span class="gw-avatar" aria-hidden="true">' + initial(p.name) + '</span>' +
         '<span><span class="gw-list-name">' + esc(p.name) + '</span>' +
         (p.status !== '재직' ? ' ' + statusBadge(p.status) : '') +
         (p.status !== '퇴사' ? fieldBadge(p) : '') +
         '<br><span class="gw-list-sub">' + esc(sub || '-') + '</span></span></button></li>';
     }).join('') || '<li class="gw-empty">맞는 구성원이 없습니다.</li>';
+    if (focusId) {
+      var back = listEl.querySelector('.gw-list-item[data-id="' + focusId + '"]');
+      if (back) back.focus({ preventScroll: true });
+    }
   }
 
   function select(id) {

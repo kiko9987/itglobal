@@ -47,7 +47,7 @@
             {% endif %}
             {% if gw_can_switch %}
             <li>
-                <a class="dropdown-item" href="#" onclick="fetch('/api/gw/layout',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({'new':true})}).then(function(r){if(r.ok)location.reload();});return false;">
+                <a class="dropdown-item" href="#" onclick="fetch('/api/gw/layout',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify({'new':true})}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);location.reload();}).catch(function(){alert('새 화면으로 바꾸지 못했어요. 잠시 뒤 다시 눌러 주세요.');});return false;">
                     <i class="fas fa-columns me-2"></i>새 화면으로
                 </a>
             </li>

@@ -56,6 +56,12 @@
       list.appendChild(el('div', 'gw-notify-empty', failed ? '알림을 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.' : '불러오는 중…'));
       return;
     }
+    // 창을 열 때 새로 받기에 실패했으면 예전 목록이라는 걸 알림(11-16 점검 — 실패해도 지난 목록이 최신처럼 보였다)
+    if (failed) {
+      var stale = el('div', 'gw-notify-stale', '새 알림을 받아 오지 못했어요.');
+      stale.setAttribute('role', 'status');
+      list.appendChild(stale);
+    }
     var items = (data.items || []).filter(function (i) { return !cat || i.cat === cat; });
     if (!items.length) {
       list.appendChild(el('div', 'gw-notify-empty', '최근 30일 동안 알림이 없어요.'));
@@ -71,7 +77,10 @@
       ic.setAttribute('aria-hidden', 'true');
       a.appendChild(ic);
       var main = el('span', 'gw-notify-main');
-      main.appendChild(el('span', 'gw-notify-title', i.title));
+      var title = el('span', 'gw-notify-title', i.title);
+      // 안 읽은 줄은 주황 점·굵은 제목으로만 보여서 낭독기엔 같은 줄로 들렸다 → 앞에 '안 읽음'
+      if (i.unread) title.insertBefore(el('span', 'visually-hidden', '안 읽음. '), title.firstChild);
+      main.appendChild(title);
       if (i.body) main.appendChild(el('span', 'gw-notify-body', i.body));
       var meta = el('span', 'gw-notify-meta');
       meta.appendChild(el('span', 'gw-notify-cat', i.cat_label));
@@ -99,14 +108,19 @@
     panel.hidden = false;
     btn.setAttribute('aria-expanded', 'true');
     render();
-    // 최신으로 다시 받고 읽음 처리 — 이번엔 안 읽은 줄을 표시한 채로 두고, 빨간 점만 끈다
-    load().then(function () { if (!panel.hidden) { render(); markSeen(); } });
+    // 최신으로 다시 받고 읽음 처리 — 이번엔 안 읽은 줄을 표시한 채로 두고, 빨간 점만 끈다.
+    // 다시 받기에 실패했으면 읽음 처리하지 않음(못 본 새 알림까지 읽음이 되던 것, 11-16 점검)
+    load().then(function () {
+      if (panel.hidden) return;
+      render();
+      if (!failed) markSeen();
+    });
   }
 
   function close() {
     panel.hidden = true;
     btn.setAttribute('aria-expanded', 'false');
-    if (data) data.items.forEach(function (i) { i.unread = false; });
+    if (data && !failed) data.items.forEach(function (i) { i.unread = false; });   // 받기 실패로 읽음 처리 안 했으면 그대로
   }
 
   btn.addEventListener('click', function (e) {

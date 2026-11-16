@@ -155,8 +155,8 @@ export default class AsView {
           <div class="modal-header" style="background-color:#fafbfc; border-bottom:1px solid var(--gray-200); padding:1.1rem 1.25rem;">
             <h5 class="modal-title" style="font-weight:600; color:var(--gray-900); display:flex; align-items:center; gap:0.5rem;">
               <i class="fas ${icon}" style="color:#17a2b8;"></i>${esc(title)}</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-          <div class="modal-body">${bodyHtml}<div id="asModalAlert" class="text-danger small mt-2"></div></div>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button></div>
+          <div class="modal-body">${bodyHtml}<div id="asModalAlert" class="text-danger small mt-2" role="alert"></div></div>
           <div class="modal-footer" style="background-color:var(--gray-50); border-top:1px solid var(--gray-200); padding:1rem 1.25rem;">
             <button type="button" class="btn as-btn-cancel" data-bs-dismiss="modal">${esc(dismissLabel)}</button>
             <button type="button" class="btn as-btn-submit" id="asModalSubmit">${esc(submitLabel)}</button>
@@ -188,7 +188,7 @@ export default class AsView {
           <div class="modal-header" style="background-color:#fafbfc; border-bottom:1px solid var(--gray-200); padding:1.1rem 1.25rem;">
             <h5 class="modal-title" style="font-weight:600; color:var(--gray-900); display:flex; align-items:center; gap:0.5rem;">
               <i class="fas ${icon}" style="color:${color};"></i>${esc(title)}</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button></div>
           <div class="modal-body" style="padding:1.25rem;">
             <div style="display:flex; gap:0.75rem; align-items:flex-start;">
               <i class="fas ${icon}" style="color:${color}; font-size:1.6rem; line-height:1; margin-top:0.1rem;"></i>
@@ -244,15 +244,15 @@ export default class AsView {
       + (allowOutsource ? '<option value="외주">외주 (시공자)</option>' : '');
 
     this._showModal(`A/S 접수 — ${asNo}`, `
-      <div class="mb-2"><label class="form-label">방문자 유형</label>
+      <div class="mb-2"><label class="form-label" for="asVisitorType">방문자 유형</label>
         <select id="asVisitorType" class="form-select">${typeOptions}</select></div>
-      <div class="mb-2"><label class="form-label">방문자 이름 <span class="text-muted small">(내부/외주 필수)</span></label>
-        <input id="asVisitorName" type="text" class="form-control" placeholder="예: 강민석"></div>
-      <div class="row"><div class="col mb-2"><label class="form-label">방문 예정일</label>
+      <div class="mb-2"><label class="form-label" for="asVisitorName">방문자 이름 <span class="text-muted small">(내부/외주 필수)</span></label>
+        <input id="asVisitorName" type="text" class="form-control" placeholder="예: 강민석" autocomplete="off"></div>
+      <div class="row"><div class="col mb-2"><label class="form-label" for="asVisitStart">방문 예정일</label>
         <input id="asVisitStart" type="date" class="form-control" onclick="try{this.showPicker()}catch(e){}"></div>
-        <div class="col mb-2"><label class="form-label">종료일 <span class="text-muted small">(선택·범위)</span></label>
+        <div class="col mb-2"><label class="form-label" for="asVisitEnd">종료일 <span class="text-muted small">(선택·범위)</span></label>
         <input id="asVisitEnd" type="date" class="form-control" onclick="try{this.showPicker()}catch(e){}"></div></div>
-      <div class="mb-1"><label class="form-label">접수 메모 <span class="text-muted small">(선택)</span></label>
+      <div class="mb-1"><label class="form-label" for="asAcceptMemo">접수 메모 <span class="text-muted small">(선택)</span></label>
         <textarea id="asAcceptMemo" class="form-control" rows="2" placeholder="접수번호·특이사항 등 — 메모/이력에 시간·이니셜과 함께 기록됩니다"></textarea></div>
     `, async (el) => {
       const visitor_type = el.querySelector('#asVisitorType').value;
@@ -286,7 +286,7 @@ export default class AsView {
 
   openComplete(asNo) {
     this._showModal(`A/S 조치 완료 — ${asNo}`, `
-      <div class="mb-2"><label class="form-label">조치 내용</label>
+      <div class="mb-2"><label class="form-label" for="asResolution">조치 내용</label>
         <textarea id="asResolution" class="form-control" rows="4" placeholder="조치 결과를 입력하세요"></textarea></div>
     `, async (el) => {
       const resolution = el.querySelector('#asResolution').value.trim();
@@ -299,7 +299,7 @@ export default class AsView {
   openCancel(asNo) {
     this._showModal(`A/S 요청 취소 — ${asNo}`, `
       <div class="mb-2 small text-muted">취소하면 다시 되돌릴 수 없습니다. 같은 현장 A/S가 다시 필요하면 새로 요청해 주세요.</div>
-      <div class="mb-2"><label class="form-label">취소 사유 <span class="text-danger">*</span></label>
+      <div class="mb-2"><label class="form-label" for="asCancelReason">취소 사유 <span class="text-danger" aria-hidden="true">*</span></label>
         <textarea id="asCancelReason" class="form-control" rows="3" placeholder="예) 중복 요청 / 고객이 요청 철회 / 다른 현장에 잘못 등록"></textarea></div>
     `, async (el) => {
       const reason = el.querySelector('#asCancelReason').value.trim();
@@ -310,13 +310,13 @@ export default class AsView {
 
   openManualRequest() {
     this._showModal('수동 A/S 요청 (코드 없는 옛 공사)', `
-      <div class="mb-2"><label class="form-label">현장 주소 *</label>
-        <input id="asmAddress" type="text" class="form-control" placeholder="현장명/주소"></div>
-      <div class="mb-2"><label class="form-label">공사 내용</label>
-        <input id="asmWork" type="text" class="form-control"></div>
-      <div class="mb-2"><label class="form-label">담당자 (영업)</label>
-        <input id="asmManager" type="text" class="form-control" placeholder="담당자 이름"></div>
-      <div class="mb-2"><label class="form-label">요청 내용 *</label>
+      <div class="mb-2"><label class="form-label" for="asmAddress">현장 주소 *</label>
+        <input id="asmAddress" type="text" class="form-control" placeholder="현장명/주소" autocomplete="off"></div>
+      <div class="mb-2"><label class="form-label" for="asmWork">공사 내용</label>
+        <input id="asmWork" type="text" class="form-control" autocomplete="off"></div>
+      <div class="mb-2"><label class="form-label" for="asmManager">담당자 (영업)</label>
+        <input id="asmManager" type="text" class="form-control" placeholder="담당자 이름" autocomplete="off"></div>
+      <div class="mb-2"><label class="form-label" for="asmContent">요청 내용 *</label>
         <textarea id="asmContent" class="form-control" rows="3"></textarea></div>
     `, async (el) => {
       const address = el.querySelector('#asmAddress').value.trim();
@@ -406,7 +406,7 @@ export default class AsView {
       : `<div class="small text-muted mb-3">프로젝트 <b>${esc(projectCode)}</b></div>`;
     this._showModal(`A/S 요청 — ${projectCode}`, `
       ${info}
-      <div class="mb-1"><label class="form-label">요청 내용 <span class="text-danger">*</span></label>
+      <div class="mb-1"><label class="form-label" for="aspContent">요청 내용 <span class="text-danger" aria-hidden="true">*</span></label>
         <textarea id="aspContent" class="form-control" rows="3" placeholder="예) 실외기 소음 발생 / 냉방 약함 / 누수 등 A/S 요청 사유를 적어주세요"></textarea></div>
     `, async (el) => {
       const request_content = el.querySelector('#aspContent').value.trim();

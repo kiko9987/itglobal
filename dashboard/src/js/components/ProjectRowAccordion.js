@@ -2200,7 +2200,7 @@ export default class ProjectRowAccordion {
                      id="${dropdownId}-other-check" ${otherValue ? 'checked' : ''}>
             </label>
             <input type="text" class="form-control form-control-sm constructor-other-input ${otherValue ? '' : 'd-none'}"
-                   id="${dropdownId}-other-input" placeholder="이름 입력" value="${escHtml(otherValue)}"
+                   id="${dropdownId}-other-input" placeholder="이름 입력" aria-label="시공자 기타 이름" value="${escHtml(otherValue)}"
                    style="font-size: 0.8125rem; height: 28px; padding: 0.25rem 0.5rem; flex: 1; min-width: 0; max-width: 250px;">
           </div>
         </div>
@@ -2229,6 +2229,9 @@ export default class ProjectRowAccordion {
    * 입력 요소 생성 (멀티셀렉트 지원)
    */
   createInputElement(fieldName, currentValue) {
+    // 편집칸 이름 — 칸 이름표와 이어지지 않아 낭독기가 '편집 가능 텍스트'로만 읽던 것 (11-16)
+    const ariaName = `aria-label="${escHtml(fieldName)}"`;
+
     // 멀티셀렉트가 필요한 필드들 (최대 2개 선택, 시공자는 최대 3개)
     const multiSelectFields = ['공사 구분', '기계 분류', '브랜드', '도급 구분', '시공자'];
 
@@ -2295,7 +2298,7 @@ export default class ProjectRowAccordion {
           <li class="p-0 ${otherValue ? '' : 'd-none'} accordion-constructor-other-input-container" id="${dropdownId}-other-input-container" style="margin-top: -0.25rem;">
             <div style="padding: 0.25rem 0.75rem 0.5rem 0.75rem;">
               <input type="text" class="form-control form-control-sm accordion-constructor-other-input"
-                     id="${dropdownId}-other-input" placeholder="이름 입력"
+                     id="${dropdownId}-other-input" placeholder="이름 입력" aria-label="시공자 기타 이름"
                      value="${escHtml(otherValue)}"
                      style="font-size: 0.875rem;">
             </div>
@@ -2331,18 +2334,18 @@ export default class ProjectRowAccordion {
       const optionsHtml = dropdownOptions.map(option =>
         `<option value="${option}" ${currentValue === option ? 'selected' : ''}>${option}</option>`
       ).join('');
-      return `<select class="form-select form-select-sm inline-edit-input">${optionsHtml}</select>`;
+      return `<select class="form-select form-select-sm inline-edit-input" ${ariaName}>${optionsHtml}</select>`;
     }
 
     // 이메일 필드 (레거시 동일 - placeholder 없음)
     if (fieldName.includes('이메일')) {
-      return `<input type="email" class="form-control form-control-sm inline-edit-input"
+      return `<input type="email" class="form-control form-control-sm inline-edit-input" ${ariaName}
                      value="${escHtml(currentValue)}">`;
     }
 
     // 연락처 필드 (레거시 동일 - placeholder 없음)
     if (fieldName.includes('연락처')) {
-      return `<input type="tel" class="form-control form-control-sm inline-edit-input input-manager"
+      return `<input type="tel" class="form-control form-control-sm inline-edit-input input-manager" ${ariaName}
                      value="${escHtml(currentValue)}"
                      pattern="[0-9]{3}-[0-9]{4}-[0-9]{4}">`;
     }
@@ -2368,6 +2371,7 @@ export default class ProjectRowAccordion {
       return `<input type="date"
                      id="${inputId}"
                      class="form-control form-control-sm inline-edit-input date-validated"
+                     ${ariaName}
                      value="${dateValue}"
                      data-date-type="${dateType}"
                      data-field-name="${fieldName}"
@@ -2391,7 +2395,7 @@ export default class ProjectRowAccordion {
     if (fieldName === '견적서 및 계약서 폴더 경로') {
       return `<div class="folder-input-wrapper" style="position: relative; display: inline-block; width: 100%;">
                 <input type="text" class="form-control form-control-sm inline-edit-input folder-path-input"
-                       data-field="${fieldName}"
+                       data-field="${fieldName}" ${ariaName}
                        value="${escHtml(currentValue)}"
                        placeholder="구글 드라이브 폴더 주소를 붙여 넣으세요"
                        style="width: 100%; padding-right: 35px;">
@@ -2405,7 +2409,7 @@ export default class ProjectRowAccordion {
     //   2026-07-10 fix — 폴더 경로와 같은 이유로 data-field 추가 (draft 커버리지).
     if (fieldName.includes('특이사항') && fieldName.includes('수금')) {
       return `<input type="text" class="form-control form-control-sm inline-edit-input collection-notes-input"
-                     data-field="${fieldName}"
+                     data-field="${fieldName}" ${ariaName}
                      placeholder="수금 관련 특이사항을 입력하세요."
                      value="${escHtml(currentValue)}">`;
     }
@@ -2417,7 +2421,7 @@ export default class ProjectRowAccordion {
       const numericValue = this.parseNumeric(currentValue);
       const inputId = 'money-input-' + Math.random().toString(36).substr(2, 9);
       return `<input type="text" class="form-control form-control-sm inline-edit-input money-field"
-                     id="${inputId}"
+                     id="${inputId}" ${ariaName}
                      value="${numericValue ? parseInt(numericValue).toLocaleString('ko-KR') : ''}"
                      placeholder="금액 입력"
                      class="inline-edit-select"
@@ -2431,7 +2435,7 @@ export default class ProjectRowAccordion {
       return `
         <div class="form-check form-switch">
           <input type="checkbox" class="form-check-input inline-edit-input vat-checkbox"
-                 id="${checkboxId}"
+                 id="${checkboxId}" role="switch" aria-label="부가세 별도"
                  data-field="부가세"
                  ${isChecked ? 'checked' : ''}
                  onchange="
@@ -2459,7 +2463,7 @@ export default class ProjectRowAccordion {
       return `
         <div class="form-check form-switch">
           <input type="checkbox" class="form-check-input inline-edit-input collection-checkbox"
-                 id="${checkboxId}"
+                 id="${checkboxId}" role="switch" aria-label="수금 완료"
                  data-field="수금 확인"
                  ${isCompleted ? 'checked' : ''}
                  onchange="
@@ -2484,12 +2488,12 @@ export default class ProjectRowAccordion {
     if (fieldName === '거래처명') {
       const inflow = String(this.currentProject?.['유입 구분'] || '').trim();
       return `<input type="text" class="form-control form-control-sm inline-edit-input text-input"
-                     list="${this.ensurePartnerNameDatalist(inflow)}" autocomplete="off"
+                     list="${this.ensurePartnerNameDatalist(inflow)}" autocomplete="off" ${ariaName}
                      value="${escHtml(currentValue)}">`;
     }
 
     // 기본 텍스트 필드 (레거시 동일 - placeholder 없음)
-    return `<input type="text" class="form-control form-control-sm inline-edit-input text-input"
+    return `<input type="text" class="form-control form-control-sm inline-edit-input text-input" ${ariaName}
                    value="${escHtml(currentValue)}">`;
   }
 
@@ -3261,20 +3265,20 @@ export default class ProjectRowAccordion {
         document.body.appendChild(host);
       }
       host.innerHTML = `
-        <div class="modal fade" id="cancelReasonModal" tabindex="-1">
+        <div class="modal fade" id="cancelReasonModal" tabindex="-1" aria-labelledby="cancelReasonModalTitle">
           <div class="modal-dialog modal-dialog-centered" style="max-width:520px;"><div class="modal-content">
             <div class="modal-header" style="background-color:#fafbfc; border-bottom:1px solid var(--gray-200); padding:1.1rem 1.25rem;">
-              <h5 class="modal-title" style="font-weight:600; color:var(--gray-900); display:flex; align-items:center; gap:0.5rem;">
-                <i class="fas ${o.icon}" style="color:${o.color};"></i>${o.title} — ${projectCode}</h5>
-              <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+              <h5 class="modal-title" id="cancelReasonModalTitle" style="font-weight:600; color:var(--gray-900); display:flex; align-items:center; gap:0.5rem;">
+                <i class="fas ${o.icon}" style="color:${o.color};" aria-hidden="true"></i>${o.title} — ${projectCode}</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button></div>
             <div class="modal-body" style="padding:1.25rem;">
               <div style="font-size:var(--font-size-sm); color:var(--gray-700); background:var(--gray-50); border:1px solid var(--gray-200); border-radius:6px; padding:0.6rem 0.8rem; margin-bottom:0.9rem;">
                 ${o.notice}
               </div>
-              <label class="form-label" style="font-weight:600;">${o.label} <span style="color:#dc3545;">*</span></label>
-              <textarea id="cancelReasonInput" class="form-control" rows="3"
-                placeholder="${o.placeholder}"></textarea>
-              <div id="cancelReasonAlert" class="text-danger small mt-2"></div>
+              <label class="form-label" for="cancelReasonInput" style="font-weight:600;">${o.label} <span style="color:#dc3545;" aria-hidden="true">*</span></label>
+              <textarea id="cancelReasonInput" class="form-control" rows="3" aria-required="true"
+                aria-describedby="cancelReasonAlert" placeholder="${o.placeholder}"></textarea>
+              <div id="cancelReasonAlert" class="text-danger small mt-2" role="alert"></div>
             </div>
             <div class="modal-footer" style="background-color:var(--gray-50); border-top:1px solid var(--gray-200); padding:0.85rem 1.25rem;">
               <button type="button" class="btn as-btn-cancel" data-bs-dismiss="modal">닫기</button>

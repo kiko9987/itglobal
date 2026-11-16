@@ -97,7 +97,7 @@
     opts = opts || {};
     var h = '';
     if (!L.linked) {
-      h += '<div class="gw-note mb-2">휴가 장부에 아직 연결되지 않아 남은 연차를 계산하지 못했습니다. 지난 기록만 보입니다.</div>';
+      h += '<div class="gw-note mb-2">휴가 장부에 아직 연결되지 않아 남은 연차를 계산하지 못했어요. 지난 기록만 보여요.</div>';
     }
     h += '<div class="gw-stats">' +
       '<div class="gw-stat gw-stat-main"><div class="k">남은 연차</div><div class="v">' + (L.balance == null ? '-' : days(L.balance)) + '</div></div>' +
@@ -163,7 +163,7 @@
     h += '<div class="gw-table-wrap"><table class="gw-table gw-leave-table' + (opts.mine ? ' gw-lv-mine-table' : '') + '"><thead><tr><th>기간</th><th>종류</th><th class="n">일수</th><th>상태</th><th>사유</th>' +
       (opts.mine ? '<th><span class="visually-hidden">취소</span></th>' : '') + '</tr></thead><tbody>';
     if (!L.entries || !L.entries.length) {
-      h += '<tr><td colspan="' + cols + '" class="gw-empty">기록이 없습니다.</td></tr>';
+      h += '<tr><td colspan="' + cols + '" class="gw-empty">기록이 없어요.</td></tr>';
     } else {
       L.entries.forEach(function (e) {
         h += '<tr data-year="' + esc(e.start.slice(0, 4)) + '"' + (e.status === '취소' || e.status === '반려' ? ' class="muted"' : '') +
@@ -386,8 +386,18 @@
       cErr.textContent = '';
       api('/api/leave/' + encodeURIComponent(p.id) + '/cancel', { method: 'POST' }).then(function () {
         pending = null;
-        if (window.bootstrap) window.bootstrap.Modal.getOrCreateInstance(cModalEl).hide();
         showFlash(p.mode === 'rest' ? '오늘부터 남은 휴가를 취소했어요.' : '휴가를 취소했어요.', 'ok');
+        // 취소한 줄은 다시 그리며 [취소] 단추가 사라져 포커스가 화면 맨 앞으로 튀었음 → 결과 안내로(11-16 점검).
+        // 창이 닫힌 뒤(여는 단추로 되돌리는 처리보다 나중에) 옮긴다
+        if (window.bootstrap) {
+          cModalEl.addEventListener('hidden.bs.modal', function toFlash() {
+            cModalEl.removeEventListener('hidden.bs.modal', toFlash);
+            flash.focus({ preventScroll: true });
+          });
+          window.bootstrap.Modal.getOrCreateInstance(cModalEl).hide();
+        } else {
+          flash.focus({ preventScroll: true });
+        }
         load();
       }).catch(function (e) {
         cErr.textContent = e.message;
@@ -433,7 +443,15 @@
   function pad(n) { return (n < 10 ? '0' : '') + n; }
   function iso(y, m, d) { return y + '-' + pad(m) + '-' + pad(d); }
 
+  var calEntries = [];   // 지금 보이는 달의 휴가(날짜 칸을 눌렀을 때 그날 목록)
+  var calSeq = 0;        // 달을 빨리 넘기면 늦게 온 앞 달 응답이 지금 달을 덮어쓰던 것 → 마지막 요청만 그림(11-16 점검)
+
+  function dayEntries(di) {
+    return calEntries.filter(function (e) { return e.start <= di && di <= e.end; });
+  }
+
   function renderCal(entries) {
+    calEntries = entries;
     var first = new Date(cur.y, cur.m - 1, 1);
     var lastDay = new Date(cur.y, cur.m, 0).getDate();
     var lead = (first.getDay() + 6) % 7;     // 월요일 시작
@@ -444,8 +462,15 @@
     for (var d = 1; d <= lastDay; d++) {
       var di = iso(cur.y, cur.m, d);
       var wd = (lead + d - 1) % 7;
-      var todays = entries.filter(function (e) { return e.start <= di && di <= e.end; });
-      h += '<div class="gw-cal-day' + (wd >= 5 ? ' we' : '') + (di === todayIso ? ' today' : '') + '">' +
+      var todays = dayEntries(di);
+      // 휴가자가 있는 칸은 누르면(키보드 Enter·Space) 그날 목록 창 — 휴대폰에선 칸이 좁아 이름이 잘렸음(11-16 점검)
+      var open = '';
+      if (todays.length) {
+        var waitN = todays.filter(function (e) { return e.status === '대기'; }).length;
+        open = ' role="button" tabindex="0" data-day="' + di + '" aria-haspopup="dialog" aria-label="' +
+          esc(md(di) + ' 휴가 ' + todays.length + '명' + (waitN ? ', 승인 대기 ' + waitN + '명' : '') + ' 보기') + '"';
+      }
+      h += '<div class="gw-cal-day' + (wd >= 5 ? ' we' : '') + (di === todayIso ? ' today' : '') + (todays.length ? ' has' : '') + '"' + open + '>' +
         '<div class="gw-cal-num">' + d + '</div>';
       todays.forEach(function (e) {
         var label = e.half ? e.half + ' 반차' : (e.type === '연차' ? '' : e.type);
@@ -465,12 +490,42 @@
   function loadCal() {
     titleEl.textContent = cur.y + '년 ' + cur.m + '월';
     calEl.innerHTML = '<div class="gw-empty">불러오는 중…</div>';
+    calEntries = [];
+    var seq = ++calSeq;
     api('/api/leave/calendar?month=' + cur.y + '-' + pad(cur.m)).then(function (j) {
+      if (seq !== calSeq) return;
       renderCal(j.entries || []);
     }).catch(function (e) {
+      if (seq !== calSeq) return;
       calEl.innerHTML = '<div class="gw-empty">' + esc(e.message) + '</div>';
     });
   }
+
+  // ── 그날 휴가자 창 ──
+  var dayModalEl = document.getElementById('lvDayModal');
+
+  function openDay(di) {
+    var list = dayEntries(di);
+    if (!list.length || !dayModalEl) return;
+    document.getElementById('lvDayTitle').textContent = md(di) + ' 휴가 ' + list.length + '명';
+    document.getElementById('lvDayBody').innerHTML = '<ul class="gw-lv-day-list">' + list.map(function (e) {
+      var kind = e.type + (e.half ? ' ' + e.half : '');
+      var span = e.start === e.end ? '' : md(e.start) + ' ~ ' + md(e.end);
+      return '<li><div class="gw-lv-day-main"><strong>' + esc(e.name) + '</strong> ' + statusBadge(e.status) + '</div>' +
+        '<div class="gw-lv-day-sub">' + esc(kind) + (span ? ' · ' + esc(span) : '') + '</div></li>';
+    }).join('') + '</ul>';
+    if (window.bootstrap) { returnFocusOnHide(dayModalEl); window.bootstrap.Modal.getOrCreateInstance(dayModalEl).show(); }
+  }
+
+  calEl.addEventListener('click', function (e) {
+    var cell = e.target.closest('.gw-cal-day[data-day]');
+    if (cell) openDay(cell.getAttribute('data-day'));
+  });
+  calEl.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    var cell = e.target.closest('.gw-cal-day[data-day]');
+    if (cell) { e.preventDefault(); openDay(cell.getAttribute('data-day')); }
+  });
 
   document.getElementById('lvPrev').addEventListener('click', function () {
     cur.m -= 1; if (cur.m < 1) { cur.m = 12; cur.y -= 1; } loadCal();
@@ -490,14 +545,15 @@
       listLoaded = true;
       var rows = j.people || [];
       tbody.innerHTML = rows.map(function (p) {
-        var nxt = p.next ? esc(period(p.next)) + (p.next.status === '대기' ? ' <span class="gw-badge gw-badge-leave">대기</span>' : '') : '<span class="text-muted">-</span>';
-        return '<tr tabindex="0" data-id="' + p.person_id + '" data-name="' + esc(p.name) + '">' +
+        var nxt = p.next ? esc(period(p.next)) + (p.next.status === '대기' ? ' <span class="gw-badge gw-badge-leave">승인 대기</span>' : '') : '<span class="text-muted">-</span>';
+        // 줄 전체가 누르는 자리 — 화면 읽기엔 '단추'로(Enter·Space 로 열림, 아래 keydown)
+        return '<tr tabindex="0" role="button" aria-label="' + esc(p.name + ' 휴가 열기') + '" data-id="' + esc(p.person_id) + '" data-name="' + esc(p.name) + '">' +
           '<td><strong>' + esc(p.name) + '</strong>' + (p.access === 'field' ? ' <span class="gw-badge gw-badge-field">' + esc(p.job_role || '현장') + '</span>' : '') + '</td>' +
           '<td>' + esc(p.department) + '</td><td>' + esc(p.hire_date) + '</td>' +
           '<td class="n">' + (p.linked ? days(p.balance) : '<span class="text-muted" title="휴가 장부에 없음">-</span>') + '</td>' +
           '<td class="n">' + days(p.annual_used) + '</td><td class="n">' + days(p.sick_used) + '</td>' +
           '<td class="n">' + (p.pending ? '<strong>' + p.pending + '</strong>' : '0') + '</td><td>' + nxt + '</td></tr>';
-      }).join('') || '<tr><td colspan="8" class="gw-empty">재직자가 없습니다.</td></tr>';
+      }).join('') || '<tr><td colspan="8" class="gw-empty">재직자가 없어요.</td></tr>';
     }).catch(function (e) {
       tbody.innerHTML = '<tr><td colspan="8" class="gw-empty">' + esc(e.message) + '</td></tr>';
     });

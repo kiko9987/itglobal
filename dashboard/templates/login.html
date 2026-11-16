@@ -488,19 +488,22 @@
             const alertContainer = document.querySelector('.auth-section');
             const alertHtml = `
                 <div class="alert alert-${type} alert-dismissible fade show" role="alert">
-                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <i class="fas fa-exclamation-triangle me-2" aria-hidden="true"></i>
                     ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="닫기"></button>
                 </div>
             `;
             alertContainer.insertAdjacentHTML('afterbegin', alertHtml);
-            
-            // 5초 후 자동 제거
-            setTimeout(() => {
-                const alertElement = alertContainer.querySelector('.alert');
-                if (alertElement) {
-                    alertElement.remove();
-                }
-            }, 5000);
+            const alertElement = alertContainer.firstElementChild;
+
+            // 성공·안내만 5초 뒤 자동 제거. 오류·경고는 읽기 전에 사라지면 안 되니 남겨 둠(닫기 단추로 닫음, 11-16 점검)
+            if (type !== 'danger' && type !== 'warning') {
+                setTimeout(() => {
+                    if (alertElement && alertElement.isConnected) {
+                        alertElement.remove();
+                    }
+                }, 5000);
+            }
         }
         
         // 번호로 로그인(현장 직원 휴대폰) — 번호 6자리 → /gw/device/redeem → 내 휴가로(11-15)

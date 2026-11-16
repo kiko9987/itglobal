@@ -124,7 +124,7 @@ class ProjectListApp {
 
     } catch (error) {
       logger.error('[ProjectListApp] 초기화 실패:', error);
-      this.showErrorMessage('애플리케이션 초기화에 실패했습니다.');
+      this.showErrorMessage('화면을 불러오지 못했습니다. 새로고침(F5) 해 주세요.');
       this.isInitialized = false; // 실패 시 플래그 재설정
     }
   }
@@ -447,13 +447,13 @@ class ProjectListApp {
           this.hideLoadingOverlay();
         }
       } else {
-        this.showErrorMessage('데이터를 불러올 수 없습니다.');
+        this.showErrorMessage('공사 목록을 불러오지 못했습니다. [새로고침]을 눌러 다시 해 주세요.');
         this.hideLoadingOverlay();
       }
 
     } catch (error) {
       logger.error('[ProjectListApp] 데이터 로딩 실패:', error);
-      this.showErrorMessage('데이터를 불러오는데 실패했습니다.');
+      this.showErrorMessage('공사 목록을 불러오지 못했습니다. [새로고침]을 눌러 다시 해 주세요.');
       // 에러 발생 시에도 로딩 오버레이 숨김
       this.hideLoadingOverlay();
     }
@@ -573,7 +573,7 @@ class ProjectListApp {
 
     try {
       if (showMessage && refreshBtn) {
-        buttonStateManager.setLoading(refreshBtn, '새로고침 중...');
+        buttonStateManager.setLoading(refreshBtn, '새로고침 중…');
       }
 
       // 강제 새로고침 시 테이블 로딩 오버레이 표시 (서버에서 데이터 가져올 때)
@@ -1092,7 +1092,7 @@ if (window.__projectListAppModuleLoaded) {
       }
 
       // 편집 모드 체크 (실제 편집 상태 확인)
-      const isEditingMode = document.querySelector('.accordion-row.open .editing') || // 아코디언 내부 편집 중인 카드
+      const isEditingMode = app._isEditing() ||                                        // 펼침 편집 중
                             document.querySelector('.accordion-content .editing') ||   // 아코디언 내 편집 요소
                             document.querySelector('input:focus, textarea:focus, select:focus'); // 포커스된 입력 필드
 
@@ -1102,8 +1102,11 @@ if (window.__projectListAppModuleLoaded) {
         return;
       }
 
-      // 아코디언이 열려있으면 새로고침 건너뛰기
-      const openAccordion = document.querySelector('.accordion-row.open');
+      // 펼침(PC)이나 휴대폰 상세 시트가 열려 있으면 새로고침 건너뛰기
+      //   예전엔 '.accordion-row.open' 을 봤는데 open 클래스를 붙이는 곳이 없어 늘 false 였음 —
+      //   휴대폰에서 통화하고 5분 뒤 돌아오면 시트가 다시 그려지며 맨 위로 튀던 것 (11-16)
+      const openAccordion = !!app._getAccordion()?.isOpen
+        || document.documentElement.classList.contains('pmm-sheet-open');
       if (openAccordion) {
         logger.debug('🔒 [새로고침 차단] 아코디언이 열려있어 자동 새로고침 건너뜀');
         app.lastVisibilityChange = now;

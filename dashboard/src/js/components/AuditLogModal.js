@@ -19,6 +19,17 @@ export default class AuditLogModal {
    * 컴포넌트 초기화
    */
   init() {
+    // 잘린 값 펼침(<details>) 모양 — 창이 템플릿에 있든 JS 로 만들든 똑같이 적용
+    if (!document.getElementById('auditValueDetailsStyle')) {
+      const st = document.createElement('style');
+      st.id = 'auditValueDetailsStyle';
+      st.textContent = [
+        '#auditLogsTableBody .audit-value-details > summary { list-style: none; cursor: pointer; text-decoration: underline dotted; }',
+        '#auditLogsTableBody .audit-value-details > summary::-webkit-details-marker { display: none; }',
+        '#auditLogsTableBody .audit-value-full { margin-top: 4px; text-align: left; white-space: pre-wrap; word-break: break-all; }',
+      ].join(' ');
+      document.head.appendChild(st);
+    }
     this.modalElement = document.getElementById('auditLogsModal');
     if (!this.modalElement) {
       logger.debug('[AUDIT_LOG] auditLogsModal 요소가 없어서 생성합니다.');
@@ -116,7 +127,7 @@ export default class AuditLogModal {
     tableBody.innerHTML = `
       <tr>
         <td colspan="8" class="text-center">
-          <i class="fas fa-spinner fa-spin"></i> 로딩 중...
+          <i class="fas fa-spinner fa-spin" aria-hidden="true"></i> 불러오는 중…
         </td>
       </tr>
     `;
@@ -144,11 +155,11 @@ export default class AuditLogModal {
         // 페이지네이션 UI 업데이트
         this.updatePaginationUI(pagination);
       } else {
-        this.showAlert(data.message || '로그를 불러오는데 실패했습니다.', 'error');
+        this.showAlert(data.message || '작업 로그를 불러오지 못했습니다.', 'error');
         tableBody.innerHTML = `
           <tr>
             <td colspan="8" class="text-center text-danger">
-              <i class="fas fa-exclamation-triangle"></i> 로그를 불러오지 못했습니다.
+              <i class="fas fa-exclamation-triangle" aria-hidden="true"></i> 작업 로그를 불러오지 못했습니다.
             </td>
           </tr>
         `;
@@ -221,12 +232,17 @@ export default class AuditLogModal {
       const rowBgColor = index % 2 === 0 ? '#ffffff' : 'rgba(0, 0, 0, 0.015)';
       const rowHoverColor = 'rgba(0, 0, 0, 0.025)'; // 모든 행 호버 시 동일한 색상
 
-      // 툴팁 스타일 - 축약된 경우 help 커서 표시
-      const oldValueStyle = oldTruncated ? 'cursor: help; text-decoration: underline dotted;' : '';
-      const newValueStyle = newTruncated ? 'cursor: help; text-decoration: underline dotted;' : '';
+      // 축약된 값의 점선 밑줄은 펼침 단추(summary)에 둔다 — td 에 두면 펼친 전체 값까지 밑줄이 번졌음
+      const oldValueStyle = '';
+      const newValueStyle = '';
 
       // TD에 적용할 배경색 스타일
       const tdBgStyle = `background-color: ${rowBgColor} !important;`;
+
+      // 잘린 값은 마우스 올리기(title)로만 볼 수 있었음 → 눌러서(클릭·Enter) 전체 값을 펼쳐 보게 <details>
+      const valueCell = (display, original, truncated) => (truncated
+        ? `<details class="audit-value-details"><summary>${escapeHtml(display)}<span class="visually-hidden"> (눌러서 전체 보기)</span></summary><div class="audit-value-full">${escapeHtml(original)}</div></details>`
+        : escapeHtml(display));
 
       return `
         <tr data-row-bg="${rowBgColor}" data-row-hover="${rowHoverColor}">
@@ -236,8 +252,8 @@ export default class AuditLogModal {
           <td class="text-center" style="${tdBgStyle}">${actionBadge}</td>
           <td class="text-center" style="${tdBgStyle}">${escapeHtml(log.project_code) || '-'}</td>
           <td class="text-center" style="${tdBgStyle}">${escapeHtml(this.getDisplayFieldName(log.field_name)) || '-'}</td>
-          <td class="text-center" style="${tdBgStyle} ${oldValueStyle}" ${oldTruncated ? `title="${escapeHtml(oldOriginal)}"` : ''}>${escapeHtml(oldDisplay)}</td>
-          <td class="text-center" style="${tdBgStyle} ${newValueStyle}" ${newTruncated ? `title="${escapeHtml(newOriginal)}"` : ''}>${escapeHtml(newDisplay)}</td>
+          <td class="text-center" style="${tdBgStyle} ${oldValueStyle}" ${oldTruncated ? `title="${escapeHtml(oldOriginal)}"` : ''}>${valueCell(oldDisplay, oldOriginal, oldTruncated)}</td>
+          <td class="text-center" style="${tdBgStyle} ${newValueStyle}" ${newTruncated ? `title="${escapeHtml(newOriginal)}"` : ''}>${valueCell(newDisplay, newOriginal, newTruncated)}</td>
         </tr>
       `;
     }).join('');
@@ -749,7 +765,7 @@ export default class AuditLogModal {
               </h5>
               <!-- 알림 영역: 고정 높이로 layout shift 방지 -->
               <div id="auditLogsAlert" class="audit-logs-alert d-flex align-items-center" style="height: 36px; margin-left: 0.5rem;"></div>
-              <select id="auditLogsDays" class="form-select form-select-sm audit-logs-days-select" style="height: 36px;">
+              <select id="auditLogsDays" class="form-select form-select-sm audit-logs-days-select" aria-label="조회 기간" style="height: 36px;">
                 <option value="1">오늘</option>
                 <option value="3">3일</option>
                 <option value="7" selected>7일</option>
@@ -783,7 +799,7 @@ export default class AuditLogModal {
                   <tbody id="auditLogsTableBody">
                     <tr>
                       <td colspan="8" class="text-center">
-                        <i class="fas fa-spinner fa-spin"></i> 로딩 중...
+                        <i class="fas fa-spinner fa-spin" aria-hidden="true"></i> 불러오는 중…
                       </td>
                     </tr>
                   </tbody>

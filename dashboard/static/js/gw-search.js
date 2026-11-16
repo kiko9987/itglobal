@@ -257,6 +257,8 @@
     if (e.defaultPrevented) return;
     var k = e.key;
     if ((e.ctrlKey || e.metaKey) && !e.altKey && (k === 'k' || k === 'K')) {
+      // 다른 창(모달)이 떠 있으면 / 키처럼 무시 — 창 뒤에 찾기가 겹쳐 열리던 것(11-16 점검)
+      if (root.hidden && document.querySelector('.modal.show')) return;
       e.preventDefault();
       if (root.hidden) open(''); else close();
       return;

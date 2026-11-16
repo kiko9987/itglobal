@@ -143,7 +143,8 @@ export default class LeadMobileView {
   /** 고른 정렬로 줄 세움(같으면 리드 No 최신순) */
   sortedRows() {
     if (this.sortKey !== 'visit') return this.rows;
-    const today = new Date().toISOString().slice(0, 10);
+    // toISOString 은 UTC 라 밤 9시 전에는 하루 전 날짜가 된다 → 로컬 날짜 사용
+    const today = localIso(new Date());
     return this.rows.map((r, i) => [r, i, firstDate(r['방문 예정일'])])
       .sort((a, b) => nearFirst(a[2], b[2], today) || a[1] - b[1]).map((x) => x[0]);
   }
