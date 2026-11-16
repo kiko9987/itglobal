@@ -414,7 +414,6 @@ export default class ModernProjectFilters {
       this._lastApplied = {
         filters: JSON.parse(JSON.stringify(this.filters || {})),
         myOnly: !!this.myProjectsOnlyCheckbox?.checked,
-        managerBackup: this._managerBackupBeforeMine,
       };
     } catch (_) { /* 되돌릴 기준만 못 남김 */ }
   }
@@ -423,7 +422,6 @@ export default class ModernProjectFilters {
     const last = this._lastApplied;
     if (!last) return;
     this.filters = JSON.parse(JSON.stringify(last.filters));
-    this._managerBackupBeforeMine = last.managerBackup;
     const f = this.filters;
     if (this.searchInput) this.searchInput.value = f.search || '';
     [
@@ -580,41 +578,22 @@ export default class ModernProjectFilters {
       });
     }
 
-    // 내 공사만 보기 체크박스 — 담당자 필터를 로그인 사용자 이름으로 자동 세팅.
-    // 2026-07-07: 옛 로직은 '발주처 이메일'(고객 이메일)과 로그인 이메일을 비교해 항상
-    // 0건. 이미 있는 담당자 select 필터와 시맨틱 통일이 더 간단·명확.
-    // 2026-07-09: 체크 전 담당자 값 백업 → 언체크 시 복원 (사용자 상태 파괴 방지)
+    // 내 프로젝트만 보기 체크박스 — 담당자 칸과 따로 거름(setMyProjectsOnly, 11-17)
     if (this.myProjectsOnlyCheckbox) {
-      this.myProjectsOnlyCheckbox.addEventListener('change', (e) => {
-        if (e.target.checked) {
-          // 체크: 현재 담당자 값 백업 후 로그인 사용자로 덮어씀
-          this._managerBackupBeforeMine = this.filters.manager || '';
-          const userName = (window.userDisplayName || '').trim();
-          if (userName) {
-            this.filters.manager = userName;
-            if (this.managerFilter) this.managerFilter.value = userName;
-          }
-        } else {
-          // 언체크: 현재 담당자 필터가 로그인 사용자 이름 그대로면 → 백업 복원 or clear
-          //        다른 사람으로 명시적 변경돼 있으면 → 그대로 유지 (사용자 의도 존중)
-          const userName = (window.userDisplayName || '').trim();
-          const currentManager = (this.filters.manager || '').trim();
-          if (currentManager === userName) {
-            const restored = this._managerBackupBeforeMine || '';
-            if (restored) {
-              this.filters.manager = restored;
-              if (this.managerFilter) this.managerFilter.value = restored;
-            } else {
-              delete this.filters.manager;
-              if (this.managerFilter) this.managerFilter.value = '';
-            }
-          }
-          // 담당자가 다른 사람으로 바뀌었으면 그대로 (사용자가 이미 명시적으로 다른 필터 세팅)
-          this._managerBackupBeforeMine = null;
-        }
-        this._applyFromUser();
-      });
+      this.myProjectsOnlyCheckbox.addEventListener('change', (e) => this.setMyProjectsOnly(e.target.checked));
     }
+  }
+
+  /**
+   * '내 프로젝트만 보기' — 담당자 칸과 따로 거른다(11-17). 로그인한 사람이 담당자인 공사만, 없으면 0건.
+   * 예전(07-07~)엔 담당자 칸에 내 이름을 넣었는데, 담당자 목록에 없는 사람(영업이 아닌 직원)은
+   * 칸이 빈 글자로 보이고 데이터가 다시 그려질 때 그 값이 지워져 전체 목록이 나왔다(부장님 화면).
+   */
+  setMyProjectsOnly(on) {
+    if (on) this.filters.myProjectsOnly = true;
+    else delete this.filters.myProjectsOnly;
+    if (this.myProjectsOnlyCheckbox) this.myProjectsOnlyCheckbox.checked = !!on;
+    this._applyFromUser();
   }
 
   /**
@@ -788,8 +767,11 @@ export default class ModernProjectFilters {
       });
     }
 
-    // '내 공사만 보기' 별도 필터는 없음 — 체크박스 change 핸들러에서 f.manager를
-    // 세팅해 위쪽 담당자 필터가 처리하도록 위임 (2026-07-07 변경).
+    // '내 프로젝트만 보기' — 로그인한 사람이 담당자인 공사만. 이름을 모르면 0건(남의 공사가 보이면 안 되므로) (11-17)
+    if (f.myProjectsOnly) {
+      const me = (window.userDisplayName || '').trim();
+      filteredData = me ? filteredData.filter(item => (item['담당자'] || '').toString().trim() === me) : [];
+    }
 
     // '취소된 공사 제외' 체크박스 (2026-11-03) — 기본 켜짐(끈 경우만 false).
     //   취소 판정은 수금 관리 모드와 같은 기준. 코드로 검색하면 취소 건도 보임

@@ -1654,28 +1654,17 @@ export default class ProjectTable {
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
     checkbox.id = 'myProjectsOnly';
-    checkbox.title = '내 담당 프로젝트만 표시';
+    checkbox.title = '내가 담당자인 프로젝트만 표시';
+    // 새로 그려도 걸려 있던 상태 그대로
+    checkbox.checked = !!window.modernFilters?.filters?.myProjectsOnly;
+    if (window.modernFilters) window.modernFilters.myProjectsOnlyCheckbox = checkbox;   // [모두 지우기] 등이 이 칸을 끄게
 
-    // 체크박스 이벤트 리스너 추가 — 담당자 필터에 로그인 사용자 이름 세팅으로 위임
-    // (2026-07-07 변경, ModernProjectFilters의 새 로직과 동일)
+    // 담당자 칸과 따로 거름 — 내가 담당자인 공사만, 없으면 0건 (11-17, ModernProjectFilters.setMyProjectsOnly)
     checkbox.addEventListener('change', (e) => {
-      if (window.modernFilters) {
-        if (e.target.checked) {
-          const userName = (window.userDisplayName || '').trim();
-          if (userName) {
-            window.modernFilters.filters.manager = userName;
-            if (window.modernFilters.managerFilter) {
-              window.modernFilters.managerFilter.value = userName;
-            }
-          }
-        } else {
-          delete window.modernFilters.filters.manager;
-          if (window.modernFilters.managerFilter) {
-            window.modernFilters.managerFilter.value = '';
-          }
-        }
-        window.modernFilters.applyFilters(null, true);
-      }
+      const mf = window.modernFilters;
+      if (!mf) return;
+      mf.myProjectsOnlyCheckbox = e.target;
+      mf.setMyProjectsOnly(e.target.checked);
     });
 
     // 엘리먼트 순서: 체크박스 먼저, 라벨 나중에

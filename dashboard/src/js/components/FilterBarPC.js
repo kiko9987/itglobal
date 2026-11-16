@@ -38,10 +38,9 @@ export default class FilterBarPC {
     section.classList.add('pfb');
     if (!row.id) row.id = 'pmmFilterRow';
 
-    // 자리 매기기: 검색 → 자주 쓰는 4개 → 더보기 단추 → (더보기 안) → 저장한 필터
+    // 자리: 필터는 처음 화면 순서 그대로(템플릿 순서 — 내부 사업자·담당자·유입 구분·거래처·사업자명·상태·
+    //   세금계산서·수금 상태·데이터 → 검색, 11-17 부장님). 좁은 화면에서 접힐 때만 4개를 더보기로 넘긴다.
     this.colOf('searchInput')?.classList.add('pfb-search');
-    PRIMARY.forEach((id, i) => this.colOf(id)?.style.setProperty('--pfb-order', String(10 + i)));
-    this.colOf('asStatusFilter')?.style.setProperty('--pfb-order', '14');
     MORE.forEach((id) => this.colOf(id)?.classList.add('pfb-more-item'));
     this.colOf('filterResultCount')?.classList.add('pfb-old-actions');
 
@@ -182,7 +181,6 @@ export default class FilterBarPC {
       const sel = document.getElementById(id);
       if (!sel || !sel.value) return;
       if (id === 'asStatusFilter' && !sel.closest('[class*="col-"]')?.offsetParent) return;
-      if (id === 'managerFilter' && document.getElementById('myProjectsOnly')?.checked) return; // '내 프로젝트만'으로 보임
       add(id, this.labelOf(id), sel.options[sel.selectedIndex]?.text || sel.value);
     });
     if (document.getElementById('myProjectsOnly')?.checked) add('myProjectsOnly', '', '내 프로젝트만');

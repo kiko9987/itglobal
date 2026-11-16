@@ -1675,8 +1675,10 @@ body.gw-shell .gw-notify-stale {
   body.gw-shell .pfb > .row > .pfb-search {
     order: 29;
   }
+  /* 다 펼침: 처음 화면 순서(템플릿 순서) 그대로 — 필터 8개 → 검색(11-17 부장님) */
+  body.gw-shell .pfb.pfb-all > .row > .pfb-more-item,
   body.gw-shell .pfb.pfb-all > .row > .pfb-search {
-    order: 41;
+    order: 20;
   }
   body.gw-shell .pfb #searchInput {
     width: 260px;
