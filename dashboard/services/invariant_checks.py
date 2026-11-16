@@ -352,6 +352,43 @@ def check_sheet_write_failed(ctx):
     return out
 
 
+# ── 수금 칸 값 ≠ 메모 합 (2026-11-16 상태 머신 점검) ──
+#   입금은 '값 += 금액, 메모 += 입금 문자'로 함께 바뀐다. 한쪽만 바뀌면(메모 지움·값 직접 수정·쓰기 실패)
+#   수금 카드·미수금이 틀어진다. 처음 실행 때 있던 어긋남(옛 양식·옛 카드결제 수수료 등 128칸)은 기준으로
+#   기억하고 새로 생긴 것만 알린다. 입금 기록 도중(값·메모 사이)일 수 있어 새 어긋남은 잠시 뒤 다시 읽어 확인.
+_NOTE_KNOWN_KEY = 'invariant_known_note_sum_v1'
+_NOTE_STAGES = ('계약금', '중도금', '잔금')
+_NOTE_RECHECK_SEC = 45
+
+
+def note_sum_mismatches(rows, f2l=None):
+    """rows: [(행, 코드, {단계: (값, 메모)})] → [(key, 코드, 문구)]."""
+    from dashboard.services.payment_note_sum import cell_note_mismatch
+    if f2l is None:
+        from dashboard.utils.google_sheets import main_field_to_letter
+        f2l = main_field_to_letter()
+    out = []
+    for row, code, cells in rows:
+        for stage in _NOTE_STAGES:
+            v, note = cells.get(stage, ('', ''))
+            m = cell_note_mismatch(v, note)
+            if m is None:
+                continue
+            try:
+                vi = int(float(str(v).replace(',', '') or 0))
+            except ValueError:
+                vi = 0
+            out.append((f'notesum:{code}:{stage}:{vi}:{m}', code,
+                        f"{stage}({f2l.get(stage, '?')}{row}) 칸 {vi:,}원 ≠ 메모 합 {m:,}원"))
+    return out
+
+
+def check_note_sum(ctx):
+    known = ctx.get('known_note_sum') or set()
+    return [Violation('note_sum', key, code, msg)
+            for key, code, msg in ctx.get('note_sum_mismatches') or [] if key not in known]
+
+
 def check_split_payers(ctx):
     """나눠 내는 공사(○○ 부담자 칸) — 칸 형식 오류·부담액 합계≠총액2·부담자 없는 칸에 입금 (2026-10-19)."""
     from dashboard.services.payer_split import split_problems
@@ -380,6 +417,7 @@ INVARIANTS = [
     check_overpay_lingering,
     check_backup_fresh,
     check_sheet_write_failed,
+    check_note_sum,
 ]
 
 _CHECK_LABEL = {
@@ -392,6 +430,7 @@ _CHECK_LABEL = {
     'overpay_lingering': '과입금 7일 넘게 남음',
     'backup_stale': '일일 백업 멈춤',
     'sheet_write_failed': '시트에 안 써진 편집(쓰기 실패)',
+    'note_sum': '수금 칸 금액 ≠ 메모 입금 합',
 }
 
 
@@ -454,6 +493,21 @@ def build_context():
     except Exception as exc:
         logger.warning(f'[INVARIANT] 문의 유입 점검 준비 실패(건너뜀): {exc}')
 
+    note_mismatches, note_known = [], set()
+    try:
+        note_mismatches = note_sum_mismatches(_read_stage_cells_with_notes())
+        if not rc.exists(_NOTE_KNOWN_KEY):
+            rc.sadd(_NOTE_KNOWN_KEY, '__seeded__', *[k for k, _, _ in note_mismatches])
+            logger.info(f'[INVARIANT] 수금 메모 합 기준 저장: {len(note_mismatches)}칸')
+        note_known = {_dec(x) for x in (rc.smembers(_NOTE_KNOWN_KEY) or set())}
+        if any(k not in note_known for k, _, _ in note_mismatches):
+            time.sleep(_NOTE_RECHECK_SEC)            # 입금 기록 도중일 수 있음 → 다시 읽어 그대로인 것만
+            again = {k for k, _, _ in note_sum_mismatches(_read_stage_cells_with_notes())}
+            note_mismatches = [x for x in note_mismatches if x[0] in note_known or x[0] in again]
+    except Exception as exc:
+        logger.warning(f'[INVARIANT] 수금 메모 합 점검 준비 실패(건너뜀): {exc}')
+        note_mismatches = []
+
     queue_failed = []
     try:
         from dashboard.services.sheet_write_queue import peek_failed
@@ -470,6 +524,8 @@ def build_context():
         'known_cell_anomalies': known,
         'formula_mismatches': formula_mismatches,
         'lead_inflow_gaps': inflow_gaps,
+        'note_sum_mismatches': note_mismatches,
+        'known_note_sum': note_known,
         'now': datetime.now(),
     }
 
@@ -498,6 +554,42 @@ def _read_sheet_cells():
             continue
         cells = {f: (cols[j + 1][i][0] if i < len(cols[j + 1]) and cols[j + 1][i] else '')
                  for j, f in enumerate(fields)}
+        out.append((i + 2, code, cells))
+    return out
+
+
+def _read_stage_cells_with_notes():
+    """공사 현황 코드 + 계약금·중도금·잔금 칸 값·메모 → [(행, 코드, {단계: (값, 메모)})] — API 1회."""
+    from dashboard.services.payment_sync import _get_payment_service
+    from dashboard.utils.google_sheets import main_field_to_letter
+    sid = os.getenv('GOOGLE_SHEET_ID', '').strip()
+    sn = os.getenv('GOOGLE_SHEET_NAME', '').strip()
+    if not sid or not sn:
+        return []
+    f2l = main_field_to_letter()
+    ranges = [f"'{sn}'!A2:A6000"] + [f"'{sn}'!{f2l[s]}2:{f2l[s]}6000" for s in _NOTE_STAGES]
+    res = _get_payment_service().spreadsheets().get(
+        spreadsheetId=sid, ranges=ranges,
+        fields='sheets(data(rowData(values(effectiveValue,formattedValue,note))))',
+    ).execute()
+    data = ((res.get('sheets') or [{}])[0].get('data') or [])
+    cols = [[(rd.get('values') or [{}])[0] for rd in (d.get('rowData') or [])] for d in data]
+    if len(cols) < 1 + len(_NOTE_STAGES):
+        return []
+
+    def _v(c):
+        ev = (c or {}).get('effectiveValue') or {}
+        return ev.get('numberValue', (c or {}).get('formattedValue', ''))
+    out = []
+    for i, c in enumerate(cols[0]):
+        code = str((c or {}).get('formattedValue') or '').strip()
+        if not code:
+            continue
+        cells = {}
+        for j, stage in enumerate(_NOTE_STAGES):
+            col = cols[j + 1]
+            cc = col[i] if i < len(col) else {}
+            cells[stage] = (_v(cc), (cc or {}).get('note') or '')
         out.append((i + 2, code, cells))
     return out
 
