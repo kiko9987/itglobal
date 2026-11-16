@@ -761,7 +761,10 @@ class ProjectListApp {
         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="닫기" style="position:static; padding:0.35rem; margin:0; font-size:0.6rem;"></button>
       </div>
     `;
-    setTimeout(() => { container.innerHTML = ''; }, 3000);
+    // 오류는 직원이 닫을 때까지 남긴다(PC 점검 2차 11-16)
+    if (type !== 'error' && type !== 'danger') {
+      setTimeout(() => { container.innerHTML = ''; }, 3000);
+    }
     announceToScreenReader(message, type === 'error' ? 'assertive' : 'polite');
   }
 

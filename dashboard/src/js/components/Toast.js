@@ -10,8 +10,18 @@
  */
 export default class Toast {
   constructor() {
-    // 헤더 슬롯 우선, 없으면 fallback 컨테이너 생성
-    this.headerSlot = document.getElementById('systemAlertContainer');
+    // 그룹웨어 틀에선 #systemAlertContainer 가 위쪽 탭 줄 끝(시공사례 탭 옆)이라 알림이 화면 제목과 동떨어졌음
+    //   (부장님 지적 11-16) → 화면 제목 옆 자리(#headerAlertContainer, 프로젝트·리드)가 있으면 거기에.
+    //   예전 틀에선 #systemAlertContainer 가 사이트 제목 옆이라 그대로.
+    const pageSlot = document.body?.classList.contains('gw-shell')
+      ? document.getElementById('headerAlertContainer') : null;
+    this.headerSlot = pageSlot || document.getElementById('systemAlertContainer');
+    if (pageSlot) {
+      // 제목 옆 자리는 높이가 2rem 로 고정돼 있어 두 줄 알림이 아래 줄을 덮음 → 최소 높이로
+      pageSlot.style.height = 'auto';
+      pageSlot.style.minHeight = '2rem';
+      if (!pageSlot.hasAttribute('aria-live')) pageSlot.setAttribute('aria-live', 'polite');
+    }
     if (!this.headerSlot) {
       this.headerSlot = this._createFallbackContainer();
     }
@@ -48,7 +58,7 @@ export default class Toast {
    */
   show(message, type = 'info', duration = 4000) {
     // 이전 알림 제거 (헤더 슬롯은 최근 하나만 유지)
-    const isHeaderSlot = this.headerSlot?.id === 'systemAlertContainer';
+    const isHeaderSlot = ['systemAlertContainer', 'headerAlertContainer'].includes(this.headerSlot?.id);
     if (isHeaderSlot) {
       this.headerSlot.innerHTML = '';
     }
