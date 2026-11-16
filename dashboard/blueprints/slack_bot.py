@@ -5423,7 +5423,7 @@ def _post_pinv_result(client, ch, ts, click_ts, parsed, row, line, code, cost, n
             click_ts = (v.decode() if isinstance(v, bytes) else v) or None
         except Exception:
             click_ts = None
-    blocks = pinv.result_blocks(row, line, ch, ts, extra)
+    blocks = pinv.result_blocks(row, line, ch, ts, extra, with_button=_pinv_enabled())
     text = pinv.result_text(row, line, extra)
     if row.get('reply_ts'):
         client.chat_update(channel=ch, ts=row['reply_ts'], text=text, blocks=blocks)

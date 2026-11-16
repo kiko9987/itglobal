@@ -135,6 +135,18 @@ def test_own_entity_name_matches_transfer_deposit():
     assert ft.match_deposit(text, {'amount': 3100000, 'partner': '아이티글로벌', 'acct_code': 'R'}, reqs) == []
 
 
+def test_invoice_result_has_no_reassign_button_when_feature_off(monkeypatch):
+    from dashboard.services import purchase_invoice_assign as pinv
+    from dashboard.blueprints import slack_bot as sb
+    row = {'assigned_at': '2026-11-17 08:15:00', 'assigned_name': '문원', 'cost_category': '제품대',
+           'memo': '중고', 'history': '[]', 'date_md': '11/17', 'grn': 'R', 'amount': 1, 'partner': 'x'}
+    off = pinv.result_blocks(row, 'R4298-MW', 'C1', '1.1', '💸 #36', with_button=False)
+    assert 'pinv_assign_open' not in json.dumps(off) and '#36' in json.dumps(off, ensure_ascii=False)
+    assert 'pinv_assign_open' in json.dumps(pinv.result_blocks(row, 'R4298-MW', 'C1', '1.1'))
+    import inspect
+    assert 'with_button=_pinv_enabled()' in inspect.getsource(sb._post_pinv_result)
+
+
 def test_reminder_line_shows_approval_state(se, pending):
     from dashboard.services import pin_remind as pr
     import inspect
