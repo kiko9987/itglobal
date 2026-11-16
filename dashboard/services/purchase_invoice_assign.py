@@ -360,8 +360,13 @@ def result_text(row: Dict, project_line: str, extra: str = '') -> str:
     return '\n'.join(lines)
 
 
-def result_blocks(row: Dict, project_line: str, channel: str, msg_ts: str, extra: str = '') -> List[dict]:
+def result_blocks(row: Dict, project_line: str, channel: str, msg_ts: str, extra: str = '',
+                  with_button: bool = True) -> List[dict]:
+    """with_button=False — 계산서 글 현장 지정이 꺼져 있으면 [✏️ 다시 지정]을 달지 않는다
+    (눌러도 '지금 쓰지 않아요'만 떠서 헷갈림, 11-17 R4298-MW #36)."""
     from dashboard.services.e_approval import spaced
+    if not with_button:
+        return [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': result_text(row, project_line, extra)}}]
     value = button_value(channel, msg_ts, parsed_from_row(row))
     return spaced(result_text(row, project_line, extra), [{
         'type': 'button', 'action_id': ACTION_OPEN, 'value': value,
