@@ -195,7 +195,7 @@
                 <div class="modal-content">
                     <div class="modal-header" style="min-height: 68px; display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 0.5rem; padding: 1rem;">
                         <h5 class="modal-title mb-0 d-flex align-items-center" id="sequenceManagementModalLabel" style="height: 36px;">
-                            <i class="fas fa-sort-numeric-up me-2"></i>프로젝트 시퀀스 관리
+                            <i class="fas fa-sort-numeric-up me-2" aria-hidden="true"></i>프로젝트 번호 관리
                         </h5>
                         <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center" id="refreshSequenceBtn"
                                 onclick="window.runRefreshAnimation(this, loadSequenceStatus)" style="height: 36px;">
@@ -209,17 +209,13 @@
                     <div class="modal-body">
                         <!-- 안내 메시지 -->
                         <div class="alert alert-info" style="border-left: 4px solid #0d6efd;">
-                            <h6 class="mb-2"><i class="fas fa-info-circle me-2"></i>프로젝트 시퀀스란?</h6>
+                            <h6 class="mb-2"><i class="fas fa-info-circle me-2" aria-hidden="true"></i>프로젝트 번호란?</h6>
                             <p class="mb-2 small">
-                                프로젝트 코드(예: <strong>G2833-SH</strong>)의 <strong>숫자 부분(2833)</strong>을 자동으로 생성하는 시스템입니다.<br>
-                                새 프로젝트를 등록할 때마다 DB에서 다음 번호를 자동으로 부여합니다.
+                                새 프로젝트를 등록하면 코드(예: <strong>G2833-SH</strong>)의 숫자(2833)를 다음 번호로 자동으로 붙입니다.
                             </p>
                             <p class="mb-0 small">
-                                <strong>💡 차이(Gap)란?</strong><br>
-                                DB 시퀀스와 실제 Google Sheets에 저장된 최대 번호의 차이입니다.<br>
-                                • <strong>차이 = 0</strong>: 정상 (번호가 연속됨)<br>
-                                • <strong>차이 > 0</strong>: 프로젝트 등록 실패로 번호가 건너뛰어진 상태<br>
-                                → "시퀀스 리셋" 버튼으로 DB를 Sheets 최댓값에 맞춰 동기화할 수 있습니다.
+                                <strong>건너뛴 번호</strong>가 0이면 정상입니다. 1 이상이면 등록이 중간에 실패해 번호를 건너뛴 것입니다.
+                                [번호 맞추기]를 누르면 시트의 마지막 번호에 맞춥니다.
                             </p>
                         </div>
 
@@ -236,25 +232,25 @@
                             <table class="table table-sm">
                                 <tbody>
                                     <tr>
-                                        <td class="text-muted">DB 시퀀스 현재값</td>
+                                        <td class="text-muted">마지막으로 낸 번호</td>
                                         <td class="text-end fw-bold text-primary" id="dbSequenceValue">-</td>
                                     </tr>
                                     <tr>
-                                        <td class="text-muted">Google Sheets 최댓값</td>
+                                        <td class="text-muted">시트의 마지막 번호</td>
                                         <td class="text-end fw-bold text-primary" id="sheetMaxValue">-</td>
                                     </tr>
                                     <tr>
-                                        <td class="text-muted">차이 (Gap)</td>
+                                        <td class="text-muted">건너뛴 번호</td>
                                         <td class="text-end">
                                             <span class="badge bg-success" id="gapBadge">0</span>
                                         </td>
                                     </tr>
                                     <tr>
-                                        <td class="text-muted">캘린더 매핑 수</td>
+                                        <td class="text-muted">캘린더 연결 수</td>
                                         <td class="text-end fw-bold text-primary" id="totalMappingsInline">-</td>
                                     </tr>
                                     <tr>
-                                        <td class="text-muted">불일치 매핑 수</td>
+                                        <td class="text-muted">시트에 없는 캘린더 연결</td>
                                         <td class="text-end">
                                             <span class="badge bg-success" id="orphanedMappingsBadge">0</span>
                                         </td>
@@ -270,21 +266,21 @@
                             <div class="alert alert-warning" id="sequenceWarning" style="display: none; border-left: 4px solid #ffc107;">
                                 <h6 class="mb-2"><i class="fas fa-exclamation-triangle me-2"></i>주의사항</h6>
                                 <p class="mb-0 small">
-                                    시퀀스 리셋은 DB 시퀀스를 Google Sheets 최댓값으로 되돌립니다.
-                                    이 작업은 되돌릴 수 없으며, 리셋 후 다음 프로젝트 번호는 <strong id="nextNumberValue">-</strong>가 됩니다.
+                                    [번호 맞추기]는 다음 프로젝트 번호를 시트의 마지막 번호에 맞춥니다.
+                                    되돌릴 수 없고, 맞추면 다음 프로젝트 번호는 <strong id="nextNumberValue">-</strong>입니다.
                                 </p>
                             </div>
 
                             <!-- 불일치 매핑 경고 (불일치 매핑 > 0일 때만 표시) -->
                             <div class="alert alert-warning" id="orphanedMappingWarning" style="display: none; border-left: 4px solid #ffc107;">
-                                <h6 class="mb-2"><i class="fas fa-exclamation-triangle me-2"></i>불일치 매핑 발견</h6>
+                                <h6 class="mb-2"><i class="fas fa-exclamation-triangle me-2" aria-hidden="true"></i>시트에 없는 캘린더 연결</h6>
                                 <p class="mb-2 small">
-                                    Google Sheets에 없는 <strong id="orphanedCountText">0</strong>개의 프로젝트 코드가 DB에 매핑되어 있습니다:
+                                    시트에 없는 프로젝트 코드 <strong id="orphanedCountText">0</strong>개가 캘린더에 연결되어 있습니다.
                                 </p>
                                 <ul class="small mb-2" id="orphanedCodesList" style="max-height: 100px; overflow-y: auto;">
                                 </ul>
                                 <p class="mb-0 small">
-                                    <strong>"매핑 정리"</strong> 버튼으로 이러한 불일치 매핑을 자동으로 삭제할 수 있습니다.
+                                    [캘린더 연결 정리]를 누르면 이 연결을 지웁니다.
                                 </p>
                             </div>
                         </div>
@@ -298,13 +294,13 @@
                                 style="background-color: #f8d7da; border: 1px solid #f5c6cb; border-radius: var(--border-radius); font-weight: 500; padding: 0.625rem 1.5rem; transition: all 0.2s ease; color: #721c24;"
                                 onmouseover="this.style.backgroundColor='#f5c6cb'; this.style.borderColor='#f1b0b7'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 2px 6px rgba(114, 28, 36, 0.2)'"
                                 onmouseout="this.style.backgroundColor='#f8d7da'; this.style.borderColor='#f5c6cb'; this.style.transform='translateY(0)'; this.style.boxShadow='none'">
-                            <i class="fas fa-redo me-1"></i>시퀀스 리셋
+                            <i class="fas fa-redo me-1" aria-hidden="true"></i>번호 맞추기
                         </button>
                         <button type="button" class="btn" id="calendarCleanupBtn" onclick="cleanupCalendarMappings()"
                                 style="background-color: #fff3cd; border: 1px solid #ffeeba; border-radius: var(--border-radius); font-weight: 500; padding: 0.625rem 1.5rem; transition: all 0.2s ease; color: #856404;"
                                 onmouseover="this.style.backgroundColor='#ffeeba'; this.style.borderColor='#ffe8a1'; this.style.transform='translateY(-1px)'; this.style.boxShadow='0 2px 6px rgba(133, 100, 4, 0.2)'"
                                 onmouseout="this.style.backgroundColor='#fff3cd'; this.style.borderColor='#ffeeba'; this.style.transform='translateY(0)'; this.style.boxShadow='none'">
-                            <i class="fas fa-broom me-1"></i>매핑 정리
+                            <i class="fas fa-broom me-1" aria-hidden="true"></i>캘린더 연결 정리
                         </button>
                     </div>
                 </div>
@@ -554,12 +550,11 @@
                 const componentsPath = await findComponentsBundle();
                 console.log('[AUDIT_LOGS] Components 번들 경로:', componentsPath);
 
-                const componentsModule = await import(componentsPath + '?v={{ cache_buster() }}');
+                await import(componentsPath + '?v={{ cache_buster() }}');
                 console.log('[AUDIT_LOGS] Components 모듈 로드 성공');
 
-                // named export 'A'가 AuditLogModal 모듈이고, default export가 실제 클래스
-                const AuditLogModalModule = componentsModule.A;
-                const AuditLogModal = AuditLogModalModule.default;
+                // 번들의 압축 내보내기 이름('A' 등)은 빌드마다 바뀜 → 모듈이 스스로 올려 둔 전역 클래스를 쓴다(PC 점검 2차 11-16)
+                const AuditLogModal = window.AuditLogModal;
                 if (!AuditLogModal) {
                     throw new Error('AuditLogModal 클래스를 찾을 수 없습니다');
                 }
@@ -572,9 +567,24 @@
                 window.globalAuditLogModal.open();
             } catch (error) {
                 console.error('[AUDIT_LOGS] 동적 로드 실패:', error);
-                alert('작업 로그를 여는 중 오류가 발생했습니다: ' + error.message);
+                alert('작업 로그를 열지 못했습니다. 화면을 새로 고친 뒤 다시 눌러 주세요.');
             }
         };
+
+        // 코드로 연 창(A/S·계산서·공사 취소 사유·사용자 관리 등)을 닫으면 포커스가 몸통으로 빠져 키보드로 쓰는 사람이
+        // 제자리를 잃었음 → 창을 열 때 포커스가 있던 단추로 돌려준다(Bootstrap 은 data-bs-toggle 로 연 창만 돌려줌). PC 점검 2차 11-16
+        document.addEventListener('show.bs.modal', function (e) {
+            const a = document.activeElement;
+            if (a && a !== document.body && !e.target.contains(a)) e.target._itgOpener = a;
+        });
+        document.addEventListener('hidden.bs.modal', function (e) {
+            const o = e.target._itgOpener;
+            e.target._itgOpener = null;
+            const cur = document.activeElement;
+            if (o && document.contains(o) && (!cur || cur === document.body) && !document.querySelector('.modal.show')) {
+                try { o.focus({ preventScroll: true }); } catch (_) { /* 무시 */ }
+            }
+        });
 
         // 폴더 경로 변환 — 백엔드 /api/folder/convert-paths-to-ids 호출
         // 시트에는 write하지 않음. URL에서 Google Drive 폴더 ID만 추출해 Redis 캐시에 저장.
@@ -716,13 +726,15 @@
                     // 캘린더 매핑 상태도 함께 로드
                     loadCalendarMappingStatus();
                 } else {
-                    showSequenceAlert('오류', result.error || '시퀀스 상태를 조회할 수 없습니다.', 'danger');
+                    showSequenceAlert('오류', result.error || '번호 상태를 불러오지 못했습니다.', 'danger');
                     spinner.style.display = 'none';
+                    return false;
                 }
             } catch (error) {
                 console.error('시퀀스 상태 조회 실패:', error);
-                showSequenceAlert('오류', '서버와 통신 중 오류가 발생했습니다.', 'danger');
+                showSequenceAlert('오류', '번호 상태를 불러오지 못했습니다. 잠시 뒤 [새로고침]을 눌러 주세요.', 'danger');
                 spinner.style.display = 'none';
+                return false;
             }
         };
 
@@ -733,20 +745,21 @@
 
             // Gap = 0일 때: 피드백 후 리턴 (아코디언 방식)
             if (currentGap === 0) {
-                resetBtn.innerHTML = '<i class="fas fa-check me-1"></i>동기화 완료';
+                resetBtn.innerHTML = '<i class="fas fa-check me-1"></i>맞출 번호 없음';
                 setTimeout(() => {
-                    resetBtn.innerHTML = '<i class="fas fa-redo me-1"></i>시퀀스 리셋';
+                    resetBtn.innerHTML = '<i class="fas fa-redo me-1"></i>번호 맞추기';
                 }, 2000);
                 return;
             }
 
             // Gap > 0일 때: 확인 후 실제 리셋 진행
-            if (!confirm('정말로 시퀀스를 리셋하시겠습니까?\n\n이 작업은 되돌릴 수 없습니다.')) {
+            const nextNo = (parseInt(resetBtn.dataset.sheetMax || '0', 10) || 0) + 1;
+            if (!confirm(`다음 프로젝트 번호를 ${nextNo}부터 쓰도록 맞춥니다.\n되돌릴 수 없습니다. 맞출까요?`)) {
                 return;
             }
 
             resetBtn.disabled = true;
-            resetBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>리셋 중...';
+            resetBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>맞추는 중…';
 
             try {
                 const response = await fetch('/admin/api/sequence/reset', {
@@ -762,7 +775,7 @@
                 if (result.success) {
                     showSequenceAlert('성공', result.message, 'success');
                     // 버튼 복원
-                    resetBtn.innerHTML = '<i class="fas fa-redo me-1"></i>시퀀스 리셋';
+                    resetBtn.innerHTML = '<i class="fas fa-redo me-1"></i>번호 맞추기';
                     // 1.5초 후 자동 새로고침
                     setTimeout(() => {
                         loadSequenceStatus();
@@ -770,13 +783,13 @@
                 } else {
                     showSequenceAlert('실패', result.message || '시퀀스 리셋에 실패했습니다.', 'danger');
                     resetBtn.disabled = false;
-                    resetBtn.innerHTML = '<i class="fas fa-redo me-1"></i>시퀀스 리셋';
+                    resetBtn.innerHTML = '<i class="fas fa-redo me-1"></i>번호 맞추기';
                 }
             } catch (error) {
                 console.error('시퀀스 리셋 실패:', error);
                 showSequenceAlert('오류', '서버와 통신 중 오류가 발생했습니다.', 'danger');
                 resetBtn.disabled = false;
-                resetBtn.innerHTML = '<i class="fas fa-redo me-1"></i>시퀀스 리셋';
+                resetBtn.innerHTML = '<i class="fas fa-redo me-1"></i>번호 맞추기';
             }
         };
 
@@ -901,14 +914,14 @@
             const alertHtml = `
                 <div class="alert alert-${type} alert-dismissible fade show" role="alert" id="${alertId}">
                     <strong>${title}:</strong> ${message}
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="알림 닫기"></button>
                 </div>
             `;
 
             container.innerHTML = alertHtml;
 
-            // 5초 후 자동 제거
-            setTimeout(() => {
+            // 5초 후 자동 제거 — 오류는 직원이 닫을 때까지 남김(PC 점검 2차 11-16)
+            if (type !== 'danger') setTimeout(() => {
                 const alert = document.getElementById(alertId);
                 if (alert) {
                     alert.remove();
@@ -939,7 +952,9 @@
             if (icon) icon.className = 'fas fa-sync-alt fa-spin me-1';
 
             try {
-                await refreshFn();
+                // 불러오기 함수가 실패를 안에서 처리하고 false 를 돌려주면 ✗ 로(예전엔 실패해도 ✓ — PC 점검 2차 11-16)
+                const ok = await refreshFn();
+                if (ok === false) throw new Error('refresh failed');
                 if (icon) icon.className = 'fas fa-check-circle me-1 text-success';
                 setTimeout(() => {
                     if (icon) icon.className = originalIconClass;
@@ -1170,11 +1185,12 @@
                             padding: 0.35rem 0.7rem;
                             font-size: 0.8125rem;
                             font-weight: 500;
-                            white-space: nowrap;
+                            white-space: normal;
                             box-shadow: 0 1px 3px rgba(0,0,0,0.08);
                             opacity: 0;
-                            transition: opacity 0.2s ease-in-out;">
-                    <i class="fas ${s.icon}" style="font-size: 0.85rem;"></i>
+                            transition: opacity 0.2s ease-in-out;"
+                     role="${type === 'danger' ? 'alert' : 'status'}">
+                    <i class="fas ${s.icon}" style="font-size: 0.85rem;" aria-hidden="true"></i>
                     <span>${message}</span>
                 </div>
             `;
@@ -1183,8 +1199,8 @@
                 const el = document.getElementById(alertId);
                 if (el) el.style.opacity = '1';
             });
-            // fade-out 후 제거
-            setTimeout(() => {
+            // fade-out 후 제거 — 오류는 남김(3초 만에 사라져 무엇이 잘못됐는지 못 읽었음)
+            if (type !== 'danger') setTimeout(() => {
                 const el = document.getElementById(alertId);
                 if (el) {
                     el.style.opacity = '0';
@@ -1204,7 +1220,7 @@
                 if (!response.ok) {
                     if (response.status === 403) {
                         showConstructorAlert('관리자 권한이 필요합니다.', 'danger');
-                        return;
+                        return false;
                     }
                     throw new Error('HTTP ' + response.status);
                 }
@@ -1238,7 +1254,8 @@
                 content.style.display = 'block';
             } catch (err) {
                 console.error('[CONSTRUCTOR] 로드 실패:', err);
-                showConstructorAlert('시공자 목록 로드 실패: ' + err.message, 'danger');
+                showConstructorAlert('시공자 목록을 불러오지 못했습니다. 잠시 뒤 [새로고침]을 눌러 주세요.', 'danger');
+                return false;
             } finally {
                 spinner.style.display = 'none';
             }

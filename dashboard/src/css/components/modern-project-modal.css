@@ -153,3 +153,33 @@
         gap: 0.5rem !important;
     }
 }
+
+/* 금액 빠른 단추 글자 #17a2b8 이 흰 바탕에서 3.04:1 → 4.5:1 넘게(PC 점검 2차 11-16). 템플릿 인라인 색을 덮음 */
+#modernProjectModal .modern-amount-btn {
+  color: #0e6674 !important;
+  border-color: #0e6674 !important;
+}
+
+/* 아래 단추(PC 점검 2차 11-16): [취소]가 분홍 빨강이라 지우는 단추처럼 보였고, [프로젝트 등록]은 옅은 초록이라
+   주 단추가 약했음. 템플릿 인라인 색·onmouseover 를 덮는다. 주 단추 색은 그룹웨어 '만들기'와 같은 주황(흰 글자 5.2:1). */
+#modernProjectModal button.btn-secondary[data-bs-dismiss="modal"] {
+  background-color: #ffffff !important;
+  border: 1px solid #c8ccd3 !important;
+  color: #1a1c20 !important;
+}
+
+#modernProjectModal button.btn-secondary[data-bs-dismiss="modal"]:hover {
+  background-color: #f3f4f6 !important;
+}
+
+#modernProjectModal #modern-submit-new-project {
+  background-color: #c2410c !important;
+  border-color: #c2410c !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+}
+
+#modernProjectModal #modern-submit-new-project:hover:not(:disabled) {
+  background-color: #9a3412 !important;
+  border-color: #9a3412 !important;
+}

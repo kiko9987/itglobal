@@ -310,44 +310,8 @@ a:focus {
 }
 
 /* 다크모드 UX 조정 */
-@media (prefers-color-scheme: dark) {
-  * {
-    caret-color: var(--primary-light);
-  }
-
-  ::selection {
-    background-color: var(--primary-alpha-30);
-    color: var(--gray-100);
-  }
-
-  ::-moz-selection {
-    background-color: var(--primary-alpha-30);
-    color: var(--gray-100);
-  }
-
-  .form-control::placeholder,
-  .form-control::-webkit-input-placeholder,
-  .form-control::-moz-placeholder,
-  .form-control:-ms-input-placeholder {
-    color: var(--gray-500) !important;
-  }
-
-  .table tbody tr:hover:not(.table-active) {
-    background-color: var(--gray-800);
-  }
-
-  ::-webkit-scrollbar-track {
-    background: var(--gray-800);
-  }
-
-  ::-webkit-scrollbar-thumb {
-    background: var(--gray-600);
-  }
-
-  ::-webkit-scrollbar-thumb:hover {
-    background: var(--gray-500);
-  }
-}
+/* 다크 모드 규칙 걷어 냄(PC 점검 11-16): PM 화면엔 다크 테마가 없어(main.css "추후 구현") 카드·창 바탕만 어두워지고
+   글자는 어두운 색 그대로라 1.4~2:1 로 안 보였다. 그룹웨어처럼 밝은 화면으로 고정. */
 
 /* 키보드 네비게이션 지원 */
 *:focus-visible {

@@ -27,10 +27,12 @@ export default class StateManager {
   initializeState() {
     // 사용자 권한 확인
     const userRole = window.userRole || 'viewer';
+    // super_admin 도 관리자(예전엔 빠져 있어 최고관리자가 '조회 권한'으로 취급될 수 있었음 — PC 점검 2차 11-16)
+    const isAdmin = userRole === 'admin' || userRole === 'super_admin';
     this.userPermissions = {
-      canEdit: userRole === 'admin' || userRole === 'editor',
-      canDelete: userRole === 'admin',
-      canCreate: userRole === 'admin' || userRole === 'editor'
+      canEdit: isAdmin || userRole === 'editor',
+      canDelete: isAdmin,
+      canCreate: isAdmin || userRole === 'editor'
     };
 
     this.isInitialized = true;
@@ -117,7 +119,14 @@ export default class StateManager {
   applyPermissions() {
     const editButtons = document.querySelectorAll('.btn-edit');
     const deleteButtons = document.querySelectorAll('.btn-delete');
-    const createButton = document.getElementById('createProjectBtn');
+    // 새 프로젝트 단추엔 id 가 없어(onclick 으로 엶) 조회 권한에도 보였음 → onclick 으로도 찾는다(PC 점검 2차 11-16)
+    const createButton = document.getElementById('createProjectBtn')
+      || document.querySelector('button[onclick*="openNewProjectModal"]');
+    // 캘린더 동기화는 서버가 관리자만 받는다 → 관리자가 아니면 단추를 숨김(눌러도 '실패'만 떴음)
+    const calendarBtn = document.getElementById('calendarSyncBtn');
+    if (calendarBtn && !['admin', 'super_admin'].includes(window.userRole)) {
+      calendarBtn.style.display = 'none';
+    }
 
     if (!this.userPermissions.canEdit) {
       editButtons.forEach(btn => btn.style.display = 'none');

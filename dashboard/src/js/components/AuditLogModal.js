@@ -156,11 +156,12 @@ export default class AuditLogModal {
       }
     } catch (error) {
       logger.error('감사 로그 로딩 오류:', error);
-      this.showAlert('네트워크 오류가 발생했습니다.', 'error');
+      // 로그인이 끝났거나 서버 오류여도 '네트워크 오류'라고 안내했음 → 원인을 단정하지 않는 문구로(PC 점검 2차 11-16)
+      this.showAlert('작업 로그를 불러오지 못했습니다. 잠시 뒤 다시 열어 주세요.', 'error');
       tableBody.innerHTML = `
         <tr>
           <td colspan="8" class="text-center text-danger">
-            <i class="fas fa-wifi"></i> 네트워크 오류
+            <i class="fas fa-exclamation-triangle" aria-hidden="true"></i> 작업 로그를 불러오지 못했습니다.
           </td>
         </tr>
       `;
@@ -397,7 +398,7 @@ export default class AuditLogModal {
   getActionBadge(action) {
     const actionMap = {
       // 프로젝트 관련
-      'UPDATE_FIELD': { text: '필드 수정', style: 'background-color: #e3f2fd; color: #1976d2; border: 1px solid #bbdefb;' },
+      'UPDATE_FIELD': { text: '항목 수정', style: 'background-color: #e3f2fd; color: #1976d2; border: 1px solid #bbdefb;' },
       'UPDATE_FIELD_MEMO': { text: '메모 수정', style: 'background-color: #fff3cd; color: #856404; border: 1px solid #ffeaa7;' },
       'CREATE_PROJECT': { text: '프로젝트 생성', style: 'background-color: #e8f5e8; color: #388e3c; border: 1px solid #c8e6c8;' },
       'DELETE_PROJECT': { text: '프로젝트 삭제', style: 'background-color: #ffebee; color: #c62828; border: 1px solid #ffcdd2;' },
@@ -428,10 +429,10 @@ export default class AuditLogModal {
    */
   getRoleBadge(role) {
     const roleMap = {
-      'admin': { text: 'Admin', style: 'background-color: #ffeaa7; color: #d63031; border: 1px solid #fdcb6e;' },
-      'super_admin': { text: 'Admin', style: 'background-color: #ffeaa7; color: #d63031; border: 1px solid #fdcb6e;' },
-      'editor': { text: 'Editor', style: 'background-color: #fff3cd; color: #856404; border: 1px solid #ffeaa7;' },
-      'viewer': { text: 'Viewer', style: 'background-color: #f8f9fa; color: #6c757d; border: 1px solid #dee2e6;' }
+      'admin': { text: '관리자', style: 'background-color: #ffeaa7; color: #d63031; border: 1px solid #fdcb6e;' },
+      'super_admin': { text: '최고 관리자', style: 'background-color: #ffeaa7; color: #d63031; border: 1px solid #fdcb6e;' },
+      'editor': { text: '편집', style: 'background-color: #fff3cd; color: #856404; border: 1px solid #ffeaa7;' },
+      'viewer': { text: '보기', style: 'background-color: #f8f9fa; color: #6c757d; border: 1px solid #dee2e6;' }
     };
 
     const roleInfo = roleMap[role] || { text: role, style: 'background-color: #f8f9fa; color: #6c757d; border: 1px solid #dee2e6;' };
@@ -774,9 +775,9 @@ export default class AuditLogModal {
                       <th>권한</th>
                       <th>작업</th>
                       <th>프로젝트</th>
-                      <th>필드명</th>
-                      <th>이전값</th>
-                      <th>새값</th>
+                      <th>항목</th>
+                      <th>바꾸기 전</th>
+                      <th>바꾼 뒤</th>
                     </tr>
                   </thead>
                   <tbody id="auditLogsTableBody">
@@ -839,3 +840,8 @@ export default class AuditLogModal {
     }
   }
 }
+
+// 프로젝트 화면 밖(리드·통계·수금·시공사례)의 사용자 메뉴 [작업 로그]가 이 클래스를 찾을 수 있게 전역에 둔다.
+// 예전엔 modern_base.html 이 압축 번들의 내보내기 이름 'A'를 짐작해 썼는데, 빌드마다 이름이 바뀌어
+// 'AuditLogModal 클래스를 찾을 수 없습니다' 오류 창만 떴음(PC 점검 2차 11-16).
+if (typeof window !== 'undefined') window.AuditLogModal = AuditLogModal;

@@ -140,19 +140,5 @@
 }
 
 /* 다크모드 준비 */
-@media (prefers-color-scheme: dark) {
-  .stats-card,
-  .chart-container {
-    background: var(--dark-accent, #2d2d2d);
-    border-color: var(--gray-700, #3a3a3a);
-  }
-
-  .stats-card h3,
-  .chart-title {
-    color: var(--gray-200, #e2e8f0);
-  }
-
-  .stats-label {
-    color: var(--gray-400, #94a3b8);
-  }
-}
+/* 다크 모드 규칙 걷어 냄(PC 점검 11-16): PM 화면엔 다크 테마가 없어(main.css "추후 구현") 카드·창 바탕만 어두워지고
+   글자는 어두운 색 그대로라 1.4~2:1 로 안 보였다. 그룹웨어처럼 밝은 화면으로 고정. */

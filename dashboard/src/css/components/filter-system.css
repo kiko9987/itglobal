@@ -274,3 +274,23 @@
     justify-content: center;
   }
 }
+
+/* 저장한 필터 칩 안 단추(PC 점검 2차 11-16): 예전 span 과 같은 모양, 키보드 초점은 보이게 */
+.preset-chip-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  line-height: inherit;
+}
+.preset-chip-btn:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.preset-chip-del {
+  min-width: 16px;
+}

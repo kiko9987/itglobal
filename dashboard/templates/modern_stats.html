@@ -10,7 +10,8 @@
 {% endif %}
 
 <!-- Chart.js -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<!-- 판 고정(PC 점검 2차 11-16): 주소에 판이 없으면 Chart.js 새 큰 판이 나올 때 통계 화면이 통째로 깨질 수 있음 -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 {% endblock %}
 

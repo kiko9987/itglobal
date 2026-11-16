@@ -256,7 +256,7 @@ export default class ModernLeadsFilters {
       window.showPageAlert?.('저장할 필터를 먼저 선택하세요', 'warning');
       return;
     }
-    const name = (prompt('프리셋 이름') || '').trim();
+    const name = (prompt('저장할 필터 이름') || '').trim();
     if (!name) return;
     const list = this.loadPresets().filter((p) => p.name !== name);
     list.push({ name, filters: { ...this.filters }, toggles: { ...this.toggles }, created_at: Date.now() });
@@ -287,16 +287,22 @@ export default class ModernLeadsFilters {
     this.loadPresets().forEach((p) => {
       const chip = document.createElement('span');
       chip.className = 'badge bg-light text-dark border d-inline-flex align-items-center gap-1';
-      chip.style.cursor = 'pointer';
-      const label = document.createElement('span');
+      // 글자·✕ 를 단추로 — 예전엔 span·i 클릭만이라 키보드로 못 쓰고 ✕ 에 이름이 없었음(PC 점검 2차 11-16)
+      const label = document.createElement('button');
+      label.type = 'button';
+      label.className = 'preset-chip-btn';
       label.textContent = p.name;
+      label.title = `'${p.name}' 필터 적용`;
       label.addEventListener('click', () => this.loadPreset(p.name));
-      const del = document.createElement('i');
-      del.className = 'fas fa-times text-muted';
-      del.title = '프리셋 삭제';
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'preset-chip-btn preset-chip-del';
+      del.setAttribute('aria-label', `'${p.name}' 저장한 필터 지우기`);
+      del.title = '저장한 필터 지우기';
+      del.innerHTML = '<i class="fas fa-times text-muted" aria-hidden="true"></i>';
       del.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (confirm(`'${p.name}' 프리셋을 삭제할까요?`)) this.deletePreset(p.name);
+        if (confirm(`저장한 필터 '${p.name}'을(를) 지울까요?`)) this.deletePreset(p.name);
       });
       chip.append(label, del);
       box.appendChild(chip);

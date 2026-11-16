@@ -292,28 +292,8 @@
 }
 
 /* Dark mode support */
-@media (prefers-color-scheme: dark) {
-  .user-dropdown .dropdown-menu {
-    background: var(--dark-secondary, #2d2d2d);
-    border-color: var(--dark-accent, #3a3a3a);
-  }
-
-  .user-dropdown .dropdown-item {
-    color: var(--gray-300, #d1d5db);
-  }
-
-  .user-dropdown .dropdown-item:hover {
-    background-color: var(--primary-alpha-20, rgba(255, 107, 53, 0.2));
-  }
-
-  .user-name {
-    color: var(--gray-100, #f3f4f6);
-  }
-
-  .user-email {
-    color: var(--gray-400, #9ca3af);
-  }
-}
+/* 다크 모드 규칙 걷어 냄(PC 점검 11-16): PM 화면엔 다크 테마가 없어(main.css "추후 구현") 카드·창 바탕만 어두워지고
+   글자는 어두운 색 그대로라 1.4~2:1 로 안 보였다. 그룹웨어처럼 밝은 화면으로 고정. */
 
 /* Header divider */
 .header-divider {

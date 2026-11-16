@@ -17,8 +17,9 @@ export function renderItgfolderLink(folderId, { text } = {}) {
   const id = String(folderId || '').trim();
   if (!FOLDER_ID_RE.test(id)) return '';
   const safe = escAttr(id);
+  // 글자를 안 넘기면 33자 폴더 ID 가 그대로 보이고 옆 칸까지 넘쳤음(PC 점검 11-16) → 기본 글자 '폴더 열기'.
   return `<a href="itgfolder://${safe}" class="text-decoration-none itgfolder-link" data-folder-id="${safe}"
-            style="color: #0d6efd;" title="탐색기에서 열기 (프로토콜 필요)">${text ? escAttr(text) : safe}</a>`;
+            style="color: #0d6efd;" title="탐색기에서 폴더 열기 (PC 에 폴더 열기 설치 필요)"><i class="fas fa-folder-open me-1" aria-hidden="true"></i>${escAttr(text || '폴더 열기')}</a>`;
 }
 
 /**
@@ -51,13 +52,13 @@ export function bindItgfolderProtocolHandler() {
       }
       const proceed = confirm(
         '폴더가 열리지 않았나요?\n\n' +
-        '탐색기 프로토콜 미설치일 수 있습니다.\n' +
-        '설치 방법:\n' +
-        '  1) 회사에서 배포한 install-itg-folder.bat 파일을 실행\n' +
-        '  2) 브라우저를 완전히 종료 후 재실행\n' +
-        '  3) 다시 폴더 링크 클릭\n\n' +
-        '설치 가이드가 필요하면 관리자(kiko@itg-aircon.com)에게 문의하세요.\n\n' +
-        '확인을 누르면 폴더 ID를 클립보드에 복사합니다 (Drive에서 직접 열기용).'
+        '이 PC 에 폴더 열기가 설치되지 않았을 수 있습니다.\n' +
+        '설치하는 법:\n' +
+        '  1) 회사에서 받은 install-itg-folder.bat 파일을 실행\n' +
+        '  2) 브라우저를 완전히 닫았다가 다시 열기\n' +
+        '  3) 폴더 링크를 다시 누르기\n\n' +
+        '설치가 어려우면 관리자(kiko@itg-aircon.com)에게 문의하세요.\n\n' +
+        '[확인]을 누르면 폴더 번호를 복사합니다(구글 드라이브에서 직접 찾을 때 씁니다).'
       );
       if (proceed && navigator.clipboard) {
         navigator.clipboard.writeText(folderId).catch(() => {});

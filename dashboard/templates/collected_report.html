@@ -210,7 +210,7 @@
     notes.textContent = (d.notes || []).map(n => `⚠ ${n}`).join('\n');
     notes.style.whiteSpace = 'pre-line';
     notes.classList.toggle('d-none', !(d.notes || []).length);
-    document.getElementById('crDownload').href = `/api/settlement/collected.xlsx?period=${sel.value}`;
+    setDownload(`/api/settlement/collected.xlsx?period=${sel.value}`);
     const cards = document.getElementById('crCards');
     cards.innerHTML = '';
     [['건수', `${d.total['건수']}건`], ['총액 1', `${won(d.total['총액 1'])}원`],
@@ -252,7 +252,8 @@
       // 글자는 한 칸(div)에 담음 — 휴대폰에선 이 칸이 표 가로 스크롤과 상관없이 보이는 폭에 붙음(sticky)
       const inner = ht.appendChild(el('div', { class: 'cr-owner-in' }));
       const name = inner.appendChild(el('span', {}, `▸ ${g['담당자']}`));
-      inner.appendChild(el('span', { class: 'cnt' }, `${g.sum['건수']}건 · 총액 2 ${won(g.sum['총액 2'])}원 · 순익 ${won(g.sum['순익'])}원`));
+      // '총액 2 86,610,000원'이 '2억…'으로 읽혀서 이름과 금액 사이를 콜론으로 띄움(PC 점검 2차 11-16)
+      inner.appendChild(el('span', { class: 'cnt' }, `${g.sum['건수']}건 · 총액2: ${won(g.sum['총액 2'])}원 · 순익: ${won(g.sum['순익'])}원`));
       const body = t.appendChild(el('tbody', { class: 'cr-hide' }));
       g.groups.forEach(s => {
         s.rows.forEach(r => body.appendChild(tr(DETAIL.map(c =>
@@ -263,8 +264,16 @@
       const setOpen = open => {
         body.classList.toggle('cr-hide', !open);
         name.textContent = `${open ? '▾' : '▸'} ${g['담당자']}`;
+        ht.setAttribute('aria-expanded', open ? 'true' : 'false');
       };
       ht.addEventListener('click', () => setOpen(body.classList.contains('cr-hide')));
+      // 키보드로도 펼치기(Tab·Enter·Space), 펼침 상태 낭독(PC 점검 2차 11-16)
+      ht.setAttribute('tabindex', '0');
+      ht.setAttribute('role', 'button');
+      ht.setAttribute('aria-expanded', 'false');
+      ht.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(body.classList.contains('cr-hide')); }
+      });
       toggles.push(setOpen);
     });
     t.appendChild(el('tbody')).appendChild(sumRow(`전체 합계 · ${d.total['건수']}건`, d.total, 'grand'));
@@ -281,18 +290,39 @@
     e.currentTarget.textContent = allOpen ? '모두 접기' : '모두 펼치기';
   });
 
+  // 엑셀 링크: 지금 화면에 보이는 기간 자료가 있을 때만 누를 수 있게(PC 점검 2차 11-16 — 예전엔 불러오기에
+  //   실패해도 앞 달 링크·합계 카드가 그대로 남아 다른 달 엑셀을 받을 수 있었음)
+  function setDownload(href) {
+    const a = document.getElementById('crDownload');
+    if (href) {
+      a.href = href;
+      a.classList.remove('disabled');
+      a.removeAttribute('aria-disabled');
+      a.removeAttribute('tabindex');
+    } else {
+      a.href = '#';
+      a.classList.add('disabled');
+      a.setAttribute('aria-disabled', 'true');
+      a.setAttribute('tabindex', '-1');
+    }
+  }
+
   async function load(refresh) {
     const det = document.getElementById('crDetail');
     det.innerHTML = '<div class="cr-empty">불러오는 중…</div>';
+    setDownload(null);
+    document.getElementById('crCards').innerHTML = '';
     try {
       const res = await fetch(`/api/settlement/collected?period=${encodeURIComponent(sel.value)}${refresh ? '&refresh=true' : ''}`,
                               { credentials: 'same-origin' });
-      const j = await res.json();
-      if (!j.success) throw new Error(j.error || '오류');
+      let j = null;
+      try { j = await res.json(); } catch (_) { j = null; }   // 로그인이 끝났거나 서버 오류면 JSON 이 아님
+      if (!j || !j.success) throw new Error((j && j.error) || '');
       render(j.data);
     } catch (e) {
       det.innerHTML = '';
-      det.appendChild(el('div', { class: 'cr-empty' }, `자료를 불러오지 못했습니다. (${e.message})`));
+      const why = e && e.message && !/token|JSON|fetch/i.test(e.message) ? ` (${e.message})` : '';
+      det.appendChild(el('div', { class: 'cr-empty', role: 'alert' }, `자료를 불러오지 못했습니다${why}. 잠시 뒤 [새로고침]을 눌러 주세요.`));
     }
   }
 

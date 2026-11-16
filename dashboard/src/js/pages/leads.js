@@ -26,6 +26,9 @@ const STATUS_HEX = {
   '공사 확정': '#198754', '공사 취소': '#dc3545',
 };
 
+// 흰 글자가 안 읽히는 밝은 상태 색(캘린더 일정 글자를 진하게) — PC 점검 2차 11-16
+const LIGHT_STATUS_BG = new Set(['#adb5bd', '#fd7e14', '#ffc107', '#0dcaf0']);
+
 const app = {
   data: [],
   filtered: [],
@@ -39,16 +42,18 @@ const app = {
 
 // ── 헤더 알림 (프로젝트 페이지 showPageAlert 와 같은 동작) ────────
 function showPageAlert(message, type = 'info', duration = 3000) {
+  // 오류는 직원이 닫을 때까지 남긴다 — 3~8초 뒤 사라져 무엇이 잘못됐는지 못 읽고 빈 표만 남았음(PC 점검 2차 11-16)
+  if (type === 'error') duration = 0;
   const box = document.getElementById('headerAlertContainer');
   if (!box) return;
   const cls = { success: 'alert-success', error: 'alert-danger', warning: 'alert-warning', info: 'alert-info' }[type] || 'alert-info';
   box.innerHTML = `
     <div class="alert ${cls} alert-dismissible fade show mb-0 py-1 px-3" role="alert" style="font-size: 0.9rem;">
       ${esc(message)}
-      <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert"></button>
+      <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="alert" aria-label="알림 닫기"></button>
     </div>`;
   clearTimeout(showPageAlert._t);
-  showPageAlert._t = setTimeout(() => { box.innerHTML = ''; }, duration);
+  if (duration > 0) showPageAlert._t = setTimeout(() => { box.innerHTML = ''; }, duration);
 }
 window.showPageAlert = showPageAlert;
 
@@ -96,7 +101,7 @@ async function refreshData(force = true) {
     if (force) showPageAlert('최신 데이터를 불러왔습니다', 'success');
   } catch (err) {
     logger.error('[LEADS] 새로고침 실패:', err);
-    showPageAlert(`새로고침 실패: ${err.message || ''}`, 'error');
+    showPageAlert('리드를 다시 불러오지 못했습니다. 잠시 뒤 [새로고침]을 눌러 주세요.', 'error');
   } finally {
     document.getElementById('fullRefreshBtn')?.classList.remove('disabled');
   }
@@ -132,9 +137,11 @@ function loadCalendarEvents() {
     const { start, end } = splitVisitRange(lead['방문 예정일']);
     if (!start) return;
     const color = STATUS_HEX[String(lead['상태'] || '').trim()] || '#6c757d';
+    const name = String(lead['고객명'] || '').trim();
     events.push({
       id: String(lead['리드 No'] || ''),
-      title: `${lead['고객명'] || '(이름 없음)'} · ${lead['상태'] || '-'}`,
+      title: `${name && name !== '-' ? name : '(이름 없음)'} · ${lead['상태'] || '-'}`,
+      textColor: LIGHT_STATUS_BG.has(color) ? '#1f2937' : '#ffffff',
       start,
       end: end ? shiftIso(end, 1) : undefined,   // FullCalendar end 는 배타적
       allDay: true,
@@ -214,7 +221,7 @@ async function init() {
   } catch (err) {
     logger.error('[LEADS] 초기화 실패:', err);
     hideLoadingOverlay();
-    showPageAlert(`페이지 로드 중 오류가 발생했습니다${err?.message ? `: ${err.message}` : ''}`, 'error', 8000);
+    showPageAlert('리드 목록을 불러오지 못했습니다. 잠시 뒤 [새로고침]을 눌러 주세요.', 'error');
   }
 }
 

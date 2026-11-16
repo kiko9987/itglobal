@@ -325,6 +325,18 @@ function getStageBillIconForTable(status) {
  * Project Table 컴포넌트
  * DataTables를 사용한 프로젝트 목록 테이블
  */
+/** 미수금 금액 HTML — 공사대기·공사진행은 진한 회색, 그 밖은 빨강(PC 점검 2차 11-16) */
+function outstandingHtml(amount, row) {
+  // 상태 칸과 같은 계산(calculateDynamicStatus)을 쓴다 — 행 데이터엔 상태 값이 따로 없음
+  let st = '';
+  try { st = String(ProjectTable._instance?.calculateDynamicStatus(row) || ''); } catch (_) { st = ''; }
+  if (!st) st = String((row && (row['공사상태'] || row['상태'])) || '');
+  const notYet = /공사\s*대기|공사\s*진행/.test(st);
+  const color = notYet ? '#374151' : '#dc3545';
+  const title = notYet ? ' title="공사 전·진행 중 — 아직 받을 때가 아닌 금액"' : '';
+  return `<span class="amount-outstanding" style="color: ${color};"${title}>${amount.toLocaleString()}원</span>`;
+}
+
 export default class ProjectTable {
   constructor() {
     this.table = null;
@@ -350,8 +362,24 @@ export default class ProjectTable {
     this.modeManager.on('tableModeChanged', this.boundHandleTableModeChange);
 
     // 세금계산서 '발행' 아이콘 클릭 → 슬랙 계산서 카드 열기 (capture: 행 클릭/아코디언 토글보다 먼저)
+    ProjectTable._instance = this;   // 미수금 색을 정할 때 상태 계산을 빌려 씀(outstandingHtml)
     this._boundInvoiceLinkClick = this._handleInvoiceLinkClick.bind(this);
     document.addEventListener('click', this._boundInvoiceLinkClick, true);
+    // 키보드(PC 점검 2차 11-16): role=button 인 계산서 '발행' 아이콘은 Enter·Space 로도, 표 줄은 Enter·Space 로 펼침
+    if (!ProjectTable._keysBound) {
+      ProjectTable._keysBound = true;
+      document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const t = e.target;
+        if (!t || !t.closest) return;
+        const bill = t.closest('.bill-invoice-issued[role="button"]');
+        if (bill) { e.preventDefault(); bill.click(); return; }
+        if (t.matches && t.matches('#projectsTable > tbody > tr[tabindex]:not(.accordion-row)')) {
+          e.preventDefault();
+          t.click();
+        }
+      }, true);
+    }
     installCodeCopy();   // 코드 칸 복사 아이콘 (capture: 행 펼침보다 먼저)
   }
 
@@ -624,7 +652,8 @@ export default class ProjectTable {
           next: "다음",
           previous: "이전"
         },
-        emptyTable: "데이터가 없습니다",
+        emptyTable: "보여 줄 공사가 없습니다.",
+        zeroRecords: "조건에 맞는 공사가 없습니다. 필터나 검색어를 바꿔 보세요.",
         aria: {   // 머리글 정렬 단추 낭독 문구(기본은 영어 ': Activate to sort')
           orderable: ': 눌러서 정렬',
           orderableReverse: ': 눌러서 반대로 정렬',
@@ -771,8 +800,9 @@ export default class ProjectTable {
                 return '<span class="text-muted">-</span>';
               }
 
-              // 미수금이 있는 경우만 금액 표시 (빨간색)
-              return `<span class="amount-outstanding" style="color: #dc3545;">${outstandingAmount.toLocaleString()}원</span>`;
+              // 미수금이 있는 경우만 금액 표시. 공사대기·공사진행은 아직 받을 때가 아니라 빨강 대신 진한 회색
+              //   (모두 빨강이라 공사가 끝났는데 못 받은 돈이 묻혔음 — PC 점검 2차 11-16)
+              return outstandingHtml(outstandingAmount, row);
             } else {
               return '<span class="text-muted">-</span>';
             }
@@ -864,8 +894,8 @@ export default class ProjectTable {
                 return '<span class="text-muted">-</span>';
               }
 
-              // 미수금이 있는 경우만 금액 표시 (볼드체 + 빨간색)
-              return `<span class="amount-outstanding" style="color: #dc3545;">${outstandingAmount.toLocaleString()}원</span>`;
+              // 미수금이 있는 경우만 금액 표시(공사대기·공사진행은 진한 회색 — 위와 같음)
+              return outstandingHtml(outstandingAmount, row);
             } else {
               return '<span class="text-muted">-</span>';
             }
@@ -989,9 +1019,12 @@ export default class ProjectTable {
           width: '5%',
           className: 'text-center'
         }
+        // 칸 넓이는 PC(768px 이상)에선 project-table.css 의 모드별 넓이(일반·수금)가 덮는다(PC 점검 2차 11-16)
         // visible 설정은 각 컬럼 정의에서 직접 설정됨 (중복 방지)
       ],
       createdRow: function(row, data, dataIndex) {
+        // 키보드로 줄 펼치기(Tab 으로 줄에 가서 Enter·Space) — PC 점검 2차 11-16
+        if (!row.classList.contains('accordion-row')) row.setAttribute('tabindex', '0');
         const status = data['공사상태'] || '';
         const outstandingAmount = parseFloat(data['미수금'] || 0);
 

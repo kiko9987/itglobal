@@ -14,6 +14,10 @@
   .cp-results .cp-sub { color: #868e96; font-size: .8rem; }
   .cp-selected { background: #e7f5ff; border: 1px solid #a5d8ff; border-radius: 8px; padding: 8px 10px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .cp-drop { border: 2px dashed #ced4da; border-radius: 10px; padding: 18px 12px; text-align: center; color: #5f6670; cursor: pointer; background: #fafbfc; }
+  /* 아이콘이 높이 1px 줄로 눌려 아래 안내 글자 위에 겹쳐 그려졌음(PC 점검 2차 11-16) */
+  .cp-drop > i { display: block; height: auto; line-height: 1.2; margin: 0 auto 6px; }
+  .cp-drop:focus-visible { outline: 3px solid #339af0; outline-offset: 2px; }
+  .cp-jobs tr.cp-row:focus-visible { outline: 2px solid #339af0; outline-offset: -2px; }
   .cp-drop.drag { border-color: #339af0; background: #e7f5ff; color: #1c7ed6; }
   .cp-filelist { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .cp-chip { font-size: .8rem; background: #f1f3f5; border-radius: 14px; padding: 3px 8px 3px 10px; display: inline-flex; align-items: center; gap: 6px; }
@@ -30,7 +34,7 @@
   .st-queued { background: #e7f5ff; color: #1864ab; }
   .st-drafted { background: #d3f9d8; color: #2b8a3e; }
   .st-posted { background: #e9ecef; color: #495057; }
-  .st-cancelled { background: #f1f3f5; color: #adb5bd; text-decoration: line-through; }
+  .st-cancelled { background: #f1f3f5; color: #6b7280; text-decoration: line-through; }
   .cp-thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
   .cp-thumb { position: relative; border-radius: 8px; overflow: hidden; border: 1px solid #e3e6ea; background: #f8f9fa; }
   .cp-thumb img { width: 100%; height: 110px; object-fit: cover; display: block; }
@@ -46,7 +50,7 @@
   .cp-tabs button.on { color: #1c7ed6; border-bottom-color: #1c7ed6; }
   .cp-list { margin: 0; padding-left: 18px; font-size: .9rem; }
   .cp-note { font-size: .85rem; color: #5f6670; }  /* #868e96 3.3:1 → 4.5:1 넘게(11-16) */
-  .cp-warn { font-size: .85rem; color: #e8590c; }
+  .cp-warn { font-size: .85rem; color: #c2410c; }
   .cp-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
   .cp-count { font-weight: 400; color: #6b7280; font-size: .75rem; }
   @media (max-width: 576px) {
@@ -63,7 +67,7 @@
     <h5><i class="fas fa-camera me-2"></i>시공사례 올리기</h5>
     <div class="cp-note">사진·작업지시서를 올려 두면 평일 아침 7시 반쯤 홈페이지·블로그 초안이 만들어집니다. 게시는 직접 합니다.</div>
 
-    <div class="cp-step">1. 프로젝트</div>
+    <label class="cp-step d-block" for="cpSearch">1. 프로젝트</label>
     <div id="cpPicker">
       <input type="search" class="form-control" id="cpSearch" placeholder="프로젝트 코드·현장 주소·상호 일부 (비워 두면 최근 공사)" autocomplete="off">
       <div class="cp-results" id="cpResults"></div>
@@ -74,17 +78,17 @@
     </div>
 
     <div class="cp-step">2. 완료 사진 <span class="cp-count">(여러 장, 시공 전·작업 중 사진이 있으면 같이)</span></div>
-    <div class="cp-drop" data-kind="photo">
-      <i class="fas fa-images fa-lg mb-1 d-block"></i>
+    <div class="cp-drop" data-kind="photo" role="button" tabindex="0" aria-label="완료 사진 고르기 (여러 장)">
+      <i class="fas fa-images fa-lg" aria-hidden="true"></i>
       눌러서 고르거나, 카톡 PC에서 사진을 끌어다 놓으세요
       <input type="file" accept="image/*" multiple hidden>
     </div>
     <div class="cp-filelist" id="cpList-photo"></div>
 
-    <div class="cp-step">3. 작업지시 <span class="cp-count">(카톡 단체방 지시 글을 복사해 붙여넣기)</span></div>
+    <label class="cp-step d-block" for="cpOrderText">3. 작업지시 <span class="cp-count">(카톡 단체방 지시 글을 복사해 붙여 넣기)</span></label>
     <textarea class="form-control mb-2" id="cpOrderText" rows="6" placeholder="예) 삼성 5마력 냉난방기 4대 설치 공사 / 15배관 50M이내 / 1. 실외기실은 같은층 발코니 입니다."></textarea>
 
-    <div class="cp-step">4. 메모 <span class="cp-count">(선택 · 현장 특이사항)</span></div>
+    <label class="cp-step d-block" for="cpMemo">4. 메모 <span class="cp-count">(선택 · 현장 특이사항)</span></label>
     <textarea class="form-control" id="cpMemo" rows="2" placeholder="예) 천장 높아서 리프트 사용, 영업 중 공사"></textarea>
 
     <div class="cp-actions">
@@ -98,7 +102,7 @@
   <div class="cp-card">
     <h5 class="d-flex justify-content-between align-items-center">
       <span><i class="fas fa-list me-2"></i>접수 목록</span>
-      <button type="button" class="btn btn-sm btn-outline-secondary" id="cpReload"><i class="fas fa-sync-alt"></i></button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="cpReload" aria-label="접수 목록 새로고침" title="접수 목록 새로고침"><i class="fas fa-sync-alt" aria-hidden="true"></i></button>
     </h5>
     <table class="cp-jobs">
       <thead><tr><th>상태</th><th>코드</th><th class="cp-hide-sm">현장</th><th>사진</th><th class="cp-hide-sm">접수</th></tr></thead>
@@ -191,6 +195,8 @@
   document.querySelectorAll('.cp-drop').forEach(zone => {
     const kind = zone.dataset.kind; const input = $('input', zone);
     zone.addEventListener('click', () => input.click());
+    // 키보드로도 사진 고르기(Enter·Space) — 예전엔 div 클릭만 있어 Tab 으로 갈 수 없었음
+    zone.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } });
     input.addEventListener('change', () => { addFiles(kind, input.files); input.value = ''; });
     zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
     zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
@@ -219,6 +225,7 @@
     if (!state.project) { alert('프로젝트를 먼저 골라 주세요.'); return; }
     if (!state.files.photo.length) { alert('사진을 한 장 이상 올려 주세요.'); return; }
     btn.disabled = true;
+    state.uploading = true;
     try {
       if (!state.jobId) {
         prog.textContent = '접수 만드는 중…';
@@ -262,7 +269,7 @@
       openJob(doneId);
     } catch (e) {
       prog.textContent = ''; prog.append(el('span', { class: 'cp-warn', text: e.message }));
-    } finally { btn.disabled = false; }
+    } finally { btn.disabled = false; state.uploading = false; }
   }
   function resetForm() {
     state.project = null; state.jobId = null; state.files = { photo: [], order: [] };
@@ -279,7 +286,8 @@
       tb.textContent = '';
       if (!data.items.length) { tb.append(el('tr', {}, el('td', { colspan: 5, class: 'cp-note', text: '아직 접수한 건이 없습니다.' }))); return; }
       for (const j of data.items) {
-        tb.append(el('tr', { class: 'cp-row', onclick: () => openJob(j.id) },
+        tb.append(el('tr', { class: 'cp-row', tabindex: '0', onclick: () => openJob(j.id),
+                             onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openJob(j.id); } } },
           el('td', {}, el('span', { class: 'cp-badge st-' + j.status, text: j.status_label })),
           el('td', {}, el('b', { text: j.code })),
           el('td', { class: 'cp-hide-sm', text: shortSite(j.site) }),
@@ -292,12 +300,20 @@
   $('#cpReload').addEventListener('click', loadJobs);
 
   // ── 상세·초안 ──
+  // 고치던 초안을 저장하지 않았으면 버릴지 먼저 묻는다(PC 점검 2차 11-16 — [닫기]·다른 줄·상태 단추로 말없이 사라졌음)
+  function confirmDiscardDraft(what) {
+    if (!state.dirty) return true;
+    if (!confirm(`고친 초안을 저장하지 않았습니다.\n${what} 고친 내용이 사라집니다. 계속할까요?`)) return false;
+    state.dirty = false;
+    return true;
+  }
   async function openJob(id) {
+    if (state.detail && state.detail.job && state.detail.job.id !== id && !confirmDiscardDraft('다른 건을 열면')) return;
     const box = $('#cpDetail');
     box.style.display = ''; box.textContent = ''; box.append(el('div', { class: 'cp-note', text: '불러오는 중…' }));
     try {
       const data = await api('/jobs/' + encodeURIComponent(id));
-      state.detail = data; state.tab = 'homepage';
+      state.detail = data; state.tab = 'homepage'; state.dirty = false;
       renderDetail();
       box.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (e) { box.textContent = ''; box.append(el('div', { class: 'cp-warn', text: e.message })); }
@@ -311,7 +327,7 @@
 
     box.append(el('h5', { class: 'd-flex justify-content-between align-items-center' },
       el('span', {}, el('span', { class: 'cp-badge st-' + job.status + ' me-2', text: job.status_label }), job.code),
-      el('button', { type: 'button', class: 'btn btn-sm btn-outline-secondary', onclick: () => { box.style.display = 'none'; } }, '닫기')));
+      el('button', { type: 'button', class: 'btn btn-sm btn-outline-secondary', onclick: () => { if (!confirmDiscardDraft('닫으면')) return; box.style.display = 'none'; } }, '닫기')));
     box.append(el('div', { class: 'cp-note', text: (job.site || '') + (job.lead_no ? ' · ' + job.lead_no : '') + ' · 접수 ' + (job.created_at || '') + (job.drafted_at ? ' · 초안 ' + job.drafted_at : '') }));
     if (job.memo) box.append(el('div', { class: 'mt-2', text: '메모: ' + job.memo }));
     if (job.order_text) box.append(el('details', { class: 'mt-2' }, el('summary', { text: '작업지시 글' }),
@@ -358,7 +374,7 @@
       }
       if (state.tab !== 'notes') {
         box.append(el('div', { class: 'cp-actions' },
-          el('button', { type: 'button', class: 'btn btn-sm btn-success', onclick: saveDraft }, el('i', { class: 'fas fa-save me-1' }), '수정 저장'),
+          el('button', { type: 'button', class: 'btn btn-sm btn-success', id: 'cpSaveDraft', onclick: saveDraft }, el('i', { class: 'fas fa-save me-1' }), '고친 내용 저장'),
           draft.edited_at ? el('span', { class: 'cp-note align-self-center', text: '마지막 수정 ' + draft.edited_at }) : null));
       }
     }
@@ -376,7 +392,7 @@
       : el('textarea', { class: 'cp-body', 'data-key': key });
     input.value = value || '';
     const counter = el('span', { class: 'cp-count', text: (value || '').length + '자' });
-    input.addEventListener('input', () => { counter.textContent = input.value.length + '자'; });
+    input.addEventListener('input', () => { counter.textContent = input.value.length + '자'; state.dirty = true; });
     return el('div', { class: 'cp-field' },
       el('label', {}, el('span', {}, label + ' ', counter),
         el('button', { type: 'button', class: 'btn btn-sm btn-outline-primary', onclick: (e) => copyText(input.value, e.currentTarget) }, el('i', { class: 'far fa-copy me-1' }), '복사')),
@@ -388,6 +404,7 @@
   }
   function statusBtn(action, label, cls, confirmMsg) {
     return el('button', { type: 'button', class: 'btn btn-sm ' + cls, onclick: async () => {
+      if (!confirmDiscardDraft('상태를 바꾸면')) return;
       if (confirmMsg && !confirm(confirmMsg)) return;
       try { await api('/jobs/' + encodeURIComponent(state.detail.job.id) + '/status', { method: 'POST', body: form({ action }) }); await loadJobs(); openJob(state.detail.job.id); }
       catch (e) { alert(e.message); }
@@ -400,14 +417,28 @@
     });
   }
   async function saveDraft() {
+    const sb = document.getElementById('cpSaveDraft');
+    if (sb) { if (sb.disabled) return; sb.disabled = true; sb.textContent = '저장 중…'; }
     collectEdits();
     const d = state.detail.draft;
     const payload = { homepage: { title: d.homepage?.title || '', meta: d.homepage?.meta || '', body: d.homepage?.body || '' },
                       blog: { title: d.blog?.title || '', body: d.blog?.body || '', hashtags: d.blog?.hashtags || '' } };
     try { await api('/jobs/' + encodeURIComponent(state.detail.job.id) + '/draft', { method: 'POST', body: form({ draft: JSON.stringify(payload) }) });
-          const tab = state.tab; await openJob(state.detail.job.id); state.tab = tab; renderDetail(); }
-    catch (e) { alert(e.message); }
+          state.dirty = false;
+          const tab = state.tab; await openJob(state.detail.job.id); state.tab = tab; renderDetail();
+          const nb = document.getElementById('cpSaveDraft');
+          if (nb) nb.after(el('span', { class: 'text-success align-self-center', role: 'status', text: '✓ 저장했습니다' })); }
+    catch (e) {
+      alert(e.message);
+      const nb = document.getElementById('cpSaveDraft');
+      if (nb) { nb.disabled = false; nb.textContent = '고친 내용 저장'; }
+    }
   }
+
+  // 사진을 올리는 중이거나 고친 초안을 저장하지 않았으면 창을 닫을 때 브라우저가 한 번 묻는다
+  window.addEventListener('beforeunload', (e) => {
+    if (state.uploading || state.dirty) { e.preventDefault(); e.returnValue = ''; }
+  });
   async function copyText(text, btn) {
     try { await navigator.clipboard.writeText(text); }
     catch (e) {

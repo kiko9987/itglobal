@@ -253,10 +253,14 @@ export function exposeGlobalAPI(app) {
       } catch (error) {
         logger.error('[ProjectListAPI] 캘린더 동기화 실패:', error);
 
-        // 오류 시 에러 상태로 변경
+        // 오류 시 에러 상태로 변경 + 서버가 준 이유를 보여 준다(예전엔 '실패'만 떠서 왜인지 몰랐음 — PC 점검 2차 11-16)
         if (btn) {
           buttonStateManager.setError(btn, '실패', '캘린더 동기화');
         }
+        try {
+          const { default: Toast } = await import('../components/Toast.js');
+          new Toast().show(error?.message || '캘린더 동기화에 실패했습니다.', 'warning', 7000);
+        } catch (_) { /* 알림 실패는 무시 */ }
       }
     }
   };

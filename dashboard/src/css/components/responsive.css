@@ -277,23 +277,8 @@
 }
 
 /* 다크모드 반응형 */
-@media (prefers-color-scheme: dark) {
-  .card-mobile,
-  .stat-card-mobile {
-    background: var(--gray-800);
-    color: var(--gray-100);
-  }
-
-  .table-responsive-mobile {
-    color: var(--gray-100);
-  }
-
-  .form-control-mobile {
-    background: var(--gray-700);
-    color: var(--gray-100);
-    border-color: var(--gray-600);
-  }
-}
+/* 다크 모드 규칙 걷어 냄(PC 점검 11-16): PM 화면엔 다크 테마가 없어(main.css "추후 구현") 카드·창 바탕만 어두워지고
+   글자는 어두운 색 그대로라 1.4~2:1 로 안 보였다. 그룹웨어처럼 밝은 화면으로 고정. */
 
 /* 고대비 모드 지원 */
 @media (prefers-contrast: high) {

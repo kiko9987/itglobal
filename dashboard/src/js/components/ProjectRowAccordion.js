@@ -409,8 +409,9 @@ export default class ProjectRowAccordion {
   toggleAccordion(tableRow, projectData) {
     const projectCode = projectData['프로젝트 코드'];
 
-    // 같은 행 클릭시 닫기
+    // 같은 행 클릭시 닫기 — 편집 중 고친 내용이 있으면 먼저 묻는다(예전엔 말없이 버리고 임시 저장분까지 지움)
     if (this.isOpen && this.currentProject && this.currentProject['프로젝트 코드'] === projectCode) {
+      if (!this._confirmDiscardEdits('펼침을 닫으면')) return;
       this.closeAccordion();
       return;
     }
@@ -1251,6 +1252,9 @@ export default class ProjectRowAccordion {
           <div class="compact-item">
             <small>마진율</small>
             <div class="editable-value calculated-field" data-field="마진율" data-original-value="${rowData['마진율'] || 0}">${(() => {
+              // 원가 4칸이 모두 비면 시트 수식이 마진율 100%·순익=총액을 내는데, 초록으로 보이면 이익으로 읽힘
+              //   → '원가 미입력'으로 표시(PC 점검 11-16). 값 자체(시트)는 그대로.
+              if (this._costsAllEmpty(rowData)) return '<span class="text-muted">원가 미입력</span>';
               const marginRate = rowData['마진율'];
               // API에서 마진율 값이 있으면 사용, 없으면 계산
               if (marginRate !== undefined && marginRate !== null && marginRate !== '') {
@@ -1271,7 +1275,8 @@ export default class ProjectRowAccordion {
                 return '-';
               }
               const numValue = parseFloat(netProfit) || 0;
-              const colorClass = numValue > 0 ? 'text-success fw-semibold' :
+              const colorClass = this._costsAllEmpty(rowData) ? 'text-muted' :
+                                numValue > 0 ? 'text-success fw-semibold' :
                                 numValue < 0 ? 'text-danger fw-semibold' : 'text-muted';
               const displayValue = numValue >= 0 ? this.formatCurrency(numValue) : `-${this.formatCurrency(Math.abs(numValue))}`;
               return `<span class="${colorClass}">${displayValue}</span>`;
@@ -1419,7 +1424,7 @@ export default class ProjectRowAccordion {
                  class="text-decoration-none" style="color: #1d4ed8;">구글 드라이브에서 열기</a>`;
     }
     // 폴더 ID 패턴이면 itgfolder:// (탐색기 직접 열기) — 리드 페이지와 공용 유틸
-    const itgLink = renderItgfolderLink(localPath);
+    const itgLink = renderItgfolderLink(localPath, { text: '문서 폴더 열기' });
     if (itgLink) return itgLink;
     return `<a href="#" class="text-decoration-none folder-open-link" data-project-code="${escHtml(projectCode)}" style="color: #1d4ed8;">${escHtml(localPath)}</a>`;
   }
@@ -1647,6 +1652,8 @@ export default class ProjectRowAccordion {
       if (!e.target.closest('.unified-cancel-btn')) return;
       const target = e.target.closest('.unified-cancel-btn');
       const projectCode = target.dataset.projectCode;
+      // 고친 칸이 있을 때만 묻는다(PC 점검 11-16 — [저장] 바로 옆이라 잘못 누르기 쉬움)
+      if (!this._confirmDiscardEdits('편집을 취소하면')) return;
       this.cancelAllChanges(projectCode);
     });
 
@@ -1739,24 +1746,10 @@ export default class ProjectRowAccordion {
     });
 
 
-    // 키보드 네비게이션 (레거시 동일)
-    this.accordionContainer.addEventListener('keydown', (e) => {
-      if (!e.target.closest('.inline-edit-input')) return;
-
-      const infoCard = e.target.closest('.info-card');
-      if (!infoCard || !infoCard.id) return; // null 체크 추가
-
-      const projectCode = this.currentProject;
-      const cardType = infoCard.id.split('-')[1];
-
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        this.saveCardChanges(projectCode, cardType);
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        this.cancelCardEditing(projectCode, cardType);
-      }
-    });
+    // 키보드: 예전 카드별 Enter 저장·Esc 취소 처리기는 뺐다(PC 점검 11-16).
+    //   카드별 저장이 없어진 뒤로 Enter 를 누르면 "개별 카드 저장은 더 이상 지원되지 않습니다" 경고 창이 뜨고,
+    //   글 칸 줄바꿈·여러 개 고르기 단추 Enter 까지 막혔으며, Esc 는 코드 자리에 객체를 넘겨 오류가 났음.
+    //   저장은 위 [저장] 하나로만 한다.
 
     // 클릭 외부 감지 - 통합 편집 시스템에서는 외부 클릭 시 자동 저장하지 않음
     // 사용자가 명시적으로 "저장" 또는 "취소" 버튼을 클릭해야 함
@@ -2203,7 +2196,7 @@ export default class ProjectRowAccordion {
                      id="${dropdownId}-other-check" ${otherValue ? 'checked' : ''}>
             </label>
             <input type="text" class="form-control form-control-sm constructor-other-input ${otherValue ? '' : 'd-none'}"
-                   id="${dropdownId}-other-input" placeholder="이름 입력" value="${otherValue}"
+                   id="${dropdownId}-other-input" placeholder="이름 입력" value="${escHtml(otherValue)}"
                    style="font-size: 0.8125rem; height: 28px; padding: 0.25rem 0.5rem; flex: 1; min-width: 0; max-width: 250px;">
           </div>
         </div>
@@ -2395,8 +2388,8 @@ export default class ProjectRowAccordion {
       return `<div class="folder-input-wrapper" style="position: relative; display: inline-block; width: 100%;">
                 <input type="text" class="form-control form-control-sm inline-edit-input folder-path-input"
                        data-field="${fieldName}"
-                       value="${currentValue}"
-                       placeholder="Google Drive 링크 또는 폴더 ID를 입력하세요"
+                       value="${escHtml(currentValue)}"
+                       placeholder="구글 드라이브 폴더 주소를 붙여 넣으세요"
                        style="width: 100%; padding-right: 35px;">
                 <i class="fas fa-check-circle folder-success-icon"
                    style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
@@ -2410,7 +2403,7 @@ export default class ProjectRowAccordion {
       return `<input type="text" class="form-control form-control-sm inline-edit-input collection-notes-input"
                      data-field="${fieldName}"
                      placeholder="수금 관련 특이사항을 입력하세요."
-                     value="${currentValue}">`;
+                     value="${escHtml(currentValue)}">`;
     }
 
     // 금액 필드들 - 실시간 콤마 포맷팅 (레거시 동일 - placeholder 있음)
@@ -2488,12 +2481,12 @@ export default class ProjectRowAccordion {
       const inflow = String(this.currentProject?.['유입 구분'] || '').trim();
       return `<input type="text" class="form-control form-control-sm inline-edit-input text-input"
                      list="${this.ensurePartnerNameDatalist(inflow)}" autocomplete="off"
-                     value="${currentValue}">`;
+                     value="${escHtml(currentValue)}">`;
     }
 
     // 기본 텍스트 필드 (레거시 동일 - placeholder 없음)
     return `<input type="text" class="form-control form-control-sm inline-edit-input text-input"
-                   value="${currentValue}">`;
+                   value="${escHtml(currentValue)}">`;
   }
 
   /**
@@ -4773,13 +4766,59 @@ export default class ProjectRowAccordion {
    * 메시지 표시
    */
   showMessage(message, type) {
-    // Toast 컴포넌트 사용 (이미 구현된 것 활용)
-    if (window.projectToast) {
-      window.projectToast.show(message, type);
-    } else {
-      // 폴백: 간단한 alert
-      alert(message);
+    // 예전엔 window.projectToast(어디에도 정의 없음)가 없으면 alert 로 떨어져, 저장·취소 완료 안내까지
+    // 매번 [확인]을 눌러야 했다(PC 점검 11-16). → 공용 알림으로. 오류는 직원이 닫을 때까지 남긴다.
+    const duration = type === 'error' ? 0 : (type === 'warning' ? 7000 : 4000);
+    import('./Toast.js').then(({ default: Toast }) => {
+      new Toast().show(message, type, duration);
+    }).catch(() => alert(message));
+  }
+
+  /** 손익 카드: 원가(제품대·도급비·자재비·기타비)가 모두 비었는지 */
+  _costsAllEmpty(rowData) {
+    return ['제품대', '도급비', '자재비', '기타비'].every(k => !(parseFloat(String(rowData?.[k] ?? '').replace(/[^0-9.-]/g, '')) || 0));
+  }
+
+  /**
+   * 편집 중 입력칸 값을 지금 바로 임시 저장(sessionStorage)한다. 5초 주기 저장과 같은 형식.
+   */
+  _writeDraftNow(projectCode) {
+    try {
+      const shell = this.getAccordionShell?.();
+      if (!shell) return;
+      const inputs = shell.querySelectorAll('input[data-field], textarea[data-field], select[data-field]');
+      if (inputs.length === 0) return;
+      const snapshot = { _savedAt: new Date().toISOString(), _projectCode: projectCode, fields: {} };
+      inputs.forEach(el => {
+        const field = el.dataset.field;
+        if (field) snapshot.fields[field] = el.value;
+      });
+      sessionStorage.setItem(`itg_draft_${projectCode}`, JSON.stringify(snapshot));
+    } catch (e) {
+      logger.debug('[편집 모드] draft 자동 저장 실패 (무시):', e);
     }
+  }
+
+  /**
+   * 편집 중 저장하지 않은 변경(칸 값·메모)이 있는지.
+   */
+  _hasUnsavedEdits() {
+    if (!(this.modeManager?.isEditMode() && this.editState && this.editState.isActive)) return false;
+    try {
+      const changes = this.editState.collectChanges() || {};
+      return Object.keys(changes).length > 0 || Object.keys(this.pendingMemoChanges || {}).length > 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * 저장 안 한 변경이 있으면 버릴지 묻는다. 없으면 바로 true(PC 점검 11-16).
+   */
+  _confirmDiscardEdits(whenText) {
+    if (!this._hasUnsavedEdits()) return true;
+    // whenText 예: '펼침을 닫으면', '편집을 취소하면'
+    return confirm(`저장하지 않은 변경이 있습니다.\n${whenText} 고친 내용이 사라집니다. 계속할까요?`);
   }
 
   /**
@@ -5337,9 +5376,9 @@ export default class ProjectRowAccordion {
         const ageMin = (Date.now() - draftAt.getTime()) / 60000;
         // 30분 이내 draft만 복구 제안 (오래된 것은 stale 위험)
         if (ageMin < 30 && confirm(
-          `이전 편집 세션의 미저장 데이터가 있습니다.\n` +
-          `저장 시각: ${draftAt.toLocaleString('ko-KR')} (${Math.round(ageMin)}분 전)\n\n` +
-          `복구하시겠습니까?\n(취소하면 draft 삭제)`
+          `저장하지 않은 편집 내용이 있습니다(${Math.max(1, Math.round(ageMin))}분 전).\n` +
+          `이어서 고칠까요?\n\n` +
+          `[확인] 불러와서 이어서 편집\n[취소] 버리고 새로 편집`
         )) {
           this._pendingDraft = draft;
         } else {
@@ -5352,22 +5391,7 @@ export default class ProjectRowAccordion {
 
     // draft 자동 저장 시작 (5초 주기, 편집 종료 시 clear)
     if (this._draftAutoSaveTimer) clearInterval(this._draftAutoSaveTimer);
-    this._draftAutoSaveTimer = setInterval(() => {
-      try {
-        const shell = this.getAccordionShell?.();
-        if (!shell) return;
-        const inputs = shell.querySelectorAll('input[data-field], textarea[data-field], select[data-field]');
-        if (inputs.length === 0) return;
-        const snapshot = { _savedAt: new Date().toISOString(), _projectCode: projectCode, fields: {} };
-        inputs.forEach(el => {
-          const field = el.dataset.field;
-          if (field) snapshot.fields[field] = el.value;
-        });
-        sessionStorage.setItem(`itg_draft_${projectCode}`, JSON.stringify(snapshot));
-      } catch (e) {
-        logger.debug('[편집 모드] draft 자동 저장 실패 (무시):', e);
-      }
-    }, 5000);
+    this._draftAutoSaveTimer = setInterval(() => this._writeDraftNow(projectCode), 5000);
 
     // 프로젝트 잠금 획득 시도
     try {
@@ -7898,9 +7922,21 @@ export default class ProjectRowAccordion {
           logger.warn(`⚠️ [Heartbeat] 잠금 연장 실패: ${result.message}`);
           // 다른 사용자가 잠금을 빼앗은 경우 편집 모드 종료
           this.stopLockHeartbeat();
-          this.showMessage('다른 사용자가 편집 중입니다. 편집 모드가 종료됩니다.', 'warning');
+          // 고치던 내용은 임시 저장분으로 남긴다(예전엔 편집 종료가 임시 저장분까지 지웠음 — PC 점검 11-16)
+          const hadEdits = this._hasUnsavedEdits();
+          let backupDraft = null;
+          if (hadEdits) {
+            this._writeDraftNow(projectCode);
+            try { backupDraft = sessionStorage.getItem(`itg_draft_${projectCode}`); } catch (_) {}
+          }
+          this.showMessage(hadEdits
+            ? '다른 사람이 이 공사를 편집하고 있어 편집을 닫았습니다. 고치던 내용은 다음에 [편집]을 누르면 불러올 수 있습니다.'
+            : '다른 사람이 이 공사를 편집하고 있어 편집을 닫았습니다.', 'warning');
           // 편집 모드 강제 종료
           this.disableUnifiedEditMode(projectCode);
+          if (backupDraft) {
+            try { sessionStorage.setItem(`itg_draft_${projectCode}`, backupDraft); } catch (_) {}
+          }
         }
       } catch (error) {
         logger.error('❌ [Heartbeat] 네트워크 오류:', error);

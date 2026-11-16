@@ -121,6 +121,37 @@ export function initLeadProjectLoader(opts) {
     setTimeout(() => hideResults(results), 200);
   });
 
+  // 키보드(PC 점검 2차 11-16): 검색칸이 등록 폼 안이라 Enter 가 곧바로 [프로젝트 등록]을 눌렀고,
+  //   결과는 마우스로만 고를 수 있었음 → ↓↑ 로 결과 이동, Enter 로 고르기(결과 없으면 아무것도 안 함), Esc 로 목록 닫기.
+  input.addEventListener('keydown', (e) => {
+    const items = [...results.querySelectorAll('.lead-project-item')];
+    const open = !results.classList.contains('d-none') && items.length > 0;
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (!open) return;
+      const idx = items.findIndex((el) => el.classList.contains('active'));
+      const pick = idx >= 0 ? idx : (items.length === 1 ? 0 : -1);
+      if (pick >= 0 && typeof results._onSelect === 'function') results._onSelect(pick);
+      return;
+    }
+    if (!open) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      let idx = items.findIndex((el) => el.classList.contains('active'));
+      idx = e.key === 'ArrowDown' ? Math.min(items.length - 1, idx + 1) : Math.max(0, idx - 1);
+      items.forEach((el, i) => {
+        el.classList.toggle('active', i === idx);
+        el.setAttribute('aria-selected', i === idx ? 'true' : 'false');
+      });
+      input.setAttribute('aria-activedescendant', items[idx].id);
+      items[idx].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();   // 등록 창까지 닫히지 않게
+      hideResults(results);
+    }
+  });
+
   // 체크박스 토글 시 검색칸에 커서를 넣어 현재 검색어로 다시 검색 (본인/전체 전환 반영).
   //   체크박스를 누르면 커서가 검색칸을 떠나므로, 커서를 돌려줘야 결과를 버리지 않고 보여 줌
   if (myOnlyCheckbox) {
@@ -174,11 +205,19 @@ function renderResults(container, leads, onSelect) {
   }).join('');
   container.innerHTML = html;
   container.classList.remove('d-none');
+  container.setAttribute('role', 'listbox');
+  container._onSelect = (idx) => onSelect(leads[idx]);
   container.querySelectorAll('.lead-project-item').forEach((item, idx) => {
+    item.id = `${container.id}-opt-${idx}`;
+    item.setAttribute('role', 'option');
+    item.setAttribute('tabindex', '-1');
+    item.setAttribute('aria-selected', 'false');
     item.addEventListener('mousedown', (e) => {
       e.preventDefault();
       onSelect(leads[idx]);
     });
+    // <a href="#"> 라 Enter·클릭이 주소에 # 만 붙였음 → 막는다
+    item.addEventListener('click', (e) => e.preventDefault());
   });
 }
 
@@ -194,6 +233,7 @@ function renderNoResults(container, msg) {
 function hideResults(container) {
   container.classList.add('d-none');
   container.innerHTML = '';
+  container._onSelect = null;
 }
 
 function applyLead(lead, opts) {

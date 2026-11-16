@@ -189,6 +189,8 @@ export default class LeadTable {
         },
       ],
       createdRow: (row, r) => {
+        // 키보드로 줄 펼치기(Tab 으로 줄에 가서 Enter·Space) — PC 점검 2차 11-16
+        row.setAttribute('tabindex', '0');
         const s = val(r, '상태');
         // 상태 칸 식별 — 취소 행에서도 상태 배지는 취소선·흐림 없이 (프로젝트 status-column-cell 과 동일)
         row.querySelector('td.lcol-status')?.classList.add('status-column-cell');
