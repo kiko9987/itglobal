@@ -148,6 +148,7 @@ export default class AsView {
     const host = this._modalHost();
     const icon = opts.icon || 'fa-screwdriver-wrench';   // A/S 기본 아이콘
     const submitLabel = opts.submitLabel || '확인';
+    const dismissLabel = opts.dismissLabel || '취소';   // 요청 취소 창은 '닫기' — [요청 취소]와 헷갈리지 않게
     host.innerHTML = `
       <div class="modal fade" id="asActionModal" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered" style="max-width: 520px;"><div class="modal-content">
@@ -157,7 +158,7 @@ export default class AsView {
             <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
           <div class="modal-body">${bodyHtml}<div id="asModalAlert" class="text-danger small mt-2"></div></div>
           <div class="modal-footer" style="background-color:var(--gray-50); border-top:1px solid var(--gray-200); padding:1rem 1.25rem;">
-            <button type="button" class="btn as-btn-cancel" data-bs-dismiss="modal">취소</button>
+            <button type="button" class="btn as-btn-cancel" data-bs-dismiss="modal">${esc(dismissLabel)}</button>
             <button type="button" class="btn as-btn-submit" id="asModalSubmit">${esc(submitLabel)}</button>
           </div>
         </div></div>
@@ -304,7 +305,7 @@ export default class AsView {
       const reason = el.querySelector('#asCancelReason').value.trim();
       if (!reason) return '취소 사유를 적어 주세요.';
       return this._post(`/api/as/cancel/${encodeURIComponent(asNo)}`, { reason });
-    }, { icon: 'fa-ban', submitLabel: '요청 취소' });
+    }, { icon: 'fa-ban', submitLabel: '요청 취소', dismissLabel: '닫기' });
   }
 
   openManualRequest() {
