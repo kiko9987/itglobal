@@ -281,10 +281,52 @@ def upsert_staff(name: str, hire_date: str, slack_id: str = '', accrue_from: str
             (name, slack_id or None, hire_date, accrue_from or None, note or None))
 
 
+_HR_RESIGNED = '퇴사'   # dashboard.services.hr.STATUS_RESIGNED
+
+
+def _hr_people_by_slack() -> Dict[str, dict]:
+    """같은 DB 의 인사카드(hr_people) — 슬랙 ID → {status, hire_date}. 같은 슬랙 ID 카드가 여러 장이면 퇴사가 아닌
+    카드(재입사). 인사카드 표가 없으면(테스트·첫 설치) 빈 dict."""
+    with _conn() as conn:
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='hr_people'").fetchone():
+            return {}
+        rows = conn.execute("SELECT status, hire_date, slack_id FROM hr_people "
+                            "WHERE slack_id IS NOT NULL AND slack_id != '' ORDER BY id").fetchall()
+    out: Dict[str, dict] = {}
+    for r in rows:
+        r = dict(r)
+        cur = out.get(r['slack_id'])
+        if cur is None or (cur['status'] == _HR_RESIGNED and r['status'] != _HR_RESIGNED):
+            out[r['slack_id']] = r
+    return out
+
+
+def _hr_overlay(rows: List[dict]) -> List[dict]:
+    """사람 정보는 인사카드가 정본 — 인사카드가 퇴사면 빼고, 입사일은 인사카드 값(2026-11-16 점검 묶음 G).
+    휴가 명단은 플렉스 이관 때 복사해 둔 사본이라, 인사카드를 고쳐도(퇴사·입사일 정정) 연차 발생·슬랙 신청은
+    옛 값으로 돌았다. 인사카드를 못 읽으면 명단 그대로(휴가 기능을 멈추지 않게)."""
+    try:
+        hr = _hr_people_by_slack()
+    except Exception as exc:
+        logger.warning(f'[LEAVE] 인사카드 읽기 실패 — 휴가 명단 그대로 사용: {exc}')
+        return rows
+    out = []
+    for r in rows:
+        p = hr.get(r.get('slack_id') or '')
+        if p:
+            if p.get('status') == _HR_RESIGNED:
+                continue
+            if p.get('hire_date') and p['hire_date'] != r.get('hire_date'):
+                r = dict(r, hire_date=p['hire_date'])
+        out.append(r)
+    return out
+
+
 def staff(active_only: bool = True) -> List[dict]:
     with _conn() as conn:
         q = 'SELECT * FROM leave_staff' + (' WHERE active=1' if active_only else '') + ' ORDER BY name'
-        return [dict(r) for r in conn.execute(q).fetchall()]
+        rows = [dict(r) for r in conn.execute(q).fetchall()]
+    return _hr_overlay(rows) if active_only else rows
 
 
 def staff_by_slack(uid: str) -> Optional[dict]:
@@ -292,7 +334,8 @@ def staff_by_slack(uid: str) -> Optional[dict]:
         return None
     with _conn() as conn:
         r = conn.execute('SELECT * FROM leave_staff WHERE slack_id=? AND active=1', (uid,)).fetchone()
-        return dict(r) if r else None
+    rows = _hr_overlay([dict(r)]) if r else []
+    return rows[0] if rows else None
 
 
 def staff_by_name(name: str) -> Optional[dict]:
@@ -329,6 +372,11 @@ def balance(name: str, on: Optional[date] = None, until: Optional[date] = None) 
         if g['valid_from'] <= on.isoformat() and last <= g['valid_to']:
             total += g['days'] - g['used']
     return round(total, 2)
+
+
+def _alloc_until(end: date, today: Optional[date] = None) -> date:
+    """새 신청이 쓸 연차가 살아 있어야 하는 마지막 날 — 휴가 마지막 날과 오늘 중 늦은 날(지난 날짜 신청 대비)."""
+    return max(end, today or date.today())
 
 
 def _allocate(conn, rid: int, name: str, on: date, need: float, until: Optional[date] = None) -> bool:
@@ -393,12 +441,32 @@ def due_grants(person: dict, today: date) -> List[dict]:
     return out
 
 
-def accrue(today: Optional[date] = None) -> List[dict]:
-    """매일 돌린다 — 새로 생긴 부여만 넣고 그 목록을 돌려준다."""
+ACCRUE_HOLD_OVER = 3   # 한 사람에게 한 번에 이보다 많이 생기면 넣지 않고 보류(소급 몰림 방지, 11-16)
+
+
+def _missing_grants(person: dict, today: date) -> List[dict]:
+    with _conn() as conn:
+        have = {r[0] for r in conn.execute('SELECT source FROM leave_grants WHERE name=?', (person['name'],))}
+    return [g for g in due_grants(person, today) if g['source'] not in have]
+
+
+def accrue(today: Optional[date] = None, held: Optional[List[dict]] = None,
+           allow_backfill: bool = False) -> List[dict]:
+    """매일 돌린다 — 새로 생긴 부여만 넣고 그 목록을 돌려준다.
+
+    한 사람에게 ACCRUE_HOLD_OVER 줄보다 많이 생기면(휴가 기능을 켜는 날 옮겨 넣은 시점·accrue_from 이 비어
+    입사일부터 몰려 생기는 경우 등) 넣지 않고 held 에 담는다 — 관리자가 확인 뒤 allow_backfill=True 로 넣는다
+    (2026-11-16 점검: 켜는 날 소급 부여 + 사람마다 DM 이 한꺼번에 나갈 수 있었다)."""
     today = today or date.today()
     made = []
     for p in staff():
-        for g in due_grants(p, today):
+        due = _missing_grants(p, today)
+        if len(due) > ACCRUE_HOLD_OVER and not allow_backfill:
+            if held is not None:
+                held.append({'name': p['name'], 'count': len(due),
+                             'days': sum(g['days'] for g in due), 'accrue_from': p.get('accrue_from') or ''})
+            continue
+        for g in due:
             if add_grant(g['name'], g['days'], g['valid_from'], g['valid_to'], g['source'], g['note']):
                 made.append(g)
     return made
@@ -478,11 +546,14 @@ def validate(name: str, ltype: str, sub: str, start: Optional[date], end: Option
         errs['start'] = f"이미 신청한 휴가와 겹쳐요: {type_label(c['ltype'], c.get('sub') or '')} {period_text(c, False)}"
         return errs
     if deducts(ltype):
-        left = balance(name, start, end)
+        # 지난 날짜 신청은 오늘까지 살아 있는 연차에서만 — 휴가 첫날 기준으로만 보면 이미 소멸한 연차가
+        #   되살아나 쓰였다(2026-11-16 상태 머신 점검 위험 13)
+        last = _alloc_until(end)
+        left = balance(name, start, last)
         if days > left + 1e-9:
             whole = balance(name, start)
             why = (f'{kdate(start)} 기준 남은 연차가 {fmt_days(whole)}이지만 그중 {fmt_days(round(whole - left, 2))}은 '
-                   f'{kdate(end)} 전에 소멸해서 이 기간엔 {fmt_days(left)}만 쓸 수 있어요. '
+                   f'{kdate(last)} 전에 소멸해서 이 기간엔 {fmt_days(left)}만 쓸 수 있어요. '
                    if whole > left + 1e-9 else f'{kdate(start)} 기준 남은 연차가 {fmt_days(left)}이라 ')
             errs['start'] = why + f'{fmt_days(days)}를 쓸 수 없어요. 연차가 더 있어야 한다면 경영지원에 문의해 주세요.'
     elif ltype in (EVENT, SICK):
@@ -525,7 +596,7 @@ def create(name: str, subject_slack_id: str, submitter_id: str, submitter_name: 
             (name, subject_slack_id or None, submitter_id, submitter_name, ltype, sub or None, start.isoformat(),
              end.isoformat(), days, reason or None, status, now, now))
         rid = cur.lastrowid
-        if deducts(ltype) and not _allocate(conn, rid, name, start, days, end):
+        if deducts(ltype) and not _allocate(conn, rid, name, start, days, _alloc_until(end)):
             conn.rollback()
             return None
         conn.execute('INSERT INTO leave_steps (request_id, step, actor_id, actor_name, result, at) '

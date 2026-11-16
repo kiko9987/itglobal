@@ -224,6 +224,68 @@ def find_by_email(email: str) -> Optional[dict]:
     return None
 
 
+def privileged_lists_with(slack_id: str) -> List[str]:
+    """코드·env 로 정한 권한 명단 중 이 사람이 들어 있는 것 — 퇴사 처리 때 관리자에게 알릴 용도(명단은 사람이 고침)."""
+    if not slack_id:
+        return []
+    found = []
+    checks = []
+    try:
+        from dashboard.services.settlement_checkers import checker_ids
+        checks.append(('정산 승인·이체 담당', checker_ids))
+    except Exception:
+        pass
+    try:
+        from dashboard.services import leave as _lv
+        checks.append(('휴가 승인자', _lv.approver_ids))
+    except Exception:
+        pass
+    try:
+        from dashboard.services import e_approval as _ea
+        checks += [('전자결재 승인자', _ea.approver_ids), ('전자결재 최종 승인자', _ea.final_approver_ids),
+                   ('전자결재 이체 담당', _ea.executor_ids)]
+    except Exception:
+        pass
+    for label, fn in checks:
+        try:
+            if slack_id in tuple(fn() or ()):
+                found.append(label)
+        except Exception:
+            continue
+    return found
+
+
+def _after_person_change(before: dict, after: dict, changed: Dict, by: str) -> None:
+    """인사카드 상태·입사일·슬랙 ID 변경을 다른 장부에 내려보낸다(2026-11-16 상태 머신 점검 묶음 G).
+
+    예전엔 인사카드를 '퇴사'로 바꿔도 PM 로그인·휴가 명단·권한 명단이 그대로라, 퇴사자가 PM 에 들어오거나
+    휴가 기능을 켜면 퇴사자에게도 연차가 생길 수 있었다. 실패해도 인사카드 저장은 그대로 두고 알림만."""
+    sid = after.get('slack_id') or before.get('slack_id') or ''
+    new_status, old_status = after.get('status'), before.get('status')
+    try:   # 휴가 명단(leave_staff)은 같은 DB — 인사카드 연결로 바로 고친다(표가 없으면 휴가 기능 전이라 건너뜀)
+        with _conn() as conn:
+            if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='leave_staff'").fetchone() and sid:
+                if 'status' in changed:
+                    conn.execute('UPDATE leave_staff SET active=? WHERE slack_id=?',
+                                 (0 if new_status == STATUS_RESIGNED else 1, sid))
+                if 'hire_date' in changed and after.get('hire_date'):
+                    conn.execute('UPDATE leave_staff SET hire_date=? WHERE slack_id=?', (after['hire_date'], sid))
+    except Exception as exc:
+        logger.error(f"[HR] 휴가 명단 반영 실패 ({after.get('name')}): {exc}", extra={'force_alert': True})
+    if 'status' in changed and new_status == STATUS_RESIGNED and old_status != STATUS_RESIGNED:
+        try:
+            udb = _db()
+            for email in {e.strip().lower() for e in (after.get('login_email'), after.get('work_email')) if e}:
+                ok, msg = udb.update_user_status(email, '퇴사')
+                logger.info(f"[HR] 퇴사 → PM 사용자 {email}: {msg}")
+        except Exception as exc:
+            logger.error(f"[HR] PM 사용자 퇴사 반영 실패 ({after.get('name')}): {exc}", extra={'force_alert': True})
+        lists = privileged_lists_with(sid)
+        if lists:
+            logger.error(f"[HR] 퇴사 처리한 {after.get('name')}이 아직 {'·'.join(lists)} 명단에 있어요 — "
+                         f"명단(코드·.env)을 고쳐야 권한이 빠집니다 (처리 {by})", extra={'force_alert': True})
+
+
 def find_by_slack(slack_id: str) -> Optional[dict]:
     """슬랙 ID → 재직 중인 인사카드(퇴사자 제외)."""
     if not slack_id:
@@ -346,6 +408,8 @@ def update_person(person_id: int, values: Dict, by: str) -> dict:
         conn.execute(f'UPDATE hr_people SET {sets}, updated_at = ?, updated_by = ? WHERE id = ?',
                      (*changed.values(), _now(), by.lower(), person_id))
     log_access(person_id, by, 'edit', ','.join(sorted(k for k in changed)))
+    if {'status', 'hire_date'} & set(changed):
+        _after_person_change(cur, get_person(person_id) or cur, changed, by)
     return card(person_id, by)
 
 

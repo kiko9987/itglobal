@@ -607,7 +607,13 @@ def run_accrual(today: Optional[date] = None) -> int:
     옮기는 날 플렉스 잔여와 겹쳐 두 번 잡히고, 직원에게 '연차가 생겼어요' DM 이 먼저 간다(11-05 점검)."""
     if not lv.enabled():
         return 0
-    made = lv.accrue(today)
+    held: list = []
+    made = lv.accrue(today, held=held)
+    if held:
+        # 한꺼번에 몰려 생기는 연차는 넣지도 알리지도 않고 관리자에게 — 켜는 날 소급 부여 방지(11-16)
+        logger.error(f'{_LOG} 연차가 한꺼번에 생길 사람이 있어 보류: '
+                     + ', '.join(f"{h['name']} {h['count']}줄({lv.fmt_days(h['days'])})" for h in held)
+                     + ' — 플렉스 잔여·accrue_from 확인 뒤 관리자가 넣어 주세요', extra={'force_alert': True})
     if not made:
         return 0
     client = _client()
