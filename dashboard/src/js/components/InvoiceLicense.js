@@ -223,7 +223,7 @@ export default class InvoiceLicense {
     if (badge) {
       badge.innerHTML = '';
       badge.textContent = '업로드 중…';
-      badge.style.background = '#eef0f2'; badge.style.color = '#6b7280'; badge.style.padding = '3px 10px';
+      badge.style.background = '#eef0f2'; badge.style.color = '#4b5563'; badge.style.padding = '3px 10px';
     }
 
     let res;

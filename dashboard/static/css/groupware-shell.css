@@ -1544,7 +1544,9 @@ body.gw-shell .gw-notify-list {
     font-size: 14px;
   }
 
-  body.gw-shell .gw-stat.zero .gw-stat-num b {
-    color: #6b7280; /* #9aa0aa 2.6:1 → 4.8:1 */
-  }
+}
+
+/* 0건 숫자 #9aa0aa 2.6:1 → 4.8:1 — PC·휴대폰 공통(11-16) */
+body.gw-shell .gw-stat.zero .gw-stat-num b {
+  color: #6b7280;
 }

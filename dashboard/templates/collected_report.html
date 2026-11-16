@@ -59,10 +59,11 @@
     .cr-tbl td.cr-owner { padding: 12px 6px 8px; }
     .cr-owner-in { position: sticky; left: 6px; width: calc(100vw - 64px); white-space: normal; }
     .cr-owner .cnt { display: block; margin: 2px 0 0 18px; }
-    /* 보조 글자 대비: 회색 #868e96(3.3:1)·주황 #e8590c → 4.5:1 넘게 */
-    .cr-note, .cr-card .k, .cr-owner .cnt { color: #5f6670; }
-    .cr-hint { color: #c2410c; }
   }
+
+  /* 보조 글자 대비: 회색 #868e96(3.3:1)·주황 #e8590c → 4.5:1 넘게 — PC·휴대폰 공통(11-16) */
+  .cr-note, .cr-card .k, .cr-owner .cnt, .cr-empty { color: #5f6670; }
+  .cr-hint { color: #c2410c; }
 </style>
 {% endblock %}
 

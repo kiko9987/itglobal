@@ -2114,16 +2114,7 @@ body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7
     font-size: 0.75rem;
   }
 
-  /* 대비 4.5:1 넘게 */
-  .gw-sales-tile .s { color: #4b5563; }
-  .gw-sales-tile .up { color: #047857; }
-  .gw-sales-tile .down { color: #b91c1c; }
-  .gw-sales-chart text.ax { fill: #6b7079; }
-  .gw-ap-turn { color: #c2410c; }
-  .gw-dl dd.empty { color: #6b7280; }
 
-  .gw-chip button { color: #1e293b; } /* 설정 화면 칩 × 빼기 4.34:1 */
-  #lvToday { color: #1d4ed8; }        /* 휴가 현황 [이번 달] 4.30:1 */
 
   /* 칸 머리의 '더 보기' 류 링크 높이 약 21px */
   .gw-home-more {
@@ -2132,13 +2123,26 @@ body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7
     min-height: 44px;
   }
 
-  /* 고른 줄: 바탕색(#fff4ef)만으로는 거의 안 보였음 → 왼쪽 굵은 선 */
-  .gw-list-item[aria-selected="true"] {
-    box-shadow: inset 3px 0 0 #2a3038;
-  }
 }
 
 /* 오른쪽 창(결재 상세 등) 본문: 끝까지 넘겨도 뒤 화면이 따라 움직이지 않게 */
 .gw-drawer-body {
   overscroll-behavior: contain;
+}
+
+/* ── 글자 대비 4.5:1 — PC·휴대폰 공통(11-16, 휴대폰에만 걸었던 것을 넓힘) ── */
+.gw-sales-tile .s { color: #4b5563; }        /* 영업 숫자 칸 보조 글자 4.35:1 */
+.gw-sales-tile .up { color: #047857; }       /* 증가 3.58:1 */
+.gw-sales-tile .down { color: #b91c1c; }     /* 감소 4.33:1 */
+.gw-sales-chart text.ax { fill: #6b7079; }   /* 그래프 눈금 */
+.gw-ap-turn { color: #c2410c; }              /* '내 차례' 3.6:1 */
+.gw-dl dd.empty { color: #6b7280; }          /* 빈 값 '-' 1.5:1 */
+.gw-chip button { color: #1e293b; }          /* 설정 화면 칩 × 4.34:1 */
+#lvToday { color: #1d4ed8; }                 /* 휴가 현황 [이번 달] 4.30:1 */
+.gw-doc-act .btn-outline-danger { color: #b91c1c; }   /* 서류 [삭제] 3.76:1(테두리는 그대로) */
+.gw-list-item[aria-selected="true"] .gw-list-sub { color: #475569; }   /* 고른 줄 보조 글자 4.41:1 */
+
+/* 고른 줄: 바탕색(#fff4ef)만으로는 흰 바탕과 거의 같아 안 보였음 → 왼쪽 굵은 선 */
+.gw-list-item[aria-selected="true"] {
+  box-shadow: inset 3px 0 0 #2a3038;
 }

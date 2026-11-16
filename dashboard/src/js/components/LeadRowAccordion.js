@@ -256,7 +256,7 @@ export default class LeadRowAccordion {
     // 휴대폰: itgfolder:// 는 윈도우 PC 탐색기 전용 → 폴더 ID 면 구글 드라이브 웹으로 (2026-11-16)
     const phoneLink = folder && FOLDER_ID_RE.test(folder) && window.matchMedia?.('(max-width: 767.98px)').matches
       ? `<a href="https://drive.google.com/drive/folders/${esc(folder)}" target="_blank" rel="noopener"
-            class="text-decoration-none" style="color: #0d6efd;">구글 드라이브에서 열기</a>`
+            class="text-decoration-none" style="color: #1d4ed8;">구글 드라이브에서 열기</a>`
       : '';
     return `
       <div class="legacy-card mt-3 document-card ${folder ? '' : 'document-card-empty'}">

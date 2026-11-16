@@ -53,6 +53,7 @@
 /* 5. 반응형 시스템 */
 @import 'components/responsive.css';
 @import 'components/pm-mobile.css'; /* 프로젝트 화면 휴대폰 리뉴얼(767.98px 이하만, 2026-11-15) */
+@import 'components/contrast.css'; /* 글자 대비 4.5:1 — PC·휴대폰 공통(2026-11-16) */
 
 /* 전역 스타일 */
 :root {
