@@ -1884,3 +1884,131 @@ def test_slack_button_passes_revision_to_apply(se, monkeypatch):
     body = {'actions': [{'value': '12:3'}], 'user': {'id': KIKO}}
     handlers[ea.A_APPROVE](lambda *a, **k: None, body, se._fake)
     assert got == [('approve', 12, KIKO, 3)]
+
+
+# ── 상태 머신 점검 묶음 C (2026-11-16) ──────────────────────────────────
+
+def _fund_with_origin(ch='CINV', ts='111.222', **over):
+    return ea.create(ea.FORM_FUND, MGR, '강성환', dict(FIELDS, origin_channel=ch, origin_ts=ts, **over))
+
+
+def test_same_invoice_blocked_even_when_latest_is_rejected(tmp_db):
+    """같은 계산서 글: 가장 최근 결재가 반려여도 그 앞의 이체 완료 결재를 본다 + 저장 순간에도 한 번 더."""
+    a = _fund_with_origin()
+    ea.transition(a['id'], 'approve', KIKO, '고광일')
+    ea.transition(a['id'], 'transfer', SB, '황샛별')
+    b = ea.create(ea.FORM_FUND, MGR, '강성환', dict(FIELDS))          # 계산서 없이 올린 뒤 반려된 결재를
+    ea.transition(b['id'], 'reject', KIKO, '고광일', '중복')
+    with ea._db()._get_connection() as conn:                          # 같은 계산서 글에 묶어 '가장 최근'으로
+        conn.execute("UPDATE approvals SET origin_channel='CINV', origin_ts='111.222' WHERE id=?", (b['id'],))
+        conn.commit()
+    assert ea.find_by_origin('CINV', '111.222')['id'] == b['id']       # 예전 검사는 이것만 봐서 통과했다
+    assert ea.find_live_by_origin('CINV', '111.222')['id'] == a['id']
+    assert ea.find_live_by_origin('CINV', '111.222', exclude_id=a['id']) is None
+    with pytest.raises(ea.DuplicateOriginError):                      # 창 검사를 둘 다 통과한 동시 제출도
+        _fund_with_origin()
+    assert ea.create(ea.FORM_FUND, MGR, '강성환', dict(FIELDS))['id']   # 계산서 없는 결재는 그대로
+
+
+def test_duplicate_origin_job_tells_requester_not_to_resubmit(se, monkeypatch):
+    first = _fund_with_origin()
+
+    def _dispatch(kind, uid, payload):
+        raise ea.DuplicateOriginError(ea.get(first['id']))
+    monkeypatch.setattr(se, '_job_dispatch', _dispatch)
+    assert se._run_job('', 'new', MGR, {}) is None
+    msgs = [kw['text'] for kw in se._fake.of('chat_postMessage') if kw['channel'] == 'D-' + MGR]
+    assert msgs and '이미 있어' in msgs[-1] and ea.title(first) in msgs[-1]
+
+
+def test_job_failure_after_approval_saved_does_not_ask_resubmit(se, monkeypatch):
+    """결재는 저장됐는데 카드 게시 중 멈춤 — '다시 올려 주세요' 대신 기다려 달라고, 제출 기록은 복구 대상으로 남김."""
+    jid = ea.job_add('new', MGR, dict(FIELDS))
+
+    def _dispatch(kind, uid, payload):
+        ea.create(ea.FORM_FUND, MGR, '강성환', dict(FIELDS, _job=jid))
+        raise RuntimeError('chat_postMessage 시간 초과')
+    monkeypatch.setattr(se, '_job_dispatch', _dispatch)
+    assert se._run_job(jid, 'new', MGR, dict(FIELDS)) is None
+    msgs = [kw['text'] for kw in se._fake.of('chat_postMessage') if kw['channel'] == 'D-' + MGR]
+    assert '새로 올리지 마세요' in msgs[-1] and '다시 해 주세요' not in msgs[-1]
+    assert ea.job_get(jid)['status'] == ea.JOB_RUNNING                 # recover_jobs 가 이어서 카드를 올림
+
+
+def test_job_failure_before_save_still_asks_retry(se, monkeypatch):
+    jid = ea.job_add('new', MGR, dict(FIELDS))
+
+    def _dispatch(kind, uid, payload):
+        raise RuntimeError('DB 잠김')
+    monkeypatch.setattr(se, '_job_dispatch', _dispatch)
+    se._run_job(jid, 'new', MGR, dict(FIELDS))
+    msgs = [kw['text'] for kw in se._fake.of('chat_postMessage') if kw['channel'] == 'D-' + MGR]
+    assert '잠시 뒤 다시 해 주세요' in msgs[-1] and ea.job_get(jid)['status'] == ea.JOB_FAILED
+
+
+def test_web_and_server_only_offer_card_buttons(se):
+    """이체 대기 자금집행: 슬랙 카드엔 [요청 취소]·[반려]가 없다 — 결재함·서버도 같게(웹에만 있던 출구 닫기)."""
+    from dashboard.services import gw_approval as ga
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    se.apply_action('approve', row['id'], KIKO)
+    row = ea.get(row['id'])
+    assert row['status'] == ea.APPROVED
+    assert ea.offered_actions(row) == {'transfer', 'revise'}
+    assert {a['key'] for a in ga.actions_for(row, {'slack_id': KIKO})} == {'transfer', 'revise'}
+    assert 'reject' not in {a['key'] for a in ga.actions_for(row, {'slack_id': SB})}
+    assert se.apply_action('cancel', row['id'], KIKO).startswith('지금 단계에서는 할 수 없는 처리예요')
+    assert se.apply_action('reject', row['id'], SB, '사유').startswith('지금 단계에서는 할 수 없는 처리예요')
+    assert ea.get(row['id'])['status'] == ea.APPROVED
+    # 승인 전엔 요청 취소 단추가 카드에 있으니 그대로 된다
+    p = se.process_new_submit(MGR, dict(FIELDS, amount=700000))
+    assert 'cancel' in ea.offered_actions(ea.get(p['id']))
+    assert se.apply_action('cancel', p['id'], KIKO) is None
+
+
+def test_task_form_reject_still_offered(se):
+    task = ea.forms.TASK_FORMS[0]
+    row = ea.create(task, MGR, '강성환', dict(FIELDS))
+    assert row['status'] == ea.APPROVED and 'reject' in ea.offered_actions(row)
+
+
+def test_transition_expected_status_closes_race(tmp_db):
+    """요청자 취소 권한은 승인 전 상태에서만 — 확인과 처리 사이에 상태가 바뀌면 처리하지 않는다."""
+    row = ea.create(ea.FORM_FUND, MGR, '강성환', dict(FIELDS))
+    ea.transition(row['id'], 'approve', KIKO, '고광일')                  # 그 사이 승인됨(PENDING → APPROVED)
+    assert ea.transition(row['id'], 'cancel', MGR, '강성환', expected_status=ea.PENDING) is None
+    assert ea.get(row['id'])['status'] == ea.APPROVED
+    assert ea.transition(row['id'], 'cancel', KIKO, '고광일')['status'] == ea.CANCELLED   # 조건 없으면 예전대로
+
+
+def test_failed_card_update_is_redrawn_later(se):
+    from datetime import datetime, timedelta
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    assert ea.drawn(row['id']) == ea.drawn_sig(row)                       # 게시하며 그린 상태 기록
+
+    def _boom(**kw):
+        raise RuntimeError('slack 500')
+    se._fake.chat_update = _boom                                          # 승인 직후 카드 갱신 실패
+    assert se.apply_action('approve', row['id'], KIKO) is None
+    row = ea.get(row['id'])
+    assert ea.drawn(row['id']) != ea.drawn_sig(row)                       # 카드는 아직 '승인 대기'
+    del se._fake.chat_update
+    later = datetime.now() + timedelta(minutes=5)
+    n = len(se._fake.of('chat_update'))
+    assert se._redraw_stale(later) == 1
+    assert row['card_ts'] in {kw['ts'] for kw in se._fake.of('chat_update')[n:]}   # 채널 카드(+DM) 다시 그림
+    assert se._redraw_stale(later) == 0                                   # 맞춰진 뒤엔 다시 안 그림
+
+
+def test_already_processed_click_redraws_card(se):
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    se.apply_action('approve', row['id'], KIKO)
+    n = len(se._fake.of('chat_update'))
+    assert se.apply_action('approve', row['id'], KIKO).startswith('이미 처리된 결재')
+    assert len(se._fake.of('chat_update')) > n                            # 옛 카드 → 지금 상태로 다시 그림
+
+
+def test_final_turn_dm_points_to_card_link():
+    import inspect
+    from dashboard.blueprints import slack_eapproval as se_mod
+    src = inspect.getsource(se_mod.apply_action)
+    assert '위 메시지에서 [최종 승인]' not in src and '[👉 결재 카드 열기]에서 [최종 승인]' in src

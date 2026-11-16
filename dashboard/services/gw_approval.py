@@ -331,9 +331,9 @@ def actions_for(row: dict, v: dict) -> List[dict]:
     w = ea.step2_word(row)
     labels = {'approve': '승인', 'final': '최종 승인', 'transfer': f'{w} 완료', 'reject': '반려',
               'revise': '수정 요청', 'cancel': '요청 취소'}
+    offered = ea.offered_actions(row)   # 슬랙 채널 카드와 같은 단추만(11-16) — 웹에만 있던 출구를 닫음
     for a in ACTIONS:
-        allowed = ea._TRANSITIONS[a][0]
-        if row.get('status') not in allowed or not ea.can_act(a, row, sid):
+        if a not in offered or not ea.can_act(a, row, sid):
             continue
         if a == 'approve' and row.get('requester_id') == sid:
             continue

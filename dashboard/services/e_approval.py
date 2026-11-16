@@ -246,6 +246,13 @@ _DDL = [
         updated_at TIMESTAMP NOT NULL
     )''',
     'CREATE INDEX IF NOT EXISTS idx_approval_jobs_status ON approval_jobs(status)',
+    # 11-16 카드를 마지막으로 그린 상태 — '상태|수정 회차'. 슬랙 갱신이 실패하면 장부와 카드가 어긋난 채
+    # 남았다(끝난 결재가 '이체 대기'로 보임). 정기 점검이 이 값과 지금 상태를 비교해 다시 그린다
+    '''CREATE TABLE IF NOT EXISTS approval_drawn (
+        approval_id INTEGER PRIMARY KEY,
+        sig TEXT NOT NULL,
+        at TIMESTAMP NOT NULL
+    )''',
 ]
 _table_ready = False
 
@@ -376,6 +383,60 @@ def find_by_origin(channel: str, ts: str) -> Optional[dict]:
             'SELECT * FROM approvals WHERE origin_channel=? AND origin_ts=? ORDER BY id DESC LIMIT 1',
             (channel, ts)).fetchone()
         return dict(r) if r else None
+
+
+class DuplicateOriginError(RuntimeError):
+    """같은 계산서 글로 진행·완료된 결재가 이미 있음 — 두 번 이체되지 않게 생성 거절(11-16)."""
+
+    def __init__(self, row: dict):
+        self.row = row
+        super().__init__(f"이 계산서로 올린 {title(row)}이 이미 있어요.")
+
+
+def find_live_by_origin(channel: str, ts: str, exclude_id: Optional[int] = None) -> Optional[dict]:
+    """계산서 글로 올린 결재 중 반려·취소가 아닌 것(가장 최근). find_by_origin 은 가장 최근 한 건만 봐서,
+    그게 반려·취소면 그보다 앞서 이체까지 끝난 결재를 놓쳤다(2026-11-16 상태 머신 점검)."""
+    if not (channel and ts):
+        return None
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        rows = conn.execute(
+            'SELECT * FROM approvals WHERE origin_channel=? AND origin_ts=? AND status NOT IN (?,?) ORDER BY id DESC',
+            (channel, ts, REJECTED, CANCELLED)).fetchall()
+    for r in rows:
+        r = dict(r)
+        if exclude_id is None or r['id'] != int(exclude_id):
+            return r
+    return None
+
+
+def drawn_sig(row: dict) -> str:
+    """카드가 보여 줘야 할 상태 표시 — 상태와 수정 회차."""
+    return f"{row.get('status')}|{revision(row['id'])}"
+
+
+def mark_drawn(aid: int, sig: str) -> None:
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        conn.execute('INSERT INTO approval_drawn (approval_id, sig, at) VALUES (?,?,?) '
+                     'ON CONFLICT(approval_id) DO UPDATE SET sig=excluded.sig, at=excluded.at',
+                     (int(aid), sig, _now()))
+        conn.commit()
+
+
+def drawn(aid: int) -> str:
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        r = conn.execute('SELECT sig FROM approval_drawn WHERE approval_id=?', (int(aid),)).fetchone()
+        return (r[0] if r else '') or ''
+
+
+def rows_changed_since(since: str) -> List[dict]:
+    """since('YYYY-mm-dd HH:MM:SS') 뒤에 바뀐 결재(끝난 것 포함) — 카드 다시 그리기 점검용."""
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        return [dict(r) for r in conn.execute(
+            'SELECT * FROM approvals WHERE updated_at >= ? ORDER BY id', (since,)).fetchall()]
 
 
 def find_by_project(form: str, project_code: str) -> List[dict]:
@@ -534,6 +595,11 @@ def create(form: str, requester_id: str, requester_name: str, fields: Dict) -> d
     # 같은 거래처·금액 결재 — 카드에 ⚠️ 로 남겨 승인자·이체 담당이 보게(11-14).
     # 확인과 저장을 한 잠금 안에서: 두 사람이 몇 초 차이로 올려도 뒤 카드에는 ⚠️ 가 붙는다(11-15)
     with _CREATE_LOCK:
+        if form == FORM_FUND and fields.get('origin_ts'):
+            # 창 검사(complete_new_request)를 둘 다 통과한 두 사람이 몇 초 차이로 같은 계산서를 올려도 한 건만(11-16)
+            _live = find_live_by_origin(fields.get('origin_channel') or '', fields['origin_ts'])
+            if _live:
+                raise DuplicateOriginError(_live)
         if form == FORM_FUND:
             _dups = find_recent_fund_dups(fields.get('amount'), fields.get('partner') or '')
             if _dups:
@@ -728,11 +794,17 @@ def last_revise(step_rows: List[dict]) -> Optional[dict]:
 
 
 def transition(aid: int, action: str, actor_id: str, actor_name: str, reason: str = '',
-               expected_rev: Optional[int] = None) -> Optional[dict]:
+               expected_rev: Optional[int] = None, expected_status: Optional[str] = None) -> Optional[dict]:
     """상태 전환(두 사람이 동시에 눌러도 한 번만 — 이전 상태 조건부 UPDATE). 실패면 None.
     expected_rev = 누른 사람이 본 수정 회차. 주면 같은 UPDATE 조건에 넣어, 확인과 승인 사이에 요청자가 고쳐
     다시 올린 결재는 승인되지 않는다(11-14 보안 점검 3차 — 바뀐 계좌로 이체 DM 이 가던 틈)."""
     allowed, nxt, step, result = _TRANSITIONS[action]
+    if expected_status is not None:
+        # 권한 확인 때 본 상태 그대로일 때만 — 권한은 상태마다 다른데(요청자 취소는 승인 전만 등) 확인과 처리 사이에
+        #   상태가 바뀌면 예전엔 열린 상태 전부를 허용해 통과했다(2026-11-16 상태 머신 점검)
+        if expected_status not in allowed:
+            return None
+        allowed = (expected_status,)
     now = _now()
     with _db()._get_connection() as conn:
         _ensure_tables(conn)
@@ -1317,6 +1389,18 @@ def buttons(row: dict, role: str = 'all') -> List[dict]:
         out.append(_btn('✖️ 취소하기', A_CANCEL, aid, None, _confirm(
             '요청 취소', f'{title(row)} 요청을 취소할까요?', '취소하기')))
     return out
+
+
+_ACTION_OF_BUTTON = {A_APPROVE: 'approve', A_FINAL: 'final', A_TRANSFER: 'transfer', A_REJECT: 'reject',
+                     A_REVISE: 'revise', A_CANCEL: 'cancel'}
+
+
+def offered_actions(row: dict) -> set:
+    """채널 카드에 지금 그려지는 처리 단추 — 그룹웨어 결재함·서버 검사가 같은 표를 쓴다(11-16).
+    예전엔 결재함이 '허용 상태 ∩ 권한'을 그대로 보여 줘 슬랙엔 없는 출구(이체 대기 중 요청 취소·자금집행 반려)가
+    웹에만 있었다."""
+    return {_ACTION_OF_BUTTON[b['action_id']] for b in buttons(row, 'all')
+            if b.get('action_id') in _ACTION_OF_BUTTON}
 
 
 def card_blocks(row: dict, step_rows: List[dict], project_line: str, quote_amount: int = 0,
@@ -1928,8 +2012,8 @@ def complete_new_request(f: Dict) -> Dict[str, str]:
         if e:
             errs['cost'] = e
     if f.get('origin_ts'):
-        dup = find_by_origin(f['origin_channel'], f['origin_ts'])
-        if dup and dup['status'] not in (REJECTED, CANCELLED) and dup['id'] != f.get('_edit'):
+        dup = find_live_by_origin(f['origin_channel'], f['origin_ts'], exclude_id=f.get('_edit'))
+        if dup:
             errs['invoice'] = f'이 계산서로 올린 {title(dup)}이 이미 있어요.'
         else:
             # 계산서 없이 먼저 올린(선입금) 같은 건 — G/R·금액·거래처가 같으면 두 번 이체될 수 있다(11-06 검수)

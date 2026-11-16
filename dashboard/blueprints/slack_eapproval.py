@@ -175,6 +175,10 @@ def start(row: dict) -> dict:
         raise
     ea.set_card(row['id'], ch, r['ts'])
     try:
+        ea.mark_drawn(row['id'], ea.drawn_sig(row))
+    except Exception as exc:
+        logger.debug(f'{_LOG} 그린 상태 기록 실패(무시): {exc}')
+    try:
         client.pins_add(channel=ch, timestamp=r['ts'])
     except Exception as exc:
         logger.debug(f'{_LOG} 카드 고정 실패(무시): {exc}')
@@ -187,15 +191,19 @@ def start(row: dict) -> dict:
     return ea.get(row['id'])
 
 
-def refresh(row: dict) -> None:
-    """채널 카드 + 기록된 DM 전부 지금 상태로. 끝난 결재는 카드 고정 해제."""
+def refresh(row: dict) -> bool:
+    """채널 카드 + 기록된 DM 전부 지금 상태로. 끝난 결재는 카드 고정 해제.
+    전부 성공하면 그린 상태를 남기고 True — 실패하면 정기 점검(_redraw_stale)이 다시 그린다(11-16)."""
     client = eap_client()
+    ok = True
+    sig = ea.drawn_sig(row)
     if row.get('card_channel') and row.get('card_ts'):
         text, blocks = render(row, 'all')
         try:
             client.chat_update(channel=row['card_channel'], ts=row['card_ts'], text=text, blocks=blocks,
                                attachments=[])   # 상품 링크 미리보기가 붙어 있으면 걷어낸다(11-11)
         except Exception as exc:
+            ok = False
             logger.warning(f'{_LOG} 카드 갱신 실패 ({ea.title(row)}): {exc}')
         if row['status'] not in ea.OPEN_STATUSES:
             try:
@@ -208,7 +216,14 @@ def refresh(row: dict) -> None:
         try:
             client.chat_update(channel=d['ch'], ts=d['ts'], text=text, blocks=blocks, attachments=[])
         except Exception as exc:
+            ok = False
             logger.warning(f'{_LOG} DM 갱신 실패 ({ea.title(row)} {d}): {exc}')
+    if ok:
+        try:
+            ea.mark_drawn(row['id'], sig)
+        except Exception as exc:
+            logger.debug(f'{_LOG} 그린 상태 기록 실패(무시): {exc}')
+    return ok
 
 
 def _thread_log(row: dict, text: str, broadcast: bool = False) -> None:
@@ -255,8 +270,12 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '',
             'cancel': '요청 취소는 요청한 사람이나 승인자만 할 수 있어요.',
             'revise': '보완 요청은 승인자·경영지원만 할 수 있어요.',
         }[action]
+    if row.get('status') in ea._TRANSITIONS[action][0] and action not in ea.offered_actions(row):
+        # 상태로는 되지만 카드에 단추가 없는 처리는 서버에서도 거절 — 그룹웨어 결재함에만 있던 출구(이체 대기 중
+        #   요청 취소·자금집행 반려)를 닫는다(2026-11-16 상태 머신 점검). 상태가 지난 옛 단추는 아래 '이미 처리된 결재'로
+        return '지금 단계에서는 할 수 없는 처리예요. 카드를 새로 보고 다시 눌러 주세요.'
     name = _name(uid)
-    new = ea.transition(aid, action, uid, name, reason, expected_rev)
+    new = ea.transition(aid, action, uid, name, reason, expected_rev, expected_status=row.get('status'))
     if not new:
         if expected_rev is not None and expected_rev != ea.revision(aid):
             logger.info(f'{_LOG} 수정된 결재라 {action} 안 함 (#{aid}, 본 회차 {expected_rev})')
@@ -265,7 +284,12 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '',
             except Exception as exc:
                 logger.warning(f'{_LOG} 카드 새로 그리기 실패 (#{aid}): {exc}')
             return STALE_MSG
-        return f"이미 처리된 결재예요 (지금: {ea.status_label(ea.get(aid) or row)[1]})."
+        cur = ea.get(aid) or row
+        try:
+            refresh(cur)   # 옛 버튼이 눌렸다 = 카드가 장부보다 뒤처졌을 수 있다 — 지금 상태로 다시 그림(11-16)
+        except Exception as exc:
+            logger.warning(f'{_LOG} 카드 새로 그리기 실패 (#{aid}): {exc}')
+        return f"이미 처리된 결재예요 (지금: {ea.status_label(cur)[1]})."
     client = eap_client()
     amt = f"{int(new.get('amount') or 0):,}원"
     t = ea.title(new)
@@ -287,7 +311,7 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '',
                 if r['role'] == 'final':
                     try:
                         client.chat_postMessage(channel=r['ch'], thread_ts=r['ts'],
-                                                text=f'🔔 {who} 승인 — 이제 최종 승인 차례예요. 위 메시지에서 [최종 승인]이나 [반려]를 눌러 주세요.')
+                                                text=f'🔔 {who} 승인 — 이제 최종 승인 차례예요. 위 메시지의 [👉 결재 카드 열기]에서 [최종 승인]이나 [반려]를 눌러 주세요.')
                     except Exception as exc:
                         logger.warning(f'{_LOG} 최종 승인 알림 실패 ({t} → {r["user"]}): {exc}')
         if any(s['step'] == 'resubmit' for s in ea.steps(aid)):
@@ -1412,11 +1436,32 @@ def _run_job(jid: str, kind: str, uid: str, payload: dict, stale_before: str = '
         if jid:
             ea.job_finish(jid, True, (row or {}).get('id'))
         return row
-    except Exception as exc:
-        logger.error(f'{_LOG} {label} 처리 실패: {exc}', exc_info=True, extra={'force_alert': True})
+    except ea.DuplicateOriginError as exc:
+        # 창 검사를 둘 다 통과한 동시 제출 — 먼저 올라간 결재가 있으니 다시 올리지 않게 안내(11-16)
+        logger.warning(f'{_LOG} {label} 같은 계산서 결재가 이미 있어 안 만듦: {ea.title(exc.row)}')
         if jid:
             ea.job_finish(jid, False, error=str(exc))
         c = eap_client()
+        if c:
+            link = _card_link(exc.row)
+            _notify(c, uid, f':information_source: 같은 계산서로 올린 {ea.title(exc.row)}이 이미 있어 '
+                            f'{label}을 올리지 않았어요.' + (f' <{link}|카드 보기>' if link else ''))
+        return None
+    except Exception as exc:
+        logger.error(f'{_LOG} {label} 처리 실패: {exc}', exc_info=True, extra={'force_alert': True})
+        _is_edit = isinstance(payload, dict) and bool(
+            (payload.get('vals') if kind == 'form' else payload or {}).get('_edit'))
+        made = ea.find_by_job(jid) if (jid and not _is_edit) else None
+        c = eap_client()
+        if made and made['status'] in ea.OPEN_STATUSES:
+            # 결재는 저장됐는데 카드 게시·DM 중에 멈춘 것 — '다시 올려 주세요'라고 하면 같은 요청이 두 번 생긴다(11-16).
+            #   제출 기록을 끝내지 않고 두어 정기 복구(recover_jobs)가 빠진 카드를 올리게 한다
+            if c:
+                _notify(c, uid, f':hourglass_flowing_sand: {label}은 저장됐는데 카드를 올리는 중에 문제가 있었어요. '
+                                f'15분 안에 다시 올려 둘게요 — 새로 올리지 마세요.')
+            return None
+        if jid:
+            ea.job_finish(jid, False, error=str(exc))
         if c:
             _notify(c, uid, f':warning: {label}이 올라가지 않았어요. 잠시 뒤 다시 해 주세요.')
         return None
@@ -1472,6 +1517,32 @@ def _reconcile_open(now) -> None:
         _dm_round(client, row)
         if len(ea.dm_refs(ea.get(row['id']) or row)) > before:
             logger.warning(f'{_LOG} 빠진 DM 다시 보냄: {ea.title(row)}')
+    _redraw_stale(now)
+
+
+_REDRAW_DAYS = 3
+
+
+def _redraw_stale(now) -> int:
+    """최근 바뀐 결재(끝난 것 포함) 중 카드에 그린 상태가 장부와 다른 것을 다시 그린다(11-16).
+    예전엔 카드·DM 갱신이 실패하면 로그만 남아, 끝난 결재가 '이체 대기'로 보이고 N통장은 두 사람이 이체할 수
+    있었다. 방금 바뀐 결재는 처리 중일 수 있어 2분 넘은 것만."""
+    from datetime import datetime as _dt, timedelta
+    since = (now - timedelta(days=_REDRAW_DAYS)).strftime('%Y-%m-%d %H:%M:%S')
+    n = 0
+    for row in ea.rows_changed_since(since):
+        if not row.get('card_ts'):
+            continue
+        try:
+            age = (now - _dt.strptime(str(row.get('updated_at'))[:19], '%Y-%m-%d %H:%M:%S')).total_seconds()
+        except ValueError:
+            continue
+        if age < 120 or ea.drawn(row['id']) == ea.drawn_sig(row):
+            continue
+        if refresh(row):
+            n += 1
+            logger.warning(f'{_LOG} 장부와 다른 카드 다시 그림: {ea.title(row)} ({ea.status_label(row)[1]})')
+    return n
 
 
 def _register_form_handlers(app) -> None:
