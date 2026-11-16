@@ -1357,6 +1357,34 @@ def test_license_note_follows_invoice_rules(se, monkeypatch):
     assert '사업자명이 없어요' in se.license_note('P-')
 
 
+def test_contract_blocked_without_license(se, monkeypatch):
+    """계약서 요청 — 사업자명 있는데 등록증 없으면 제출을 막고 공사 카드 스레드로 돌려보낸다(11-17 KiKO).
+    거래처 탭만 있음·사업자명 없음(개인일 수 있음)·조회 실패는 통과."""
+    import dashboard.services.business_license_handler as blh
+    import dashboard.services.project_slack_notifier as psn
+    recs = {'G4049-JW': {'사업자명': '주식회사 엠제이디앤엠'}, 'P-': {'사업자명': '-'}}
+    monkeypatch.setattr(se, '_project_rec', lambda code: recs.get(code))
+    monkeypatch.setattr(psn, '_project_card_permalink', lambda code: 'https://s/card')
+    state = {'v': {'exists': False, 'source': None, 'view_url': None}}
+    monkeypatch.setattr(blh, 'get_license_state', lambda code, **k: state['v'])
+    vals = dict(CONTRACT, project='G4049-JW')
+    view = {'state': {'values': {}}, 'private_metadata': '{}'}
+    monkeypatch.setattr(forms, 'read_form', lambda v: (forms.FORM_CONTRACT, dict(vals)))
+    monkeypatch.setattr(se, 'is_configured', lambda: True)
+    monkeypatch.setattr(ea, 'field_block_id', lambda values, k: k)
+    _, _, errs = se.validate_form_submit(view)
+    assert '사업자등록증이 없어요' in errs['project'] and '공사 카드 스레드' in errs['project']
+    assert '<https://s/card|G4049-JW 공사 카드 스레드>' in se.license_note('G4049-JW')
+    state['v'] = {'exists': True, 'source': 'partner', 'view_url': None}
+    assert se.validate_form_submit(view)[2] == {}
+    state['v'] = {'exists': False, 'source': None, 'view_url': None}
+    vals['project'] = 'P-'
+    assert se.validate_form_submit(view)[2] == {}                     # 사업자명 없음 → 안내만
+    vals['project'] = 'G4049-JW'
+    monkeypatch.setattr(blh, 'get_license_state', lambda code, **k: (_ for _ in ()).throw(RuntimeError('drive')))
+    assert se.validate_form_submit(view)[2] == {}                     # 조회 실패면 막지 않음
+
+
 def test_reset_select_changes_only_that_block_id(se):
     """고른 뒤 칸을 처음 상태로 — 그 actions 블록 block_id 만 바뀌고 나머지는 그대로(11-01)."""
     blocks = [{'type': 'section', 'block_id': 's1', 'text': {'type': 'mrkdwn', 'text': '카드'}},
