@@ -1747,6 +1747,11 @@ body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7
   justify-content: flex-end;
   gap: 8px;
 }
+/* PC: 공용 스타일(modal-system.css)이 창 최대 폭을 화면 90%로 풀어 둬서 신청 창이 화면 끝까지 늘어났다(11-16) → 폭 고정 */
+@media (min-width: 576px) {
+  #lvApplyModal .modal-dialog { max-width: 520px; }
+  #lvCancelModal .modal-dialog { max-width: 440px; }
+}
 @media (max-width: 575.98px) {
   #lvApplyModal .modal-dialog {
     width: 100vw;

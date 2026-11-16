@@ -1550,3 +1550,5 @@ body.gw-shell .gw-notify-list {
 body.gw-shell .gw-stat.zero .gw-stat-num b {
   color: #6b7280;
 }
+/* 공용 스타일이 창 폭을 화면 90%까지 풀어 둠 → 설치 안내 창은 좁게(11-16) */
+@media (min-width: 576px) { #gwInstallModal .modal-dialog { max-width: 460px; } }
