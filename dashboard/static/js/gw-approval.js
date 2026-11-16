@@ -150,6 +150,7 @@
         var on = b.getAttribute('data-box') === state.box;
         b.classList.toggle('active', on);
         b.setAttribute('aria-selected', on ? 'true' : 'false');
+        b.tabIndex = on ? 0 : -1;
       });
       var f = filters();
       var active = f.form || f.status || f.from || f.to || f.q;
@@ -211,7 +212,17 @@
     });
     $('apRows').addEventListener('keydown', function (e) {
       var tr = e.target.closest('tr[data-id]');
-      if (tr && e.key === 'Enter') openDoc(Number(tr.getAttribute('data-id')));
+      if (tr && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openDoc(Number(tr.getAttribute('data-id'))); }
+    });
+    $('apTabs').addEventListener('keydown', function (e) {
+      if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(e.key) === -1) return;
+      var tabs = Array.prototype.filter.call($('apTabs').querySelectorAll('button[data-box]'), function (b) { return !b.hidden; });
+      var i = tabs.indexOf(document.activeElement);
+      if (i < 0) return;
+      e.preventDefault();
+      var n = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+      tabs[n].focus();
+      tabs[n].click();
     });
     $('apTabs').addEventListener('click', function (e) {
       var b = e.target.closest('button[data-box]');
@@ -340,6 +351,11 @@
       }
       function send(act, reason) {
         lock(true);
+        // 처리 중 글자 — 단추만 흐려져 눌렸는지 알기 어려웠음
+        var busy = reason ? $('apReasonOk') : box.querySelector('button[data-act="' + act + '"]');
+        var busyHtml = busy ? busy.innerHTML : '';
+        if (busy) busy.textContent = '처리하는 중…';
+        function restore() { if (busy && document.contains(busy)) busy.innerHTML = busyHtml; }
         // rev = 이 화면을 그릴 때의 수정 회차 — 그 사이 요청자가 고쳤으면 서버가 거절한다(11-14)
         api('/api/approval/' + d.id + '/act', { method: 'POST', body: { action: act, reason: reason, rev: d.rev } })
           .then(function (j) { renderDoc(j.doc); load(); })
@@ -352,11 +368,13 @@
                 load();
               }).catch(function () {
                 lock(false);
+                restore();
                 $('apActError').textContent = e.message;
               });
               return;
             }
             lock(false);
+            restore();
             $('apActError').textContent = e.message;
           });
       }
@@ -384,7 +402,7 @@
         $('arCount').textContent = j.total.toLocaleString('ko-KR') + '건';
         $('arRows').innerHTML = j.items.length ? j.items.map(function (it) {
           return '<tr data-doc="' + esc(it.doc_no) + '" tabindex="0"><td class="muted">' + esc(it.doc_no) + '</td><td>' + esc(it.form) + '</td>' +
-            '<td class="main">' + esc(it.title) + (it.attachments ? ' <i class="fas fa-paperclip muted" title="플렉스 첨부 ' + it.attachments + '개(파일은 옮기지 않았어요)"></i>' : '') + '</td>' +
+            '<td class="main">' + esc(it.title) + (it.attachments ? ' <i class="fas fa-paperclip muted" role="img" aria-label="플렉스 첨부 ' + it.attachments + '개" title="플렉스 첨부 ' + it.attachments + '개(파일은 옮기지 않았어요)"></i>' : '') + '</td>' +
             '<td>' + esc(it.project_code || '') + '</td><td>' + esc(it.partner || '') + '</td>' +
             '<td class="num">' + (it.amount ? won(it.amount) : '') + '</td><td>' + esc(it.writer) + '</td>' +
             '<td><span class="gw-ap-st flex-' + esc(it.status) + '">' + esc(it.status) + '</span></td>' +
@@ -429,7 +447,7 @@
     });
     $('arRows').addEventListener('keydown', function (e) {
       var tr = e.target.closest('tr[data-doc]');
-      if (tr && e.key === 'Enter') openArchive(tr.getAttribute('data-doc'));
+      if (tr && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openArchive(tr.getAttribute('data-doc')); }
     });
     arLoad();
   }

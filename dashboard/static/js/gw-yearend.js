@@ -270,7 +270,8 @@
       '<div class="gw-ye-actions">' +
       '<a class="btn btn-sm btn-outline-secondary" href="/api/yearend/admin/roster.xlsx?year=' + A.year + '" id="yeRoster"><i class="fas fa-file-excel me-1" aria-hidden="true"></i>홈택스 등록 명단(엑셀)</a>' +
       '<a class="btn btn-sm btn-outline-secondary" href="/api/yearend/admin/bundle.zip?year=' + A.year + '"><i class="fas fa-file-archive me-1" aria-hidden="true"></i>전체 자료 묶음(세무사 전달용)</a>' +
-      '<button type="button" class="btn btn-sm btn-outline-primary" id="yeNotify"' + (s.status === 'open' ? '' : ' disabled title="진행 중일 때만"') + '><i class="fab fa-slack me-1" aria-hidden="true"></i>미제출·보완 대상 슬랙 알림</button>' +
+      '<button type="button" class="btn btn-sm btn-outline-primary" id="yeNotify"' + (s.status === 'open' ? '' : ' disabled aria-describedby="yeNotifyWhy"') + '><i class="fab fa-slack me-1" aria-hidden="true"></i>미제출·보완 대상 슬랙 알림</button>' +
+      (s.status === 'open' ? '' : '<span class="gw-log" id="yeNotifyWhy">슬랙 알림은 진행 중일 때만 보낼 수 있어요.</span>') +
       '</div><div class="gw-log mt-1">명단에는 주민등록번호 전체가 들어가요. 명단·묶음을 받으면 기록이 남습니다.</div></div>';
 
     h += '<div class="gw-stats">' +
@@ -285,12 +286,14 @@
         var consent = r.method === 'bulk' ? (r.bulk_consent ? '예' : '<span class="text-danger">아직</span>') + (r.family_consent ? ' · 가족 예' : '') : '-';
         // 바뀐 내용을 마우스를 올려야만(title) 보던 것 → 아래에 글자로
         var fam = { none: '변경 없음', changed: '변경 있음' + (r.family_note ? '<br><span class="small text-muted">' + esc(r.family_note) + '</span>' : '') }[r.family_status] || '-';
-        var acts = '<a class="btn btn-sm btn-outline-secondary" href="/hr/people#' + r.person_id + '">자료</a>';
-        if (r.status === 'submitted') acts += ' <button type="button" class="btn btn-sm btn-outline-success" data-done="' + r.person_id + '">완료</button>' +
-          ' <button type="button" class="btn btn-sm btn-outline-danger" data-return="' + r.person_id + '">보완 요청</button>';
-        if (r.status === 'done') acts += ' <button type="button" class="btn btn-sm btn-outline-secondary" data-undone="' + r.person_id + '">완료 취소</button>';
+        // 줄마다 같은 이름 단추 → 낭독기엔 누구 것인지 함께
+        var who = esc(r.name);
+        var acts = '<a class="btn btn-sm btn-outline-secondary" href="/hr/people#' + r.person_id + '" aria-label="' + who + ' 자료">자료</a>';
+        if (r.status === 'submitted') acts += ' <button type="button" class="btn btn-sm btn-outline-success" data-done="' + r.person_id + '" aria-label="' + who + ' 완료 처리">완료</button>' +
+          ' <button type="button" class="btn btn-sm btn-outline-danger" data-return="' + r.person_id + '" aria-label="' + who + ' 보완 요청">보완 요청</button>';
+        if (r.status === 'done') acts += ' <button type="button" class="btn btn-sm btn-outline-secondary" data-undone="' + r.person_id + '" aria-label="' + who + ' 완료 취소">완료 취소</button>';
         // 영수증 업로드: 숨긴 파일 칸을 이름표로 감싸면 Tab 으로 못 가서 키보드로 못 올렸음 → 단추가 숨은 칸을 누름
-        acts += ' <button type="button" class="btn btn-sm btn-outline-primary" data-pick="' + r.person_id + '">영수증 업로드</button>' +
+        acts += ' <button type="button" class="btn btn-sm btn-outline-primary" data-pick="' + r.person_id + '" aria-label="' + who + ' 영수증 업로드">영수증 업로드</button>' +
           '<input type="file" hidden accept=".pdf,.jpg,.jpeg,.png" data-result="' + r.person_id + '" aria-label="' + esc(r.name) + ' 원천징수영수증 파일">';
         return '<tr><td><b>' + esc(r.name) + '</b><br><span class="text-muted small">' + esc(r.department) + '</span></td><td>' + badge(r.status, r.status_label) +
           (r.returned_reason && r.status === 'returned' ? '<br><span class="small text-muted">' + esc(r.returned_reason) + '</span>' : '') + '</td><td>' + method + '</td><td>' + consent +
@@ -322,21 +325,32 @@
         nb.disabled = false;
       }).catch(function (e) { window.alert(e.message); nb.disabled = false; });
     });
+    // 처리 중엔 그 줄 단추를 잠가 두 번 누르지 않게
+    var busyRow = function (b, on) {
+      var cell = b.closest('td') || b.parentElement;
+      cell.querySelectorAll('button').forEach(function (x) { x.disabled = on; });
+    };
     root.querySelectorAll('[data-done]').forEach(function (b) {
       b.addEventListener('click', function () {
-        post('/api/yearend/admin/' + b.getAttribute('data-done') + '/status', { status: 'done' }).then(loadAdmin).catch(function (e) { window.alert(e.message); });
+        busyRow(b, true);
+        post('/api/yearend/admin/' + b.getAttribute('data-done') + '/status', { status: 'done' }).then(loadAdmin)
+          .catch(function (e) { busyRow(b, false); window.alert(e.message); });
       });
     });
     root.querySelectorAll('[data-undone]').forEach(function (b) {
       b.addEventListener('click', function () {
-        post('/api/yearend/admin/' + b.getAttribute('data-undone') + '/status', { status: 'submitted' }).then(loadAdmin).catch(function (e) { window.alert(e.message); });
+        busyRow(b, true);
+        post('/api/yearend/admin/' + b.getAttribute('data-undone') + '/status', { status: 'submitted' }).then(loadAdmin)
+          .catch(function (e) { busyRow(b, false); window.alert(e.message); });
       });
     });
     root.querySelectorAll('[data-return]').forEach(function (b) {
       b.addEventListener('click', function () {
         var reason = window.prompt('보완 요청 사유(직원에게 슬랙으로 갑니다)');
         if (!reason || !reason.trim()) return;
-        post('/api/yearend/admin/' + b.getAttribute('data-return') + '/status', { status: 'returned', reason: reason }).then(loadAdmin).catch(function (e) { window.alert(e.message); });
+        busyRow(b, true);
+        post('/api/yearend/admin/' + b.getAttribute('data-return') + '/status', { status: 'returned', reason: reason }).then(loadAdmin)
+          .catch(function (e) { busyRow(b, false); window.alert(e.message); });
       });
     });
     root.querySelectorAll('[data-pick]').forEach(function (b) {

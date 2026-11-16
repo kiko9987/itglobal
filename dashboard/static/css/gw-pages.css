@@ -2137,3 +2137,8 @@ body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7
     box-shadow: inset 3px 0 0 #2a3038;
   }
 }
+
+/* 오른쪽 창(결재 상세 등) 본문: 끝까지 넘겨도 뒤 화면이 따라 움직이지 않게 */
+.gw-drawer-body {
+  overscroll-behavior: contain;
+}

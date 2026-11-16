@@ -30,13 +30,14 @@
       <ul class="gw-list" id="hrList" role="listbox" aria-label="구성원"></ul>
     </aside>
 
-    <section class="gw-split-detail" id="hrCard" aria-live="polite">
+    <section class="gw-split-detail" id="hrCard">
       <div class="gw-empty">목록에서 구성원을 고르세요.</div>
     </section>
   </div>
 </div>
 
 {% include 'gw/_hr_edit_modal.html' %}
+<div class="visually-hidden" role="status" id="hrCardSr"></div>
 {% endblock %}
 
 {% block additional_js %}

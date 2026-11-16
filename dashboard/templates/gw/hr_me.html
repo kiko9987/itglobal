@@ -13,7 +13,7 @@
   </div>
 
   {% if person_id %}
-  <section class="gw-card-wrap" id="hrCard" aria-live="polite">
+  <section class="gw-card-wrap" id="hrCard">
     <div class="gw-empty">불러오는 중…</div>
   </section>
   <p class="gw-note">고칠 내용이 있으면 경영지원에 말씀해 주세요.</p>
@@ -23,6 +23,7 @@
   </div>
   {% endif %}
 </div>
+<div class="visually-hidden" role="status" id="hrCardSr"></div>
 {% endblock %}
 
 {% block additional_js %}

@@ -161,6 +161,9 @@
       addNote(scopeAll ? '두 글자 이상 입력해 주세요. 전화번호는 숫자 4자리부터 찾아요.' : '맞는 메뉴가 없어요.');
     }
     if (items.length) setActive(0);
+    // 찾은 수를 낭독기에 — 목록이 바뀐 걸 알 수 없었음
+    var sr = document.getElementById('gwFindSr');
+    if (sr) sr.textContent = state === 'loading' || !q ? '' : (items.length ? items.length + '개 찾았어요' : '찾은 결과가 없어요');
   }
 
   function search() {

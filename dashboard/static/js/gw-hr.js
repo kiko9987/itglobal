@@ -87,6 +87,8 @@
   // ── 인사카드 ──────────────────────────────────────
   function renderCard(p) {
     state.current = p;
+    var sr = document.getElementById('hrCardSr');
+    if (sr) sr.textContent = (p.name || '') + ' 인사카드를 불러왔어요.';
     var resigned = p.status === '퇴사';
     var h = '<div class="gw-card">';
     h += '<div class="gw-card-head"><div class="gw-avatar gw-avatar-lg" aria-hidden="true">' + initial(p.name) + '</div>' +
@@ -114,7 +116,7 @@
     // 전체 보기 = 그 자리에서 * 만 풀림(다시 누르면 가림). 열람 기록은 남기지 않음(11-10 KiKO)
     var ssnHtml = p.has_ssn ? '<span class="gw-ssn-val">' + esc(p.ssn_masked) + '</span>' : '';
     if (p.has_ssn && p.can_reveal_ssn) {
-      ssnHtml += '<button type="button" class="btn btn-sm btn-outline-secondary gw-ssn-btn" data-ssn-url="/api/hr/people/' + p.id + '/ssn">전체 보기</button>';
+      ssnHtml += '<button type="button" class="btn btn-sm btn-outline-secondary gw-ssn-btn" data-ssn-url="/api/hr/people/' + p.id + '/ssn" data-what="' + esc(p.name) + ' 주민등록번호" aria-label="' + esc(p.name) + ' 주민등록번호 전체 보기">전체 보기</button>';
     }
     h += '<div class="gw-sec-title">개인 정보</div><dl class="gw-dl">' +
       dd('성별', p.gender) + dd('생년월일', p.birth_date) +
@@ -291,7 +293,7 @@
     if (p.families && p.families.length) {
       h += '<div class="gw-sec-title">가족 · 공제 대상</div>' + table(['이름', '관계', '연락처', '주민등록번호', '공제 관계', '기본공제', '자녀공제', '건보 피부양'],
         p.families.map(function (f) {
-          var ssn = f.has_ssn ? '<span class="gw-ssn-val">' + esc(f.ssn_masked) + '</span>' + (p.can_reveal_ssn ? ' <button type="button" class="btn btn-sm btn-outline-secondary gw-ssn-btn" data-ssn-url="/api/hr/families/' + f.id + '/ssn">전체 보기</button>' : '') : '';
+          var ssn = f.has_ssn ? '<span class="gw-ssn-val">' + esc(f.ssn_masked) + '</span>' + (p.can_reveal_ssn ? ' <button type="button" class="btn btn-sm btn-outline-secondary gw-ssn-btn" data-ssn-url="/api/hr/families/' + f.id + '/ssn" data-what="' + esc(f.name) + ' 주민등록번호" aria-label="' + esc(f.name) + ' 주민등록번호 전체 보기">전체 보기</button>' : '') : '';
           var yn = function (b) { return b ? '<span class="gw-badge gw-badge-active">예</span>' : '<span class="text-muted">-</span>'; };
           return '<tr><td>' + esc(f.name) + '</td><td>' + esc(f.relation) + '</td><td>' + esc(phone(f.phone)) +
             '</td><td data-fam-cell="' + f.id + '">' + ssn + '</td><td>' + esc(f.deduction_relation) + '</td><td>' + yn(f.default_deduction) +
@@ -306,9 +308,9 @@
           return '<tr><td>' + esc(d.doc_type || '기타') + '</td><td class="gw-doc-name">' + esc(d.file_name) + '</td><td>' + kb(d.size) +
             '</td><td>' + (d.uploaded_by === 'flex-import' ? '<span class="text-muted">플렉스에서 옮김</span>' : esc((d.created_at || '').slice(0, 10))) +
             '</td><td class="gw-doc-act">' +
-            '<a class="btn btn-sm btn-outline-secondary" href="/api/hr/documents/' + d.id + '?view=1" target="_blank" rel="noopener">보기</a> ' +
-            '<a class="btn btn-sm btn-outline-secondary" href="/api/hr/documents/' + d.id + '">다운로드</a>' +
-            (p.can_edit && CFG.mode !== 'me' ? ' <button type="button" class="btn btn-sm btn-outline-danger" data-doc-del="' + d.id + '">삭제</button>' : '') +
+            '<a class="btn btn-sm btn-outline-secondary" href="/api/hr/documents/' + d.id + '?view=1" target="_blank" rel="noopener" aria-label="' + esc(d.file_name) + ' 보기">보기</a> ' +
+            '<a class="btn btn-sm btn-outline-secondary" href="/api/hr/documents/' + d.id + '" aria-label="' + esc(d.file_name) + ' 다운로드">다운로드</a>' +
+            (p.can_edit && CFG.mode !== 'me' ? ' <button type="button" class="btn btn-sm btn-outline-danger" data-doc-del="' + d.id + '" aria-label="' + esc(d.file_name) + ' 삭제">삭제</button>' : '') +
             '</td></tr>';
         }));
       } else {
@@ -371,15 +373,18 @@
       if (!val) return;
       var masked = val.textContent, full = null;
       btn.addEventListener('click', function () {
+        var what = btn.getAttribute('data-what') || '주민등록번호';
         if (btn.getAttribute('aria-pressed') === 'true') {
           val.textContent = masked;
           btn.textContent = '전체 보기';
+          btn.setAttribute('aria-label', what + ' 전체 보기');
           btn.setAttribute('aria-pressed', 'false');
           return;
         }
         function show() {
           val.textContent = full;
           btn.textContent = '숨기기';
+          btn.setAttribute('aria-label', what + ' 숨기기');
           btn.setAttribute('aria-pressed', 'true');
         }
         if (full) { show(); return; }
@@ -460,9 +465,12 @@
     return window.bootstrap ? window.bootstrap.Modal.getOrCreateInstance(modalEl) : null;
   }
 
+  var dirty = false;
+
   function openEdit(p) {
     if (!formEl) return;
     editingId = p ? p.id : null;
+    dirty = false;
     document.getElementById('hrEditTitle').textContent = p ? p.name + ' 인사카드 수정' : '구성원 추가';
     FIELDS.forEach(function (k) {
       var el = formEl.elements[k];
@@ -493,19 +501,28 @@
       }
       var saveBtn = document.getElementById('hrEditSave');
       saveBtn.disabled = true;
+      saveBtn.textContent = '저장하는 중…';
       var req = editingId
         ? api('/api/hr/people/' + editingId, { method: 'PUT', body: body })
         : api('/api/hr/people', { method: 'POST', body: body });
       req.then(function (j) {
         var m = modal();
+        dirty = false;   // 저장했으니 닫기 확인 없이
         if (m) m.hide();
         state.selectedId = j.person.id;
         return loadList(j.person.id);
       }).catch(function (err) {
         errEl.textContent = err.message;
-      }).then(function () { saveBtn.disabled = false; });
+      }).then(function () { saveBtn.disabled = false; saveBtn.textContent = '저장'; });
     });
     formEl.elements.ssn.addEventListener('input', function () { errEl.textContent = ''; });
+    // 고친 내용이 있는데 닫으면 확인 — 실수로 닫아 입력한 걸 잃지 않게
+    formEl.addEventListener('input', function () { dirty = true; });
+    formEl.addEventListener('change', function () { dirty = true; });
+    modalEl.addEventListener('hide.bs.modal', function (e) {
+      if (dirty && !window.confirm('저장하지 않은 내용이 있어요.\n닫으면 고친 것이 사라져요. 닫을까요?')) { e.preventDefault(); return; }
+      dirty = false;
+    });
   }
 
   // ── 시작 ───────────────────────────────────────────
