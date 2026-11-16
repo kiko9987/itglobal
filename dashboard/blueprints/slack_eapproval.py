@@ -1468,10 +1468,63 @@ def _reconcile_open(now) -> None:
             continue
         if age < 120 or not row.get('card_ts'):
             continue
+        if _message_gone(client, row['card_channel'], row['card_ts']):
+            row = _repost_card(client, row) or row
         before = len(ea.dm_refs(row))
         _dm_round(client, row)
         if len(ea.dm_refs(ea.get(row['id']) or row)) > before:
             logger.warning(f'{_LOG} 빠진 DM 다시 보냄: {ea.title(row)}')
+    _ensure_menu(client)
+
+
+def _message_gone(client, channel: str, ts: str) -> bool:
+    """채널 메시지가 지워졌는지 — 'message_not_found' 일 때만 True(슬랙 장애·속도 제한은 False)."""
+    try:
+        client.chat_getPermalink(channel=channel, message_ts=ts)
+        return False
+    except Exception as exc:
+        return 'message_not_found' in str(exc)
+
+
+def _repost_card(client, row: dict):
+    """진행 중 결재의 채널 카드가 지워졌으면 다시 올리고 고정, DM 의 카드 링크도 새 카드로(11-16).
+    11-12 #23·#24 카드가 채널에서 지워져 최종 승인 버튼이 없어진 채 사흘 멈췄다(DM 엔 버튼이 없다)."""
+    old_ts = row['card_ts']
+    text, blocks = render(row, 'all')
+    try:
+        r = client.chat_postMessage(channel=row['card_channel'], text=text, blocks=blocks, **_NO_UNFURL)
+    except Exception as exc:
+        logger.error(f'{_LOG} 지워진 카드 다시 올리기 실패 ({ea.title(row)}): {exc}')
+        return None
+    ea.set_card(row['id'], row['card_channel'], r['ts'])
+    try:
+        client.pins_add(channel=row['card_channel'], timestamp=r['ts'])
+    except Exception as exc:
+        logger.debug(f'{_LOG} 카드 고정 실패(무시): {exc}')
+    new = ea.get(row['id'])
+    try:
+        client.chat_postMessage(channel=row['card_channel'], thread_ts=r['ts'], **_NO_UNFURL,
+                                text=f'♻️ 처음 올린 카드({ea._fmt_when(row.get("created_at"))})가 채널에서 지워져 다시 올렸어요. '
+                                     '이전 스레드 기록은 그 카드와 함께 지워졌어요.')
+    except Exception:
+        pass
+    refresh(new)   # DM 의 「결재 카드 열기」 링크를 새 카드로
+    logger.error(f'{_LOG} 채널 카드가 지워져 다시 올림: {ea.title(row)} (전 ts={old_ts} → {r["ts"]})',
+                 extra={'force_alert': True})
+    return new
+
+
+def _ensure_menu(client) -> None:
+    """고정 메뉴가 지워졌으면 다시 올린다(11-16). 기록된 메뉴가 없으면 건드리지 않는다(중복 방지)."""
+    ts = ea.kv_get('menu_ts')
+    if not ts or not _message_gone(client, ea.channel_id(), ts):
+        return
+    try:
+        new_ts = post_menu()
+    except Exception as exc:
+        logger.error(f'{_LOG} 지워진 메뉴 다시 올리기 실패: {exc}')
+        return
+    logger.error(f'{_LOG} 고정 메뉴가 지워져 다시 올림 (전 ts={ts} → {new_ts})', extra={'force_alert': True})
 
 
 def _register_form_handlers(app) -> None:
@@ -2153,6 +2206,7 @@ def post_menu() -> str:
     c = eap_client()
     ch = ea.channel_id()
     r = c.chat_postMessage(channel=ch, text='전자결재 요청', blocks=ea.menu_blocks())
+    ea.kv_set('menu_ts', r['ts'])   # 지워지면 5분 점검이 다시 올린다(11-16)
     try:
         c.pins_add(channel=ch, timestamp=r['ts'])
     except Exception:
