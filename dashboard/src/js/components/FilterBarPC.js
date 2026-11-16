@@ -1,9 +1,9 @@
 /**
  * 프로젝트 화면 PC 필터 줄 정리 (11-16 저녁, 부장님 결정 — 당근 비즈니스식)
  *
- * 1줄: [검색] [상태] [담당자] [수금 상태] [세금계산서] [+ 필터 더보기 n] …… [저장한 필터 ▾]
- *      '필터 더보기' 안: 내부 사업자·유입 구분·거래처·데이터 + '내 프로젝트만'·'취소된 공사 제외' 칩
- * 2줄: 걸린 조건 칩(✕ 로 하나씩 해제) · [모두 지우기] · 건수
+ * 한 줄: [검색] [상태] [담당자] [수금 상태] [세금계산서] [+ 필터 더보기 n] [더보기 안 조건 칩 ✕] [모두 지우기] …… 건수 [저장한 필터 ▾]
+ *      '필터 더보기' 안: 내부 사업자·유입 구분·거래처·데이터(펼치면 다음 줄). '내 프로젝트만'·'취소 제외'는 표 위 체크 그대로
+ *      (처음엔 조건 칩을 따로 둘째 줄에 뒀다가 상태 칸까지 세 줄이 돼 한 줄로 합침 — 11-16 저녁)
  *
  * 실제 select·체크 칸·검색칸은 그대로 두고 자리(order)와 보이기만 바꾼다 —
  * 필터 동작·URL 저장·편집 중 확인(ModernProjectFilters._applyFromUser)을 그대로 타게.
@@ -66,8 +66,9 @@ export default class FilterBarPC {
     const presetCol = document.createElement('div');
     presetCol.className = 'pfb-preset-col';
     presetCol.innerHTML = `
-      <button type="button" class="pfb-preset-btn" aria-haspopup="true" aria-expanded="false" aria-controls="pfbPresetMenu">
-        <i class="fas fa-bookmark" aria-hidden="true"></i>저장한 필터<i class="fas fa-chevron-down pfb-caret" aria-hidden="true"></i>
+      <button type="button" class="pfb-preset-btn" aria-haspopup="true" aria-expanded="false" aria-controls="pfbPresetMenu"
+              aria-label="저장한 필터" title="저장한 필터">
+        <i class="fas fa-bookmark" aria-hidden="true"></i><span class="pfb-preset-txt">저장한 필터</span><i class="fas fa-chevron-down pfb-caret" aria-hidden="true"></i>
       </button>
       <div class="pfb-preset-menu" id="pfbPresetMenu" hidden></div>`;
     this.presetBtn = presetCol.querySelector('.pfb-preset-btn');
@@ -84,25 +85,35 @@ export default class FilterBarPC {
       }
     });
 
-    // 2줄: 걸린 조건
+    // 걸린 조건·건수·저장한 필터도 같은 줄에 — 따로 줄을 두니 상태 칸·필터·조건 세 줄이라 표가 아래로 밀렸음
+    //   (부장님 지적 11-16 저녁). 칩은 더보기 안에 접혀 첫 줄에서 안 보이는 조건만(첫 줄 필터는 진한 칩으로 이미 보임)
     this.activeRow = document.createElement('div');
-    this.activeRow.className = 'pfb-active';
+    this.activeRow.className = 'col-auto pfb-tags-col';
     this.activeRow.innerHTML = `
-      <div class="pfb-tags" role="list" aria-label="걸린 조건"></div>
-      <button type="button" class="pfb-clear" hidden>모두 지우기</button>
-      <span class="pfb-count" aria-live="polite"></span>`;
-    row.insertAdjacentElement('afterend', this.activeRow);
-    this.activeRow.appendChild(presetCol);
+      <div class="pfb-tags" role="list" aria-label="더보기 안에 걸린 조건"></div>
+      <button type="button" class="pfb-clear" hidden>모두 지우기</button>`;
+    row.appendChild(this.activeRow);
+    const endCol = document.createElement('div');
+    endCol.className = 'col-auto pfb-end';
+    endCol.innerHTML = '<span class="pfb-count" aria-live="polite"></span>';
+    endCol.appendChild(presetCol);
+    row.appendChild(endCol);
     this.tagsEl = this.activeRow.querySelector('.pfb-tags');
     this.clearBtn = this.activeRow.querySelector('.pfb-clear');
-    this.countEl = this.activeRow.querySelector('.pfb-count');
+    this.countEl = endCol.querySelector('.pfb-count');
     this.clearBtn.addEventListener('click', () => window.modernFilters?.resetFilters?.());
     this.tagsEl.addEventListener('click', (e) => this.onTagClick(e));
 
     // 건수: 원래 자리(#filterResultCount)의 글자를 그대로 따라 쓴다(계산은 필터 쪽 하나로)
     const src = document.getElementById('filterResultCount');
     if (src) {
-      const copy = () => { this.countEl.textContent = src.textContent.trim(); this.countEl.title = src.title || ''; };
+      // 줄 안에는 숫자만('4,134개') — '0개 · 필터 2개로 좁혀졌어요' 같은 긴 글은 노트북 폭에서 줄을 넘김. 전체 글은 title 로
+      const copy = () => {
+        const full = src.textContent.trim();
+        const short = (full.match(/^[\d,]+개/) || [full])[0];
+        this.countEl.textContent = short;
+        this.countEl.title = [full, src.title].filter(Boolean).join('\n');
+      };
       new MutationObserver(copy).observe(src, { childList: true, characterData: true, subtree: true, attributes: true });
       copy();
     }
@@ -118,6 +129,7 @@ export default class FilterBarPC {
   setMoreOpen(open) {
     this.section.classList.toggle('pfb-more-open', open);
     this.moreBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    this.update();   // 펼치면 칸이 직접 보이므로 칩은 감춤
   }
 
   // ── 걸린 조건 칩 ───────────────────────────────────────────
@@ -141,7 +153,10 @@ export default class FilterBarPC {
   }
 
   update() {
-    const conds = this.activeConditions();
+    const all = this.activeConditions();
+    // 칩은 더보기 안 조건만, 그것도 접혀 있을 때만(첫 줄 필터·검색칸은 값이 그대로 보여 칩이 겹쳤음)
+    const hiddenKeys = new Set(MORE);   // '내 프로젝트만'·'취소 제외'는 표 위 체크로 늘 보임
+    const conds = this.section.classList.contains('pfb-more-open') ? [] : all.filter((c) => hiddenKeys.has(c.key));
     this.tagsEl.innerHTML = conds.map((c) => `
       <span class="pfb-tag" role="listitem">
         <span>${c.label ? `<span class="pfb-tag-k">${esc(c.label)}</span> ` : ''}${esc(c.value)}</span>
@@ -149,14 +164,12 @@ export default class FilterBarPC {
           <i class="fas fa-times" aria-hidden="true"></i>
         </button>
       </span>`).join('');
-    this.clearBtn.hidden = conds.length === 0;
+    this.clearBtn.hidden = all.length === 0;          // [모두 지우기]는 어떤 조건이든 걸리면
     this.activeRow.classList.toggle('has-tags', conds.length > 0);
+    this.activeRow.hidden = all.length === 0;
 
     // 더보기 안에 걸린 조건 수 — 접어 둬도 목록이 왜 줄었는지 보이게
-    const hc = document.getElementById('hideCancelledProjects');
-    const n = MORE.filter((id) => document.getElementById(id)?.value).length
-      + (document.getElementById('myProjectsOnly')?.checked ? 1 : 0)
-      + (hc && !hc.checked ? 1 : 0);
+    const n = MORE.filter((id) => document.getElementById(id)?.value).length;
     this.moreN.textContent = n ? String(n) : '';
     this.moreN.hidden = n === 0;
     this.moreBtn.classList.toggle('on', n > 0);

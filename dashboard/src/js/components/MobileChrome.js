@@ -117,12 +117,9 @@ export default class MobileChrome {
     // 걸린 조건 수: 펼친 안의 고르기 칸 중 값이 있는 것(A/S 상태 칸은 모드 전용이라 뺌) + 검색어
     //   (검색어만 넣고 필터를 접어 두면 목록이 왜 줄었는지 단서가 없었음)
     const sync = () => {
-      // '내 프로젝트만'은 담당자 칸 값으로 이미 세어짐. '취소된 공사 제외'는 기본이 켜짐이라 끈 경우만 1
-      const hideCancelled = document.getElementById('hideCancelledProjects');
       const n = [...row.querySelectorAll('select.form-select')]
         .filter((s) => s.id !== 'asStatusFilter' && s.value).length
-        + (search.value.trim() ? 1 : 0)
-        + (hideCancelled && !hideCancelled.checked ? 1 : 0);
+        + (search.value.trim() ? 1 : 0);
       nEl.textContent = n;
       nEl.hidden = n === 0;
       btn.classList.toggle('on', n > 0);

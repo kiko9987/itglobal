@@ -1682,27 +1682,9 @@ export default class ProjectTable {
     filterContainer.appendChild(checkbox);
     filterContainer.appendChild(label);
 
-    // '내 프로젝트만'·'취소된 공사 제외'는 목록을 거르는 조건이라 필터 줄로(부장님 지적 11-16 저녁 —
-    //   보기 방식인 수금·A/S 모드와 한 줄에 섞여 있었음). PC 는 필터 단추 옆 켜고 끄는 칩,
-    //   휴대폰은 같은 줄이 [필터] 펼침 안에 들어가므로 자동으로 펼침 안에 보인다.
-    document.querySelectorAll('.pt-col-toggles').forEach(el => el.remove());
-    const hideCancelled = this.createHideCancelledFilter();
-    const actionsCol = document.querySelector('.filter-section .filter-actions-row')?.closest('[class*="col-"]');
-    if (actionsCol) {
-      const col = document.createElement('div');
-      col.className = 'col-auto pt-col-toggles';
-      col.setAttribute('role', 'group');
-      col.setAttribute('aria-label', '목록 거르기');
-      filterContainer.classList.add('pt-chip-toggle');
-      hideCancelled.classList.add('pt-chip-toggle');
-      col.appendChild(filterContainer);
-      col.appendChild(hideCancelled);
-      actionsCol.insertAdjacentElement('beforebegin', col);
-    } else {
-      // 예전 틀 등 필터 줄이 없으면 예전 자리 그대로
-      lengthContainer.appendChild(filterContainer);
-      lengthContainer.appendChild(hideCancelled);
-    }
+    // '15개씩 보기' 옆 체크 칸 그대로(11-16 저녁에 필터 줄 칩으로 옮겼다가 부장님 판단으로 되돌림)
+    lengthContainer.appendChild(filterContainer);
+    lengthContainer.appendChild(this.createHideCancelledFilter());
 
     // 수금 관리 모드 토글 추가
     this.addReceivablesToggleToLengthContainer(lengthContainer);

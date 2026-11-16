@@ -1694,9 +1694,9 @@ body.gw-shell .gw-notify-stale {
   body.gw-shell .pfb #searchInput {
     width: 260px;
   }
-  @media (max-width: 1279.98px) {
+  @media (max-width: 1439.98px) {
     body.gw-shell .pfb #searchInput {
-      width: 220px;                /* 노트북 폭에서도 첫 줄(검색+필터 4개+더보기)이 한 줄에 들어가게 */
+      width: 200px;                /* 노트북 폭에서도 첫 줄(검색+필터 4개+더보기+건수)이 한 줄에 들어가게 */
     }
   }
   body.gw-shell .pfb > .row > .pfb-more-col {
@@ -1723,7 +1723,7 @@ body.gw-shell .gw-notify-stale {
   body.gw-shell .pfb.pfb-more-open > .row > .pfb-break {
     display: block;
   }
-  body.gw-shell .pfb-active > .pfb-preset-col {
+  body.gw-shell .pfb-end .pfb-preset-col {
     position: relative;
   }
 
@@ -1840,17 +1840,23 @@ body.gw-shell .gw-notify-stale {
     font-size: 13px;
   }
 
-  body.gw-shell .pfb-active {
+  /* 더보기 안 조건 칩·[모두 지우기]는 더보기 단추 바로 뒤, 건수·[저장한 필터]는 같은 줄 오른쪽 끝 */
+  body.gw-shell .pfb > .row > .pfb-tags-col {
+    order: 31;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px 8px;
-    margin-top: 8px;
-    min-height: 24px;
+    gap: 6px;
   }
-  body.gw-shell .pfb-active.has-tags {
-    padding-top: 8px;
-    border-top: 1px solid #eef0f3;
+  body.gw-shell .pfb > .row > .pfb-tags-col[hidden] {
+    display: none;
+  }
+  body.gw-shell .pfb > .row > .pfb-end {
+    order: 60;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
   }
   body.gw-shell .pfb-tags {
     display: contents;
@@ -1898,29 +1904,34 @@ body.gw-shell .gw-notify-stale {
     text-decoration: underline;
   }
   body.gw-shell .pfb-count {
-    margin-left: auto;
     color: #475569;
     font-size: 13px;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
   }
-  body.gw-shell .pfb-active:not(.has-tags) .pfb-count {
-    margin-left: 0;
-    margin-right: auto;            /* 걸린 조건이 없으면 건수는 왼쪽, [저장한 필터]는 오른쪽 끝 */
+  body.gw-shell .pfb-count {
+    white-space: nowrap;
   }
-  body.gw-shell .pfb-active.has-tags .pfb-count {
-    margin-left: auto;
+}
+
+/* 노트북 폭(1440px 미만): [저장한 필터]는 아이콘만 — 건수와 함께 첫 줄 끝에 들어가게(두 줄 유지) */
+@media (min-width: 768px) and (max-width: 1439.98px) {
+  body.gw-shell .pfb-preset-btn .pfb-preset-txt,
+  body.gw-shell .pfb-preset-btn .pfb-caret {
+    display: none;
   }
-  body.gw-shell .pfb-active .pfb-preset-btn {
-    height: 32px;
-    font-size: 13px;
+  body.gw-shell .pfb-preset-btn {
+    width: 36px;
+    padding: 0;
+    justify-content: center;
   }
 }
 
 @media (max-width: 767.98px) {
   body.gw-shell .pfb-more-col,
   body.gw-shell .pfb-preset-col,
-  body.gw-shell .pfb-active {
+  body.gw-shell .pfb-tags-col,
+  body.gw-shell .pfb-end {
     display: none !important;
   }
 }
