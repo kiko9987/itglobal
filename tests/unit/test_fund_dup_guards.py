@@ -140,6 +140,60 @@ def test_edit_to_listed_account_clears_unlisted_warning(se):
     assert not x.get('payee_unlisted') and x.get('payee_known') == '강남'
 
 
+def _hiem(monkeypatch):
+    monkeypatch.setattr(ea, 'known_partners', lambda: ['하이엠솔루텍', '하이마트', '대성크레인'])
+    ea.remember_payee('하이엠솔루텍', '하이엠솔루텍', '우리은행', '1005-201-085715')     # 지난번=강남
+    ea.add_known_accounts('하이엠솔루텍', [('우리은행', '1005-201-085715', '강남'),
+                                          ('우리은행', '1005-301-085723', '인천'),
+                                          ('우리은행', '1005-101-247544', '어음')])
+
+
+def test_partner_list_shows_each_branch(tmp_db, monkeypatch):
+    """11-16 KiKO — 지점마다 계좌가 다른 거래처는 거래처 목록에서 지점을 바로 고른다."""
+    _hiem(monkeypatch)
+    texts = [o['text']['text'] for o in ea.partner_options('하이엠')['options']]
+    assert texts[:4] == ['하이엠솔루텍 · 강남 (우리 …5715)', '하이엠솔루텍 · ⚠️ 어음 계좌 (우리 …7544)',
+                         '하이엠솔루텍 · 인천 (우리 …5723)', '하이엠솔루텍 · 목록에 없는 계좌 (직접 입력)']
+    assert '하이엠솔루텍' not in texts and texts[-1] == '새 거래처: 하이엠'
+    assert [o['text']['text'] for o in ea.partner_options('하이엠 인천')['options']][:1] == ['하이엠솔루텍 · 인천 (우리 …5723)']
+    assert ea.partner_options('인천')['options'][0]['text']['text'].endswith('…5723)')
+    opts = ea.partner_options('하이')['options']                         # 지점 없는 거래처는 예전처럼
+    assert '하이마트' in [o['value'] for o in opts]
+    v = ea.partner_options('하이엠 인천')['options'][0]['value']
+    assert ea.partner_from_value(v) == '하이엠솔루텍' and ea.branch_from_value(v) == ('하이엠솔루텍', '1005301085723')
+    assert ea.branch_from_value('하이마트') is None and ea.branch_from_value('acct:깨짐') is None
+
+
+def test_branch_pick_fills_that_branch_not_last_one(se, monkeypatch):
+    _hiem(monkeypatch)
+    meta = {}
+    se._set_payee_prefill(meta, '하이엠솔루텍')                          # 상호만 고름 → 지난번(강남) 안 채움
+    assert meta['payee'] is None and meta['branch_list']
+    head = ea.new_request_view(meta)['blocks']
+    assert any('지점마다 계좌가 다른 거래처' in (b.get('text') or {}).get('text', '') for b in head)
+    se._set_payee_prefill(meta, '하이엠솔루텍', '1005301085723')   # 인천 고름
+    assert meta['payee'] == {'payee_name': '하이엠솔루텍', 'bank': '우리은행', 'account': '1005301085723'}
+    view = ea.new_request_view(meta)
+    txt = json.dumps(view, ensure_ascii=False)
+    assert '✅ 확인된 계좌(인천)' in txt and '하이엠솔루텍 · 인천 (우리 …5723)' in txt
+    assert ea.PAYEE_SAVED_NOTE not in txt
+    se._set_payee_prefill(meta, '하이엠솔루텍', '')                      # 목록에 없는 계좌(직접 입력)
+    assert meta['payee'] is None and '직접 입력' in meta['partner_opt']['text']['text']
+    se._set_payee_prefill(meta, '대성크레인')                            # 목록 없는 거래처는 예전처럼
+    assert not meta.get('branch_list') and 'partner_opt' not in meta
+
+
+def test_invoice_partner_with_branches_gets_branch_select(se, monkeypatch):
+    _hiem(monkeypatch)
+    meta = {'inv': {'ch': 'C1', 'ts': '1.1', 'parsed': {'partner': '하이엠솔루텍', 'amount': 1000, 'grn': 'G'}}}
+    se._set_payee_prefill(meta, '하이엠솔루텍')
+    blk = next(b for b in ea.new_request_view(meta)['blocks'] if b.get('block_id') == 'branch')
+    assert blk['element']['action_id'] == ea.A_BRANCH and len(blk['element']['options']) == 4
+    se._set_payee_prefill(meta, '하이엠솔루텍', '1005201085715')
+    blk = next(b for b in ea.new_request_view(meta)['blocks'] if b.get('block_id') == 'branch')
+    assert blk['element']['initial_option']['text']['text'].startswith('하이엠솔루텍 · 강남')
+
+
 # ── ③ 계산서 글 작성자 ──────────────────────────────────────────
 
 @pytest.mark.parametrize('author,other', [(SB, False), (MGR, True), ('', True)])

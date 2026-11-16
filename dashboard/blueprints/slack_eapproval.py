@@ -797,17 +797,53 @@ def _register_invoice_pick(app) -> None:
             meta = json.loads(view.get('private_metadata') or '{}')
             sel = (body['actions'][0].get('selected_option') or {}).get('value') or ''
             meta['partner'] = ea.partner_from_value(sel)
-            _set_payee_prefill(meta, meta['partner'])
+            br = ea.branch_from_value(sel)
+            _set_payee_prefill(meta, meta['partner'], br[1] if br else None)
             client.views_update(view_id=view['id'], hash=view.get('hash'), view=_new_view(meta))
         except Exception as exc:
             logger.error(f'{_LOG} 거래처 선택 반영 실패: {exc}', exc_info=True)
 
+    @app.action(ea.A_BRANCH)
+    def handle_branch_pick(ack, body, client):
+        """계산서로 거래처가 정해진 창의 「지점 계좌」 — 고르면 은행·계좌를 채운다(11-16)."""
+        ack()
+        try:
+            view = body['view']
+            meta = json.loads(view.get('private_metadata') or '{}')
+            sel = (body['actions'][0].get('selected_option') or {}).get('value') or ''
+            br = ea.branch_from_value(sel)
+            partner = (meta.get('inv') or {}).get('parsed', {}).get('partner') or meta.get('partner', '')
+            _set_payee_prefill(meta, partner, br[1] if br else None)
+            client.views_update(view_id=view['id'], hash=view.get('hash'), view=_new_view(meta))
+        except Exception as exc:
+            logger.error(f'{_LOG} 지점 계좌 선택 반영 실패: {exc}', exc_info=True)
 
-def _set_payee_prefill(meta: dict, partner: str) -> None:
-    """거래처가 정해지면 기억한 계좌를 meta 에(없으면 비움). 칸 block_id 를 바꿔야 새 값이 보인다(pv+1)."""
-    saved = ea.lookup_payee(partner) if partner else None
-    meta['payee'] = ({k: saved[k] for k in ('payee_name', 'bank', 'account')} if saved else None)
+
+def _set_payee_prefill(meta: dict, partner: str, account: Optional[str] = None) -> None:
+    """거래처가 정해지면 기억한 계좌를 meta 에(없으면 비움). 칸 block_id 를 바꿔야 새 값이 보인다(pv+1).
+
+    지점마다 계좌가 다른 거래처(확인 계좌 목록이 있는 곳, 하이엠솔루텍)는 '지난번 계좌'를 채우지 않는다 —
+    다른 센터 계좌가 채워진 채 올라가도 목록 안이라 ✅ 로 지나간다(11-16 #32 인천 건에 강남이 채워졌다).
+    고른 지점(account)이 있으면 그 계좌를, 없으면 비워 두고 지점을 고르라고 안내한다."""
     meta['pv'] = int(meta.get('pv') or 0) + 1
+    for k in ('branch', 'branch_list', 'partner_opt'):
+        meta.pop(k, None)
+    rows = ea.known_accounts(partner) if partner else []
+    saved = ea.lookup_payee(partner) if partner else None
+    if not rows:
+        meta['payee'] = ({k: saved[k] for k in ('payee_name', 'bank', 'account')} if saved else None)
+        return
+    meta['branch_list'] = True
+    row = next((r for r in rows if r['account'] == account), None) if account else None
+    if row:
+        meta['payee'] = {'payee_name': (saved or {}).get('payee_name') or partner,
+                         'bank': row.get('bank') or '', 'account': row['account']}
+        meta['branch'] = row.get('label') or '확인된 계좌'
+        meta['partner_opt'] = ea.branch_option(partner, row)
+    else:
+        meta['payee'] = None
+        if account is not None:   # '목록에 없는 계좌 (직접 입력)'을 고름
+            meta['partner_opt'] = ea.branch_option(partner, None)
 
 
 _GRN_WARNED: dict = {}   # (창 id, 현장, 사업자) → 시각. 서버 한 개라 메모리로 충분(Redis 장애에도 동작)

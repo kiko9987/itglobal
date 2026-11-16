@@ -67,6 +67,7 @@ A_FORM_OPEN = 'eap_form_open'       # 버튼 value=양식 key → 양식 창(법
 A_PROJECT_FORM_PICK = 'eap_project_form_pick'   # 공사확정 카드 「📋 결재 요청」 고르기(공사봇)
 A_INVOICE = 'eap_invoice'             # 자금집행 모달 「계산서」 external_select(현장 미지정 계산서 글)
 A_PARTNER = 'eap_partner'             # 자금집행 모달 「거래처」 external_select(아는 거래처 + 새 거래처)
+A_BRANCH = 'eap_branch'               # 계산서로 거래처가 정해졌을 때 「지점 계좌」 static_select(11-16)
 CB_NEW, CB_REJECT = 'eap_new_submit', 'eap_reject_submit'
 A_REVISE, CB_REVISE = 'eap_revise', 'eap_revise_submit'   # [✏️ 수정 요청] → 무엇을 고칠지 적는 창(11-05)
 A_EDIT = 'eap_edit'                                         # [✏️ 수정하기] → 원래 값이 채워진 양식 창
@@ -1727,16 +1728,86 @@ def partner_options(query: str) -> dict:
         return {'option_groups': groups} if recent else {'options': []}
     hits = sorted((n for n in names if qk in partner_key(n)),
                   key=lambda n: (not partner_key(n).startswith(qk), partner_key(n)))
-    opts = [_partner_opt(n) for n in hits[:99]]
-    if not any(partner_key(n) == qk for n in hits):
+    # 지점마다 계좌가 다른 거래처(확인 계좌 목록이 있는 곳)는 지점을 목록에서 바로 고른다(11-16 KiKO).
+    # '하이엠' → 하이엠솔루텍 지점 전부, '하이엠 강남'·'강남' → 그 지점. 고르면 은행·계좌가 채워진다.
+    branch_opts = _branch_options(q)
+    branch_keys = {partner_key(o['_partner']) for o in branch_opts}
+    opts = []
+    for o in branch_opts:
+        o.pop('_partner')
+        opts.append(o)
+    opts += [_partner_opt(n) for n in hits if partner_key(n) not in branch_keys]
+    opts = opts[:99]
+    multi = len(q.split()) > 1 and branch_opts   # '하이엠 강남' — 지점을 찾는 검색이지 새 상호가 아니다
+    if not any(partner_key(n) == qk for n in hits) and qk not in branch_keys and not multi:
         # 아는 거래처가 걸리면 그게 먼저(실수로 새로 만들지 않게), '새 거래처'는 맨 아래
         opts.append({'text': {'type': 'plain_text', 'text': f'새 거래처: {q}'[:75]},
                      'value': (PARTNER_NEW + q)[:150]})
     return {'options': opts}
 
 
+PARTNER_BRANCH = 'acct:'   # 지점 계좌 선택지 값 — 'acct:' + {"p": 거래처, "a": 계좌 숫자(빈 값=직접 입력)}
+
+
+def _all_known_accounts() -> List[dict]:
+    with _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        return [dict(r) for r in conn.execute(
+            'SELECT * FROM payee_known_accounts ORDER BY partner_key, label, account').fetchall()]
+
+
+def branch_option(partner: str, row: Optional[dict]) -> dict:
+    """지점 계좌 선택지. row=None 이면 '목록에 없는 계좌(직접 입력)'."""
+    if row:
+        bank = _bank_key(row.get('bank') or '')
+        label = row.get('label') or '확인된 계좌'
+        if '어음' in label:   # 어음 계좌는 고를 때부터 눈에 띄게(이체 확인 창에도 ⚠️)
+            label = f'⚠️ {label} 계좌'
+        text = f"{partner} · {label} ({bank} …{row['account'][-4:]})"
+        acct = row['account']
+    else:
+        text, acct = f'{partner} · 목록에 없는 계좌 (직접 입력)', ''
+    value = PARTNER_BRANCH + json.dumps({'p': partner[:60], 'a': acct}, ensure_ascii=False)
+    return {'text': {'type': 'plain_text', 'text': text[:75]}, 'value': value[:150]}
+
+
+def _branch_options(query: str) -> List[dict]:
+    """검색어 낱말이 모두 '거래처+지점 이름'에 들어 있는 지점 계좌 선택지(+거래처마다 '직접 입력' 하나).
+
+    '_partner' 키에 거래처 이름을 같이 넣어 돌려준다(부르는 쪽이 빼고 쓴다)."""
+    words = [partner_key(w) for w in (query or '').split() if partner_key(w)]
+    if not words:
+        return []
+    out, partners = [], []
+    for r in _all_known_accounts():
+        name = r.get('partner') or r['partner_key']
+        hay = partner_key(name) + partner_key(r.get('label') or '')
+        if all(w in hay for w in words):
+            out.append({**branch_option(name, r), '_partner': name})
+            if name not in partners:
+                partners.append(name)
+    for name in partners:
+        out.append({**branch_option(name, None), '_partner': name})
+    return out
+
+
+def branch_from_value(value: str) -> Optional[Tuple[str, str]]:
+    """지점 계좌 선택지면 (거래처, 계좌 숫자 — 직접 입력이면 ''), 아니면 None."""
+    v = value or ''
+    if not v.startswith(PARTNER_BRANCH):
+        return None
+    try:
+        d = json.loads(v[len(PARTNER_BRANCH):])
+        return (d.get('p') or '', d.get('a') or '')
+    except (ValueError, AttributeError):
+        return None
+
+
 def partner_from_value(value: str) -> str:
     v = value or ''
+    br = branch_from_value(v)
+    if br:
+        return br[0]
     return v[len(PARTNER_NEW):] if v.startswith(PARTNER_NEW) else v
 
 
@@ -1846,7 +1917,9 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
     if not inv:   # 계산서를 고르면 거래처·금액·G/R 은 그 글 값 — 칸을 숨긴다
         p_el = {'type': 'external_select', 'action_id': A_PARTNER, 'min_query_length': 0,
                 'placeholder': {'type': 'plain_text', 'text': '상호 검색 (처음이면 이름을 입력해 고르기)'}}
-        if meta.get('partner'):
+        if meta.get('partner_opt'):   # 지점 계좌로 고른 거래처 — 고른 지점이 그대로 보이게
+            p_el['initial_option'] = meta['partner_opt']
+        elif meta.get('partner'):
             p_el['initial_option'] = {'text': {'type': 'plain_text', 'text': meta['partner'][:75]},
                                       'value': meta['partner'][:150]}
         blocks += [
@@ -1863,14 +1936,34 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
         blocks.append(grn_block(grn_from_code(fixed_project)))
     # 이체 계좌 — 거래처(또는 계산서)를 고르면 예전에 보낸 계좌를 창에 채워 보여 주고 확인 안내(11-01)
     payee = meta.get('payee')
-    if payee:
+    inv_partner = (inv or {}).get('parsed', {}).get('partner') or ''
+    if inv and meta.get('branch_list') and not edit:
+        # 계산서로 거래처가 정해지면 거래처 칸이 숨겨진다 — 지점은 여기서 고른다
+        rows = known_accounts(inv_partner)
+        b_opts = ([branch_option(inv_partner, r) for r in rows] + [branch_option(inv_partner, None)])[:100]
+        b_el = {'type': 'static_select', 'action_id': A_BRANCH, 'options': b_opts,
+                'placeholder': {'type': 'plain_text', 'text': '지점 고르기'}}
+        cur = meta.get('partner_opt')
+        if cur:
+            b_el['initial_option'] = next((o for o in b_opts if o['value'] == cur['value']), cur)
+        blocks.append({'type': 'input', 'block_id': 'branch', 'optional': True, 'dispatch_action': True,
+                       'label': {'type': 'plain_text', 'text': '지점 계좌'}, 'element': b_el,
+                       'hint': {'type': 'plain_text', 'text': '지점마다 계좌가 달라요. 고르면 은행·계좌가 채워져요.'}})
+    if meta.get('branch') and payee:
+        head = f"*이체 계좌* — ✅ 확인된 계좌({meta['branch']})"
+    elif meta.get('branch_list') and not payee:
+        where = ('위 「지점 계좌」에서 지점을' if inv else
+                 '위 「거래처」에 상호를 다시 입력하면 지점별로 나와요. 지점을')
+        head = (f'*이체 계좌* — 지점마다 계좌가 다른 거래처예요. {where} 고르면 은행·계좌가 채워져요. '
+                '목록에 없는 계좌면 직접 넣어 주세요.')
+    elif payee:
         head = '*이체 계좌*'
     elif meta.get('partner') or inv:
         head = '*이체 계좌* — 처음 보내는 거래처예요. 예금주·은행·계좌를 넣어 주세요.'
     else:
         head = '*이체 계좌* — 거래처를 고르면 예전에 보낸 계좌가 있을 때 채워집니다.'
     blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': head}})
-    if payee and not meta.get('edit'):   # 수정 창은 올렸던 계좌 그대로라 '예전 계좌' 안내를 안 띄운다
+    if payee and not meta.get('edit') and not meta.get('branch'):   # 수정 창은 올렸던 계좌 그대로라 '예전 계좌' 안내를 안 띄운다
         blocks.append(payee_saved_note())
     pv = int(meta.get('pv') or 0)
     p = prefill or {}
