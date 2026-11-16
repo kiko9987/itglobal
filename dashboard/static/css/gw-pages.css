@@ -1747,8 +1747,11 @@ body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7
   justify-content: flex-end;
   gap: 8px;
 }
-/* PC: 공용 스타일(modal-system.css)이 창 최대 폭을 화면 90%로 풀어 둬서 신청 창이 화면 끝까지 늘어났다(11-16) → 폭 고정 */
+/* PC: 공용 스타일(modal-system.css)이 .modal-dialog 최대 폭을 화면 90%로 풀어 둬서, 부트스트랩 크기(기본 500·modal-lg 800·modal-xl 1140,
+   --bs-modal-width)가 먹지 않고 모든 창이 화면 끝까지 늘어났다(11-16, 1920 화면에서 1728px).
+   그룹웨어 화면 창은 부트스트랩 원래 크기로 되돌림 — 이 파일은 그룹웨어 화면만 읽는다 */
 @media (min-width: 576px) {
+  .modal-dialog { max-width: var(--bs-modal-width); }
   #lvApplyModal .modal-dialog { max-width: 520px; }
   #lvCancelModal .modal-dialog { max-width: 440px; }
 }
