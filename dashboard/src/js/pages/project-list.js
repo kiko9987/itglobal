@@ -213,6 +213,16 @@ class ProjectListApp {
           })
           .catch(err => logger.error('[ERROR] ProjectStatusCards 로드 실패:', err));
       }
+
+      // 그룹웨어 새 화면 PC 필터 줄 정리(검색 앞으로·자주 쓰는 필터·더보기·걸린 조건 칩, 11-16 저녁).
+      //   모양은 PC 폭에서만 걸리고 휴대폰은 MobileChrome 의 [검색+필터 n] 그대로
+      if (document.body.classList.contains('gw-shell')) {
+        import('../components/FilterBarPC.js')
+          .then(({ default: FilterBarPC }) => {
+            this.components.filterBar = new FilterBarPC(this.components.filters);
+          })
+          .catch(err => logger.error('[ERROR] FilterBarPC 로드 실패:', err));
+      }
     }
 
     // [ROCKET] 테이블은 updateUI()에서 데이터와 함께 초기화됨

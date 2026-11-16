@@ -1,0 +1,227 @@
+/**
+ * 프로젝트 화면 PC 필터 줄 정리 (11-16 저녁, 부장님 결정 — 당근 비즈니스식)
+ *
+ * 1줄: [검색] [상태] [담당자] [수금 상태] [세금계산서] [+ 필터 더보기 n] …… [저장한 필터 ▾]
+ *      '필터 더보기' 안: 내부 사업자·유입 구분·거래처·데이터 + '내 프로젝트만'·'취소된 공사 제외' 칩
+ * 2줄: 걸린 조건 칩(✕ 로 하나씩 해제) · [모두 지우기] · 건수
+ *
+ * 실제 select·체크 칸·검색칸은 그대로 두고 자리(order)와 보이기만 바꾼다 —
+ * 필터 동작·URL 저장·편집 중 확인(ModernProjectFilters._applyFromUser)을 그대로 타게.
+ * 모양은 groupware-shell.css 의 `.pfb` 규칙(PC, min-width 768px)만. 휴대폰은 MobileChrome 의 [검색+필터 n] 그대로.
+ */
+const PRIMARY = ['statusFilter', 'managerFilter', 'outstandingFilter', 'invoiceFilter'];
+const MORE = ['companyFilter', 'clientFilter', 'businessNameFilter', 'dataFilter'];
+
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (m) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+})[m]);
+
+export default class FilterBarPC {
+  constructor(filters) {
+    this.filters = filters;
+    this.section = document.querySelector('.filter-section');
+    this.row = this.section?.querySelector(':scope > .row');
+    if (!this.section || !this.row || this.section.classList.contains('pfb')) return;
+    this.build();
+  }
+
+  colOf(id) {
+    return document.getElementById(id)?.closest('[class*="col-"]') || null;
+  }
+
+  labelOf(id) {
+    return (document.querySelector(`label[for="${id}"]`)?.textContent || '').trim();
+  }
+
+  build() {
+    const { section, row } = this;
+    section.classList.add('pfb');
+    if (!row.id) row.id = 'pmmFilterRow';
+
+    // 자리 매기기: 검색 → 자주 쓰는 4개 → 더보기 단추 → (더보기 안) → 저장한 필터
+    this.colOf('searchInput')?.classList.add('pfb-search');
+    PRIMARY.forEach((id, i) => this.colOf(id)?.style.setProperty('--pfb-order', String(10 + i)));
+    this.colOf('asStatusFilter')?.style.setProperty('--pfb-order', '14');
+    MORE.forEach((id) => this.colOf(id)?.classList.add('pfb-more-item'));
+    this.colOf('filterResultCount')?.classList.add('pfb-old-actions');
+
+    // [+ 필터 더보기]
+    const moreCol = document.createElement('div');
+    moreCol.className = 'col-auto pfb-more-col';
+    moreCol.innerHTML = `
+      <button type="button" class="pfb-more" aria-expanded="false" aria-controls="${row.id}">
+        <i class="fas fa-plus" aria-hidden="true"></i>필터 더보기<b class="pfb-more-n" hidden></b>
+      </button>`;
+    row.appendChild(moreCol);
+    // 더보기를 펼치면 추가 필터는 새 줄에서 시작(첫 줄 끝에 이어 붙으면 어디까지가 자주 쓰는 것인지 흐려짐)
+    const brk = document.createElement('div');
+    brk.className = 'pfb-break';
+    brk.setAttribute('aria-hidden', 'true');
+    row.appendChild(brk);
+    this.moreBtn = moreCol.querySelector('.pfb-more');
+    this.moreN = moreCol.querySelector('.pfb-more-n');
+    this.moreBtn.addEventListener('click', () => this.setMoreOpen(!section.classList.contains('pfb-more-open')));
+
+    // [저장한 필터 ▾] — 둘째 줄 오른쪽 끝(건수 옆). 첫 줄에 두면 노트북 폭에서 혼자 다음 줄로 떨어졌음
+    const presetCol = document.createElement('div');
+    presetCol.className = 'pfb-preset-col';
+    presetCol.innerHTML = `
+      <button type="button" class="pfb-preset-btn" aria-haspopup="true" aria-expanded="false" aria-controls="pfbPresetMenu">
+        <i class="fas fa-bookmark" aria-hidden="true"></i>저장한 필터<i class="fas fa-chevron-down pfb-caret" aria-hidden="true"></i>
+      </button>
+      <div class="pfb-preset-menu" id="pfbPresetMenu" hidden></div>`;
+    this.presetBtn = presetCol.querySelector('.pfb-preset-btn');
+    this.presetMenu = presetCol.querySelector('.pfb-preset-menu');
+    this.presetBtn.addEventListener('click', () => this.togglePresetMenu());
+    this.presetMenu.addEventListener('click', (e) => this.onPresetClick(e));
+    document.addEventListener('click', (e) => {
+      if (!this.presetMenu.hidden && !presetCol.contains(e.target)) this.togglePresetMenu(false);
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !this.presetMenu.hidden) {
+        this.togglePresetMenu(false);
+        this.presetBtn.focus();
+      }
+    });
+
+    // 2줄: 걸린 조건
+    this.activeRow = document.createElement('div');
+    this.activeRow.className = 'pfb-active';
+    this.activeRow.innerHTML = `
+      <div class="pfb-tags" role="list" aria-label="걸린 조건"></div>
+      <button type="button" class="pfb-clear" hidden>모두 지우기</button>
+      <span class="pfb-count" aria-live="polite"></span>`;
+    row.insertAdjacentElement('afterend', this.activeRow);
+    this.activeRow.appendChild(presetCol);
+    this.tagsEl = this.activeRow.querySelector('.pfb-tags');
+    this.clearBtn = this.activeRow.querySelector('.pfb-clear');
+    this.countEl = this.activeRow.querySelector('.pfb-count');
+    this.clearBtn.addEventListener('click', () => window.modernFilters?.resetFilters?.());
+    this.tagsEl.addEventListener('click', (e) => this.onTagClick(e));
+
+    // 건수: 원래 자리(#filterResultCount)의 글자를 그대로 따라 쓴다(계산은 필터 쪽 하나로)
+    const src = document.getElementById('filterResultCount');
+    if (src) {
+      const copy = () => { this.countEl.textContent = src.textContent.trim(); this.countEl.title = src.title || ''; };
+      new MutationObserver(copy).observe(src, { childList: true, characterData: true, subtree: true, attributes: true });
+      copy();
+    }
+
+    // 다시 그리기: 칸을 바꿀 때·검색할 때·필터가 돌 때(상태 칸·[초기화]·저장한 필터는 값만 바꾸고 change 를 안 보낼 수 있음)
+    const update = () => this.update();
+    row.addEventListener('change', () => setTimeout(update, 0));
+    document.getElementById('searchInput')?.addEventListener('input', () => setTimeout(update, 350));
+    this.filters?.onFilterChange?.(() => update());
+    this.update();
+  }
+
+  setMoreOpen(open) {
+    this.section.classList.toggle('pfb-more-open', open);
+    this.moreBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+
+  // ── 걸린 조건 칩 ───────────────────────────────────────────
+  activeConditions() {
+    const out = [];
+    const add = (key, label, value) => out.push({ key, label, value });
+    const search = document.getElementById('searchInput');
+    if (search?.value.trim()) add('search', '검색', `"${search.value.trim()}"`);
+    const ids = [...PRIMARY, 'asStatusFilter', ...MORE];
+    ids.forEach((id) => {
+      const sel = document.getElementById(id);
+      if (!sel || !sel.value) return;
+      if (id === 'asStatusFilter' && !sel.closest('[class*="col-"]')?.offsetParent) return;
+      if (id === 'managerFilter' && document.getElementById('myProjectsOnly')?.checked) return; // '내 프로젝트만'으로 보임
+      add(id, this.labelOf(id), sel.options[sel.selectedIndex]?.text || sel.value);
+    });
+    if (document.getElementById('myProjectsOnly')?.checked) add('myProjectsOnly', '', '내 프로젝트만');
+    const hc = document.getElementById('hideCancelledProjects');
+    if (hc && !hc.checked) add('hideCancelledProjects', '', '취소된 공사 포함');
+    return out;
+  }
+
+  update() {
+    const conds = this.activeConditions();
+    this.tagsEl.innerHTML = conds.map((c) => `
+      <span class="pfb-tag" role="listitem">
+        <span>${c.label ? `<span class="pfb-tag-k">${esc(c.label)}</span> ` : ''}${esc(c.value)}</span>
+        <button type="button" class="pfb-tag-x" data-key="${esc(c.key)}" aria-label="${esc((c.label ? c.label + ' ' : '') + c.value)} 조건 빼기">
+          <i class="fas fa-times" aria-hidden="true"></i>
+        </button>
+      </span>`).join('');
+    this.clearBtn.hidden = conds.length === 0;
+    this.activeRow.classList.toggle('has-tags', conds.length > 0);
+
+    // 더보기 안에 걸린 조건 수 — 접어 둬도 목록이 왜 줄었는지 보이게
+    const hc = document.getElementById('hideCancelledProjects');
+    const n = MORE.filter((id) => document.getElementById(id)?.value).length
+      + (document.getElementById('myProjectsOnly')?.checked ? 1 : 0)
+      + (hc && !hc.checked ? 1 : 0);
+    this.moreN.textContent = n ? String(n) : '';
+    this.moreN.hidden = n === 0;
+    this.moreBtn.classList.toggle('on', n > 0);
+  }
+
+  onTagClick(e) {
+    const x = e.target.closest('.pfb-tag-x');
+    if (!x) return;
+    const key = x.dataset.key;
+    if (key === 'search') {
+      const s = document.getElementById('searchInput');
+      s.value = '';
+      s.dispatchEvent(new Event('input', { bubbles: true }));
+    } else if (key === 'myProjectsOnly' || key === 'hideCancelledProjects') {
+      document.getElementById(key)?.click();
+    } else {
+      const sel = document.getElementById(key);
+      if (!sel) return;
+      sel.value = '';
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    setTimeout(() => {
+      this.update();
+      // 지운 칩 자리에서 키보드가 길을 잃지 않게: 남은 첫 칩 또는 검색칸으로
+      (this.tagsEl.querySelector('.pfb-tag-x') || document.getElementById('searchInput'))?.focus();
+    }, 400);
+  }
+
+  // ── 저장한 필터 ────────────────────────────────────────────
+  togglePresetMenu(force) {
+    const open = force ?? this.presetMenu.hidden;
+    if (open) this.renderPresetMenu();
+    this.presetMenu.hidden = !open;
+    this.presetBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) this.presetMenu.querySelector('button')?.focus();
+  }
+
+  renderPresetMenu() {
+    const presets = this.filters?._getPresets?.() || [];
+    const items = presets.map((p) => `
+      <div class="pfb-preset-item">
+        <button type="button" class="pfb-preset-apply" data-name="${esc(p.name)}">${esc(p.name)}</button>
+        <button type="button" class="pfb-preset-del" data-name="${esc(p.name)}" aria-label="${esc(p.name)} 저장한 필터 지우기">
+          <i class="fas fa-times" aria-hidden="true"></i>
+        </button>
+      </div>`).join('');
+    this.presetMenu.innerHTML = (items || '<p class="pfb-preset-empty">저장한 필터가 없어요.</p>') + `
+      <button type="button" class="pfb-preset-save"><i class="fas fa-plus" aria-hidden="true"></i>지금 조건 저장하기</button>`;
+  }
+
+  onPresetClick(e) {
+    const f = window.modernFilters;
+    if (!f) return;
+    const apply = e.target.closest('.pfb-preset-apply');
+    const del = e.target.closest('.pfb-preset-del');
+    if (apply) {
+      this.togglePresetMenu(false);
+      f.loadPreset(apply.dataset.name);
+      setTimeout(() => this.update(), 300);
+    } else if (del) {
+      f.deletePreset(del.dataset.name);
+      this.renderPresetMenu();
+    } else if (e.target.closest('.pfb-preset-save')) {
+      this.togglePresetMenu(false);
+      f.savePresetPrompt();
+    }
+  }
+}

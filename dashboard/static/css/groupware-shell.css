@@ -1663,3 +1663,264 @@ body.gw-shell .gw-notify-stale {
     padding: 0 4px;
   }
 }
+
+/* ── 프로젝트 PC 필터 줄 정리(11-16 저녁, 부장님 결정 — FilterBarPC.js) ──────────────────
+   1줄: 검색 → 상태·담당자·수금 상태·세금계산서 → [+ 필터 더보기 n] …… [저장한 필터 ▾]
+   2줄: 걸린 조건 칩·[모두 지우기]·건수. 상태 칸은 폭을 꽉 채우지 않고 내용 길이만큼. 휴대폰은 그대로. */
+@media (min-width: 768px) {
+  body.gw-shell .gw-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  body.gw-shell .gw-stats .gw-stat {
+    flex: 0 0 auto;
+    height: 44px;
+    padding: 0 12px 0 14px;
+  }
+  body.gw-shell .gw-stats .gw-stat-label {
+    flex: 0 1 auto;
+  }
+  body.gw-shell .gw-stats .gw-stat-num {
+    margin-left: 6px;
+  }
+
+  body.gw-shell .pfb > .row > [class*="col-"] {
+    order: var(--pfb-order, 20);
+  }
+  body.gw-shell .pfb > .row > .pfb-search {
+    order: 0;
+  }
+  body.gw-shell .pfb #searchInput {
+    width: 260px;
+  }
+  @media (max-width: 1279.98px) {
+    body.gw-shell .pfb #searchInput {
+      width: 220px;                /* 노트북 폭에서도 첫 줄(검색+필터 4개+더보기)이 한 줄에 들어가게 */
+    }
+  }
+  body.gw-shell .pfb > .row > .pfb-more-col {
+    order: 30;
+  }
+  body.gw-shell .pfb > .row > .pfb-more-item,
+  body.gw-shell .pfb > .row > .pt-col-toggles {
+    order: 40;
+    display: none;
+  }
+  body.gw-shell .pfb.pfb-more-open > .row > .pfb-more-item,
+  body.gw-shell .pfb.pfb-more-open > .row > .pt-col-toggles {
+    display: flex;
+  }
+  body.gw-shell .pfb > .row > .pfb-old-actions {
+    display: none !important;      /* [초기화]·[필터 저장]·건수 → 2줄의 [모두 지우기]·건수, 오른쪽 [저장한 필터] */
+  }
+  body.gw-shell .pfb > .row > .pfb-break {
+    order: 35;
+    display: none;
+    flex-basis: 100%;
+    height: 0;
+  }
+  body.gw-shell .pfb.pfb-more-open > .row > .pfb-break {
+    display: block;
+  }
+  body.gw-shell .pfb-active > .pfb-preset-col {
+    position: relative;
+  }
+
+  body.gw-shell .pfb-more,
+  body.gw-shell .pfb-preset-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 36px;
+    padding: 0 14px;
+    border: 1px dashed #b9bdc6;
+    border-radius: 9999px;
+    background: #ffffff;
+    color: #1a1c20;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  body.gw-shell .pfb-preset-btn {
+    border-style: solid;
+    border-color: #dcdee3;
+  }
+  body.gw-shell .pfb-more:hover,
+  body.gw-shell .pfb-preset-btn:hover {
+    background: #f7f8fa;
+  }
+  body.gw-shell .pfb-more.on,
+  body.gw-shell .pfb-more[aria-expanded="true"] {
+    border-style: solid;
+    border-color: #2a3038;
+  }
+  body.gw-shell .pfb-more i,
+  body.gw-shell .pfb-preset-btn i {
+    font-size: 12px;
+  }
+  body.gw-shell .pfb-more-n {
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9999px;
+    background: #2a3038;
+    color: #ffffff;
+    font-size: 11px;
+    line-height: 18px;
+    text-align: center;
+  }
+  body.gw-shell .pfb-more:focus-visible,
+  body.gw-shell .pfb-preset-btn:focus-visible,
+  body.gw-shell .pfb-tag-x:focus-visible,
+  body.gw-shell .pfb-clear:focus-visible,
+  body.gw-shell .pfb-preset-menu button:focus-visible {
+    outline: 2px solid #2a3038;
+    outline-offset: 2px;
+  }
+
+  body.gw-shell .pfb-preset-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 1030;
+    min-width: 240px;
+    max-width: 320px;
+    padding: 6px;
+    border: 1px solid #dcdee3;
+    border-radius: 12px;
+    background: #ffffff;
+    box-shadow: 0 8px 24px rgba(16, 24, 40, 0.12);
+  }
+  body.gw-shell .pfb-preset-item {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  body.gw-shell .pfb-preset-apply,
+  body.gw-shell .pfb-preset-save {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    padding: 8px 12px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: #1a1c20;
+    font-size: 14px;
+    text-align: left;
+  }
+  body.gw-shell .pfb-preset-del {
+    width: 32px;
+    height: 32px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: #6b7079;
+  }
+  body.gw-shell .pfb-preset-apply:hover,
+  body.gw-shell .pfb-preset-del:hover,
+  body.gw-shell .pfb-preset-save:hover {
+    background: #f2f3f6;
+  }
+  body.gw-shell .pfb-preset-save {
+    width: 100%;
+    margin-top: 4px;
+    border-top: 1px solid #eef0f3;
+    border-radius: 0 0 8px 8px;
+    color: #475569;
+  }
+  body.gw-shell .pfb-preset-empty {
+    margin: 0;
+    padding: 8px 12px;
+    color: #6b7079;
+    font-size: 13px;
+  }
+
+  body.gw-shell .pfb-active {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+    margin-top: 8px;
+    min-height: 24px;
+  }
+  body.gw-shell .pfb-active.has-tags {
+    padding-top: 8px;
+    border-top: 1px solid #eef0f3;
+  }
+  body.gw-shell .pfb-tags {
+    display: contents;
+  }
+  body.gw-shell .pfb-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    height: 30px;
+    padding: 0 4px 0 12px;
+    border-radius: 9999px;
+    background: #eef1f5;
+    color: #1a1c20;
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  body.gw-shell .pfb-tag-k {
+    color: #555d6d;
+    font-weight: 400;
+  }
+  body.gw-shell .pfb-tag-x {
+    width: 24px;
+    height: 24px;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: #555d6d;
+    font-size: 11px;
+  }
+  body.gw-shell .pfb-tag-x:hover {
+    background: #dde2e9;
+    color: #1a1c20;
+  }
+  body.gw-shell .pfb-clear {
+    height: 30px;
+    padding: 0 8px;
+    border: 0;
+    background: transparent;
+    color: #c2410c;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  body.gw-shell .pfb-clear:hover {
+    text-decoration: underline;
+  }
+  body.gw-shell .pfb-count {
+    margin-left: auto;
+    color: #475569;
+    font-size: 13px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  body.gw-shell .pfb-active:not(.has-tags) .pfb-count {
+    margin-left: 0;
+    margin-right: auto;            /* 걸린 조건이 없으면 건수는 왼쪽, [저장한 필터]는 오른쪽 끝 */
+  }
+  body.gw-shell .pfb-active.has-tags .pfb-count {
+    margin-left: auto;
+  }
+  body.gw-shell .pfb-active .pfb-preset-btn {
+    height: 32px;
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 767.98px) {
+  body.gw-shell .pfb-more-col,
+  body.gw-shell .pfb-preset-col,
+  body.gw-shell .pfb-active {
+    display: none !important;
+  }
+}
