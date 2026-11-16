@@ -3,6 +3,7 @@ Google Calendar 역방향 동기화 스케줄러
 캘린더에서 삭제된 이벤트를 주기적으로 감지하여 Google Sheets에 반영합니다.
 """
 
+import os
 import time
 import threading
 import logging
@@ -152,6 +153,7 @@ class CalendarSyncScheduler:
 
         deleted_count = 0
         updated_count = 0
+        gone = []   # 캘린더에서 사라진 이벤트 — 다 모은 뒤 개수를 보고 처리(2026-11-16 상태 머신 점검 H)
 
         for event_mapping in all_events:
             project_code = event_mapping['project_code']
@@ -163,19 +165,8 @@ class CalendarSyncScheduler:
             calendar_event = self._get_calendar_event(service, calendar_id, event_id)
 
             if calendar_event is None:
-                # 삭제된 이벤트 처리
                 logger.info(f"[CALENDAR_SYNC] ❌ 삭제된 이벤트 감지: {project_code} (event_id: {event_id})")
-
-                # Google Sheets에서 날짜 필드 비우기
-                success = self._clear_project_dates(project_code)
-
-                if success:
-                    # DB에서 이벤트 매핑 삭제
-                    repo.delete_event(project_code)
-                    deleted_count += 1
-                    logger.info(f"[CALENDAR_SYNC] ✅ 프로젝트 {project_code}의 날짜 필드를 비우고 DB 매핑 삭제 완료")
-                else:
-                    logger.error(f"[CALENDAR_SYNC] ⚠️ 프로젝트 {project_code}의 날짜 필드 비우기 실패")
+                gone.append(project_code)
             else:
                 # 날짜 변경 감지 및 양방향 동기화 (최근 변경 기준)
                 date_updated = self._sync_calendar_dates_bidirectional(
@@ -183,6 +174,22 @@ class CalendarSyncScheduler:
                 )
                 if date_updated:
                     updated_count += 1
+
+        # 한 회차에 많이 사라졌으면 = 사람이 지운 게 아니라 캘린더를 바꿨거나 권한·연결 문제일 가능성이 크다. 그대로
+        #   따라가면 시트의 공사 시작·종료 날짜가 한꺼번에 지워진다(예: 꺼 둔 캘린더를 다시 켜는 날). 비우지 않고 알림.
+        limit = _max_deletes_per_run()
+        if len(gone) > limit:
+            logger.error(f"[CALENDAR_SYNC] 캘린더에서 사라진 이벤트 {len(gone)}건 — 한 번에 {limit}건이 넘어 시트 날짜 "
+                         f"비우기를 보류했습니다(예: {', '.join(gone[:5])}). 캘린더 연결·권한을 확인하고, 정말 지운 것이면 "
+                         f"CALENDAR_SYNC_MAX_DELETES 를 잠시 올려 주세요.", extra={'force_alert': True})
+            gone = []
+        for project_code in gone:
+            if self._clear_project_dates(project_code):
+                repo.delete_event(project_code)
+                deleted_count += 1
+                logger.info(f"[CALENDAR_SYNC] ✅ 프로젝트 {project_code}의 날짜 필드를 비우고 DB 매핑 삭제 완료")
+            else:
+                logger.error(f"[CALENDAR_SYNC] ⚠️ 프로젝트 {project_code}의 날짜 필드 비우기 실패")
 
         if deleted_count > 0 or updated_count > 0:
             logger.info(f"[CALENDAR_SYNC] 동기화 완료: {deleted_count}개 삭제, {updated_count}개 날짜 업데이트")
@@ -489,3 +496,11 @@ def stop_calendar_sync_scheduler():
     global _scheduler_instance
     if _scheduler_instance:
         _scheduler_instance.stop()
+
+
+def _max_deletes_per_run() -> int:
+    """한 회차에 따라 지울 수 있는 캘린더 삭제 수(기본 3) — 넘으면 시트 날짜를 비우지 않고 알림."""
+    try:
+        return max(0, int(os.getenv('CALENDAR_SYNC_MAX_DELETES', '3')))
+    except ValueError:
+        return 3

@@ -158,6 +158,15 @@ def executor_dm_ids(row: Optional[dict] = None) -> tuple:
     return executor_ids()[:1]
 
 
+def weekend_test_ids() -> tuple:
+    """주말 시험 모드(EAPPROVAL_EXECUTOR_DM_IDS) — 켜져 있으면 이체 요청 DM 이 통장과 상관없이 이 사람에게만 간다."""
+    return _env_ids('EAPPROVAL_EXECUTOR_DM_IDS')
+
+
+TEST_MODE_NOTE = ('⚠️ 시험 모드 — 이체 요청 DM 이 정해진 시험자에게만 갑니다(경영지원 DM 없음). '
+                  '평일 운영 전에 .env 의 EAPPROVAL_EXECUTOR_DM_IDS 를 지우고 재시작하세요.')
+
+
 def notice_ids(row: Optional[dict]) -> tuple:
     """이체 요청은 안 받지만 알아야 하는 사람 — N통장 건이면 경영지원(SB)에게 'YG·JW 에게 요청됐다' 알림만."""
     if _env_ids('EAPPROVAL_EXECUTOR_DM_IDS') or not is_n_account(row):
@@ -1411,6 +1420,9 @@ def card_blocks(row: dict, step_rows: List[dict], project_line: str, quote_amoun
     if len(body) > 2900:
         body = body[:2880] + '\n…(길어서 줄였어요)'
     blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': body}}]
+    if role == 'all' and row.get('status') in (PENDING, FINAL, APPROVED) and weekend_test_ids():
+        # 시험 모드가 남아 있으면 카드에 바로 보이게 — 예전엔 아무 표시 없이 경영지원 DM 만 빠졌다(11-16 점검)
+        blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': TEST_MODE_NOTE}]})
     btns = buttons(row, role)
     if btns:
         blocks.append(_SPACER)

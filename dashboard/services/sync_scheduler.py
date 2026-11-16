@@ -1059,8 +1059,29 @@ def _safe_eap_recover():
         logger.error(f'[SCHED] 전자결재 제출 복구 실패: {exc}', exc_info=True)
 
 
+def _eap_test_mode_weekday_alert(today=None) -> bool:
+    """평일인데 주말 시험 모드(EAPPROVAL_EXECUTOR_DM_IDS)가 켜져 있으면 관리자 알림 — 사람이 되돌리는 걸 잊으면
+    경영지원에게 이체 요청 DM 이 안 갔다(2026-11-16 상태 머신 점검 H). 알렸으면 True."""
+    from datetime import date as _date
+    today = today or _date.today()
+    if today.weekday() >= 5:
+        return False
+    try:
+        from dashboard.services.e_approval import weekend_test_ids
+        if not weekend_test_ids():
+            return False
+    except Exception:
+        return False
+    _notify_admin('eap_test_mode', ':warning: *전자결재 주말 시험 모드가 평일에 켜져 있어요* — 이체 요청 DM 이 '
+                  '경영지원이 아니라 시험자에게만 갑니다. `.env` 의 `EAPPROVAL_EXECUTOR_DM_IDS` 를 지우고 재시작해 주세요.')
+    logger.error('[SCHED] 전자결재 주말 시험 모드가 평일에 켜져 있음', extra={'force_alert': True})
+    return True
+
+
 def _safe_eap_remind(kind: str):
     """전자결재 리마인드(11-11) — 승인·최종 승인·수정 요청·이체 대기가 머물러 있으면 차례인 사람에게 DM."""
+    if kind == 'morning':
+        _eap_test_mode_weekday_alert()
     try:
         from dashboard.blueprints.slack_eapproval import post_reminders
         post_reminders(kind)
