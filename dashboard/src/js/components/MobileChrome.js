@@ -103,10 +103,12 @@ export default class MobileChrome {
       btn.setAttribute('aria-controls', row.id);
     }
 
-    // 펼친 안의 고르기 칸 중 값이 있는 것 수 (A/S 상태 칸은 모드 전용이라 뺌)
+    // 걸린 조건 수: 펼친 안의 고르기 칸 중 값이 있는 것(A/S 상태 칸은 모드 전용이라 뺌) + 검색어
+    //   (검색어만 넣고 필터를 접어 두면 목록이 왜 줄었는지 단서가 없었음)
     const sync = () => {
       const n = [...row.querySelectorAll('select.form-select')]
-        .filter((s) => s.id !== 'asStatusFilter' && s.value).length;
+        .filter((s) => s.id !== 'asStatusFilter' && s.value).length
+        + (search.value.trim() ? 1 : 0);
       nEl.textContent = n;
       nEl.hidden = n === 0;
       btn.classList.toggle('on', n > 0);
@@ -117,6 +119,7 @@ export default class MobileChrome {
       btn.setAttribute('aria-expanded', open ? 'true' : 'false');
     });
     row.addEventListener('change', sync);
+    search.addEventListener('input', sync);
     // [초기화]·상태 칸은 값만 바꾸고 change 를 안 보낼 수 있어 필터가 돌 때마다 맞춤
     this.syncFilterCount = sync;
     sync();

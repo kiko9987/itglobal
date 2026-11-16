@@ -55,6 +55,35 @@ function statusHtml(status) {
   return `<span class="pmm-status"><span class="pmm-dot" style="background:${dot}" aria-hidden="true"></span>${esc(status || '상태 없음')}</span>`;
 }
 
+
+/** 날짜 칸('2026-11-17', "'2026-11-17", '2026-11-17 ~ 11-20')에서 첫 날짜만 */
+function firstDate(raw) {
+  const m = String(raw || '').match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  return m ? `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}` : '';
+}
+
+/** '가까운 순': 오늘 이후(가까운 날 먼저) → 지난 날(최근 먼저) → 날짜 없음 */
+function nearFirst(a, b, today) {
+  if (!a || !b) return (a ? 0 : 1) - (b ? 0 : 1);
+  const fa = a >= today, fb = b >= today;
+  if (fa !== fb) return fa ? -1 : 1;
+  if (fa) return a < b ? -1 : a > b ? 1 : 0;
+  return a > b ? -1 : a < b ? 1 : 0;
+}
+
+function sortStore(key, value) {
+  try {
+    if (value === undefined) return localStorage.getItem(key) || '';
+    localStorage.setItem(key, value);
+  } catch (_) { /* 기억 못 해도 정렬은 됨 */ }
+  return value || '';
+}
+
+const LEAD_SORTS = [
+  ['', '최신순'],
+  ['visit', '방문일 가까운 순'],
+];
+
 export default class LeadMobileView {
   constructor({ accordion, getView } = {}) {
     this.acc = accordion;
@@ -85,6 +114,12 @@ export default class LeadMobileView {
     el.style.display = 'none';
     el.innerHTML = `
       <h2 class="visually-hidden">고객 리드 목록</h2>
+      <div class="pmm-sort">
+        <label for="pmmSortLeads">정렬</label>
+        <select id="pmmSortLeads" class="pmm-sort-select">
+          ${LEAD_SORTS.map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}
+        </select>
+      </div>
       <div class="pmm-cards"></div>
       <p class="pmm-empty" hidden>조건에 맞는 리드가 없어요. 검색어나 필터를 바꿔 보세요.</p>
       <button type="button" class="pmm-more-btn" hidden></button>`;
@@ -94,6 +129,23 @@ export default class LeadMobileView {
     this.listEl = el.querySelector('.pmm-cards');
     this.emptyEl = el.querySelector('.pmm-empty');
     this.moreBtn = el.querySelector('.pmm-more-btn');
+    this.sortKey = sortStore('pmm.sort.leads');
+    if (!LEAD_SORTS.some(([k]) => k === this.sortKey)) this.sortKey = '';
+    this.sortEl = el.querySelector('.pmm-sort-select');
+    this.sortEl.value = this.sortKey;
+    this.sortEl.addEventListener('change', () => {
+      this.sortKey = sortStore('pmm.sort.leads', this.sortEl.value);
+      this.shown = PAGE_SIZE;
+      this.render();
+    });
+  }
+
+  /** 고른 정렬로 줄 세움(같으면 리드 No 최신순) */
+  sortedRows() {
+    if (this.sortKey !== 'visit') return this.rows;
+    const today = new Date().toISOString().slice(0, 10);
+    return this.rows.map((r, i) => [r, i, firstDate(r['방문 예정일'])])
+      .sort((a, b) => nearFirst(a[2], b[2], today) || a[1] - b[1]).map((x) => x[0]);
   }
 
   createAgenda() {
@@ -206,10 +258,11 @@ export default class LeadMobileView {
   }
 
   renderList() {
-    const list = this.rows.slice(0, this.shown);
+    const rows = this.sortedRows();
+    const list = rows.slice(0, this.shown);
     this.listEl.innerHTML = list.map((r) => this.cardHtml(r)).join('');
-    this.emptyEl.hidden = this.rows.length > 0;
-    const rest = this.rows.length - list.length;
+    this.emptyEl.hidden = rows.length > 0;
+    const rest = rows.length - list.length;
     this.moreBtn.hidden = rest <= 0;
     if (rest > 0) this.moreBtn.textContent = `더 보기 (${rest.toLocaleString('ko-KR')}건 남음)`;
   }

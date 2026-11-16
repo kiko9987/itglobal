@@ -62,12 +62,45 @@ function telHref(raw) {
   return digits.length >= 8 ? `tel:${digits}` : '';
 }
 
+
+/** 날짜 칸('2026-11-17', "'2026-11-17", '2026-11-17 ~ 11-20')에서 첫 날짜만 */
+function firstDate(raw) {
+  const m = String(raw || '').match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  return m ? `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}` : '';
+}
+
+/** '가까운 순': 오늘 이후(가까운 날 먼저) → 지난 날(최근 먼저) → 날짜 없음 */
+function nearFirst(a, b, today) {
+  if (!a || !b) return (a ? 0 : 1) - (b ? 0 : 1);
+  const fa = a >= today, fb = b >= today;
+  if (fa !== fb) return fa ? -1 : 1;
+  if (fa) return a < b ? -1 : a > b ? 1 : 0;
+  return a > b ? -1 : a < b ? 1 : 0;
+}
+
+function sortStore(key, value) {
+  try {
+    if (value === undefined) return localStorage.getItem(key) || '';
+    localStorage.setItem(key, value);
+  } catch (_) { /* 기억 못 해도 정렬은 됨 */ }
+  return value || '';
+}
+
+const SORTS = [
+  ['', '최신순'],
+  ['start', '공사일 가까운 순'],
+  ['due', '미수금 많은 순'],
+  ['total', '총액 큰 순'],
+];
+
 export default class MobileCardView {
   constructor() {
     this.mq = window.matchMedia(MOBILE_MQ);
     this.currentData = [];
     this.shown = PAGE_SIZE;
     this.lastCardCode = null;
+    this.sortKey = sortStore('pmm.sort.projects');
+    if (!SORTS.some(([k]) => k === this.sortKey)) this.sortKey = '';
 
     this.createContainer();
     this.createSheet();
@@ -96,6 +129,12 @@ export default class MobileCardView {
     el.setAttribute('aria-label', '프로젝트 목록');
     el.innerHTML = `
       <h2 class="visually-hidden">프로젝트 목록</h2>
+      <div class="pmm-sort">
+        <label for="pmmSortProjects">정렬</label>
+        <select id="pmmSortProjects" class="pmm-sort-select">
+          ${SORTS.map(([k, t]) => `<option value="${k}">${t}</option>`).join('')}
+        </select>
+      </div>
       <div class="pmm-cards"></div>
       <p class="pmm-empty" hidden>조건에 맞는 공사가 없어요. 검색어나 필터를 바꿔 보세요.</p>
       <button type="button" class="pmm-more-btn" hidden></button>`;
@@ -103,6 +142,22 @@ export default class MobileCardView {
     this.listEl = el.querySelector('.pmm-cards');
     this.emptyEl = el.querySelector('.pmm-empty');
     this.moreBtn = el.querySelector('.pmm-more-btn');
+    this.sortEl = el.querySelector('.pmm-sort-select');
+    this.sortEl.value = this.sortKey;
+  }
+
+  /** 고른 정렬로 줄 세움(같으면 원래 순서 = 최신순) */
+  sortedRows() {
+    const rows = this.currentData;
+    const k = this.sortKey;
+    if (!k) return rows;
+    const today = new Date().toISOString().slice(0, 10);
+    const val = (r) => (k === 'start' ? firstDate(r['공사 시작'])
+      : k === 'due' ? num(r['미수금']) : num(r['총액 2'] ?? r['총액2']));
+    return rows.map((r, i) => [r, i, val(r)]).sort((a, b) => {
+      const c = k === 'start' ? nearFirst(a[2], b[2], today) : (b[2] - a[2]);
+      return c || a[1] - b[1];
+    }).map((x) => x[0]);
   }
 
   createSheet() {
@@ -128,6 +183,11 @@ export default class MobileCardView {
     });
     this.moreBtn.addEventListener('click', () => {
       this.shown += PAGE_SIZE;
+      this.render();
+    });
+    this.sortEl.addEventListener('change', () => {
+      this.sortKey = sortStore('pmm.sort.projects', this.sortEl.value);
+      this.shown = PAGE_SIZE;
       this.render();
     });
 
@@ -157,7 +217,7 @@ export default class MobileCardView {
 
   render() {
     if (!this.isActive) return;
-    const rows = this.currentData;
+    const rows = this.sortedRows();
     const list = rows.slice(0, this.shown);
     this.listEl.innerHTML = list.map((r) => this.cardHtml(r)).join('');
     this.emptyEl.hidden = rows.length > 0;
