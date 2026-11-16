@@ -428,6 +428,7 @@ export default class ProjectTable {
       this._asModeActive = false;
       const t = document.getElementById('asModeToggle');
       if (t) t.checked = false;
+      this.syncViewModeSegment?.();   // 보기 방식 3칸 단추도 맞춤(change 없이 꺼지므로)
       try { sessionStorage.removeItem('itg_as_mode'); } catch (_) { /* noop */ }
       if (this.table) { this._applyAsColumns(false); this.table.columns.adjust(); }
       // 필터 바 원복 — A/S 상태 필터 숨기고 미수금 필터 복귀
@@ -1681,13 +1682,94 @@ export default class ProjectTable {
     filterContainer.appendChild(checkbox);
     filterContainer.appendChild(label);
 
-    // lengthContainer에 추가
-    lengthContainer.appendChild(filterContainer);
-    lengthContainer.appendChild(this.createHideCancelledFilter());
-
+    // '내 프로젝트만'·'취소된 공사 제외'는 목록을 거르는 조건이라 필터 줄로(부장님 지적 11-16 저녁 —
+    //   보기 방식인 수금·A/S 모드와 한 줄에 섞여 있었음). PC 는 필터 단추 옆 켜고 끄는 칩,
+    //   휴대폰은 같은 줄이 [필터] 펼침 안에 들어가므로 자동으로 펼침 안에 보인다.
+    document.querySelectorAll('.pt-col-toggles').forEach(el => el.remove());
+    const hideCancelled = this.createHideCancelledFilter();
+    const actionsCol = document.querySelector('.filter-section .filter-actions-row')?.closest('[class*="col-"]');
+    if (actionsCol) {
+      const col = document.createElement('div');
+      col.className = 'col-auto pt-col-toggles';
+      col.setAttribute('role', 'group');
+      col.setAttribute('aria-label', '목록 거르기');
+      filterContainer.classList.add('pt-chip-toggle');
+      hideCancelled.classList.add('pt-chip-toggle');
+      col.appendChild(filterContainer);
+      col.appendChild(hideCancelled);
+      actionsCol.insertAdjacentElement('beforebegin', col);
+    } else {
+      // 예전 틀 등 필터 줄이 없으면 예전 자리 그대로
+      lengthContainer.appendChild(filterContainer);
+      lengthContainer.appendChild(hideCancelled);
+    }
 
     // 수금 관리 모드 토글 추가
     this.addReceivablesToggleToLengthContainer(lengthContainer);
+  }
+
+  /**
+   * 보기 방식 3칸 전환 단추 [일반 | 수금 관리 | A/S 관리] (11-16 저녁).
+   * 두 모드는 함께 켤 수 없어 스위치 두 개보다 '하나만 고르기'가 모양으로 드러나는 편이 맞다.
+   * 실제 전환은 기존 스위치(#receivablesToggle·#asModeToggle)를 눌러서 한다 — 편집 중 확인·서로 끄기·
+   * 새로고침 복원 같은 기존 동작을 그대로 쓰기 위해. 스위치는 숨겨 두고 상태만 따라 그린다.
+   */
+  addViewModeSegment(lengthContainer, recvSwitch, asSwitch) {
+    document.querySelectorAll('.pt-view-seg').forEach(el => el.remove());
+    const seg = document.createElement('div');
+    seg.className = 'pt-view-seg';
+    seg.setAttribute('role', 'radiogroup');
+    seg.setAttribute('aria-label', '보기 방식');
+    const modes = [
+      { key: 'normal', label: '일반' },
+      { key: 'recv', label: '수금 관리' },
+      { key: 'as', label: 'A/S 관리' },
+    ];
+    const buttons = modes.map(({ key, label }) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'pt-view-seg-btn';
+      b.dataset.mode = key;
+      b.setAttribute('role', 'radio');
+      b.textContent = label;
+      seg.appendChild(b);
+      return b;
+    });
+    const current = () => (recvSwitch.checked ? 'recv' : asSwitch.checked ? 'as' : 'normal');
+    const sync = () => {
+      const m = current();
+      buttons.forEach((b) => {
+        const on = b.dataset.mode === m;
+        b.setAttribute('aria-checked', on ? 'true' : 'false');
+        b.tabIndex = on ? 0 : -1;
+      });
+    };
+    const choose = (key) => {
+      if (key === current()) return;
+      if (key === 'normal') {
+        (recvSwitch.checked ? recvSwitch : asSwitch).click();
+      } else if (key === 'recv') {
+        recvSwitch.click();
+      } else {
+        asSwitch.click();
+      }
+      // 편집 중 '취소'로 스위치가 되돌려지거나 다른 모드가 꺼지는 건 change 없이 일어날 수 있어 몇 번 다시 맞춤
+      [0, 300, 1200].forEach((ms) => setTimeout(sync, ms));
+    };
+    buttons.forEach((b) => b.addEventListener('click', () => choose(b.dataset.mode)));
+    seg.addEventListener('keydown', (e) => {
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+      e.preventDefault();
+      const i = buttons.findIndex((b) => b.dataset.mode === current());
+      const next = buttons[(i + (e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 1) + buttons.length) % buttons.length];
+      choose(next.dataset.mode);
+      setTimeout(() => buttons.find((b) => b.getAttribute('aria-checked') === 'true')?.focus(), 350);
+    });
+    recvSwitch.addEventListener('change', sync);
+    asSwitch.addEventListener('change', sync);
+    this.syncViewModeSegment = sync;
+    lengthContainer.appendChild(seg);
+    sync();
   }
 
   /**
@@ -1801,6 +1883,11 @@ export default class ProjectTable {
     asContainer.appendChild(asSwitch);
     asContainer.appendChild(asLabel);
     lengthContainer.appendChild(asContainer);
+
+    // 두 스위치는 동작용으로 숨기고, 보기 방식 3칸 단추로 보여 준다(11-16 저녁)
+    toggleContainer.classList.add('pt-mode-src');
+    asContainer.classList.add('pt-mode-src');
+    this.addViewModeSegment(lengthContainer, toggleSwitch, asSwitch);
   }
 
   /**
