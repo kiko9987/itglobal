@@ -639,12 +639,25 @@ def build_pin_remind_text(data: dict) -> str:
         # 계좌·사업자 불일치로 확인 기록된 입금 중 아직 법인 간 이체(매출이동) 안 된 것 (2026-10-04)
         from dashboard.services.fund_transfer import ENTITY
 
+        def _move_ap(m: dict) -> str:
+            """그 요청으로 올린 법인 간 이체 결재(2026-11-16) — 없으면 '결재 안 올라감'."""
+            try:
+                from dashboard.services import e_approval as ea
+                if m.get('from') not in ea.ENTITY_PAYEE or m.get('to') not in ea.ENTITY_PAYEE:
+                    return ''
+                ap = ea.find_move_approval(ea.move_key(m))
+                if ap:
+                    return f" · 💸 {ea.title(ap)} {ea.status_label(ap)[1]}"
+                return ' · ⚠️ 결재 안 올라감'
+            except Exception:
+                return ''
+
         def _move_line(m: dict) -> str:
             when = f" · {m['date']} 입금" if m.get('date') else ''
             # 거래처(입금자명)·은행은 시트 메모에서 읽은 문자 원문 — 이스케이프
             return (f"• {m['code']} {m['stage']} {int(m['amount']):,}원 · {slack_esc(m.get('partner', ''))} · "
                     f"{slack_esc(m.get('bank', ''))}({ENTITY.get(m['from'], m['from'])}) → "
-                    f"{ENTITY.get(m['to'], m['to'])}{when}")
+                    f"{ENTITY.get(m['to'], m['to'])}{when}{_move_ap(m)}")
         sections.append('\n'.join(
             [f':arrows_counterclockwise: *자금 이동 대기 — 법인 간 이체 필요 ({len(moves)}건)*']
             + [_move_line(m) for m in moves]))

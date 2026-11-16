@@ -790,6 +790,7 @@ def _register_payment_handlers(app):
                         else:
                             _intake_mark_done(_rc2, intake_id, _pc, _stg)  # 성공 후에만 마커
                             _recorded.append(_s)
+                            _notify_fund_move_bg(des.get("by", ""), _pc, _s.get("warn_notes"))
                     # 전건 성공했을 때만 카드 '분할 기록됨' 완료 처리. 부분 실패 시 카드를
                     # 대기(버튼 유지) 상태로 남겨 [확인 후 기록] 재클릭으로 재시도할 수 있게 한다.
                     if channel and ts and not _failed:
@@ -910,6 +911,7 @@ def _register_payment_handlers(app):
                     _intake_ephemeral(client, channel, user, f":warning: 기록 실패: {err}")
                     return
                 _intake_mark_done(rc, intake_id, project_code, stage)  # 성공 후에만 마커
+                _notify_fund_move_bg(des.get("by", ""), project_code, des.get("warn_notes"))
                 if channel and ts:
                     client.chat_update(
                         channel=channel, ts=ts,
@@ -2672,6 +2674,21 @@ def _warn_note(w, acked):
     if not acked:
         return f"{note} — 지정 시 경고 미표시"
     return f"{note} — 자금 이동 요청" if w.get('kind') == 'account' else note
+
+
+def _notify_fund_move_bg(by_user, code, notes):
+    """자금 이동 요청이 시트에 기록되면 지정한 매니저에게 [📝 결재 올리기] DM (2026-11-16).
+    경고 줄('자금 이동 요청')은 매니저가 잘 안 봐서, 결재 창을 바로 열 수 있게 전자결재 봇이 보낸다."""
+    if not by_user or not code or not any('자금 이동 요청' in (n or '') for n in (notes or [])):
+        return
+
+    def _run():
+        try:
+            from dashboard.blueprints.slack_eapproval import notify_fund_move
+            notify_fund_move(by_user, code)
+        except Exception as exc:
+            logger.error(f"[SLACK/수금봇] 법인 간 이체 결재 안내 실패 ({code}): {exc}", exc_info=True)
+    threading.Thread(target=_run, daemon=True).start()
 
 
 def _compose_warn_notes(notes, by_user, checker):
