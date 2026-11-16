@@ -24,6 +24,9 @@ const cardDefs = () => [
 ];
 
 const SELECT_ID = { status: 'statusFilter', invoice: 'invoiceFilter' };
+const selectOf = (kind) => document.getElementById(SELECT_ID[kind]);
+// 칸을 연달아 누를 때 마지막 것만 거르기까지 기다리는 시간(ms) — 한 번 누를 땐 거의 못 느끼는 길이
+const APPLY_DELAY = 140;
 
 export default class ProjectStatusCards {
   constructor(container, filters) {
@@ -66,11 +69,9 @@ export default class ProjectStatusCards {
         const n = c.kind === 'invoice' ? rows.filter((r) => matchesInvoice(r, c.value)).length
           : (counts[c.kind + ':' + c.value] || 0);
         btn.querySelector('.gw-stat-num b').textContent = n.toLocaleString('ko-KR');
-        const on = (f.filters[c.kind] || '') === c.value;
-        btn.classList.toggle('active', on);
-        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
         btn.classList.toggle('zero', n === 0);
       });
+      if (!this._applyTimer) this.syncActive();   // 칸을 눌러 거르기를 기다리는 중이면 방금 누른 표시를 지우지 않음
     } catch (err) {
       logger.error('[ProjectStatusCards] 숫자 계산 실패:', err);
     }
@@ -78,25 +79,59 @@ export default class ProjectStatusCards {
 
   // 칸을 누르면: 그 조건으로 거르기(다른 칸 조건은 해제) / 이미 켜진 칸이면 해제.
   // 실제 select 값을 바꾸고 change 를 보내 기존 필터 동작(저장·URL·배지)을 그대로 탄다.
+  // 11-17: 빠르게 여러 칸을 오가면 누를 때마다 4천여 건 거르기·표 다시 그리기가 쌓여 화면이 멈칫했다
+  //   → 칸 표시·select 값은 바로 바꾸고, 무거운 거르기는 손을 멈춘 뒤(APPLY_DELAY) 한 번만.
   onClick(e) {
     const btn = e.target.closest('.gw-stat');
     if (!btn) return;
-    const c = this.cards[Number(btn.dataset.i)];
-    const f = this.filters;
-    const turnOff = (f.filters[c.kind] || '') === c.value;
-    const setSelect = (kind, value) => {
-      const sel = document.getElementById(SELECT_ID[kind]);
-      if (!sel || sel.value === value) return;
+    const idx = Number(btn.dataset.i);
+    const c = this.cards[idx];
+    const turnOff = (selectOf(c.kind)?.value || '') === c.value;   // 아직 안 걸린(대기 중) 값까지 보고 판단
+    for (const kind of Object.keys(SELECT_ID)) {
+      const sel = selectOf(kind);
+      if (!sel) continue;
+      const value = kind === c.kind && !turnOff ? c.value : '';
       if (value && ![...sel.options].some(o => o.value === value)) {
         // 아직 목록에 없는 값(0건)이어도 고를 수 있게
         sel.add(new Option(value === PAID_UNISSUED ? PAID_UNISSUED_LABEL : value, value));
       }
       sel.value = value;
-      sel.dispatchEvent(new Event('change', { bubbles: true }));
-    };
-    for (const kind of Object.keys(SELECT_ID)) {
-      if (kind !== c.kind) setSelect(kind, '');
     }
-    setSelect(c.kind, turnOff ? '' : c.value);
+    this.buttons.forEach((b, i) => {
+      const on = !turnOff && i === idx;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    clearTimeout(this._applyTimer);
+    this._applyTimer = setTimeout(() => this.applyPending(), APPLY_DELAY);
+  }
+
+  /** 기다리던 칸 선택을 실제 필터에 건다 — 바뀐 칸이 여럿이어도 거르기는 한 번 */
+  applyPending() {
+    this._applyTimer = null;
+    const f = this.filters;
+    const changed = Object.keys(SELECT_ID).filter((kind) => {
+      const sel = selectOf(kind);
+      return sel && (sel.value || '') !== (f.filters[kind] || '');
+    });
+    if (changed.length) {
+      // 앞의 칸 값은 조용히 맞추고, 마지막 칸만 change 를 보내 한 번에 거른다(저장·URL·칩·편집 중 확인은 그 경로로)
+      changed.slice(0, -1).forEach((kind) => {
+        const v = selectOf(kind).value;
+        if (v) f.filters[kind] = v; else delete f.filters[kind];
+      });
+      selectOf(changed[changed.length - 1]).dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    this.syncActive();   // 편집 중 '이어서 편집'을 골라 필터가 되돌아간 경우에도 칸 표시를 실제 값에 맞춤
+  }
+
+  /** 켜진 칸 표시만 실제 필터 값에 맞춤(숫자는 그대로) */
+  syncActive() {
+    const f = this.filters;
+    this.cards.forEach((c, i) => {
+      const on = (f.filters[c.kind] || '') === c.value;
+      this.buttons[i].classList.toggle('active', on);
+      this.buttons[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
   }
 }
