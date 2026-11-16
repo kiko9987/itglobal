@@ -289,9 +289,9 @@
         // 줄마다 같은 이름 단추 → 낭독기엔 누구 것인지 함께
         var who = esc(r.name);
         var acts = '<a class="btn btn-sm btn-outline-secondary" href="/hr/people#' + r.person_id + '" aria-label="' + who + ' 자료">자료</a>';
-        if (r.status === 'submitted') acts += ' <button type="button" class="btn btn-sm btn-outline-success" data-done="' + r.person_id + '" aria-label="' + who + ' 완료 처리">완료</button>' +
+        if (r.status === 'submitted') acts += ' <button type="button" class="btn btn-sm btn-outline-success" data-done="' + r.person_id + '" data-name="' + who + '" aria-label="' + who + ' 완료 처리">완료</button>' +
           ' <button type="button" class="btn btn-sm btn-outline-danger" data-return="' + r.person_id + '" aria-label="' + who + ' 보완 요청">보완 요청</button>';
-        if (r.status === 'done') acts += ' <button type="button" class="btn btn-sm btn-outline-secondary" data-undone="' + r.person_id + '" aria-label="' + who + ' 완료 취소">완료 취소</button>';
+        if (r.status === 'done') acts += ' <button type="button" class="btn btn-sm btn-outline-secondary" data-undone="' + r.person_id + '" data-name="' + who + '" aria-label="' + who + ' 완료 취소">완료 취소</button>';
         // 영수증 업로드: 숨긴 파일 칸을 이름표로 감싸면 Tab 으로 못 가서 키보드로 못 올렸음 → 단추가 숨은 칸을 누름
         acts += ' <button type="button" class="btn btn-sm btn-outline-primary" data-pick="' + r.person_id + '" aria-label="' + who + ' 영수증 업로드">영수증 업로드</button>' +
           '<input type="file" hidden accept=".pdf,.jpg,.jpeg,.png" data-result="' + r.person_id + '" aria-label="' + esc(r.name) + ' 원천징수영수증 파일">';
@@ -332,6 +332,7 @@
     };
     root.querySelectorAll('[data-done]').forEach(function (b) {
       b.addEventListener('click', function () {
+        if (!window.confirm(b.getAttribute('data-name') + ' 님 자료 확인을 마치고 「완료」로 바꿀까요?')) return;
         busyRow(b, true);
         post('/api/yearend/admin/' + b.getAttribute('data-done') + '/status', { status: 'done' }).then(loadAdmin)
           .catch(function (e) { busyRow(b, false); window.alert(e.message); });
@@ -339,6 +340,7 @@
     });
     root.querySelectorAll('[data-undone]').forEach(function (b) {
       b.addEventListener('click', function () {
+        if (!window.confirm(b.getAttribute('data-name') + ' 님을 「제출」 상태로 되돌릴까요?')) return;
         busyRow(b, true);
         post('/api/yearend/admin/' + b.getAttribute('data-undone') + '/status', { status: 'submitted' }).then(loadAdmin)
           .catch(function (e) { busyRow(b, false); window.alert(e.message); });

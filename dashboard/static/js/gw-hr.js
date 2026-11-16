@@ -483,20 +483,49 @@
     formEl.elements.ssn.value = '';
     formEl.elements.ssn.placeholder = p && p.has_ssn ? '저장됨 — 바꿀 때만 입력' : '숫자 13자리';
     errEl.textContent = '';
+    fieldErr(formEl.elements.name, '');
+    fieldErr(formEl.elements.ssn, '');
     var m = modal();
     if (m) { returnFocusOnHide(modalEl); m.show(); }
   }
 
+  // 칸 오류는 그 칸 바로 아래 — 창 맨 아래에만 나와 어느 칸인지 찾아야 했음
+  function fieldErr(input, msg) {
+    var id = input.id + '_err';
+    var box = document.getElementById(id);
+    if (!box) {
+      box = document.createElement('div');
+      box.id = id;
+      box.className = 'gw-form-error gw-field-err';
+      input.parentNode.appendChild(box);
+    }
+    box.textContent = msg || '';
+    if (msg) {
+      input.setAttribute('aria-invalid', 'true');
+      input.setAttribute('aria-describedby', id);
+      input.focus();
+    } else {
+      input.removeAttribute('aria-invalid');
+      input.removeAttribute('aria-describedby');
+    }
+  }
+
   if (formEl) {
+    ['name', 'ssn'].forEach(function (k) {
+      var el = formEl.elements[k];
+      if (el) el.addEventListener('input', function () { if (el.getAttribute('aria-invalid')) fieldErr(el, ''); });
+    });
     formEl.addEventListener('submit', function (e) {
       e.preventDefault();
       errEl.textContent = '';
+      fieldErr(formEl.elements.name, '');
+      fieldErr(formEl.elements.ssn, '');
       var body = {};
       FIELDS.forEach(function (k) { if (formEl.elements[k]) body[k] = formEl.elements[k].value; });
-      if (!body.name.trim()) { errEl.textContent = '이름을 입력하세요.'; formEl.elements.name.focus(); return; }
+      if (!body.name.trim()) { fieldErr(formEl.elements.name, '이름을 입력하세요.'); return; }
       var ssn = formEl.elements.ssn.value.trim();
       if (ssn) {
-        if (ssn.replace(/\D/g, '').length !== 13) { errEl.textContent = '주민등록번호는 숫자 13자리여야 합니다.'; formEl.elements.ssn.focus(); return; }
+        if (ssn.replace(/\D/g, '').length !== 13) { fieldErr(formEl.elements.ssn, '주민등록번호는 숫자 13자리여야 합니다.'); return; }
         body.ssn = ssn;
       }
       var saveBtn = document.getElementById('hrEditSave');

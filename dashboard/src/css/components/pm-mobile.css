@@ -711,6 +711,11 @@ html.pmm-sheet-open body {
     font-weight: 500;
   }
 
+  .pmm-money .pmm-due-later b,
+  .pmm-sheet-sum .pmm-due-later b {
+    color: #1a1c20; /* 공사대기: 아직 받을 때가 아님 — 빨강 대신 보통 글자 */
+  }
+
   .pmm-meta {
     display: flex;
     flex-wrap: wrap;
@@ -811,6 +816,40 @@ html.pmm-sheet-open body {
     flex-wrap: wrap;
     gap: 8px;
     justify-content: flex-start !important;
+  }
+
+  /* [공사 취소]·[공사 재개]: [편집] 바로 옆이라 잘못 누르기 쉬웠음 → 줄 맨 끝(오른쪽)으로 떼어 놓음 */
+  .pmm-sheet .project-actions-container .cancel-construction-btn,
+  .pmm-sheet .project-actions-container .resume-construction-btn {
+    order: 99;
+    margin-left: auto;
+  }
+
+  /* 편집 중 [저장]·[취소]: 긴 상세를 끝까지 내려야 했던 것 → 화면 아래 고정 */
+  .pmm-sheet .unified-edit-buttons:has(.unified-save-btn:not(.d-none)) {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 5;
+    display: flex;
+    gap: 8px;
+    margin: 0 !important;
+    padding: 12px 16px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+    border-top: 1px solid #dcdee3;
+    background: #ffffff;
+  }
+
+  .pmm-sheet .unified-edit-buttons:has(.unified-save-btn:not(.d-none)) .btn {
+    flex: 1 1 0;
+    justify-content: center;
+    min-height: 48px;
+    font-size: 16px;
+  }
+
+  .pmm-sheet:has(.unified-save-btn:not(.d-none)) .pmm-sheet-scroll {
+    padding-bottom: calc(88px + env(safe-area-inset-bottom));
   }
 
   .pmm-sheet .project-actions-container .btn,
