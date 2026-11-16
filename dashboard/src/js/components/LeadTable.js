@@ -91,6 +91,11 @@ export default class LeadTable {
         paginate: { first: '처음', last: '마지막', next: '다음', previous: '이전' },
         emptyTable: '데이터가 없습니다',
         zeroRecords: '조건에 맞는 리드가 없습니다',
+        aria: {   // 머리글 정렬 단추 낭독 문구(기본은 영어 ': Activate to sort')
+          orderable: ': 눌러서 정렬',
+          orderableReverse: ': 눌러서 반대로 정렬',
+          orderableRemove: ': 눌러서 정렬 해제'
+        },
       },
       columns: [
         {

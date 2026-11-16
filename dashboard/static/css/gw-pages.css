@@ -2146,3 +2146,19 @@ body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7
 .gw-list-item[aria-selected="true"] {
   box-shadow: inset 3px 0 0 #2a3038;
 }
+
+/* ── PC 누를 자리 24px 이상(11-16 PC 점검) — 서류 보기·다운로드·삭제, 주민번호 전체 보기, 연말정산 현황 단추,
+   홈 칸 머리 '더 보기' 링크가 21~23px 였음. 휴대폰(767.98px 이하)은 위에서 44px ── */
+@media (min-width: 768px) {
+  .gw-doc-act .btn,
+  .gw-ssn-btn,
+  .gw-dev-list .btn {
+    min-height: 26px;
+  }
+
+  .gw-home-more {
+    display: inline-flex;
+    align-items: center;
+    min-height: 26px;
+  }
+}

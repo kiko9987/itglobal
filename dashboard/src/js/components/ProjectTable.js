@@ -624,7 +624,12 @@ export default class ProjectTable {
           next: "다음",
           previous: "이전"
         },
-        emptyTable: "데이터가 없습니다"
+        emptyTable: "데이터가 없습니다",
+        aria: {   // 머리글 정렬 단추 낭독 문구(기본은 영어 ': Activate to sort')
+          orderable: ': 눌러서 정렬',
+          orderableReverse: ': 눌러서 반대로 정렬',
+          orderableRemove: ': 눌러서 정렬 해제'
+        }
       },
       columnDefs: [
         {
@@ -945,15 +950,15 @@ export default class ProjectTable {
       ],
       columnDefs: [
         {
-          // 프로젝트 코드: 컴팩트 (8자 정도) + 줄바꿈 방지로 해상도 영향 없음
+          // 프로젝트 코드: 종류 배지 + 코드 + 복사 단추가 들어가 8% 로는 1280px 에서 잘렸음(11-16 PC 점검) → 16%
           targets: [0],
-          width: '8%',
+          width: '16%',
           className: 'text-left text-nowrap'
         },
         {
-          // 담당자, 거래처: 넓이 축소 (비율)
+          // 담당자, 유입 구분: 배지 하나라 6%
           targets: [1, 2],
-          width: '7%',
+          width: '6%',
           className: 'text-left'
         },
         {
@@ -967,21 +972,21 @@ export default class ProjectTable {
           className: 'text-left'
         },
         {
-          // 날짜: 넓이 축소 (비율)
+          // 날짜: '2026-11-19' 가 1280px 에서 '2026-11-' / '19' 로 꺾였음 → 8% + 줄바꿈 금지(1200px 이상, project-table.css)
           targets: [5, 6],
-          width: '7%',
-          className: 'text-center'
-        },
-        {
-          // 금액, 미수금: 넓이 축소 (비율)
-          targets: [7, 8],
           width: '8%',
-          className: 'text-center'
+          className: 'text-center pt-date-cell'
         },
         {
-          // 상태, 데이터 완성도: 넓이 축소 (비율)
+          // 금액, 미수금: '2,970,000' / '원' 으로 꺾였음 → 9.5% + 줄바꿈 금지(1200px 이상)
+          targets: [7, 8],
+          width: '9.5%',
+          className: 'text-center pt-money-cell'
+        },
+        {
+          // 상태, 데이터 완성도
           targets: [9, 10],
-          width: '6%',
+          width: '5%',
           className: 'text-center'
         }
         // visible 설정은 각 컬럼 정의에서 직접 설정됨 (중복 방지)

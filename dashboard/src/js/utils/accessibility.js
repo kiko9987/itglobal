@@ -182,8 +182,8 @@ export function enhanceTableAccessibility(table) {
  * 스킵 링크 추가 (메인 콘텐츠로 건너뛰기)
  */
 export function addSkipLink() {
-  // 이미 존재하면 건너뜀
-  if (document.querySelector('.skip-link')) return;
+  // 이미 존재하면 건너뜀 — 그룹웨어 틀은 자체 '본문으로 건너뛰기'(.gw-skip)가 있어 두 개가 되던 것(11-16)
+  if (document.querySelector('.skip-link, .gw-skip')) return;
 
   const skipLink = document.createElement('a');
   skipLink.href = '#main-content';

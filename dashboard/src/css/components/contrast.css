@@ -70,3 +70,12 @@ html body #leadsTable .badge.manager-badge,
 html body #leadsTable .badge.company-badge {
   color: #374151 !important;
 }
+
+/* ── PC 점검(11-16) ── */
+@media (min-width: 768px) {
+  /* 펼침 위 단추 줄: [공사 취소]·[공사 재개]가 [부담자 설정] 바로 옆(4px)이라 잘못 누르기 쉬웠음 → 앞에 넓은 틈 */
+  .project-actions-container .cancel-construction-btn,
+  .project-actions-container .resume-construction-btn {
+    margin-left: 20px !important;
+  }
+}
