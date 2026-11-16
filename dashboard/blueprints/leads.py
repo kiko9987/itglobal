@@ -477,8 +477,12 @@ def api_search_leads_for_project():
         · Admin 은 자동으로 담당자 필터 우회 (전체 관리·테스트)
         · ?all=1 으로도 담당자 필터 우회
       - 빈 검색어: 상태 = '방문 예약' / '견적 제출' 최근 리드만 (현재 파이프라인)
+        · 이미 공사가 붙은 리드는 빼서 기본 목록을 미등록 건만 남김
       - 검색어 있음: 상태 무관 전체 리드에서 매칭 (몇 달 전 문의 재개 케이스 지원)
-      - 이미 프로젝트로 등록된 lead_no 는 항상 제외
+        · 이미 공사가 붙은 리드도 보여 주되 점수를 깎아 뒤로 밀고 linked_codes 를 담음
+          (2026-11-16: 입찰이 2건으로 쪼개진 롯데홈쇼핑 L-04421 처럼 리드 하나에 공사가
+           여럿 붙는 정상 경우가 있는데, 전부 빼 버려서 번호를 그대로 쳐도 안 나왔음.
+           중복 등록 방지는 프론트 확인 창으로 옮김 — leadProjectLoader.applyLead)
 
     Query Params:
       - q: 검색어 (lead_no / 이름 / 연락처 / 주소, 빈값이면 최근 30건)
@@ -492,7 +496,8 @@ def api_search_leads_for_project():
           {
             "lead_no": "L-03095", "name": "홍길동", "phone": "010-...",
             "email": "...", "address": "...", "platform": "홈페이지",
-            "inquiry": "..." (인입 원본), "consultation": "..." (매니저 상담)
+            "inquiry": "..." (인입 원본), "consultation": "..." (매니저 상담),
+            "linked_codes": ["R4295-JW"]  # 이 리드에 이미 붙은 공사 (없으면 키 없음)
           },
           ...
         ]
@@ -543,7 +548,7 @@ def api_search_leads_for_project():
             except Exception as exc:
                 logger.warning(f"[API] user_alias 조회 실패: {exc}")
 
-        registered_leads = _registered_lead_nos()
+        linked_map = _lead_no_project_codes()
 
         # 리드 목록 필터 + 매칭
         all_leads = get_lead_records() or []
@@ -555,13 +560,14 @@ def api_search_leads_for_project():
             lead_no = str(lead.get('리드 No') or '').strip()
             if not lead_no.startswith('L-'):
                 continue
-            if lead_no in registered_leads:
-                continue
             status = str(lead.get('상태') or '').strip()
 
-            # 공사 확정 리드는 검색에서 제외 — 중복 등록 방지
-            # (registered_leads 체크는 프로젝트 AO열 lead_no 매칭이라, AO 미기입 케이스 방어)
-            if status == '공사 확정':
+            # 이미 공사가 붙은 리드 — 공사 코드로 확인(AO열), 코드가 안 적혔으면 상태로 확인.
+            # 빈 검색어 기본 목록에서는 빼고(미등록 건만 보여 줌), 검색어로 찾을 때는
+            # 점수를 깎아 뒤에 보여 준다 (리드 하나에 공사 여러 건 = 입찰 분리 등 정상 경우).
+            linked_codes = linked_map.get(lead_no) or []
+            already_linked = bool(linked_codes) or status == '공사 확정'
+            if already_linked and not q:
                 continue
 
             # 빈 query 기본 목록 (2026-09-03 재정의): 실제 방문한 현장만.
@@ -605,6 +611,10 @@ def api_search_leads_for_project():
             if score <= 0:
                 continue
 
+            # 이미 공사가 붙은 리드는 미등록 건 뒤로 (점수는 1 아래로 내리지 않음 — 위 가드와 구분)
+            if already_linked:
+                score = max(1, score - 40)
+
             # 담당자 필터 — 리드 No 정확 매칭이면 담당자 무관 노출 (트러스트: 사용자가 ID 안다는 뜻)
             # 플랫폼별 owner 컬럼 (2026-07 규칙):
             #   거래처/기타/소개: 온라인 상담자(카드 생성자) 기준
@@ -627,6 +637,7 @@ def api_search_leads_for_project():
             matched.append({
                 'score': score,
                 'sort_key': sort_key,
+                'linked_codes': linked_codes,
                 'lead_no': lead_no,
                 'name': name,
                 'phone': phone,
@@ -642,7 +653,8 @@ def api_search_leads_for_project():
         # 정렬 — 점수 내림, 최신 lead_no 우선
         matched.sort(key=lambda x: (-x['score'], -x['sort_key']))
         result = [
-            {k: v for k, v in m.items() if k not in ('score', 'sort_key')}
+            {k: v for k, v in m.items()
+             if k not in ('score', 'sort_key') and not (k == 'linked_codes' and not v)}
             for m in matched[:limit]
         ]
 
@@ -659,20 +671,40 @@ def api_search_leads_for_project():
 
 
 def _registered_lead_nos() -> set:
-    """이미 프로젝트에 등록된 lead_no (방문 현장 불러오기·수동 입력 대조에서 제외).
+    """이미 프로젝트에 등록된 lead_no (수동 입력 대조에서 제외).
 
     2026-09-20 성능: get_project_records()(전체 dict 변환+날짜처리 ~277ms)는
       무겁고 실제 필요한 건 'Lead No' 컬럼뿐 → 프로젝트 DataFrame에서 벡터 추출(~72ms).
     """
+    return set(_lead_no_project_codes().keys())
+
+
+def _lead_no_project_codes() -> dict:
+    """lead_no → 그 리드에 붙은 공사 코드 목록 (방문 현장 불러오기 배지용, 2026-11-16).
+
+    리드 하나에 공사가 여러 건 붙을 수 있다(입찰이 2건으로 쪼개진 경우 등). 코드를 함께
+    돌려줘서 검색 결과에 '이미 연결됨 · R4295-JW' 로 보여 주고, 고를 때 한 번 확인하게 한다.
+    코드 컬럼 이름은 시트에 따라 '프로젝트 코드'·'코드' 둘 다 있어 양쪽을 본다.
+    """
+    out: dict = {}
     try:
         from ..services.project_service import load_data as _load_project_df
         _pdf = _load_project_df()
-        if _pdf is not None and 'Lead No' in _pdf.columns:
-            _ln = _pdf['Lead No'].astype(str).str.strip()
-            return set(_ln[_ln.str.startswith('L-')].tolist())
+        if _pdf is None or 'Lead No' not in _pdf.columns:
+            return out
+        code_col = next((c for c in ('프로젝트 코드', '코드') if c in _pdf.columns), None)
+        _ln = _pdf['Lead No'].astype(str).str.strip()
+        _codes = _pdf[code_col].astype(str).str.strip() if code_col else None
+        for idx, lead_no in _ln.items():
+            if not lead_no.startswith('L-'):
+                continue
+            code = str(_codes.get(idx) or '').strip() if _codes is not None else ''
+            bucket = out.setdefault(lead_no, [])
+            if code and code.lower() not in ('nan', 'none') and code not in bucket:
+                bucket.append(code)
     except Exception as exc:
         logger.warning(f"[API] 프로젝트 lead_no 조회 실패: {exc}")
-    return set()
+    return out
 
 
 def _attach_folder_links(items: list) -> None:
