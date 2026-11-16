@@ -24,7 +24,6 @@ const UserModal = () => import('../components/UserModal.js');
 const AuditLogModal = () => import('../components/AuditLogModal.js');
 const MobileCardView = () => import('../components/MobileCardView.js');
 const MobileChrome = () => import('../components/MobileChrome.js');
-const ProjectRowAccordion = () => import('../components/ProjectRowAccordion.js');
 const AsView = () => import('../components/AsView.js');
 const InvoiceLicense = () => import('../components/InvoiceLicense.js');
 const CasePhotos = () => import('../components/CasePhotos.js');
@@ -166,10 +165,8 @@ class ProjectListApp {
       }).catch(err => {
         logger.error('[ERROR] MobileChrome 로드 실패:', err);
       }),
-      // [ROCKET] 핵심 컴포넌트들 초기화 추가
-      ProjectRowAccordion().then(module => {
-        this.components.accordion = new module.default();
-      }),
+      // 펼침(ProjectRowAccordion)은 ProjectTable 이 만들어 window.projectRowAccordion 에 둔다.
+      //   여기서 하나 더 만들던 것(init 안 된 채 아무도 안 씀, 전역 모드 알림만 듣고 있었음)은 11-16 에 뺌
       AsView().then(module => {
         this.components.asView = new module.default();
         window.asView = this.components.asView;  // accordion 'A/S 요청' 버튼에서 접근

@@ -45,7 +45,6 @@
 @import 'components/project-list-page.css';
 @import 'components/base.css';
 @import 'components/accordion-system.css'; /* 모던 아코디언 시스템 */
-@import 'components/mobile-card-view.css';
 @import 'components/modal-system.css';
 @import 'components/modern-project-modal.css'; /* 현대화된 프로젝트 모달 */
 @import 'components/field-memo.css'; /* 필드 메모 시스템 */

@@ -271,7 +271,7 @@ export default class MobileCardView {
 
   /**
    * 실제로 쓰는 펼침 = 표(ProjectTable)가 만든 것(window.projectRowAccordion).
-   * ⚠️ projectListApp.components.accordion 은 따로 만들어지기만 하고 init 되지 않은 객체라 쓰면 안 됨.
+   * (예전엔 projectListApp.components.accordion 이 따로 있었으나 init 안 된 채 안 쓰여 11-16 에 뺌)
    */
   liveAccordion() {
     return window.projectRowAccordion || window.projectListApp?.components?.table?.accordion || null;

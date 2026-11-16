@@ -1347,13 +1347,8 @@ html.pmm-sheet-open body {
     width: 44px !important;
   }
 
-  /* 창 안 표: project-table.css 가 휴대폰에서 모든 .table 의 4번째 칸부터 숨겨
-     사용자 관리 [상태 변경]·작업 로그 [작업·이전값·새값]이 안 보였음 → 이 창들에서만 되살리고 표는 가로로 넘김 */
-  html body :is(#userManagementModal, #auditLogsModal, #sequenceManagementModal, #constructorManagementModal,
-                #ilActionModal, #asActionModal, #cancelReasonModal) .table :is(th, td) {
-    display: table-cell;
-  }
-
+  /* 사용자 관리 표: 칸 7개 — 좁혀서 글자가 세로로 쌓이지 않게 넓이를 두고 가로로 넘김
+     (휴대폰에서 모든 .table 의 4번째 칸부터 숨기던 옛 전역 규칙은 11-16 에 project-table.css 에서 지움) */
 
   html body #userManagementModal #usersTable {
     min-width: 960px;
