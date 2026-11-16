@@ -153,7 +153,7 @@ def test_field_session_ends_when_resigned(client):
 
 def test_nav_for_field():
     nav = gw.build_nav('/hr/me', 'field', field=True)
-    assert [a['label'] for a in nav['areas']] == ['홈', '휴가', '인사']
+    assert [a['label'] for a in nav['areas']] == ['휴가', '인사']   # 현장은 '홈'=휴가 화면이라 뺌(11-16)
     assert [i['label'] for i in nav['items']] == ['내 정보', '연말정산']
     assert [i['label'] for i in gw.build_nav('/leave', 'field', field=True)['items']] == ['내 휴가']
 

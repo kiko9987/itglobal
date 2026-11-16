@@ -171,7 +171,8 @@ def test_home_api_staff_and_field(client, db):
 
 def test_nav_home_first():
     assert gw.build_nav('/home', 'editor')['areas'][0]['label'] == '홈'
-    assert [a['label'] for a in gw.build_nav('/home', 'field', field=True)['areas']] == ['홈', '휴가', '인사']
+    # 현장은 '홈'이 휴가와 같은 화면이라 메뉴에서 뺌(11-16) — 로고는 첫 영역(휴가)으로
+    assert [a['label'] for a in gw.build_nav('/home', 'field', field=True)['areas']] == ['휴가', '인사']
 
 
 class _FakeBatchSvc(_Fake):

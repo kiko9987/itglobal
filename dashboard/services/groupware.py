@@ -149,7 +149,8 @@ def set_setting(key: str, value: str, by: str) -> None:
 AREAS = [
     {
         'key': 'home', 'label': '홈', 'icon': 'fas fa-home',
-        'items': [{'href': '/home', 'label': '홈', 'icon': 'fas fa-home', 'field': True}],
+        # 현장·미화 세션엔 안 보임 — /home 은 현장이면 /leave 로 넘겨 '홈'과 '휴가'가 같은 화면을 열었음(11-16 최종 점검)
+        'items': [{'href': '/home', 'label': '홈', 'icon': 'fas fa-home'}],
     },
     {
         # 결재(11-10) — 슬랙 전자결재와 같은 장부. 작성은 슬랙, 결재함·처리 단추·플렉스 보관함은 여기
