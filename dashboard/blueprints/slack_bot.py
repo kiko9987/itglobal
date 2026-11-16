@@ -14917,6 +14917,13 @@ def apply_project_cancel_to_slack(code: str, project: dict, initial: str,
     except Exception:
         pass
 
+    # 연결 리드 '공사 확정' → '공사 취소' (다른 진행 공사가 없을 때만, 백그라운드). 세 경로 공용 (2026-11-16)
+    try:
+        from dashboard.services.lead_project_link import sync_lead_status_async
+        sync_lead_status_async(code, project, cancelled=True)
+    except Exception as exc:
+        logger.warning(f'[PROJECT_CANCEL] {code} 리드 상태 맞추기 시작 실패: {exc}')
+
     # 카드 위치 확보 (슬랙 버튼은 인자로, PM 은 매핑으로)
     if not (channel and ts):
         try:
@@ -15368,6 +15375,13 @@ def apply_project_uncancel_to_slack(code: str, project: dict = None, initial: st
         _grc_pm().redis.setex(f'project_pm_edit:{code}', 7200, '재개')
     except Exception:
         pass
+
+    # 연결 리드 '공사 취소' → '공사 확정' (백그라운드). 세 경로 공용 (2026-11-16)
+    try:
+        from dashboard.services.lead_project_link import sync_lead_status_async
+        sync_lead_status_async(code, project, cancelled=False)
+    except Exception as exc:
+        logger.warning(f'[PROJECT_UNCANCEL] {code} 리드 상태 맞추기 시작 실패: {exc}')
 
     if not (channel and ts):
         try:
