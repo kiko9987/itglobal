@@ -10219,6 +10219,19 @@ def _post_visit_notice(client, lead_no: str, category: str, user_id: str,
         except Exception as exc:
             logger.warning(f"[SLACK/방문] 기존 메시지 ts 조회 실패 ({lead_no}): {exc}")
 
+    # 옛 카드가 이미 끝난 방문(완료·취소·종료 — [방문 완료] 버튼 없음)이면 새 카드로 (2026-11-16 점검 A14).
+    #   예전엔 180일 안 재방문도 채널 위쪽 옛 카드를 고쳐 되살려 새 일정이 눈에 안 띄고 사진도 옛 스레드에 쌓였다.
+    #   옛 카드는 지난 방문 기록으로 그대로 둔다. 진행 중 카드(일정 수정·재제출)는 예전처럼 그 카드를 고친다.
+    if existing_ts:
+        try:
+            _rep_old = client.conversations_replies(channel=visit_channel, ts=existing_ts, limit=1, inclusive=True)
+            _old = (_rep_old.get('messages') or [None])[0]
+            if _old and not _blocks_have_action(_old.get('blocks'), 'visit_complete'):
+                logger.info(f"[SLACK/방문] {lead_no} 옛 방문 카드는 끝난 방문 — 새 카드로 발송 (옛 ts={existing_ts})")
+                existing_ts = ''
+        except Exception as exc:
+            logger.debug(f"[SLACK/방문] {lead_no} 옛 카드 확인 실패 — 예전처럼 고침: {exc}")
+
     if existing_ts:
         try:
             client.chat_update(
@@ -13173,6 +13186,29 @@ def _visit_not_yet_reached(visit_date) -> bool:
         return False
 
 
+def _blocks_have_action(blocks, action_id: str) -> bool:
+    """카드 blocks 의 actions 줄에 그 버튼이 있는지."""
+    for blk in blocks or []:
+        if blk.get('type') == 'actions' and any(
+                (e.get('action_id') or '') == action_id for e in blk.get('elements', []) or []):
+            return True
+    return False
+
+
+def _visit_flag(key: str) -> bool:
+    """방문 표시 키(Redis, 장애면 메모리 표시) 존재 여부. 못 읽으면 False."""
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        if get_redis_client().redis.get(key):
+            return True
+    except Exception:
+        pass
+    try:
+        return bool(_local_flag_get(key))
+    except Exception:
+        return False
+
+
 def _auto_complete_visit_from_photo(client, channel, thread_ts, lead_no,
                                       event_user_id) -> None:
     """사진 자동완료 — 같은 리드의 [정보 수정]·[방문 완료] 버튼과 락을 공유해 순서대로 처리.
@@ -13228,6 +13264,20 @@ def _auto_complete_visit_from_photo_locked(client, channel, thread_ts, lead_no,
             f"미래 — 참고사진으로 보고 자동완료 skip (사진은 저장됨)"
         )
         return
+    # 진행 중인 방문 카드일 때만 (2026-11-16 점검 A9) — 예전엔 취소된 카드 스레드에 사진을 올려도
+    #   카드가 '방문 완료'로 바뀌고 [되돌리기]가 사라졌다(시트는 방문 취소 그대로). 공사 확정 뒤 방문은
+    #   카드가 살아 있으면 예전처럼 완료(시트 상태는 아래 보호 규칙이 지킴).
+    if str(_lead_for_date.get('상태') or '').strip() == '방문 취소' or _visit_flag(f'visit_cancelled:{lead_no}'):
+        logger.info(f"[SLACK/자동완료] {lead_no} 취소된 방문 — 자동완료 안 함 (사진은 저장됨)")
+        return
+    try:
+        _rep0 = client.conversations_replies(channel=channel, ts=thread_ts, limit=1, inclusive=True)
+        _root0 = (_rep0.get('messages') or [None])[0]
+        if _root0 and not _blocks_have_action(_root0.get('blocks'), 'visit_complete'):
+            logger.info(f"[SLACK/자동완료] {lead_no} 카드에 [방문 완료] 버튼이 없음(완료·취소·종료) — 자동완료 안 함")
+            return
+    except Exception as exc:
+        logger.warning(f"[SLACK/자동완료] {lead_no} 카드 확인 실패 — 상태 검사만으로 진행: {exc}")
     # Redis 장애 중이면 메모리 표시로 중복 방지 (처음 한 번만 통과, 바로 표시)
     if rc is None and not _local_flag_nx(flag_key, 60 * 60 * 24 * 30):
         logger.debug(f"[SLACK/자동완료] {lead_no} 이미 완료 처리됨(메모리) — skip")
@@ -13558,6 +13608,17 @@ def _post_to_slack_list(client, lead: dict, modal_fields: dict, channel: str,
             is_first = bool(rc.set(dedup_key, '1', ex=60 * 60 * 24 * 90, nx=True))
         except Exception as exc:
             logger.warning(f"[SLACK/LIST] dedup 체크 실패 ({lead_no}): {exc}")
+
+    # 재호출이라도 List 에 행이 없으면 추가로 (2026-11-16 점검 A14) — 완료·취소 때 행은 지워지는데 표시는
+    #   90일 남아, 재방문을 update 웹훅으로 보내 List 에 새 방문이 안 생길 수 있었다. 행이 있으면 연락처도 맞춰 둠.
+    #   방문 List(SLACK_VISIT_LIST_ID)로 확인하므로 방문 등록만 — 견적(price)은 예전대로.
+    if not is_first and lead_no and action == 'visit':
+        try:
+            if _vlist_sync_row_contact(lead_no, str(lead.get('고객 연락처') or '').strip()) is False:
+                logger.info(f"[SLACK/LIST] {lead_no} 재호출이지만 List 에 행이 없어 새로 추가")
+                is_first = True
+        except Exception as exc:
+            logger.warning(f"[SLACK/LIST] {lead_no} 행 확인 실패 — 예전처럼 update: {exc}")
 
     if is_first:
         webhook_url = add_url
