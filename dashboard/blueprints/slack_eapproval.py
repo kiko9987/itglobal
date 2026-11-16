@@ -589,11 +589,18 @@ def edit_view(row: dict) -> dict:
     if form == ea.FORM_SUPPLY:
         return ea.supply_request_view({'edit': aid}, ea.supply_prefill(row))
     vals = dict(ea.extra(row).get('f') or {})
+    meta = {'form': form, 'edit': aid, 'pv': 1}
     if code:
         vals['project'] = code
         vals['_project_label'] = project_display(code, _project_rec(code))
-    return ea.forms.form_view(form, {'form': form, 'edit': aid, 'pv': 1}, vals,
-                              project_label=vals.get('_project_label', ''))
+        # 보완 요청으로 돌아온 수정 창에도 공사 폴더 서류·등록증 안내를 처음 창처럼(11-17 KiKO).
+        # 처음 올릴 때 붙인 서류는 카드 스레드에 이미 있으니 미리 고르지 않는다(같은 파일 두 번 붙음 방지).
+        if form in ea.forms.FOLDER_DOC_FORMS:
+            vals['_docs'] = folder_docs(code)
+        note = _form_notes(form, code)
+        if note:
+            meta['extra_note'] = note
+    return ea.forms.form_view(form, meta, vals, project_label=vals.get('_project_label', ''))
 
 
 def process_edit(uid: str, aid: int, fields: dict, files: list, docs: Optional[list] = None) -> Optional[dict]:
