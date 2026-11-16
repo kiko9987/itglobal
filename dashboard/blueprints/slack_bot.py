@@ -2194,6 +2194,18 @@ def _do_refund_record(client, user, channel, ts, oid):
                               f"(받은 돈·총액이 출금액과 맞지 않거나 이미 반환 기록됨). 시트를 확인해주세요.")
             return
         c = fresh[0]
+        if c.get('transfer_like'):
+            # 고친 판정 전에 떠 있던 후보 카드 — 이체 출금을 반환으로 기록하면 미수금이 부푼다 (2026-11-16 G4166-YM)
+            logger.info(f"[REFUND_MATCH] 법인 간 이체 출금이라 반환 기록 안 함 ({oid}: "
+                        f"{c['code']} {c['stage']} — {c['transfer_like']})")
+            _intake_ephemeral(client, channel, user,
+                              f":warning: `{c['code']}` {c['stage']}에 자금 이동 요청이 걸린 입금"
+                              f"({c['transfer_like']})이 있고, 이 출금과 계좌·금액·이름이 같습니다. "
+                              f"고객에게 돌려준 돈이 아니라 법인 간 이체로 보여 기록하지 않았습니다.\n"
+                              f"• 이체라면: 받은 쪽 입금 카드에서 [🔁 법인 간 이체로 처리]를 누르고, "
+                              f"이 카드는 [반환 아님]으로 닫아 주세요.\n"
+                              f"• 정말 고객에게 돌려준 돈이라면: 시트에 직접 기록해 주세요.")
+            return
         got_mutex = ps.acquire_sync_mutex(45)
         if not got_mutex:
             _intake_ephemeral(client, channel, user, ":hourglass_flowing_sand: 입금 동기화 중이라 잠시 후 다시 눌러주세요.")

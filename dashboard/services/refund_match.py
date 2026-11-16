@@ -18,6 +18,12 @@
 공사에서 받은 입금을 그대로 돌려준 출금(사업자 통장으로 받은 계약금을 돌려주고 현금으로 다시 받는
 경우 등). 기록하면 미수금이 다시 생김. 과입금·취소 후보가 없을 때만, 1건일 때만 제안.
 보관 출금 37건(10/6~) 백테스트: 이 규칙으로 새로 걸리는 다른 출금 0건.
+
+법인 간 이체의 보내는 쪽(2026-11-16, 10-27 G4166-YM): 잘못된 법인 계좌로 들어온 입금을 옮길 때 경영지원은
+받는 분 표시에 최초 입금자명을 그대로 넣는다(fund_transfer 모듈 설명). 그래서 이체 출금은 ①~④가 모두 맞아
+'받은 돈 돌려줌' 후보로 떴고, 반환으로 기록한 뒤 이체 입금까지 [법인 간 이체로 처리](금액 그대로)로 닫으면
+미수금이 입금액만큼 부푼다. 짝지은 입금 블록에 '자금 이동 요청' 줄이 있으면 이체로 보고(transfer_out_reason)
+후보 카드를 띄우지 않으며, 이미 떠 있던 카드의 [반환으로 기록]도 기록하지 않는다.
 """
 import json
 import logging
@@ -129,6 +135,35 @@ def _row_payers(vals: list, u: int, v: int, w: int, I: Optional[Dict[str, int]] 
         return {}
 
 
+def transfer_out_reason(note: str, outflow: Dict) -> str:
+    """이 칸 메모에서 출금과 같은 계좌·금액·이름이면서 '자금 이동 요청' 줄이 붙은 입금 블록을 찾는다.
+
+    찾으면 그 입금을 설명하는 짧은 문자열(카드·안내 문구용), 없으면 ''. 요청이 매출이동 줄로 이미 닫혔어도
+    같게 본다 — 이체 버튼으로 닫은 뒤 10분 스캔이 그 출금을 다시 반환 후보로 올리지 않게. '자금 이동 없음'으로
+    닫힌 요청은 제외(돈을 옮길 필요가 없었으니 그 뒤 같은 계좌 출금은 진짜 반환일 수 있음)."""
+    from dashboard.services.fund_transfer import (
+        _NO_MOVE_LINE_RE, _REQ_LINE_RE, _blocks, names_match)
+    from dashboard.services.payment_sync import _parse_memo_block
+    amt = abs(_num(outflow.get('amount')))
+    name = (outflow.get('partner') or '').strip()
+    if amt <= 0 or not name or '자금 이동 요청' not in (note or ''):
+        return ''
+    for blk in _blocks(note):
+        lines = blk.splitlines()
+        if not any(_REQ_LINE_RE.match(l) for l in lines) or any(_NO_MOVE_LINE_RE.match(l) for l in lines):
+            continue
+        p = _parse_memo_block(blk) or {}
+        if p.get('is_refund') or abs(abs(_num(p.get('amount'))) - amt) > 1:
+            continue
+        if not _same_account(p, outflow):
+            continue
+        partner = p.get('partner', '')
+        if not (names_match(partner, name) or name_typo(partner, name)):
+            continue
+        return f"{p.get('date_md') or '-'} {p.get('bank') or ''} 입금 {amt:,}원 {partner}".replace('  ', ' ')
+    return ''
+
+
 def find_candidates(outflow: Dict, rows: List[Dict], include_reroute: bool = False) -> List[Dict]:
     """출금 1건 → 조건 ①~⑤ 를 모두 만족하는 (프로젝트·단계·입금) 후보 목록.
 
@@ -214,7 +249,10 @@ def find_candidates(outflow: Dict, rows: List[Dict], include_reroute: bool = Fal
                     continue
                 if kind == 'reroute' and {'계약금': u, '중도금': v, '잔금': w}[stage] < amt:
                     continue            # 그 단계에 돌려줄 만큼 남아 있지 않음
+                _note = (list(r.get('notes') or []) + ['', '', ''])[_STAGES.index(stage)]
                 out.append({
+                    # 자금 이동 요청이 붙은 입금과 짝 — 반환이 아니라 법인 간 이체 출금 (2026-11-16 G4166-YM)
+                    'transfer_like': transfer_out_reason(_note, outflow),
                     'kind': kind,
                     'unpaid_before': max(total2 - paid, 0), 'unpaid_after': max(total2 - (paid - amt), 0),
                     'code': r['code'], 'row': r['row'], 'stage': stage, 'col': col,
@@ -466,6 +504,14 @@ def scan_and_propose(slack=None) -> Dict:
         proposed = 0
         for o in outs:
             allc = find_candidates(o, rows, include_reroute=True)
+            # 자금 이동 요청이 붙은 입금과 짝이 맞는 출금 = 법인 간 이체의 보내는 쪽 → 반환 후보로 띄우지 않음.
+            #   다른 공사 후보가 함께 있어도 이체가 가장 그럴듯하니 이 출금은 통째로 넘긴다 (2026-11-16 G4166-YM)
+            tl = [x for x in allc if x.get('transfer_like')]
+            if tl:
+                rc.set(_HANDLED + o['id'], 'transfer_like', ex=_KEY_TTL)
+                logger.info(f"[REFUND_MATCH] 법인 간 이체 출금으로 보여 반환 후보 안 띄움 (출금 {o['id']}: "
+                            f"{tl[0]['code']} {tl[0]['stage']} — {tl[0]['transfer_like']})")
+                continue
             # 과입금·취소 후보 우선, 없을 때만 '받은 돈 돌려줌' 후보
             cands = [x for x in allc if x['kind'] != 'reroute'] or allc
             cands = pick_overpay_deposit(cands)

@@ -314,3 +314,116 @@ def test_refund_followup_rerenders_balance_card_both_ways(monkeypatch, unpaid):
 #   (2026-10-22 거래처명 열 삽입 뒤에도 같은 논리를 검사. 코드는 헤더 지도를 따라감)
 import pytest as _pytest  # noqa: E402
 pytestmark = _pytest.mark.usefixtures('sheet_layout_45')
+
+
+# ── 법인 간 이체의 보내는 쪽 출금 (2026-11-16, 10-27 G4166-YM 실데이터) ──
+# 하나(글로벌그룹)로 잘못 들어온 G 공사 계약금 2,090,000원을 기업(글로벌)으로 옮긴 출금 — 받는 분 표시가
+# 최초 입금자명이라 계좌·금액·이름·기간이 모두 맞아 '받은 돈 돌려줌' 후보로 떴고, 반환으로 기록됐다.
+_G66_REQ = ('2026/10/27\n하나,10/27, 14:45\n255******31304\n입금2,090,000원\n(주)다원아이디앤\n'
+            '⚠️ 계좌·사업자 불일치: 하나은행 (글로벌그룹) 입금 / 프로젝트 글로벌(G) — 자금 이동 요청 (지정 YM · 확인 SB)')
+_G66_TR = '2026-10-27 R>G 매출이동 (하나 → 기업 법인 간 이체 · 처리 SB)'
+_G66_NOMOVE = '⚠️ 자금 이동 없음: 글로벌그룹으로 계산서 발행 (확인 SB 10/27)'
+G66_OUT = {'id': 'ce68', 'text': '[Web발신]\n하나,10/27, 15:26\n255******31304\n출금2,090,000원\n(주)다원아이디앤',
+           'amount': 2090000, 'partner': '(주)다원아이디앤', 'bank': '하나', 'acct_code': 'R',
+           'ts': int(datetime(2026, 10, 27, 15, 27).timestamp())}
+
+
+def _g66(note=_G66_REQ):
+    vals = [''] * 30
+    vals[0], vals[19], vals[20], vals[21], vals[22] = 'G4166-YM', 8800000, 2090000, 0, 0
+    vals[25], vals[26], vals[27] = '미발행', '-', '-'
+    return {'code': 'G4166-YM', 'row': 4167, 'vals': vals, 'notes': [note, '', '']}
+
+
+def test_transfer_out_marked_on_candidate():
+    c = rm.find_candidates(G66_OUT, [_g66()], include_reroute=True)
+    assert len(c) == 1 and c[0]['kind'] == 'reroute'
+    assert c[0]['transfer_like'] == '10/27 하나 입금 2,090,000원 (주)다원아이디앤'
+
+
+def test_transfer_out_still_marked_after_transfer_closed():
+    """[법인 간 이체로 처리]로 요청을 닫은 뒤에도 10분 스캔이 같은 출금을 반환 후보로 올리지 않게."""
+    c = rm.find_candidates(G66_OUT, [_g66(_G66_REQ + '\n\n' + _G66_TR)], include_reroute=True)
+    assert len(c) == 1 and c[0]['transfer_like']
+
+
+@pytest.mark.parametrize('change', [
+    {'amount': 1090000},                     # 금액 다름
+    {'partner': '홍길동'},                    # 이름 다름 (후보 자체가 안 됨)
+    {'acct_code': 'G', 'bank': '기업'},       # 요청 붙은 입금과 다른 계좌
+])
+def test_transfer_out_reason_needs_account_amount_name(change):
+    assert rm.transfer_out_reason(_G66_REQ, dict(G66_OUT, **change)) == ''
+
+
+def test_no_move_closed_request_is_not_transfer():
+    """'자금 이동 없음'으로 닫힌 요청 — 돈을 옮길 필요가 없었으니 그 뒤 출금은 진짜 반환일 수 있음."""
+    c = rm.find_candidates(G66_OUT, [_g66(_G66_REQ + '\n' + _G66_NOMOVE)], include_reroute=True)
+    assert len(c) == 1 and c[0]['transfer_like'] == ''
+
+
+def test_plain_refunds_not_marked():
+    assert rm.find_candidates(OUT, [_row()])[0]['transfer_like'] == ''                       # R4163 과입금
+    assert rm.find_candidates(R4101_OUT, [_r4101()], include_reroute=True)[0]['transfer_like'] == ''
+
+
+def _scan_with(monkeypatch, outflows, rows):
+    posted, handled = [], {}
+    import dashboard.blueprints.sms_inbound as si
+    import dashboard.utils.redis_client as rcm
+
+    class _R:
+        def set(self, k, v, *a, **kw):
+            handled[k] = v
+            return True
+        def delete(self, *a): pass
+        def exists(self, *a): return False
+    monkeypatch.setattr(rcm, 'get_redis_client', lambda: type('C', (), {'redis': _R()})())
+    monkeypatch.setattr(si, 'recent_outflows', lambda since: outflows)
+    monkeypatch.setattr(rm, 'post_candidate', lambda oid, o, c, slack=None: posted.append(c) or True)
+    monkeypatch.setattr(rm, 'load_rows', lambda: rows)
+    return rm.scan_and_propose(), posted, handled
+
+
+def test_scan_skips_transfer_out_and_remembers(monkeypatch):
+    res, posted, handled = _scan_with(monkeypatch, [G66_OUT], [_g66()])
+    assert res['proposed'] == 0 and posted == []
+    assert handled.get(rm._HANDLED + 'ce68') == 'transfer_like'     # 10분마다 다시 보지 않게
+
+
+def test_scan_still_proposes_real_refund_next_to_transfer(monkeypatch):
+    res, posted, _ = _scan_with(monkeypatch, [G66_OUT, R4101_OUT], [_g66(), _r4101()])
+    assert res['proposed'] == 1 and posted[0]['code'] == 'R4101-JSH'
+
+
+def test_old_candidate_card_button_refuses_transfer_out(monkeypatch):
+    """고친 판정 전에 떠 있던 후보 카드 — [반환으로 기록]을 눌러도 시트에 쓰지 않고 이체 처리로 안내."""
+    import dashboard.blueprints.slack_bot as sb
+    import dashboard.services.payment_sync as ps
+    import dashboard.utils.redis_client as rcm
+
+    class _R:
+        def set(self, *a, **k): return True
+        def delete(self, *a): pass
+        def exists(self, *a): return False
+    monkeypatch.setattr(rcm, 'get_redis_client', lambda: type('C', (), {'redis': _R()})())
+    cand = rm.find_candidates(G66_OUT, [_g66()], include_reroute=True)[0]
+    cand.pop('transfer_like')                                      # 옛 카드 페이로드엔 표시가 없음
+    monkeypatch.setattr(rm, 'load_candidate', lambda oid: {'outflow': G66_OUT, 'cand': cand})
+    monkeypatch.setattr(rm, 'load_row', lambda code, row: [_g66()])
+    monkeypatch.setattr(sb, '_cur_code', lambda c: c)
+    said = []
+    monkeypatch.setattr(sb, '_intake_ephemeral', lambda client, ch, user, text: said.append(text))
+
+    def _no_write(*a, **k):
+        raise AssertionError('시트에 쓰면 안 됨')
+    monkeypatch.setattr(sb, '_commit_intake_to_sheet', _no_write)
+    monkeypatch.setattr(ps, 'acquire_sync_mutex', _no_write)
+    updates = []
+    client = type('S', (), {'chat_update': lambda self, **k: updates.append(k),
+                            'pins_remove': lambda self, **k: None})()
+    sb._do_refund_record(client, 'U_SB', 'C_IN', '111.222', 'ce68')
+    assert len(said) == 1 and '법인 간 이체로 보여 기록하지 않았습니다' in said[0]
+    assert '[🔁 법인 간 이체로 처리]' in said[0] and '[반환 아님]' in said[0]
+    # '⏳ 기록 중' → 원래 후보 카드(버튼 포함)로 되돌림
+    assert updates[-1]['blocks'][1]['elements'][0]['action_id'] == 'payment_refund_record'
