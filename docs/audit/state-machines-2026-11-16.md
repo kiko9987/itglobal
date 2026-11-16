@@ -29,7 +29,7 @@
 | I A/S | `b3b161f6` | 22 | PM 화면 '요청 취소' 배지·취소 단추(프론트 빌드), 퇴사 담당자 DM, 카드 연결 유실 |
 | H 꺼 둔 기능 켤 때 | `c55c7779` | 27, (주말 시험 모드) | 캘린더 양방향 날짜 동기화의 대량 변경 가드 |
 
-운영 반영은 main 병합 + 재시작이 필요합니다. 운영 DB 에 새 표 4개가 생깁니다(`approval_drawn`, `redis_durable`, `sys_markers` — 모두 추가만).
+운영 반영은 main 병합 + 재시작이 필요합니다. 운영 DB 에 새 표 3개가 생깁니다(`approval_drawn`, `redis_durable`, `sys_markers` — 모두 추가만).
 
 ---
 
