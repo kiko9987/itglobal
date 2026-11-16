@@ -139,7 +139,7 @@ export default class ModernProjectFilters {
       return;
     }
     const defaultName = active.join(' + ').slice(0, 40);
-    const name = (prompt(`이 필터 조합의 이름을 지정하세요 (예: ${defaultName})`, defaultName) || '').trim();
+    const name = (prompt(`저장할 필터 이름 (예: ${defaultName})`, defaultName) || '').trim();
     if (!name) return;
 
     const presets = this._getPresets();
@@ -151,7 +151,7 @@ export default class ModernProjectFilters {
       created_at: new Date().toISOString(),
     };
     if (existing >= 0) {
-      if (!confirm(`'${name}' 프리셋이 이미 있습니다. 덮어쓸까요?`)) return;
+      if (!confirm(`'${name}' 이름으로 저장한 필터가 이미 있습니다. 덮어쓸까요?`)) return;
       presets[existing] = entry;
     } else {
       presets.push(entry);
@@ -159,7 +159,7 @@ export default class ModernProjectFilters {
     this._savePresets(presets);
     this.renderPresetChips();
     if (window.showSystemAlert) {
-      window.showSystemAlert(`프리셋 저장됨: ${name}`, 'success');
+      window.showSystemAlert(`필터를 저장했습니다: ${name}`, 'success');
     }
   }
 
@@ -187,12 +187,12 @@ export default class ModernProjectFilters {
       this.applyFilters(null, true);
     }
     if (window.showSystemAlert) {
-      window.showSystemAlert(`프리셋 적용됨: ${name}`, 'info');
+      window.showSystemAlert(`저장한 필터를 적용했습니다: ${name}`, 'info');
     }
   }
 
   deletePreset(name) {
-    if (!confirm(`'${name}' 프리셋을 삭제하시겠습니까?`)) return;
+    if (!confirm(`저장한 필터 '${name}'을(를) 지울까요?`)) return;
     const presets = this._getPresets().filter(p => p.name !== name);
     this._savePresets(presets);
     this.renderPresetChips();
@@ -215,15 +215,15 @@ export default class ModernProjectFilters {
       const jsName = escName.replace(/'/g, '\\&#39;');
       const filterCount = Object.keys(p.filters || {}).length + (p.receivables ? 1 : 0);
       return `
-        <span class="badge bg-light text-dark border" style="cursor: pointer; padding: 0.3rem 0.5rem; font-weight: 500;">
-          <span onclick="modernFilters.loadPreset('${jsName}')" title="${escName} (${filterCount}개 필터) — 클릭하여 적용">
-            <i class="fas fa-bookmark me-1 text-primary" style="font-size: 0.7rem;"></i>${escName}
-          </span>
-          <span onclick="event.stopPropagation(); modernFilters.deletePreset('${jsName}')"
-                title="프리셋 삭제"
-                style="margin-left: 0.4rem; color: #999; cursor: pointer;">
-            <i class="fas fa-times" style="font-size: 0.7rem;"></i>
-          </span>
+        <span class="badge bg-light text-dark border" style="padding: 0.3rem 0.5rem; font-weight: 500;">
+          <button type="button" class="preset-chip-btn" onclick="modernFilters.loadPreset('${jsName}')" title="${escName} (${filterCount}개 필터) — 눌러서 적용">
+            <i class="fas fa-bookmark me-1 text-primary" style="font-size: 0.7rem;" aria-hidden="true"></i>${escName}
+          </button>
+          <button type="button" class="preset-chip-btn preset-chip-del" onclick="event.stopPropagation(); modernFilters.deletePreset('${jsName}')"
+                  title="저장한 필터 지우기" aria-label="${escName} 저장한 필터 지우기"
+                  style="margin-left: 0.4rem; color: #6b7280;">
+            <i class="fas fa-times" style="font-size: 0.7rem;" aria-hidden="true"></i>
+          </button>
         </span>
       `;
     }).join('');

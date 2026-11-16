@@ -634,10 +634,30 @@ div.dt-container .bottom {
   margin-left: 6px;
 }
 
+/* ── PC 점검 2차(11-16): 1,200px 보다 좁은 PC 폭(1024px = 1280 노트북 125% 배율 등)에선 칸이 좁아
+   머리글이 세로로 꺾이고 배지·금액이 옆 칸으로 삐져나왔음 → 표를 1,150px 아래로 줄이지 않고 가로로 넘겨 본다.
+   (넓은 화면에선 표가 이미 이보다 넓어 아무 변화 없음. 휴대폰 767.98px 이하는 카드라 해당 없음)
+   그래서 아래 '한 줄 고정' 규칙들도 1,200px 이상 → 768px 이상으로 넓혔다. */
+@media (min-width: 768px) {
+  .table-wrapper:has(#projectsTable) {
+    overflow-x: auto;
+  }
+
+  html body .table-wrapper #projectsTable {
+    min-width: 1150px !important;
+  }
+
+  /* 담당자·유입 구분·상태 배지가 칸보다 1~2px 넓어 테두리에 닿았음 → 좌우 여백 12px → 8px(코드·날짜·금액은 이미 8px) */
+  html body .table-wrapper #projectsTable tbody tr:not(.accordion-row) > td {
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+  }
+}
+
 /* ── PC 점검(11-16): 노트북 폭에서 날짜·금액이 두 줄로 꺾이던 것 ──
    칸 넓이는 ProjectTable.js columnDefs(코드 16%·날짜 8%·금액 9.5%). 1200px 이상에선 날짜·금액·코드를 한 줄로,
    좌우 여백 12px → 8px. 그보다 좁은 화면(1024px 등)은 예전처럼 꺾여도 칸이 겹치지 않게 그대로 둔다. */
-@media (min-width: 1200px) {
+@media (min-width: 768px) {
   html body .table-wrapper #projectsTable tbody td.pt-date-cell,
   html body .table-wrapper #projectsTable tbody td.pt-money-cell {
     white-space: nowrap !important;
@@ -649,4 +669,115 @@ div.dt-container .bottom {
     white-space: nowrap !important;
     padding-right: 8px !important;
   }
+}
+
+/* ── PC 점검 2차(11-16) ──────────────────────────────────────────────
+   ① 머리글 꺾임: th 에 white-space:normal !important(위 51-65행)·정렬 아이콘 자리 padding-right 35px·
+      letter-spacing .05em 이 겹쳐 1280px 에서 '담당자'·'공사 시작' 등 5개가 두 줄로 꺾였음.
+   ② 수금 관리 모드 금액: 금액 100px + 아이콘 60px 최소 폭이라 83px 칸에서 옆 칸과 붙어
+      '10,340,000원3,102,000원'처럼 보이고 미수금 숫자가 '2,700,00 / 0원'으로 꺾였음
+      → 금액은 한 줄로, 아이콘은 모자라면 아래 줄로.
+   ③ 금액 숫자 자리 맞춤(tabular-nums). */
+@media (min-width: 768px) {
+  html body .table-wrapper #projectsTable thead th {
+    white-space: nowrap !important;
+    letter-spacing: 0 !important;
+    padding-left: 8px !important;
+    padding-right: 20px !important;
+  }
+
+  /* 두 낱말짜리 '거래처 / 사업자명'만 빗금에서 줄을 바꿔도 된다(한 줄로 두면 다른 칸 넓이를 빼앗음) */
+  html body .table-wrapper #projectsTable thead th:nth-child(4) {
+    white-space: normal !important;
+  }
+
+  html body .table-wrapper #projectsTable tbody td.amount-cell {
+    padding-left: 6px !important;
+    padding-right: 6px !important;
+  }
+
+  #projectsTable .amount-outstanding,
+  #projectsTable .payment-amount {
+    white-space: nowrap;
+  }
+}
+
+@media (min-width: 768px) {
+  #projectsTable .payment-field-container {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+
+  #projectsTable .payment-amount {
+    min-width: 0;
+    white-space: nowrap;
+  }
+
+  #projectsTable .payment-icons {
+    min-width: 0;
+  }
+}
+
+#projectsTable td.pt-money-cell,
+#projectsTable td.amount-cell {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 수금 관리 모드(계약금 칸 = DataTables 11번 칸이 머리글에 있을 때)만 칸 넓이를 따로 준다(PC 점검 2차 11-16).
+   공용 칸 넓이(코드 16%·주소 22% …)에 금액 다섯 칸이 더해져 합계가 120%를 넘어 금액 칸이 83px 로 눌렸음.
+   브라우저는 칸마다 <col> 넓이와 머리글 th 인라인 넓이 중 큰 값을 쓰므로 둘 다 같은 값으로 덮는다(합계 100%).
+   수금 특이사항은 예전부터 머리글이 숨겨져 있어 3.5% 만 둔다. 1280·1440·1920px 잘림·넘침·금액 꺾임 0 확인. */
+@media (min-width: 768px) {
+  #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(1),
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(1) { width: 14.5% !important; } /* 코드 */
+  #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(2),
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(2) { width: 5.5% !important; } /* 담당자 */
+  #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(3),
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(3) { width: 7.5% !important; } /* 유입 구분 */
+  #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(4),
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(4) { width: 8% !important; } /* 거래처 */
+  #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(5),
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(5) { width: 11% !important; } /* 주소 */
+  #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(6),
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(6) { width: 7% !important; } /* 공사 종료 */
+  #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(7),
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(7) { width: 9% !important; } /* 총액 */
+  #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(8),
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(8) { width: 8.5% !important; } /* 계약금 */
+  #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(9),
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(9) { width: 8.5% !important; } /* 중도금 */
+  #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(10),
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(10) { width: 8.5% !important; } /* 잔금 */
+  #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(11),
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(11) { width: 8.5% !important; } /* 미수금 */
+  #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(12),
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(12) { width: 3.5% !important; } /* 수금 특이사항 */
+}
+
+/* 일반 모드(공사 시작 칸 = 5번 칸이 머리글에 있을 때)도 칸 넓이를 정확히 준다(PC 점검 2차 11-16).
+   ProjectTable.js 칸 정의(코드 16%…)와 템플릿 머리글 인라인(주소 22%…) 중 큰 값이 쓰여 합계가 107% 였고,
+   유입 구분 '큐플레이스'·상태 '공사대기' 배지가 칸 밖으로 나왔음. 1024·1280·1440·1920px 잘림 0 확인. */
+@media (min-width: 768px) {
+  #projectsTable:has(thead th[data-dt-column="5"]) colgroup col:nth-child(1),
+  #projectsTable:has(thead th[data-dt-column="5"]) thead th:nth-child(1) { width: 14.5% !important; } /* 코드 */
+  #projectsTable:has(thead th[data-dt-column="5"]) colgroup col:nth-child(2),
+  #projectsTable:has(thead th[data-dt-column="5"]) thead th:nth-child(2) { width: 6% !important; } /* 담당자 */
+  #projectsTable:has(thead th[data-dt-column="5"]) colgroup col:nth-child(3),
+  #projectsTable:has(thead th[data-dt-column="5"]) thead th:nth-child(3) { width: 7.5% !important; } /* 유입 구분 */
+  #projectsTable:has(thead th[data-dt-column="5"]) colgroup col:nth-child(4),
+  #projectsTable:has(thead th[data-dt-column="5"]) thead th:nth-child(4) { width: 10% !important; } /* 거래처 */
+  #projectsTable:has(thead th[data-dt-column="5"]) colgroup col:nth-child(5),
+  #projectsTable:has(thead th[data-dt-column="5"]) thead th:nth-child(5) { width: 15.5% !important; } /* 주소 */
+  #projectsTable:has(thead th[data-dt-column="5"]) colgroup col:nth-child(6),
+  #projectsTable:has(thead th[data-dt-column="5"]) thead th:nth-child(6) { width: 8% !important; } /* 공사 시작 */
+  #projectsTable:has(thead th[data-dt-column="5"]) colgroup col:nth-child(7),
+  #projectsTable:has(thead th[data-dt-column="5"]) thead th:nth-child(7) { width: 8% !important; } /* 공사 종료 */
+  #projectsTable:has(thead th[data-dt-column="5"]) colgroup col:nth-child(8),
+  #projectsTable:has(thead th[data-dt-column="5"]) thead th:nth-child(8) { width: 9% !important; } /* 총액 */
+  #projectsTable:has(thead th[data-dt-column="5"]) colgroup col:nth-child(9),
+  #projectsTable:has(thead th[data-dt-column="5"]) thead th:nth-child(9) { width: 9% !important; } /* 미수금 */
+  #projectsTable:has(thead th[data-dt-column="5"]) colgroup col:nth-child(10),
+  #projectsTable:has(thead th[data-dt-column="5"]) thead th:nth-child(10) { width: 6.5% !important; } /* 상태 */
+  #projectsTable:has(thead th[data-dt-column="5"]) colgroup col:nth-child(11),
+  #projectsTable:has(thead th[data-dt-column="5"]) thead th:nth-child(11) { width: 6% !important; } /* 데이터 */
 }

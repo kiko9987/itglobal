@@ -56,6 +56,7 @@ export default class FieldMemoButton {
           <span class="text-muted me-1">차수 넣기</span>
           ${INSTALLMENTS.map((i) => `<button type="button" class="btn btn-link btn-sm p-0 me-2 memo-inst-btn" data-inst="${i}">${i}</button>`).join('')}
         </div>
+        <div class="memo-apply-hint small text-muted mt-1" style="display:none;">위 [저장]을 눌러야 시트에 반영됩니다.</div>
       </div>
       <div class="memo-popover-footer">
         <button type="button" class="btn btn-sm btn-outline-danger memo-delete-btn" style="display:none;">
@@ -82,14 +83,23 @@ export default class FieldMemoButton {
    */
   bindEvents() {
     // 팝오버 내부 버튼 이벤트
-    this.popoverElement.querySelector('.memo-close-btn').addEventListener('click', () => this.hidePopover());
-    this.popoverElement.querySelector('.memo-cancel-btn').addEventListener('click', () => this.hidePopover());
+    // ✕·Esc 는 고친 글이 있으면 먼저 묻고, [취소]는 버리는 단추라 바로 닫는다. 닫으면 연 단추로 포커스(PC 점검 11-16)
+    this.popoverElement.querySelector('.memo-close-btn').addEventListener('click', () => this._requestClose());
+    this.popoverElement.querySelector('.memo-cancel-btn').addEventListener('click', () => this._closeRestoringFocus());
     this.popoverElement.querySelector('.memo-save-btn').addEventListener('click', () => this.saveMemo());
     this.popoverElement.querySelector('.memo-delete-btn').addEventListener('click', () => this.deleteMemo());
     // 나눠 내는 공사: 커서가 있는 줄 아래에 '◇ 차수 X' 줄 넣기 (그 입금 기록 블록 안)
     this.popoverElement.querySelectorAll('.memo-inst-btn').forEach((b) => {
       b.addEventListener('click', () => this.insertInstallmentLine(b.dataset.inst));
     });
+
+    // 편집 중 메모를 쓰다가 창 바깥(위 [저장] 포함)을 누르면, 쓴 글을 버리지 않고 먼저 적용한다.
+    //   click 보다 먼저 오는 pointerdown(capture)에서 처리해야 위 [저장]이 이 메모까지 모은다(PC 점검 11-16).
+    document.addEventListener('pointerdown', (e) => {
+      if (this.activePopover && !this.popoverElement.contains(e.target) && this._isDirty()) {
+        this.saveMemo();
+      }
+    }, true);
 
     // 외부 클릭으로 팝오버 닫기
     document.addEventListener('click', (e) => {
@@ -103,9 +113,31 @@ export default class FieldMemoButton {
     // ESC 키로 팝오버 닫기
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && this.activePopover) {
-        this.hidePopover();
+        this._requestClose();
       }
     });
+  }
+
+  /** 편집 모드에서 창을 연 뒤 글을 고쳤는지 */
+  _isDirty() {
+    if (!this.activePopover || !this._isEditMode) return false;
+    const textarea = this.popoverElement.querySelector('.memo-textarea');
+    return !!textarea && textarea.value !== (this._initialText ?? '');
+  }
+
+  /** ✕·Esc: 고친 글이 있으면 버릴지 묻고 닫는다 */
+  _requestClose() {
+    if (this._isDirty() && !confirm('고친 메모를 적용하지 않고 닫을까요?')) return;
+    this._closeRestoringFocus();
+  }
+
+  /** 닫고 메모를 연 단추로 포커스를 돌려준다(키보드로 쓰는 사람이 제자리를 잃지 않게) */
+  _closeRestoringFocus() {
+    const opener = this.activePopover;
+    this.hidePopover();
+    if (opener && document.contains(opener) && typeof opener.focus === 'function') {
+      try { opener.focus({ preventScroll: true }); } catch (_) { /* 무시 */ }
+    }
   }
 
   /**
@@ -239,12 +271,20 @@ export default class FieldMemoButton {
       // 나눠 내는 공사는 '◆' 줄만 있으면 지울 입금 메모가 없음
       deleteBtn.style.display = (this.currentPayerLine ? textarea.value : currentMemo) ? 'inline-block' : 'none';
       saveBtn.style.display = 'inline-block';
+      // 편집 중엔 이 단추가 시트에 바로 쓰지 않고 위 [저장]에 넘기기만 함 → '적용'(PC 점검 11-16)
+      saveBtn.textContent = '적용';
       cancelBtn.textContent = '취소';
       logger.debug('[MEMO] 편집 모드 - 팝오버 편집 가능으로 표시');
     }
 
     // 팝오버 위치 계산 및 표시
     this.positionPopover(buttonElement);
+
+    // 고쳤는지 비교할 처음 글·모드, '위 [저장]을 눌러야 반영' 안내
+    this._initialText = textarea.value;
+    this._isEditMode = !!isEditMode;
+    const applyHint = this.popoverElement.querySelector('.memo-apply-hint');
+    if (applyHint) applyHint.style.display = isEditMode ? 'block' : 'none';
 
     // 팝오버 표시
     this.popoverElement.style.display = 'block';
@@ -558,7 +598,8 @@ export default class FieldMemoButton {
    * 메모 삭제
    */
   async deleteMemo() {
-    if (!confirm('메모를 삭제하시겠습니까?')) {
+    const label = this.currentFieldName === '계산서' ? '계산서 메모' : `${this.currentFieldName || ''} 입금 메모`.trim();
+    if (!confirm(`${label}를 지웁니다.\n위 [저장]을 눌러야 시트에 반영됩니다. 지울까요?`)) {
       return;
     }
 

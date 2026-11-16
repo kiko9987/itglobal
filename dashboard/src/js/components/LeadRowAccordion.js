@@ -48,6 +48,15 @@ export default class LeadRowAccordion {
       if (e.key === 'Escape' && this.isOpen && !document.querySelector('.modal.show')) this.closeAccordion();
     });
 
+    // 키보드로 줄 펼치기 — 줄(tr)에 커서가 있을 때 Enter·Space(PC 점검 2차 11-16)
+    tableElement.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const tr = e.target;
+      if (!tr || tr.tagName !== 'TR' || tr.classList.contains('accordion-row') || !tr.closest('tbody')) return;
+      e.preventDefault();
+      tr.click();
+    });
+
     this.eventsBound = true;
   }
 
@@ -265,7 +274,7 @@ export default class LeadRowAccordion {
             <span class="legacy-card-label"><i class="fab fa-google-drive me-2" style="color: #4285f4;"></i>사진 폴더</span>
             <div class="editable-value">${
               // 프로젝트 문서 폴더와 같은 표기·동작: 폴더 ID 링크 → itgfolder:// 로 탐색기에서 열기
-              phoneLink || (folder && renderItgfolderLink(folder)) || '<span class="lead-empty">방문 사진 없음</span>'}</div>
+              phoneLink || (folder && renderItgfolderLink(folder, { text: '사진 폴더 열기' })) || '<span class="lead-empty">방문 사진 없음</span>'}</div>
           </div>
         </div>
       </div>`;

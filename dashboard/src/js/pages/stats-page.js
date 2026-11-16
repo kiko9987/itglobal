@@ -33,7 +33,9 @@ class StatsManager {
             this.showLoading(true);
 
             const response = await fetch('/api/projects/list');
-            const result = await response.json();
+            let result;
+            try { result = await response.json(); }
+            catch (_) { throw new Error(''); }   // 로그인이 끝났거나 서버 오류(HTML)면 영어 오류 문구가 그대로 보였음
 
             // API 응답 포맷 호환성 처리
             if (Array.isArray(result)) {
@@ -51,7 +53,8 @@ class StatsManager {
             this.showContent();
         } catch (error) {
             logger.error('통계 데이터 로드 오류:', error);
-            alert('통계 데이터를 불러올 수 없습니다: ' + error.message);
+            const why = error && error.message && !/token|JSON|fetch|API 응답/i.test(error.message) ? ` (${error.message})` : '';
+            alert(`통계를 불러오지 못했습니다${why}. 잠시 뒤 새로고침해 주세요.`);
         } finally {
             this.showLoading(false);
         }
@@ -507,9 +510,9 @@ class StatsManager {
             scales: {
                 y: {
                     min: 0,
-                    max: 10,
+                    suggestedMax: 10,   // 10억 고정이면 넘는 달 막대가 잘렸음(PC 점검 2차 11-16)
                     ticks: {
-                        stepSize: 1,
+                        precision: 0,
                         callback: (value) => Math.floor(value) + '억'
                     },
                     grid: {
@@ -577,9 +580,9 @@ class StatsManager {
             scales: {
                 y: {
                     min: 0,
-                    max: 10,
+                    suggestedMax: 10,   // 10억 고정이면 넘는 달 막대가 잘렸음(PC 점검 2차 11-16)
                     ticks: {
-                        stepSize: 1,
+                        precision: 0,
                         font: { size: 10 },
                         callback: (value) => Math.floor(value) + '억'
                     },
@@ -614,9 +617,9 @@ class StatsManager {
             scales: {
                 y: {
                     min: 0,
-                    max: 100,
+                    suggestedMax: 100,   // 100억 고정 → 넘으면 잘렸음(PC 점검 2차 11-16)
                     ticks: {
-                        stepSize: 10,
+                        precision: 0,
                         font: { size: 10 },
                         callback: (value) => Math.floor(value) + '억'
                     },
@@ -651,9 +654,9 @@ class StatsManager {
             scales: {
                 y: {
                     min: 0,
-                    max: 10,
+                    suggestedMax: 10,   // 10억 고정이면 넘는 달 막대가 잘렸음(PC 점검 2차 11-16)
                     ticks: {
-                        stepSize: 1,
+                        precision: 0,
                         font: { size: 10 },
                         callback: (value) => Math.floor(value) + '억'
                     },

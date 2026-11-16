@@ -183,13 +183,13 @@ export default class CasePhotos {
     ov.id = 'cpOrderOverlay';
     ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:2000;display:flex;align-items:center;justify-content:center;padding:16px;';
     ov.innerHTML = `
-      <div style="background:#fff;border-radius:10px;width:100%;max-width:560px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.2);">
+      <div role="dialog" aria-modal="true" aria-labelledby="cpOrderTitle" style="background:#fff;border-radius:10px;width:100%;max-width:560px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.2);">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-          <b><i class="fas fa-file-alt me-2" style="color:#1c7ed6;"></i>${esc(code)} 작업지시</b>
-          <button type="button" class="btn btn-sm btn-light" data-cp-close>✕</button>
+          <b id="cpOrderTitle"><i class="fas fa-file-alt me-2" style="color:#1c7ed6;" aria-hidden="true"></i>${esc(code)} 작업지시</b>
+          <button type="button" class="btn btn-sm btn-light" data-cp-close aria-label="닫기">✕</button>
         </div>
         <div style="font-size:.85rem;color:#868e96;margin-bottom:6px;">
-          카톡 단체방의 작업지시 글을 길게 눌러(PC는 드래그) 복사한 뒤 붙여넣으세요. 전화번호·호수는 글에 쓰이지 않습니다.
+          카톡 단체방의 작업지시 글을 길게 눌러(PC는 드래그) 복사한 뒤 붙여 넣으세요. 전화번호·호수는 글에 쓰이지 않습니다.
         </div>
         <textarea data-cp-order-text rows="12" style="width:100%;border:1px solid #ced4da;border-radius:6px;padding:8px;font-size:.9rem;line-height:1.5;"
                   placeholder="예)
@@ -202,16 +202,33 @@ export default class CasePhotos {
           <button type="button" class="btn btn-sm btn-light" data-cp-close>닫기</button>
           <button type="button" class="btn btn-sm btn-primary" data-cp-order-save ${editable ? '' : 'disabled'}>저장</button>
         </div>
-        ${editable ? '' : '<div style="font-size:.8rem;color:#e8590c;margin-top:6px;">초안이 이미 나온 건이라 바꿀 수 없습니다.</div>'}
+        ${editable ? '' : '<div style="font-size:.8rem;color:#c2410c;margin-top:6px;">초안이 이미 나온 건이라 바꿀 수 없습니다.</div>'}
       </div>`;
     document.body.appendChild(ov);
     const ta = ov.querySelector('[data-cp-order-text]');
     ta.value = (job && job.order_text) || '';
-    const close = () => ov.remove();
-    ov.querySelectorAll('[data-cp-close]').forEach(b => b.addEventListener('click', close));
-    ov.addEventListener('click', e => { if (e.target === ov) close(); });
+    // PC 점검 2차(11-16): 바깥을 누르면 붙여 넣은 글이 말없이 사라졌고, Esc 로 안 닫히고, 닫으면 포커스를 잃었음
+    const initial = ta.value;
+    const opener = document.activeElement;
+    const close = () => {
+      ov.remove();
+      document.removeEventListener('keydown', onKey, true);
+      if (opener && document.contains(opener) && opener.focus) opener.focus();
+    };
+    const requestClose = () => {
+      if (editable && ta.value !== initial && !confirm('붙여 넣은 작업지시를 저장하지 않았습니다. 닫을까요?')) return;
+      close();
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); requestClose(); }
+    };
+    document.addEventListener('keydown', onKey, true);
+    ov.querySelectorAll('[data-cp-close]').forEach(b => b.addEventListener('click', requestClose));
+    ov.addEventListener('click', e => { if (e.target === ov) requestClose(); });
+    setTimeout(() => (editable ? ta : ov.querySelector('[data-cp-close]')).focus(), 0);
     ov.querySelector('[data-cp-order-save]').addEventListener('click', async (e) => {
-      e.currentTarget.disabled = true;
+      const saveBtn = e.currentTarget;   // await 뒤엔 e.currentTarget 이 비어 실패 때 단추가 안 풀렸음
+      saveBtn.disabled = true;
       try {
         const jobId = await this._ensureJob(code);
         const fd = new FormData(); fd.append('text', ta.value);
@@ -220,7 +237,7 @@ export default class CasePhotos {
         this._toast('작업지시를 저장했습니다', 'success');
         await this.refresh(code);
       } catch (err) {
-        e.currentTarget.disabled = false;
+        saveBtn.disabled = false;
         this._toast(err.message, 'error');
       }
     });
@@ -269,9 +286,10 @@ export default class CasePhotos {
   async requestDraft(code) {
     const job = this._jobs[code];
     if (!job) return;
-    if (!(job.has_order_text || job.order_text) && !(job.files || []).some(f => f.kind === 'order')
-        && !confirm('작업지시가 없습니다. 사진만으로 쓰면 빈칸(○○)이 많아집니다. 그래도 요청할까요?')) return;
-    if (!confirm('이 현장을 시공사례 글로 만들까요?\n다음 평일 아침에 홈페이지·블로그 초안이 만들어집니다.')) return;
+    // 확인 창이 두 번 연달아 뜨던 것을 한 번으로(PC 점검 2차 11-16)
+    const noOrder = !(job.has_order_text || job.order_text) && !(job.files || []).some(f => f.kind === 'order');
+    if (!confirm('이 현장을 시공사례 글로 만들까요?\n다음 평일 아침에 홈페이지·블로그 초안이 만들어집니다.'
+        + (noOrder ? '\n\n작업지시가 없어 사진만으로 쓰면 빈칸(○○)이 많아집니다.' : ''))) return;
     try {
       await api(`/jobs/${encodeURIComponent(job.id)}/submit`, { method: 'POST' });
       this._toast('시공사례 글 요청을 접수했습니다', 'success');

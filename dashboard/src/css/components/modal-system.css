@@ -710,47 +710,8 @@
 
 /* ===== 다크모드 지원 ===== */
 
-@media (prefers-color-scheme: dark) {
-  .modal-content {
-    background: var(--dark-secondary);
-    color: var(--gray-200);
-  }
-
-  .modal-header {
-    background: linear-gradient(135deg, var(--dark-accent) 0%, var(--dark-secondary) 100%);
-    border-bottom-color: var(--gray-700);
-  }
-
-  .modal-body {
-    background: var(--dark-secondary);
-  }
-
-  .modal-footer {
-    background: var(--dark-accent);
-    border-top-color: var(--gray-700);
-  }
-
-  .user-management-table {
-    background: var(--dark-secondary);
-  }
-
-  .user-management-table thead {
-    background: linear-gradient(135deg, var(--dark-accent) 0%, var(--dark-primary) 100%);
-  }
-
-  .user-management-table tbody tr {
-    background: var(--dark-secondary);
-    border-bottom-color: var(--gray-700);
-  }
-
-  .user-management-table tbody tr:nth-child(even) {
-    background: var(--dark-accent);
-  }
-
-  .user-management-table tbody tr:hover {
-    background: var(--dark-hover);
-  }
-}
+/* 다크 모드 규칙 걷어 냄(PC 점검 11-16): PM 화면엔 다크 테마가 없어(main.css "추후 구현") 카드·창 바탕만 어두워지고
+   글자는 어두운 색 그대로라 1.4~2:1 로 안 보였다. 그룹웨어처럼 밝은 화면으로 고정. */
 
 /* ===== 프린트 스타일 ===== */
 

@@ -55,11 +55,36 @@ export default class ModernProjectModal {
           this.showAlert('등록이 진행 중입니다. 완료 후 자동으로 닫힙니다.', 'info');
           setTimeout(() => { this._closePreventNotified = false; }, 3000);
         }
+        return;
+      }
+      // 입력하던 내용이 있는데 바깥 클릭·Esc·✕·[취소]로 닫으면 다 지워졌음 → 먼저 묻는다(PC 점검 2차 11-16)
+      if (this._userTouched && !confirm('입력한 내용이 있습니다.\n창을 닫으면 모두 지워집니다. 닫을까요?')) {
+        ev.preventDefault();
       }
     });
 
+    // 직원이 직접 입력·선택했는지(코드가 채운 값은 빼고) — 닫을 때 물을지 정함
+    const markTouched = (e) => { if (e.isTrusted) this._userTouched = true; };
+    if (this.form) {
+      this.form.addEventListener('input', markTouched);
+      this.form.addEventListener('change', markTouched);
+    }
+
+    this.linkFieldLabels();
     this.bindEvents();
     this.initialized = true;
+  }
+
+  /**
+   * 칸 이름표(label)를 바로 아래 입력칸과 이어 준다 — 템플릿 label 에 for 가 없어 이름표를 눌러도 칸으로 안 가고
+   * 낭독기가 칸 이름을 못 읽었음(16칸, PC 점검 2차 11-16). 체크박스 묶음 제목은 건너뜀.
+   */
+  linkFieldLabels() {
+    this.modalElement.querySelectorAll('label.form-label:not([for])').forEach((lab) => {
+      const box = lab.parentElement;
+      const ctl = box && box.querySelector('input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), select, textarea');
+      if (ctl && ctl.id) lab.htmlFor = ctl.id;
+    });
   }
 
   /**
@@ -82,9 +107,17 @@ export default class ModernProjectModal {
 
     // 빠른 금액 버튼
     const amountBtns = this.modalElement.querySelectorAll('.modern-amount-btn');
+    // 단추가 금액을 '바꾸지' 않고 '더하는데' 이름이 '일억원'이라 두 번 누르면 2억이 됐음 → 이름에 + 를 붙인다(PC 점검 2차 11-16)
+    const QUICK_LABELS = { 100000000: '+1억', 10000000: '+1천만', 1000000: '+100만', 100000: '+10만', 50000: '+5만' };
     amountBtns.forEach(btn => {
+      const amt = parseInt(btn.dataset.amount, 10);
+      if (QUICK_LABELS[amt]) {
+        btn.textContent = QUICK_LABELS[amt];
+        btn.setAttribute('aria-label', `총액1에 ${QUICK_LABELS[amt].slice(1)}원 더하기`);
+        btn.title = `총액1에 ${QUICK_LABELS[amt].slice(1)}원을 더합니다`;
+      }
       btn.addEventListener('click', (e) => {
-        const amount = parseInt(e.target.dataset.amount);
+        const amount = parseInt(e.currentTarget.dataset.amount, 10);
         this.addQuickAmount(amount);
       });
     });
@@ -155,6 +188,16 @@ export default class ModernProjectModal {
     const sameDateCheck = document.getElementById('modern-same-date-check');
     const startDateInput = document.getElementById('modern-start-date');
     const endDateInput = document.getElementById('modern-end-date');
+
+    // 템플릿이 날짜 칸에 onkeydown/onpaste="return false" 를 걸어 Tab·Shift+Tab 까지 막혀 커서가 갇히고
+    // 키보드로 날짜를 넣거나 지울 수 없었음 → 걷어 낸다(달력 단추·클릭 선택은 그대로). PC 점검 2차 11-16
+    [startDateInput, endDateInput].forEach((el) => {
+      if (!el) return;
+      el.onkeydown = null;
+      el.onpaste = null;
+      el.removeAttribute('onkeydown');
+      el.removeAttribute('onpaste');
+    });
 
     if (sameDateCheck && startDateInput && endDateInput) {
       sameDateCheck.addEventListener('change', (e) => {
@@ -276,6 +319,13 @@ export default class ModernProjectModal {
     // 날짜 입력 필드 클릭 이벤트 (아이콘 클릭 시 날짜 선택창 열기)
     const calendarIcons = this.modalElement.querySelectorAll('.calendar-icon');
     calendarIcons.forEach(icon => {
+      // <span> 이라 키보드로 못 눌렀음 → 단추처럼(Tab·Enter·Space)
+      icon.setAttribute('role', 'button');
+      icon.setAttribute('tabindex', '0');
+      icon.setAttribute('aria-label', '달력에서 날짜 고르기');
+      icon.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); icon.click(); }
+      });
       icon.addEventListener('click', () => {
         const inputGroup = icon.closest('.input-group');
         const dateInput = inputGroup.querySelector('input[type="date"]');
@@ -319,8 +369,10 @@ export default class ModernProjectModal {
       // aria-hidden이 설정되기 전에 포커스를 이동시켜 접근성 경고 방지
       const activeElement = document.activeElement;
       if (this.modalElement.contains(activeElement)) {
-        // 모달을 연 버튼으로 포커스 이동 (없으면 body)
-        const triggerButton = document.querySelector('[data-bs-target="#modernProjectModal"]');
+        // 모달을 연 단추로 포커스 이동 (없으면 body). 단추가 onclick 으로 열어 data-bs-target 이 없으므로
+        // open() 때 기억해 둔 요소를 먼저 쓴다(PC 점검 2차 — 예전엔 늘 body 로 빠졌음)
+        const triggerButton = (this._opener && document.contains(this._opener) && this._opener)
+          || document.querySelector('[data-bs-target="#modernProjectModal"]');
         if (triggerButton && triggerButton.offsetParent !== null) {
           triggerButton.focus();
         } else {
@@ -398,6 +450,9 @@ export default class ModernProjectModal {
       // 성공 시 finally 에서 이 값들을 유지하기 때문에 다음 오픈에서 반드시 초기화 필요.
       this._submitInProgress = false;
       this._currentIdempotencyKey = null;
+      this._userTouched = false;
+      // 닫으면 포커스를 돌려줄 단추(창 안이 아닌 지금 포커스)
+      this._opener = this.modalElement.contains(document.activeElement) ? null : document.activeElement;
       const submitBtn = document.getElementById('modern-submit-new-project');
       if (submitBtn) {
         submitBtn.disabled = false;
@@ -419,7 +474,7 @@ export default class ModernProjectModal {
 
     } catch (error) {
       logger.error('[ModernProjectModal] 모달 열기 오류:', error);
-      this.showAlert('모달을 여는 중 오류가 발생했습니다.', 'danger');
+      this.showAlert('등록 창을 열지 못했습니다. 새로고침한 뒤 다시 눌러 주세요.', 'danger');
     }
   }
 
@@ -1840,7 +1895,8 @@ export default class ModernProjectModal {
 
     if (!company) errors.push('사업자를 선택해주세요.');
     if (!owner) errors.push('담당자를 선택해주세요.');
-    if (!client || !client.trim()) errors.push('거래처를 입력해주세요.');
+    // 칸 이름이 '유입 구분'인데 '거래처'라고 안내해 엉뚱한 칸을 찾게 했음(PC 점검 2차 11-16)
+    if (!client || !client.trim()) errors.push('유입 구분을 골라 주세요. 방문 현장을 불러오거나 [수동 입력하기]를 체크하면 고를 수 있습니다.');
     if (!address || !address.trim()) errors.push('현장 주소를 입력해주세요.');
 
     // 2-1. 거래처 유입은 사업자명(사업자등록증 상호) 필수 — '미수령' 체크 시에만 예외 허용.
@@ -1861,7 +1917,7 @@ export default class ModernProjectModal {
     // 3. 금액 검증
     const totalAmount = document.getElementById('modern-total-amount')?.value;
     if (!totalAmount || parseFloat(totalAmount) <= 0) {
-      errors.push('총액을 0원보다 크게 입력해주세요.');
+      errors.push('총액1을 입력해 주세요.');
     }
 
     // 4. 공사 구분 최소 선택 확인
@@ -1966,8 +2022,9 @@ export default class ModernProjectModal {
       if (!validation.isValid) {
         // 검증 실패: 모든 오류를 하나의 메시지로 표시
         const errorMessage = validation.errors.join('\n• ');
-        this.showAlert(`다음 항목을 확인해주세요:\n\n• ${errorMessage}`, 'danger');
+        this.showAlert(`다음 항목을 확인해 주세요.\n\n• ${errorMessage}`, 'danger');
         this._submitInProgress = false;  // 검증 실패도 클리어
+        this.focusFirstInvalidField();
         return;
       }
       // 리드 없이 등록하는데 대조된 방문 리드를 그냥 두었으면 한 번 더 확인 (2026-11-06)
@@ -2161,6 +2218,7 @@ export default class ModernProjectModal {
         // 재클릭 방지는 submitBtn.disabled + '등록 완료' 표시로 이미 커버됨.
         // (2026-07-13 사용자 관측: 등록 성공 후 모달이 자동으로 안 닫히고 X 버튼 필요)
         this._submitInProgress = false;
+        this._userTouched = false;   // 등록이 끝났으니 닫을 때 묻지 않음
         this.modal.hide();
 
         // 백그라운드 동기화 — await 하지 않음
@@ -2435,10 +2493,10 @@ export default class ModernProjectModal {
 
     const alertElement = document.createElement('div');
     alertElement.className = `alert alert-${type} alert-dismissible fade show`;
-    alertElement.innerHTML = `
-      ${message}
-      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    `;
+    // 오류는 낭독기가 바로 읽고, 줄바꿈(• 목록)이 한 줄로 붙지 않게(PC 점검 2차 11-16)
+    alertElement.setAttribute('role', type === 'danger' ? 'alert' : 'status');
+    alertElement.style.whiteSpace = 'pre-line';
+    alertElement.innerHTML = `${message}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="알림 닫기"></button>`;
 
     container.innerHTML = '';
     container.appendChild(alertElement);
@@ -2452,7 +2510,25 @@ export default class ModernProjectModal {
       /* scrollIntoView 미지원 환경 무시 */
     }
 
-    setTimeout(() => alertElement.remove(), 5000);
+    // 오류(빨강)는 직원이 닫을 때까지 남긴다 — 5초 만에 사라져 무엇을 고칠지·오류 번호를 못 읽었음(PC 점검 2차 11-16)
+    if (type !== 'danger') setTimeout(() => alertElement.remove(), 5000);
+  }
+
+  /**
+   * 등록 검증에 걸린 첫 칸으로 커서를 옮긴다(직원이 칸을 찾지 않게). 잠긴 칸(유입 구분)은 건너뜀.
+   */
+  focusFirstInvalidField() {
+    const val = (id) => String(document.getElementById(id)?.value || '').trim();
+    const checks = [
+      ['modern-company', () => !val('modern-company')],
+      ['modern-owner', () => !val('modern-owner')],
+      ['modern-address', () => !val('modern-address')],
+      ['modern-total-amount-display', () => !(parseFloat(val('modern-total-amount')) > 0)],
+    ];
+    const hit = checks.find(([id, bad]) => document.getElementById(id) && bad());
+    if (!hit) return;
+    const el = document.getElementById(hit[0]);
+    setTimeout(() => { try { el.focus(); } catch (_) { /* 무시 */ } }, 50);
   }
 
   /**

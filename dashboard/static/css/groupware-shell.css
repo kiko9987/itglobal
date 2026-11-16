@@ -711,17 +711,17 @@ body.gw-shell .btn-soft-success i {
   color: #555d6d;
 }
 
-/* 「만들기」 — 화면에 하나만 주황 */
+/* 「만들기」 — 화면에 하나만 주황. 흰 글자 대비 #ff6f0f 2.8:1 → #c2410c 5.2:1(PC 점검 2차 11-16) */
 body.gw-shell .btn[onclick*="openNewProjectModal"] {
-  background: #ff6f0f;
-  border-color: #ff6f0f;
+  background: #c2410c;
+  border-color: #c2410c;
   color: #ffffff;
   font-weight: 700;
 }
 
 body.gw-shell .btn[onclick*="openNewProjectModal"]:hover {
-  background: #e85f00;
-  border-color: #e85f00;
+  background: #9a3412;
+  border-color: #9a3412;
   color: #ffffff;
 }
 

@@ -1,4 +1,5 @@
 import logger from '../utils/logger.js';
+import { escHtml } from '../utils/escapeHtml.js';
 
 /**
  * User Management Modal 컴포넌트 (완전한 레거시 포팅)
@@ -117,13 +118,13 @@ export default class UserModal {
 
         // 권한 텍스트 매핑
         const permissionText = {
-          'admin': 'Admin',
-          'editor': 'Editor',
-          'viewer': 'Viewer'
+          'admin': '관리자',
+          'editor': '편집',
+          'viewer': '보기'
         }[newPermission] || newPermission;
 
         // 확인 다이얼로그
-        if (confirm(`"${userName}"님의 권한을 "${permissionText}"(으)로 변경하시겠습니까?`)) {
+        if (confirm(`${userName} 님 권한을 '${permissionText}'(으)로 바꿀까요?\n바꾸면 ${userName} 님은 다시 로그인해야 합니다.`)) {
           if (!selectElement.disabled) {
             // 원본 값 저장 (취소 시 되돌리기 위해)
             selectElement.dataset.originalValue = newPermission;
@@ -159,7 +160,7 @@ export default class UserModal {
         }[newStatus] || newStatus;
 
         // 확인 다이얼로그
-        if (confirm(`"${userName}"님의 상태를 "${statusText}"(으)로 변경하시겠습니까?`)) {
+        if (confirm(`${userName} 님 상태를 '${statusText}'(으)로 바꿀까요?`)) {
           if (!selectElement.disabled) {
             // 원본 값 저장 (취소 시 되돌리기 위해)
             selectElement.dataset.originalValue = newStatus;
@@ -378,15 +379,24 @@ export default class UserModal {
 
       // 권한 드롭다운
       html += '<td class="text-center">';
-      const isAdmin = user.permission_level === 'admin' || user.permission_level === 'super_admin';
-      const currentPermission = isAdmin ? 'admin' : user.permission_level;
+      // PC 점검 2차(11-16): 최고관리자가 'Admin'으로 보여 다른 값을 골랐다가 Admin 으로 돌리면 일반 관리자로 내려갔고,
+      //   본인 권한·상태도 바꿀 수 있었음 → 최고관리자·본인 줄은 잠근다. 권한 이름은 한국어로.
+      const isSuper = user.permission_level === 'super_admin';
+      const isAdmin = user.permission_level === 'admin' || isSuper;
+      const currentPermission = isSuper ? 'super_admin' : (isAdmin ? 'admin' : user.permission_level);
+      const lockReason = isSuper ? '최고 관리자 권한은 여기서 바꿀 수 없습니다'
+        : (isCurrentUser ? '본인 권한은 여기서 바꿀 수 없습니다' : '');
+      const safeName = escHtml(user.name || user.email);
       html += `
         <select class="form-select form-select-sm user-permission-select"
                 data-user-email="${userEmailEscaped}"
-                data-original-value="${currentPermission}">
-          <option value="admin" ${isAdmin ? 'selected' : ''}>Admin</option>
-          <option value="editor" ${user.permission_level === 'editor' ? 'selected' : ''}>Editor</option>
-          <option value="viewer" ${user.permission_level === 'viewer' ? 'selected' : ''}>Viewer</option>
+                data-original-value="${currentPermission}"
+                aria-label="${safeName} 권한"
+                ${lockReason ? `disabled title="${lockReason}"` : ''}>
+          ${isSuper ? '<option value="super_admin" selected>최고 관리자</option>' : ''}
+          <option value="admin" ${isAdmin && !isSuper ? 'selected' : ''}>관리자</option>
+          <option value="editor" ${user.permission_level === 'editor' ? 'selected' : ''}>편집</option>
+          <option value="viewer" ${user.permission_level === 'viewer' ? 'selected' : ''}>보기</option>
         </select>
       `;
       html += '</td>';
@@ -443,8 +453,13 @@ export default class UserModal {
       // 마지막 로그인
       html += '<td class="text-center">';
       if (user.last_login) {
-        const lastLogin = new Date(user.last_login);
-        html += `${lastLogin.toLocaleString('ko-KR')}`;
+        // 서버 값은 SQLite CURRENT_TIMESTAMP(UTC, 시간대 표시 없음) → UTC 로 읽어 한국 시각으로(예전엔 9시간 이르게 보였음)
+        const raw = String(user.last_login).trim();
+        const iso = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(raw) ? `${raw.replace(' ', 'T')}Z` : raw;
+        const lastLogin = new Date(iso);
+        html += Number.isNaN(lastLogin.getTime())
+          ? escHtml(raw)
+          : lastLogin.toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
       } else {
         html += '<span class="text-muted">로그인 기록 없음</span>';
       }
@@ -456,7 +471,9 @@ export default class UserModal {
       html += `
         <select class="form-select form-select-sm user-status-select"
                 data-user-email="${userEmailEscaped}"
-                data-original-value="${currentStatus}">
+                data-original-value="${currentStatus}"
+                aria-label="${safeName} 상태"
+                ${isCurrentUser ? 'disabled title="본인 상태는 여기서 바꿀 수 없습니다"' : ''}>
           <option value="active" ${user.is_active && !user.is_resigned ? 'selected' : ''}>활성</option>
           <option value="inactive" ${!user.is_active && !user.is_resigned ? 'selected' : ''}>비활성</option>
           <option value="resigned" ${user.is_resigned ? 'selected' : ''}>퇴사</option>
@@ -537,9 +554,12 @@ export default class UserModal {
 
       if (response.ok) {
         const result = await response.json();
-        const permissionText = permission === 'admin' ? 'Admin' :
-                               permission === 'editor' ? 'Editor' : 'Viewer';
-        this.showAlert(`"${userName}"님의 권한이 "${permissionText}"로 변경되었습니다.`, 'success');
+        if (result && result.success === false) {
+          throw new Error(result.message || '권한을 바꾸지 못했습니다.');
+        }
+        const permissionText = permission === 'admin' ? '관리자' :
+                               permission === 'editor' ? '편집' : '보기';
+        this.showAlert(`${userName} 님 권한을 '${permissionText}'(으)로 바꿨습니다.`, 'success');
       } else {
         const error = await response.json();
         logger.error('권한 업데이트 실패 (응답):', error);
@@ -547,7 +567,7 @@ export default class UserModal {
       }
     } catch (error) {
       logger.error('권한 업데이트 실패 (예외):', error);
-      this.showAlert('권한 변경에 실패했습니다.', 'error');
+      this.showAlert(`권한을 바꾸지 못했습니다.${error?.message && !/Failed|fetch|JSON/i.test(error.message) ? ` (${error.message})` : ''}`, 'error');
       this.loadUsers(); // 실패 시 원래 상태로 복원
     }
   }
@@ -575,7 +595,10 @@ export default class UserModal {
 
       if (response.ok) {
         const result = await response.json();
-        this.showAlert(result.message || `"${userName}"님의 상태가 변경되었습니다.`, 'success');
+        if (result && result.success === false) {
+          throw new Error(result.message || '상태를 바꾸지 못했습니다.');
+        }
+        this.showAlert(result.message || `${userName} 님 상태를 바꿨습니다.`, 'success');
 
         // 상태 변경 후 사용자 목록 새로고침 (모달은 유지)
         setTimeout(() => {
@@ -592,7 +615,7 @@ export default class UserModal {
       }
     } catch (error) {
       logger.error('상태 업데이트 실패 (예외):', error);
-      this.showAlert('사용자 상태 변경에 실패했습니다.', 'error');
+      this.showAlert(`상태를 바꾸지 못했습니다.${error?.message && !/Failed|fetch|JSON/i.test(error.message) ? ` (${error.message})` : ''}`, 'error');
       this.loadUsers(); // 실패 시 원래 상태로 복원
     }
   }
@@ -806,7 +829,7 @@ export default class UserModal {
       }
     } catch (error) {
       logger.error('상태 업데이트 실패 (예외):', error);
-      this.showAlert('사용자 상태 변경에 실패했습니다.', 'error');
+      this.showAlert(`상태를 바꾸지 못했습니다.${error?.message && !/Failed|fetch|JSON/i.test(error.message) ? ` (${error.message})` : ''}`, 'error');
       this.loadUsers(); // 실패 시 원래 상태로 복원
     }
   }
@@ -893,10 +916,10 @@ export default class UserModal {
    */
   getRoleBadge(role) {
     const roleMap = {
-      'admin': { text: 'Admin', style: 'background-color: #ffeaa7; color: #d63031; border: 1px solid #fdcb6e;' },
-      'super_admin': { text: 'Admin', style: 'background-color: #ffeaa7; color: #d63031; border: 1px solid #fdcb6e;' },
-      'editor': { text: 'Editor', style: 'background-color: #fff3cd; color: #856404; border: 1px solid #ffeaa7;' },
-      'viewer': { text: 'Viewer', style: 'background-color: #f8f9fa; color: #6c757d; border: 1px solid #dee2e6;' }
+      'admin': { text: '관리자', style: 'background-color: #ffeaa7; color: #d63031; border: 1px solid #fdcb6e;' },
+      'super_admin': { text: '최고 관리자', style: 'background-color: #ffeaa7; color: #d63031; border: 1px solid #fdcb6e;' },
+      'editor': { text: '편집', style: 'background-color: #fff3cd; color: #856404; border: 1px solid #ffeaa7;' },
+      'viewer': { text: '보기', style: 'background-color: #f8f9fa; color: #6c757d; border: 1px solid #dee2e6;' }
     };
     const roleInfo = roleMap[role] || { text: role, style: 'background-color: #f8f9fa; color: #6c757d; border: 1px solid #dee2e6;' };
     return `<span class="badge" style="font-size: 0.7rem; ${roleInfo.style}">${roleInfo.text}</span>`;

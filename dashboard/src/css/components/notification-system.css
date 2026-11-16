@@ -288,24 +288,5 @@
 }
 
 /* 다크모드 지원 */
-@media (prefers-color-scheme: dark) {
-  .toast {
-    background: var(--dark-secondary);
-    color: var(--gray-200);
-  }
-
-  .toast-header {
-    border-bottom-color: var(--gray-700);
-    background: var(--dark-accent);
-  }
-
-  .progress-notification {
-    background: var(--dark-secondary);
-    border-color: var(--gray-700);
-    color: var(--gray-200);
-  }
-
-  .progress-bar-container {
-    background: var(--gray-700);
-  }
-}
+/* 다크 모드 규칙 걷어 냄(PC 점검 11-16): PM 화면엔 다크 테마가 없어(main.css "추후 구현") 카드·창 바탕만 어두워지고
+   글자는 어두운 색 그대로라 1.4~2:1 로 안 보였다. 그룹웨어처럼 밝은 화면으로 고정. */

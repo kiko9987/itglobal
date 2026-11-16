@@ -54,6 +54,16 @@ export default class Toast {
     }
 
     const alertEl = this._createAlert(message, type);
+    // 저절로 안 사라지는 알림(오류 등)은 닫기 단추를 붙인다(PC 점검 11-16)
+    if (!(duration > 0)) {
+      const close = document.createElement('button');
+      close.type = 'button';
+      close.setAttribute('aria-label', '알림 닫기');
+      close.innerHTML = '<i class="fas fa-times" aria-hidden="true"></i>';
+      close.style.cssText = 'background:none;border:0;color:inherit;padding:0 0 0 .35rem;margin:0;cursor:pointer;line-height:1;min-width:24px;min-height:24px;';
+      close.addEventListener('click', () => this.hide(alertEl));
+      alertEl.appendChild(close);
+    }
     this.headerSlot.appendChild(alertEl);
 
     // fade-in
@@ -94,15 +104,17 @@ export default class Toast {
       padding: 0.35rem 0.7rem;
       font-size: 0.8125rem;
       font-weight: 500;
-      white-space: nowrap;
+      white-space: normal;
+      line-height: 1.35;
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
       opacity: 0;
       transition: opacity 0.2s ease-in-out;
-      max-width: 100%;
+      max-width: min(560px, 100%);
     `;
+    // 긴 안내가 '…'로 잘려 뒷부분(해야 할 일)을 못 읽던 것 → 줄바꿈 허용(PC 점검 11-16)
     el.innerHTML = `
       <i class="fas ${s.icon}" style="font-size: 0.85rem;" aria-hidden="true"></i>
-      <span style="overflow: hidden; text-overflow: ellipsis;">${this._escape(message)}</span>
+      <span style="overflow-wrap: anywhere;">${this._escape(message)}</span>
     `;
     return el;
   }
