@@ -648,7 +648,8 @@ div.dt-container .bottom {
   }
 
   /* 담당자·유입 구분·상태 배지가 칸보다 1~2px 넓어 테두리에 닿았음 → 좌우 여백 12px → 8px(코드·날짜·금액은 이미 8px) */
-  html body .table-wrapper #projectsTable tbody tr:not(.accordion-row) > td {
+  /* 첫 칸(프로젝트 코드)은 원래 왼쪽 여백 2rem 유지 — 같이 8px 로 줄였더니 코드가 왼쪽에 붙었음(부장님 지적 11-16) */
+  html body .table-wrapper #projectsTable tbody tr:not(.accordion-row) > td:not(:first-child) {
     padding-left: 8px !important;
     padding-right: 8px !important;
   }
