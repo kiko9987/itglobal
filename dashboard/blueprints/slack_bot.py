@@ -7826,30 +7826,39 @@ def _update_lead_dispatch(lead_no: str, updates: dict) -> None:
         raise RuntimeError(res.get('message') or '리드 시트 저장 실패')
 
 
-def _find_lead_by_no(lead_no: str):
+class LeadReadError(RuntimeError):
+    """리드 시트를 읽지 못함 — '그 리드가 없음'과 다르다 (_find_lead_by_no(strict=True))."""
+
+
+def _find_lead_by_no(lead_no: str, strict: bool = False):
     """리드 No 로 메인 시트 행 dict 반환. 정규·ETC- 모두 시트에서 조회.
 
     캐시 조회가 실패하거나 DataFrame 이 아닌 값을 주면 시트에서 직접 한 번 더 읽는다.
     (2026-10-13 Redis 3.5h 장애: fallback 캐시가 bytes 를 돌려줘 조회가 전부 None →
     호출부가 빈 값으로 상담 내용을 덮어쓰고 사진 폴더가 한 곳으로 섞임)
+    strict=True: 시트를 못 읽으면 LeadReadError, 읽었는데 그 리드가 없으면 None (2026-11-16).
+    기본은 예전처럼 둘 다 None.
     """
     from dashboard.services.lead_service import load_leads_data
     target = lead_no.strip()
+    last_exc = None
     for force in (False, True):
         try:
             df = load_leads_data(force_refresh=force)
             if df is not None and not hasattr(df, 'empty'):
                 raise TypeError(f'리드 데이터 형식 이상: {type(df).__name__}')
             if df is None or df.empty:
-                if force:
-                    return None
+                last_exc = RuntimeError('리드 데이터가 비어 있음')
                 continue
             matches = df[df['리드 No'].astype(str).str.strip() == target]
             if matches.empty:
                 return None
             return matches.iloc[0].to_dict()
         except Exception as exc:
+            last_exc = exc
             logger.error(f"[SLACK] 리드 조회 실패 ({lead_no}, 시트 직접={force}): {exc}")
+    if strict and last_exc is not None:
+        raise LeadReadError(f'{lead_no} 리드 조회 실패: {last_exc}') from last_exc
     return None
 
 
@@ -8732,15 +8741,33 @@ def _link_chat_to_existing_lead(client, chat_id: str, target_lead_no: str,
 
         # === chat lead 정보 조회 (chat_id → chat_lead_no) ===
         chat_lead_no = _get_chat_lead_no(chat_id)
-        chat_lead = get_lead_by_no(chat_lead_no) if chat_lead_no else {}
-        chat_lead = chat_lead or {}
+        chat_lead = {}
+        if chat_lead_no and chat_lead_no != target_lead_no:
+            try:
+                chat_lead = _find_lead_by_no(chat_lead_no, strict=True)
+            except LeadReadError as exc:
+                # 못 읽은 채 쓰면 채팅 리드의 상담 이력(K열)이 '→ 통합' 한 줄로 덮어써진다. 카드·마커도 그대로 두고
+                #   멈춰 다시 누를 수 있게 (2026-11-16 상태 머신 점검)
+                logger.error(f"[SLACK/link] 채팅 리드 {chat_lead_no} 조회 실패 — 상담 이력 보존을 위해 통합 중단: {exc}")
+                if channel and slack_user_id:
+                    try:
+                        client.chat_postEphemeral(
+                            channel=channel, user=slack_user_id,
+                            text=(f":warning: 채팅 리드 `{chat_lead_no}` 를 시트에서 읽지 못해 통합하지 않았습니다. "
+                                  f"잠시 뒤 [🔗 기존 lead 연결]을 다시 눌러 주세요."))
+                    except Exception:
+                        pass
+                return
+            if chat_lead is None:
+                # 시트를 읽었는데 그 리드가 없음 — 지킬 이력이 없으니 마킹만 건너뛰고 통합은 진행(예전 동작과 같음)
+                logger.warning(f"[SLACK/link] 채팅 리드 {chat_lead_no} 가 시트에 없음 — 통합 마킹 생략")
 
         # === pending 데이터 삭제 (있으면) — 재감지 방지 ===
         pending_key = f'channeltalk_pending_lead:{chat_id}'
 
         # === 채팅 lead 자체 시트 업데이트 ===
         # 상태='문의 드랍', 상담 내용에 통합 마킹, 키워드/온라인 상담자 target 값 복사
-        if chat_lead_no and chat_lead_no != target_lead_no:
+        if chat_lead_no and chat_lead_no != target_lead_no and chat_lead:
             try:
                 chat_old_feedback = (chat_lead.get('상담 내용') or chat_lead.get('피드백') or '').strip()
                 chat_new_feedback = (
@@ -8758,13 +8785,25 @@ def _link_chat_to_existing_lead(client, chat_id: str, target_lead_no: str,
                     chat_update['키워드'] = target_kw
                 if target_op:
                     chat_update['온라인 상담자'] = target_op
-                update_lead(chat_lead_no, chat_update)
+                _res = update_lead(chat_lead_no, chat_update)
+                if isinstance(_res, dict) and not _res.get('success', True):
+                    raise RuntimeError(_res.get('message') or '시트 저장 실패')
                 logger.info(
                     f"[SLACK/link] 채팅 lead 통합 마킹: {chat_lead_no} → {target_lead_no} "
                     f"(키워드/상담자 복사={bool(target_kw)}/{bool(target_op)})"
                 )
             except Exception as exc:
-                logger.warning(f"[SLACK/link] 채팅 lead 통합 마킹 실패: {exc}")
+                # 시트에 못 썼는데 카드만 회색·통합 마커가 남으면 다시 할 길이 없다 — 멈추고 안내 (2026-11-16)
+                logger.error(f"[SLACK/link] 채팅 lead 통합 마킹 실패 — 통합 중단: {exc}")
+                if channel and slack_user_id:
+                    try:
+                        client.chat_postEphemeral(
+                            channel=channel, user=slack_user_id,
+                            text=(f":warning: 채팅 리드 `{chat_lead_no}` 시트 저장에 실패해 통합하지 않았습니다. "
+                                  f"잠시 뒤 [🔗 기존 lead 연결]을 다시 눌러 주세요."))
+                    except Exception:
+                        pass
+                return
 
         # === Redis pending 삭제 (있으면) ===
         rc.delete(pending_key)
@@ -11290,7 +11329,13 @@ def _process_visit_edit_same_platform(client, body, lead_no, channel, message_ts
     sheet_visit_value = new_visit_display
 
     # 방문일 변경 감지용 — old 값 캡처 (2026-07-19)
-    old_lead = _find_lead_by_no(lead_no) or {}
+    old_lead = _find_lead_by_no(lead_no)
+    if not old_lead:
+        # 못 읽은 채 쓰면 상담 이력(K열)이 편집한 마지막 회차 하나로 덮어써진다 (2026-11-16)
+        logger.error(f"[SLACK/방문수정] {lead_no} 리드 조회 실패 — 상담 이력 보존을 위해 저장 중단")
+        _notify_edit_failure(client, channel, (body.get('user') or {}).get('id', ''), lead_no,
+                             '리드를 시트에서 읽지 못해 아무것도 저장하지 않았습니다')
+        return
     old_visit_date = str(old_lead.get('방문 예정일') or '').strip().lstrip("'")
 
     # 2026-07-24: 상담 내용은 이전 회차 이력 유지 + 마지막 회차만 편집값으로 교체.
@@ -11711,7 +11756,25 @@ def _process_visit_cancel_confirmed(client, body, view) -> None:
         reason = '(사유 미입력)'
 
     # old 상담 내용 캡처 → append
-    old_lead = _find_lead_by_no(lead_no) or {}
+    old_lead = _find_lead_by_no(lead_no)
+    if not old_lead:
+        # 못 읽은 채 쓰면 상담 이력(K열)이 취소 한 줄로 덮어써진다(재상담·방문 완료는 10-13 에 막음, 2026-11-16).
+        #   List·카드·DM 도 건드리지 않고 멈춰 카드 버튼을 그대로 둔다 — 마커를 풀어 다시 누를 수 있게.
+        logger.error(f"[SLACK/방문취소] {lead_no} 리드 조회 실패 — 상담 이력 보존을 위해 취소 처리 중단")
+        if _vc_rc is not None:
+            try:
+                _vc_rc.delete(f'visit_cancelled:{lead_no}')
+            except Exception:
+                pass
+        if channel and user_id:
+            try:
+                client.chat_postEphemeral(
+                    channel=channel, user=user_id,
+                    text=(f":warning: `{lead_no}` 리드를 시트에서 읽지 못해 방문 취소를 처리하지 않았습니다. "
+                          f"잠시 뒤 [🗑️ 방문 취소]를 다시 눌러 주세요."))
+            except Exception:
+                pass
+        return
     old_note = str(old_lead.get('상담 내용') or '').strip()
     initial = _slack_user_to_initial(client, user_id) or '-'
     cancel_date = datetime.now().strftime('%Y-%m-%d')
