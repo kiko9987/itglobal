@@ -17,7 +17,7 @@
     <p class="gw-panel-desc">명단에 있는 사람만 새 그룹웨어 화면을 봅니다. 나머지 직원은 지금 PM 화면 그대로입니다. 바꾸면 바로 반영됩니다.</p>
     <ul class="gw-chip-list" id="gwPilotList"></ul>
     <div class="gw-inline-form">
-      <input type="email" class="form-control form-control-sm" id="gwPilotInput" placeholder="name@itg-aircon.com" autocomplete="off" list="gwUserEmails">
+      <input type="email" class="form-control form-control-sm" id="gwPilotInput" aria-label="시범 명단에 넣을 이메일" placeholder="name@itg-aircon.com" autocomplete="off" list="gwUserEmails">
       <button type="button" class="btn btn-sm btn-outline-primary" id="gwPilotAdd">추가</button>
     </div>
     <div class="gw-form-error" id="gwPilotError" role="alert"></div>
@@ -36,9 +36,10 @@
     <p class="gw-panel-desc">전 직원 인사카드를 보고 고칠 수 있습니다. 주민등록번호 전체 보기도 이 사람들만 됩니다.</p>
     <ul class="gw-chip-list" id="gwHrAdmins"></ul>
     <div class="gw-inline-form">
-      <input type="email" class="form-control form-control-sm" id="gwHrAdminInput" placeholder="name@itg-aircon.com" autocomplete="off" list="gwUserEmails">
+      <input type="email" class="form-control form-control-sm" id="gwHrAdminInput" aria-label="인사카드 관리자로 넣을 이메일" placeholder="name@itg-aircon.com" autocomplete="off" list="gwUserEmails">
       <button type="button" class="btn btn-sm btn-outline-primary" data-add="hr_admins" data-input="gwHrAdminInput">추가</button>
     </div>
+    <div class="gw-form-error" id="gwHrAdminError" role="alert"></div>
   </section>
 
   <section class="gw-panel">
@@ -46,7 +47,7 @@
     <p class="gw-panel-desc">전 직원 휴가 현황만 봅니다. 인사카드는 보지 못합니다.</p>
     <ul class="gw-chip-list" id="gwLeaveViewers"></ul>
     <div class="gw-inline-form">
-      <input type="email" class="form-control form-control-sm" id="gwLeaveViewerInput" placeholder="name@itg-aircon.com" autocomplete="off" list="gwUserEmails">
+      <input type="email" class="form-control form-control-sm" id="gwLeaveViewerInput" aria-label="휴가 현황 열람자로 넣을 이메일" placeholder="name@itg-aircon.com" autocomplete="off" list="gwUserEmails">
       <button type="button" class="btn btn-sm btn-outline-primary" data-add="leave_viewers" data-input="gwLeaveViewerInput">추가</button>
     </div>
     <div class="gw-form-error" id="gwRoleError" role="alert"></div>

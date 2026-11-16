@@ -37,6 +37,33 @@
   .cr-scroll { overflow-x: auto; }
   .cr-empty { color: #868e96; padding: 30px; text-align: center; }
   .cr-note { color: #868e96; font-size: .8rem; margin-top: 4px; }
+
+  /* 휴대폰(2026-11-16 리뉴얼 3단계) — PC 는 위 규칙 그대로 */
+  @media (max-width: 767.98px) {
+    .cr-wrap { padding: 12px 16px 40px; }
+    .cr-bar { gap: 8px; }
+    .cr-bar > label { flex: 0 0 auto; min-width: 48px; }
+    .cr-bar select { flex: 1 1 0; min-width: 0; width: auto !important; }
+    .cr-range { flex: 1 1 100%; flex-wrap: wrap; gap: 8px; }
+    .cr-range label { flex: 0 0 auto; min-width: 48px; margin-left: 0 !important; white-space: nowrap; }
+    /* 날짜 칸은 넓이 120px 부터 — [이 기간으로 저장]·[기본으로]가 나타나면 다음 줄로 내려가게(같은 줄에 끼어 날짜가 안 보였음) */
+    .cr-range input { flex: 1 1 120px; width: auto; min-width: 0; }
+    .cr-range .btn { flex: 1 1 calc(50% - 4px); }
+    .cr-bar select, .cr-range input { min-height: 44px; font-size: 16px; }
+    .cr-bar .btn, #crToggleAll { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; }
+    .cr-hint:empty { display: none; }
+    .cr-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .cr-card { min-width: 0; padding: 10px 12px; }
+    .cr-card .v { font-size: 1.05rem; overflow-wrap: anywhere; }
+    .cr-sec { padding: 8px; }
+    .cr-tbl td.cr-owner { padding: 12px 6px 8px; }
+    .cr-owner-in { position: sticky; left: 6px; width: calc(100vw - 64px); white-space: normal; }
+    .cr-owner .cnt { display: block; margin: 2px 0 0 18px; }
+  }
+
+  /* 보조 글자 대비: 회색 #868e96(3.3:1)·주황 #e8590c → 4.5:1 넘게 — PC·휴대폰 공통(11-16) */
+  .cr-note, .cr-card .k, .cr-owner .cnt, .cr-empty { color: #5f6670; }
+  .cr-hint { color: #c2410c; }
 </style>
 {% endblock %}
 
@@ -222,8 +249,10 @@
     d.groups.forEach(g => {
       const head = t.appendChild(el('tbody'));
       const ht = head.appendChild(el('tr')).appendChild(el('td', { colspan: DETAIL.length, class: 'cr-owner' }));
-      const name = ht.appendChild(el('span', {}, `▸ ${g['담당자']}`));
-      ht.appendChild(el('span', { class: 'cnt' }, `${g.sum['건수']}건 · 총액 2 ${won(g.sum['총액 2'])}원 · 순익 ${won(g.sum['순익'])}원`));
+      // 글자는 한 칸(div)에 담음 — 휴대폰에선 이 칸이 표 가로 스크롤과 상관없이 보이는 폭에 붙음(sticky)
+      const inner = ht.appendChild(el('div', { class: 'cr-owner-in' }));
+      const name = inner.appendChild(el('span', {}, `▸ ${g['담당자']}`));
+      inner.appendChild(el('span', { class: 'cnt' }, `${g.sum['건수']}건 · 총액 2 ${won(g.sum['총액 2'])}원 · 순익 ${won(g.sum['순익'])}원`));
       const body = t.appendChild(el('tbody', { class: 'cr-hide' }));
       g.groups.forEach(s => {
         s.rows.forEach(r => body.appendChild(tr(DETAIL.map(c =>

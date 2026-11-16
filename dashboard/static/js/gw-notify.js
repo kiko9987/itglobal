@@ -12,6 +12,7 @@
   var tabs = document.getElementById('gwNotifyTabs');
   var sr = document.getElementById('gwNotifySr');
   var data = null;
+  var failed = false;   // 마지막 불러오기 실패 — 실패도 '알림 없음'으로 보이던 것
   var cat = '';
   var POLL = 60000;
 
@@ -51,7 +52,11 @@
 
   function render() {
     list.textContent = '';
-    var items = (data && data.items || []).filter(function (i) { return !cat || i.cat === cat; });
+    if (!data) {
+      list.appendChild(el('div', 'gw-notify-empty', failed ? '알림을 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.' : '불러오는 중…'));
+      return;
+    }
+    var items = (data.items || []).filter(function (i) { return !cat || i.cat === cat; });
     if (!items.length) {
       list.appendChild(el('div', 'gw-notify-empty', '최근 30일 동안 알림이 없어요.'));
       return;
@@ -62,7 +67,9 @@
         a.href = i.href;
         if (/^https?:/.test(i.href)) { a.target = '_blank'; a.rel = 'noopener'; }
       }
-      a.appendChild(el('span', 'gw-notify-ic', i.icon || '🔔'));
+      var ic = el('span', 'gw-notify-ic', i.icon || '🔔');
+      ic.setAttribute('aria-hidden', 'true');
+      a.appendChild(ic);
       var main = el('span', 'gw-notify-main');
       main.appendChild(el('span', 'gw-notify-title', i.title));
       if (i.body) main.appendChild(el('span', 'gw-notify-body', i.body));
@@ -78,8 +85,9 @@
   function load() {
     return api('/api/gw/notify').then(function (j) {
       data = j;
+      failed = false;
       if (panel.hidden) setDot(j.unread);   // 창이 열려 있는 동안엔 읽음 처리 중이라 점을 다시 켜지 않음
-    }).catch(function () { /* 알림을 못 불러와도 화면은 그대로 */ });
+    }).catch(function () { failed = true; /* 화면은 그대로, 창을 열면 '불러오지 못했어요' */ });
   }
 
   function markSeen() {
@@ -109,7 +117,10 @@
     var b = e.target.closest('button[data-cat]');
     if (!b) return;
     cat = b.getAttribute('data-cat');
-    tabs.querySelectorAll('button').forEach(function (x) { x.classList.toggle('active', x === b); });
+    tabs.querySelectorAll('button').forEach(function (x) {
+      x.classList.toggle('active', x === b);
+      x.setAttribute('aria-pressed', x === b ? 'true' : 'false');   // 고른 분류를 낭독기에도
+    });
     render();
   });
   document.addEventListener('click', function (e) {

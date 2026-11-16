@@ -18,10 +18,10 @@
     </div>
   </div>
 
-  <div class="gw-ap-tabs" role="tablist" id="apTabs">
-    <button type="button" role="tab" data-box="todo" class="active">내 차례 <b id="apCntTodo">-</b></button>
-    <button type="button" role="tab" data-box="mine">내가 올린 결재 <b id="apCntMine">-</b></button>
-    <button type="button" role="tab" data-box="all" id="apTabAll" hidden>전체 <b id="apCntAll">-</b></button>
+  <div class="gw-ap-tabs" role="tablist" id="apTabs" aria-label="결재함">
+    <button type="button" role="tab" data-box="todo" class="active" aria-selected="true">내 차례 <b id="apCntTodo">-</b></button>
+    <button type="button" role="tab" data-box="mine" aria-selected="false" tabindex="-1">내가 올린 결재 <b id="apCntMine">-</b></button>
+    <button type="button" role="tab" data-box="all" id="apTabAll" aria-selected="false" tabindex="-1" hidden>전체 <b id="apCntAll">-</b></button>
   </div>
 
   <div class="gw-ap-filters" id="apFilters">
@@ -36,9 +36,9 @@
     <input type="date" class="gw-chip-date" id="apFrom" aria-label="올린 날 부터">
     <span class="gw-ap-tilde">~</span>
     <input type="date" class="gw-chip-date" id="apTo" aria-label="올린 날 까지">
-    <input type="search" class="gw-chip-search" id="apQ" placeholder="제목·거래처·현장 코드·요청자" aria-label="검색">
+    <input type="search" class="gw-chip-search" id="apQ" placeholder="제목·거래처·현장 코드·요청자" aria-label="검색" autocomplete="off">
     <button type="button" class="gw-chip-reset" id="apReset"><i class="fas fa-times me-1" aria-hidden="true"></i>초기화</button>
-    <span class="gw-ap-count" id="apCount"></span>
+    <span class="gw-ap-count" id="apCount" aria-live="polite"></span>
   </div>
 
   <div class="gw-callout gw-callout-sm" id="apUnlinked" hidden>

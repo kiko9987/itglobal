@@ -111,7 +111,7 @@ export default class CasePhotos {
     // 사진 수 — 드라이브 '시공사례' 폴더가 있으면 그 폴더로 링크(사진은 문서 폴더에서 확인)
     let countPill;
     if (!job) {
-      countPill = pill('없음', 'background:#eef0f2;color:#6b7280;', '사진을 올리거나 카톡 PC에서 이 칸으로 끌어다 놓으세요');
+      countPill = pill('없음', 'background:#eef0f2;color:#4b5563;', '사진을 올리거나 카톡 PC에서 이 칸으로 끌어다 놓으세요');
     } else {
       const text = `사진 ${photos}${job.has_order_text || job.order_text ? ' · 지시 글' : ''}${orders ? ` · 도면 ${orders}` : ''}`;
       countPill = job.drive_folder_id

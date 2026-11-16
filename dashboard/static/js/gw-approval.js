@@ -150,6 +150,7 @@
         var on = b.getAttribute('data-box') === state.box;
         b.classList.toggle('active', on);
         b.setAttribute('aria-selected', on ? 'true' : 'false');
+        b.tabIndex = on ? 0 : -1;
       });
       var f = filters();
       var active = f.form || f.status || f.from || f.to || f.q;
@@ -211,7 +212,17 @@
     });
     $('apRows').addEventListener('keydown', function (e) {
       var tr = e.target.closest('tr[data-id]');
-      if (tr && e.key === 'Enter') openDoc(Number(tr.getAttribute('data-id')));
+      if (tr && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openDoc(Number(tr.getAttribute('data-id'))); }
+    });
+    $('apTabs').addEventListener('keydown', function (e) {
+      if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(e.key) === -1) return;
+      var tabs = Array.prototype.filter.call($('apTabs').querySelectorAll('button[data-box]'), function (b) { return !b.hidden; });
+      var i = tabs.indexOf(document.activeElement);
+      if (i < 0) return;
+      e.preventDefault();
+      var n = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+      tabs[n].focus();
+      tabs[n].click();
     });
     $('apTabs').addEventListener('click', function (e) {
       var b = e.target.closest('button[data-box]');
@@ -264,7 +275,7 @@
             (warnedPrimary ? '<i class="fas fa-exclamation-triangle me-1" aria-hidden="true"></i>' : '') + esc(a.label) +
             (warnedPrimary ? '<span class="visually-hidden"> (경고 있음)</span>' : '') + '</button>';
         }).join('') + '</div>' +
-        '<div class="gw-ap-reason" id="apReason" hidden><textarea class="form-control" rows="3" maxlength="300" id="apReasonText"></textarea>' +
+        '<div class="gw-ap-reason" id="apReason" hidden><textarea class="form-control" rows="3" maxlength="300" id="apReasonText" aria-label="사유"></textarea>' +
         '<div class="gw-ap-reason-btns"><button type="button" class="btn btn-sm btn-outline-secondary" id="apReasonCancel">취소</button>' +
         '<button type="button" class="btn btn-sm btn-primary" id="apReasonOk">보내기</button></div></div>' +
         '<div class="gw-form-error" id="apActError" role="alert"></div>';
@@ -308,6 +319,10 @@
           $('apReason').hidden = false;
           var t = $('apReasonText');
           t.placeholder = act === 'reject' ? '반려 사유를 적어 주세요.' : '무엇을 고쳐야 하는지 적어 주세요.';
+          t.setAttribute('aria-label', act === 'reject' ? '반려 사유' : '수정 요청 내용');
+          t.removeAttribute('aria-invalid');
+          // 단추 이름에 무엇을 보내는지 — '보내기'만으로는 반려인지 수정 요청인지 안 드러났음
+          $('apReasonOk').textContent = act === 'reject' ? '반려 보내기' : '수정 요청 보내기';
           t.focus();
           return;
         }
@@ -321,11 +336,26 @@
       $('apReasonCancel').addEventListener('click', function () { $('apReason').hidden = true; pending = null; });
       $('apReasonOk').addEventListener('click', function () {
         var r = $('apReasonText').value.trim();
-        if (!r) { $('apActError').textContent = '내용을 적어 주세요.'; return; }
+        if (!r) {
+          $('apActError').textContent = '내용을 적어 주세요.';
+          $('apReasonText').setAttribute('aria-invalid', 'true');
+          $('apReasonText').focus();
+          return;
+        }
         send(pending, r);
       });
+      // 처리 중엔 사유 칸의 [보내기]·[취소]도 막음 — 처리 단추만 막아 두 번 누르면 두 번째에 '이미 처리된 결재' 오류가 떴음
+      function lock(on) {
+        box.querySelectorAll('button').forEach(function (x) { x.disabled = on; });
+        ['apReasonOk', 'apReasonCancel'].forEach(function (id) { var x = $(id); if (x) x.disabled = on; });
+      }
       function send(act, reason) {
-        box.querySelectorAll('button').forEach(function (x) { x.disabled = true; });
+        lock(true);
+        // 처리 중 글자 — 단추만 흐려져 눌렸는지 알기 어려웠음
+        var busy = reason ? $('apReasonOk') : box.querySelector('button[data-act="' + act + '"]');
+        var busyHtml = busy ? busy.innerHTML : '';
+        if (busy) busy.textContent = '처리하는 중…';
+        function restore() { if (busy && document.contains(busy)) busy.innerHTML = busyHtml; }
         // rev = 이 화면을 그릴 때의 수정 회차 — 그 사이 요청자가 고쳤으면 서버가 거절한다(11-14)
         api('/api/approval/' + d.id + '/act', { method: 'POST', body: { action: act, reason: reason, rev: d.rev } })
           .then(function (j) { renderDoc(j.doc); load(); })
@@ -337,12 +367,14 @@
                 if (el) el.textContent = e.message; else window.alert(e.message);
                 load();
               }).catch(function () {
-                box.querySelectorAll('button').forEach(function (x) { x.disabled = false; });
+                lock(false);
+                restore();
                 $('apActError').textContent = e.message;
               });
               return;
             }
-            box.querySelectorAll('button').forEach(function (x) { x.disabled = false; });
+            lock(false);
+            restore();
             $('apActError').textContent = e.message;
           });
       }
@@ -370,7 +402,7 @@
         $('arCount').textContent = j.total.toLocaleString('ko-KR') + '건';
         $('arRows').innerHTML = j.items.length ? j.items.map(function (it) {
           return '<tr data-doc="' + esc(it.doc_no) + '" tabindex="0"><td class="muted">' + esc(it.doc_no) + '</td><td>' + esc(it.form) + '</td>' +
-            '<td class="main">' + esc(it.title) + (it.attachments ? ' <i class="fas fa-paperclip muted" title="플렉스 첨부 ' + it.attachments + '개(파일은 옮기지 않았어요)"></i>' : '') + '</td>' +
+            '<td class="main">' + esc(it.title) + (it.attachments ? ' <i class="fas fa-paperclip muted" role="img" aria-label="플렉스 첨부 ' + it.attachments + '개" title="플렉스 첨부 ' + it.attachments + '개(파일은 옮기지 않았어요)"></i>' : '') + '</td>' +
             '<td>' + esc(it.project_code || '') + '</td><td>' + esc(it.partner || '') + '</td>' +
             '<td class="num">' + (it.amount ? won(it.amount) : '') + '</td><td>' + esc(it.writer) + '</td>' +
             '<td><span class="gw-ap-st flex-' + esc(it.status) + '">' + esc(it.status) + '</span></td>' +
@@ -415,7 +447,7 @@
     });
     $('arRows').addEventListener('keydown', function (e) {
       var tr = e.target.closest('tr[data-doc]');
-      if (tr && e.key === 'Enter') openArchive(tr.getAttribute('data-doc'));
+      if (tr && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openArchive(tr.getAttribute('data-doc')); }
     });
     arLoad();
   }

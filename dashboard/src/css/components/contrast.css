@@ -1,0 +1,72 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   PM 화면 글자 대비 (2026-11-16) — PC·휴대폰 공통. 흰·연한 바탕 위 글자를 4.5:1 넘게.
+   - 색 자체(파랑·초록·주황 계열)는 그대로 두고 한 단계 진하게만.
+   - 리드 화면은 leads.css 가 이 파일보다 뒤에 읽혀 같은 우선순위면 지므로 `html body` 를 붙임.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* 프로젝트 펼침 제목 칸: 코드 파랑 3.78:1 · 회색 글자 4.45:1 */
+html body .project-title-section .project-code-badge {
+  color: #1d4ed8 !important;
+}
+
+html body .project-title-section .project-manager-info,
+html body .project-title-section .project-inflow-info,
+html body .project-title-section .project-address-info,
+html body .project-title-section .project-content-info {
+  color: #4b5563 !important;
+}
+
+/* 정보 카드 제목: 노랑(금액정보 1.63:1)·하늘(손익정보 1.96:1) 글자 → 글자는 진하게, 아이콘만 색 유지 */
+html body .info-card h6.text-warning,
+html body .info-card h6.text-info {
+  color: #1a1c20 !important;
+}
+
+html body .info-card h6.text-warning > i {
+  color: #e0a800;
+}
+
+html body .info-card h6.text-info > i {
+  color: #0aa2c0;
+}
+
+/* 계산서 '미발행' 배지 4.45:1 · 폴더 링크 4.30:1 · 사업자등록증 '첨부되지 않음' 4.41:1 */
+html body .invoice-badge.invoice-none {
+  color: #4b5563 !important;
+}
+
+html body .itgfolder-link {
+  color: #1d4ed8 !important; /* JS 가 요소에 직접 넣은 색(#0d6efd)을 덮음 */
+}
+
+html body .il-status {
+  color: #92400e !important; /* JS 가 요소에 직접 넣은 색(#b45309)을 덮음 */
+}
+
+/* 프로젝트 종류 배지 G(초록) 3.81:1 */
+.project-badge.g-type {
+  color: #1b5e20;
+}
+
+/* 리드 표: 리드 번호 파랑 3.98:1 · 상태 배지(부재중 3.96 · 공사 확정 4.07 · 드랍/기타 회색) · 담당자·플랫폼 배지 3.90 */
+html body .lead-no-badge {
+  color: #1d4ed8;
+}
+
+html body .badge.lead-status-absent {
+  color: #b93d0b;
+}
+
+html body .badge.lead-status-confirmed {
+  color: #237032;
+}
+
+html body .badge.lead-status-drop,
+html body .badge.lead-status-etc {
+  color: #495057;
+}
+
+html body #leadsTable .badge.manager-badge,
+html body #leadsTable .badge.company-badge {
+  color: #374151 !important;
+}

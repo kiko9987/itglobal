@@ -7,6 +7,15 @@
   var CFG = window.GW_LEAVE || {};
   var WD = ['월', '화', '수', '목', '금', '토', '일'];
 
+  // 창을 JS 로 열면 닫힌 뒤 포커스가 여는 단추로 돌아가지 않음(부트스트랩은 data-bs 로 열 때만) → 직접 되돌림
+  function returnFocusOnHide(modalEl) {
+    var opener = document.activeElement;
+    modalEl.addEventListener('hidden.bs.modal', function h() {
+      modalEl.removeEventListener('hidden.bs.modal', h);
+      if (opener && opener.focus && document.contains(opener)) opener.focus();
+    });
+  }
+
   function esc(v) {
     return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -199,7 +208,12 @@
 
     function clearErrors() {
       f.querySelectorAll('.gw-lv-err').forEach(function (el) { el.textContent = ''; });
-      f.querySelectorAll('.is-invalid').forEach(function (el) { el.classList.remove('is-invalid'); });
+      f.querySelectorAll('.is-invalid').forEach(function (el) {
+        el.classList.remove('is-invalid');
+        el.removeAttribute('aria-invalid');
+        var d = (el.getAttribute('aria-describedby') || '').split(' ').filter(function (x) { return x && x.indexOf('lvErr_') !== 0; }).join(' ');
+        if (d) el.setAttribute('aria-describedby', d); else el.removeAttribute('aria-describedby');
+      });
     }
 
     function showErrors(errs, fallback) {
@@ -209,7 +223,15 @@
         if (!box) return;
         box.textContent = errs[k];
         var input = f.querySelector('[name="' + k + '"]');
-        if (input) input.classList.add('is-invalid');
+        if (input) {
+          input.classList.add('is-invalid');
+          // 낭독기가 '이 칸이 틀렸고 이유는 …'으로 읽게 칸과 오류 글을 잇는다
+          input.setAttribute('aria-invalid', 'true');
+          if (!box.id) box.id = 'lvErr_' + k;
+          var d = (input.getAttribute('aria-describedby') || '').split(' ').filter(Boolean);
+          if (d.indexOf(box.id) === -1) d.push(box.id);
+          input.setAttribute('aria-describedby', d.join(' '));
+        }
         if (!shown) {
           if (input) input.focus();
           try { box.scrollIntoView({ block: 'nearest' }); } catch (e) { /* 무시 */ }
@@ -241,7 +263,7 @@
       subSel.innerHTML = '<option value="">고르기</option>' + form.event_subs.map(function (o) { return '<option value="' + esc(o.value) + '">' + esc(o.label) + '</option>'; }).join('');
       typeSel.value = form.types.length ? form.types[0].value : '';
       syncType();
-      if (window.bootstrap) window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
+      if (window.bootstrap) { returnFocusOnHide(modalEl); window.bootstrap.Modal.getOrCreateInstance(modalEl).show(); }
     }
 
     applyBtn.addEventListener('click', openApply);
@@ -300,13 +322,14 @@
       document.getElementById('lvCancelWhat').innerHTML = '<strong>' + esc(b.getAttribute('data-what')) + '</strong>';
       document.getElementById('lvCancelText').textContent = b.getAttribute('data-confirm');
       cErr.textContent = '';
-      if (window.bootstrap) window.bootstrap.Modal.getOrCreateInstance(cModalEl).show();
+      if (window.bootstrap) { returnFocusOnHide(cModalEl); window.bootstrap.Modal.getOrCreateInstance(cModalEl).show(); }
     });
 
     cYes.addEventListener('click', function () {
       if (!pending) return;
       var p = pending;
       cYes.disabled = true;
+      cYes.textContent = '취소하는 중…';
       cErr.textContent = '';
       api('/api/leave/' + encodeURIComponent(p.id) + '/cancel', { method: 'POST' }).then(function () {
         pending = null;
@@ -315,7 +338,7 @@
         load();
       }).catch(function (e) {
         cErr.textContent = e.message;
-      }).then(function () { cYes.disabled = false; });
+      }).then(function () { cYes.disabled = false; cYes.textContent = '취소하기'; });
     });
 
     load();
@@ -331,6 +354,7 @@
   function showTab(key) {
     Object.keys(tabs).forEach(function (k) {
       tabs[k].setAttribute('aria-selected', String(k === key));
+      tabs[k].tabIndex = k === key ? 0 : -1;
       panes[k].hidden = k !== key;
     });
     try { localStorage.setItem('gw.leave.tab', key); } catch (e) { /* 무시 */ }
@@ -338,6 +362,14 @@
   }
   tabs.cal.addEventListener('click', function () { showTab('cal'); });
   tabs.list.addEventListener('click', function () { showTab('list'); });
+  tabs.cal.parentElement.addEventListener('keydown', function (e) {
+    if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(e.key) === -1) return;
+    e.preventDefault();
+    var next = (e.key === 'Home') ? 'cal' : (e.key === 'End') ? 'list'
+      : (tabs.cal.getAttribute('aria-selected') === 'true' ? 'list' : 'cal');   // 탭이 둘이라 좌우 모두 바꿈
+    showTab(next);
+    tabs[next].focus();
+  });
 
   // ── 달력 ───────────────────────────────────────────────────
   var calEl = document.getElementById('lvCal');
@@ -366,7 +398,8 @@
         var label = e.half ? e.half + ' 반차' : (e.type === '연차' ? '' : e.type);
         h += '<div class="gw-cal-chip ' + (e.status === '대기' ? 'wait' : 'ok') + '" title="' +
           esc(e.name + ' · ' + e.type + (e.half ? ' ' + e.half : '') + (e.status === '대기' ? ' · 승인 대기' : '')) + '">' +
-          esc(e.name) + (label ? ' <small>' + esc(label) + '</small>' : '') + '</div>';
+          esc(e.name) + (label ? ' <small>' + esc(label) + '</small>' : '') +
+          '<span class="visually-hidden">' + (e.status === '대기' ? ' 승인 대기' : ' 승인됨') + '</span></div>';
       });
       h += '</div>';
     }
@@ -423,7 +456,7 @@
   function openPerson(id, name) {
     document.getElementById('lvPersonTitle').textContent = name + ' 휴가';
     bodyEl.innerHTML = '<div class="gw-empty">불러오는 중…</div>';
-    if (window.bootstrap) window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    if (window.bootstrap) { returnFocusOnHide(modalEl); window.bootstrap.Modal.getOrCreateInstance(modalEl).show(); }
     api('/api/leave/person/' + id).then(function (j) {
       bodyEl.innerHTML = renderSummary(j.leave, { hideApplyNote: true });
       bindYearFilter(bodyEl);

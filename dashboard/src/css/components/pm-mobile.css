@@ -711,6 +711,11 @@ html.pmm-sheet-open body {
     font-weight: 500;
   }
 
+  .pmm-money .pmm-due-later b,
+  .pmm-sheet-sum .pmm-due-later b {
+    color: #1a1c20; /* 공사대기: 아직 받을 때가 아님 — 빨강 대신 보통 글자 */
+  }
+
   .pmm-meta {
     display: flex;
     flex-wrap: wrap;
@@ -811,6 +816,40 @@ html.pmm-sheet-open body {
     flex-wrap: wrap;
     gap: 8px;
     justify-content: flex-start !important;
+  }
+
+  /* [공사 취소]·[공사 재개]: [편집] 바로 옆이라 잘못 누르기 쉬웠음 → 줄 맨 끝(오른쪽)으로 떼어 놓음 */
+  .pmm-sheet .project-actions-container .cancel-construction-btn,
+  .pmm-sheet .project-actions-container .resume-construction-btn {
+    order: 99;
+    margin-left: auto;
+  }
+
+  /* 편집 중 [저장]·[취소]: 긴 상세를 끝까지 내려야 했던 것 → 화면 아래 고정 */
+  .pmm-sheet .unified-edit-buttons:has(.unified-save-btn:not(.d-none)) {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 5;
+    display: flex;
+    gap: 8px;
+    margin: 0 !important;
+    padding: 12px 16px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+    border-top: 1px solid #dcdee3;
+    background: #ffffff;
+  }
+
+  .pmm-sheet .unified-edit-buttons:has(.unified-save-btn:not(.d-none)) .btn {
+    flex: 1 1 0;
+    justify-content: center;
+    min-height: 48px;
+    font-size: 16px;
+  }
+
+  .pmm-sheet:has(.unified-save-btn:not(.d-none)) .pmm-sheet-scroll {
+    padding-bottom: calc(88px + env(safe-area-inset-bottom));
   }
 
   .pmm-sheet .project-actions-container .btn,
@@ -1214,6 +1253,359 @@ html.pmm-sheet-open body {
 
   html body.pmm-page #modernProjectModal {
     color-scheme: light;
+  }
+}
+
+/* ════════ 3단계(11-16): 공통 창 · 메모 창 · 예전 틀 머리글 ════════
+   그룹웨어 화면 창(휴가·인사 등)은 이미 휴대폰 정리를 마쳐 건드리지 않는다 → 창은 id 로만 고른다 */
+@media (max-width: 767.98px) {
+  /* ── 큰 창(관리용 표): 화면 가득 ── */
+  html body #userManagementModal .modal-dialog,
+  html body #auditLogsModal .modal-dialog,
+  html body #sequenceManagementModal .modal-dialog,
+  html body #constructorManagementModal .modal-dialog,
+  html body.pmm-page #viewModal .modal-dialog,
+  html body.pmm-page #editModal .modal-dialog,
+  html body.pmm-page #convertPathsModal .modal-dialog {
+    width: 100% !important;
+    max-width: none !important;
+    height: 100%;
+    min-height: 100%;
+    margin: 0 !important;
+  }
+
+  html body #userManagementModal .modal-content,
+  html body #auditLogsModal .modal-content,
+  html body #sequenceManagementModal .modal-content,
+  html body #constructorManagementModal .modal-content,
+  html body.pmm-page #viewModal .modal-content,
+  html body.pmm-page #editModal .modal-content,
+  html body.pmm-page #convertPathsModal .modal-content {
+    height: 100%;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+  }
+
+  html body #userManagementModal .modal-body,
+  html body #auditLogsModal .modal-body,
+  html body #sequenceManagementModal .modal-body,
+  html body #constructorManagementModal .modal-body,
+  html body.pmm-page #viewModal .modal-body,
+  html body.pmm-page #editModal .modal-body,
+  html body.pmm-page #convertPathsModal .modal-body {
+    flex: 1 1 auto;
+    max-height: none !important;
+    padding: 12px 16px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* 머리: 제목 · 고르기 · 새로고침 · 닫기가 한 줄 격자(5칸)라 375px 에서 눌림 → 줄바꿈, 알림 칸은 아래 한 줄 */
+  html body #userManagementModal .modal-header,
+  html body #auditLogsModal .modal-header {
+    display: flex !important;
+    flex-wrap: wrap;
+    gap: 8px !important;
+    padding: 12px 8px 12px 16px !important;
+    padding-top: calc(12px + env(safe-area-inset-top)) !important;
+  }
+
+  html body #userManagementModal .modal-title,
+  html body #auditLogsModal .modal-title {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  html body #userManagementAlert,
+  html body #auditLogsAlert {
+    order: 9;
+    flex: 1 1 100%;
+    height: auto !important;
+    min-height: 0;
+    margin: 0 !important;
+  }
+
+  html body #userManagementAlert:empty,
+  html body #auditLogsAlert:empty {
+    display: none !important;
+  }
+
+  html body #userManagementModal .modal-header .btn,
+  html body #auditLogsModal .modal-header .btn,
+  html body #auditLogsDays {
+    height: 44px !important;
+    min-height: 44px;
+  }
+
+  html body #auditLogsDays {
+    width: auto;
+  }
+
+  html body #userManagementModal .modal-header .btn-close,
+  html body #auditLogsModal .modal-header .btn-close {
+    width: 44px !important;
+  }
+
+  /* 창 안 표: project-table.css 가 휴대폰에서 모든 .table 의 4번째 칸부터 숨겨
+     사용자 관리 [상태 변경]·작업 로그 [작업·이전값·새값]이 안 보였음 → 이 창들에서만 되살리고 표는 가로로 넘김 */
+  html body :is(#userManagementModal, #auditLogsModal, #sequenceManagementModal, #constructorManagementModal,
+                #ilActionModal, #asActionModal, #cancelReasonModal) .table :is(th, td) {
+    display: table-cell;
+  }
+
+  html body #auditLogsModal .audit-logs-table {
+    min-width: 760px;
+  }
+
+  html body #userManagementModal #usersTable {
+    min-width: 960px;
+  }
+
+  /* 바닥: 개수·쪽 정보(왼쪽) / 쪽 번호(가운데 겹쳐 놓기)가 겹치던 것 → 두 줄 */
+  html body .user-management-footer,
+  html body .audit-logs-footer {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  html body .user-management-info,
+  html body .audit-logs-info {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+
+  html body .user-management-info small,
+  html body .audit-logs-info small {
+    white-space: nowrap;
+  }
+
+  html body .user-management-pagination-center,
+  html body .audit-logs-pagination-center {
+    position: static;
+    transform: none;
+  }
+
+  html body .user-management-close,
+  html body .audit-logs-close {
+    display: none !important;
+  }
+
+  html body .user-management-footer .pagination .page-link,
+  html body .audit-logs-footer .pagination .page-link {
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  html body #userManagementModal .modal-footer,
+  html body #auditLogsModal .modal-footer {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom)) !important;
+  }
+
+  /* 상세 시트(z 1045) 위에 창을 띄우면 창 뒤 막(z 1040)이 시트 밑에 깔려 시트가 안 어두워졌음 → 시트 열렸을 때만 위로 */
+  html.pmm-sheet-open .modal-backdrop {
+    z-index: 1046;
+  }
+
+  /* ── 작은 창(계산서·A/S 처리, 공사 취소 사유): 아래에서 올라오는 시트 ── */
+  html body #ilActionModal .modal-dialog,
+  html body #asActionModal .modal-dialog,
+  html body #cancelReasonModal .modal-dialog {
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 100%;
+    margin: 0 !important;
+    align-items: flex-end;
+  }
+
+  html body #ilActionModal .modal-content,
+  html body #asActionModal .modal-content,
+  html body #cancelReasonModal .modal-content {
+    max-height: 92vh;
+    max-height: 92dvh;
+    border: 0;
+    border-radius: 16px 16px 0 0;
+  }
+
+  html body #ilActionModal .modal-body,
+  html body #asActionModal .modal-body,
+  html body #cancelReasonModal .modal-body {
+    overflow-y: auto;
+  }
+
+  html body #ilActionModal .modal-footer,
+  html body #asActionModal .modal-footer,
+  html body #cancelReasonModal .modal-footer {
+    flex-direction: row; /* 예전 휴대폰 규칙(.modal-footer 세로 쌓기)이 단추를 위아래로 좁게 쌓던 것 */
+    flex-wrap: nowrap;
+    padding: 12px 16px !important;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom)) !important;
+  }
+
+  html body #ilActionModal .modal-footer .btn,
+  html body #asActionModal .modal-footer .btn,
+  html body #cancelReasonModal .modal-footer .btn {
+    flex: 1 1 0;
+    min-height: 44px;
+  }
+
+  /* 창 공통: 닫기 44px, 입력 글자 16px(아이폰이 칸을 누를 때 화면을 확대하지 않게)
+     :is(…, #pmm-x) = 없는 id 를 끼워 우선순위만 올림(#usersTable .user-permission-select.form-select !important 를 이기려고) */
+  html body #ilActionModal .btn-close,
+  html body #asActionModal .btn-close,
+  html body #cancelReasonModal .btn-close,
+  html body #sequenceManagementModal .btn-close,
+  html body #constructorManagementModal .btn-close {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+
+  html body #userManagementModal :is(input, select, textarea, #pmm-x),
+  html body #auditLogsModal :is(input, select, textarea, #pmm-x),
+  html body #sequenceManagementModal :is(input, select, textarea, #pmm-x),
+  html body #constructorManagementModal :is(input, select, textarea, #pmm-x),
+  html body #ilActionModal :is(input, select, textarea, #pmm-x),
+  html body #asActionModal :is(input, select, textarea, #pmm-x),
+  html body #cancelReasonModal :is(input, select, textarea, #pmm-x),
+  html body.pmm-page #viewModal :is(input, select, textarea, #pmm-x),
+  html body.pmm-page #editModal :is(input, select, textarea, #pmm-x),
+  html body.pmm-page #convertPathsModal :is(input, select, textarea, #pmm-x) {
+    font-size: 16px !important;
+  }
+
+  html body #ilActionModal :is(input[type="text"], input[type="date"], input[type="number"], select),
+  html body #asActionModal :is(input[type="text"], input[type="date"], input[type="number"], select),
+  html body #cancelReasonModal :is(input[type="text"], select) {
+    min-height: 44px;
+  }
+
+  /* ── 칸 메모 창: 단추 옆 작은 창(300px) → 아래 시트(어느 칸에서 열어도 같은 자리) ── */
+  html body .field-memo-popover {
+    top: auto !important;
+    right: 0;
+    bottom: 0;
+    left: 0 !important;
+    width: 100% !important;
+    max-height: 80vh;
+    overflow-y: auto;
+    border: 0;
+    border-top: 1px solid #dcdee3;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.12);
+    padding-bottom: env(safe-area-inset-bottom);
+    animation: none;
+  }
+
+  html body .field-memo-popover .memo-textarea {
+    font-size: 16px !important;
+  }
+
+  html body .field-memo-popover .memo-close-btn {
+    width: 44px;
+    height: 44px;
+  }
+
+  html body .field-memo-popover .memo-popover-footer .btn {
+    min-height: 44px;
+    padding: 0 16px !important;
+    font-size: 15px !important;
+  }
+
+  html body .field-memo-popover .memo-inst-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* ── 예전 틀(그룹웨어 틀이 아닐 때) 머리글: 로고 200px·제목이 한 글자씩 세로·메뉴 단추 세로 줄 → 화면 461px 로 넘침
+       위 줄 = 로고 · 사용자 메뉴, 아래 줄 = 메뉴(글자와 함께, 가로로 넘김) ── */
+  html body:not(.gw-shell) > header.header {
+    height: auto;
+    min-height: 0;
+  }
+
+  html body:not(.gw-shell) > header.header .container-fluid {
+    padding: 8px 16px;
+  }
+
+  html body:not(.gw-shell) > header.header .container-fluid > .d-flex {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  html body:not(.gw-shell) > header.header .header-logo-section {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  html body:not(.gw-shell) > header.header .logo {
+    width: auto;
+    height: 32px;
+  }
+
+  /* 제목은 화면 낭독기에만(로고와 같은 말) */
+  html body:not(.gw-shell) > header.header .header-logo-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  html body:not(.gw-shell) > header.header #systemAlertContainer {
+    margin-left: 8px !important;
+    min-height: 0 !important;
+  }
+
+  html body:not(.gw-shell) > header.header .header-logo-section + .d-flex {
+    display: contents !important; /* 부트스트랩 .d-flex 가 !important */
+  }
+
+  html body:not(.gw-shell) > header.header .header-divider {
+    display: none;
+  }
+
+  html body:not(.gw-shell) > header.header .dropdown {
+    flex: 0 0 auto;
+  }
+
+  html body:not(.gw-shell) > header.header .btn-user-menu {
+    min-height: 44px;
+    white-space: nowrap !important;
+  }
+
+  html body:not(.gw-shell) > header.header #headerActions {
+    order: 3;
+    flex: 1 1 100%;
+    min-width: 0;
+    flex-direction: row !important;
+    flex-wrap: nowrap;
+    align-items: center !important;
+    gap: 8px !important;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  html body:not(.gw-shell) > header.header #headerActions::-webkit-scrollbar {
+    display: none;
+  }
+
+  html body:not(.gw-shell) > header.header #headerActions .btn {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    white-space: nowrap;
+  }
+
+  html body:not(.gw-shell) > header.header #headerActions .btn .d-none {
+    display: inline !important;
+    color: #1a1c20; /* 연한 단추 바탕 위 색 글자(3.4:1) → 진한 글자, 아이콘만 색 유지 */
   }
 }
 

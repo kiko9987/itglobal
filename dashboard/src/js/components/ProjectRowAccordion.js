@@ -1409,12 +1409,12 @@ export default class ProjectRowAccordion {
     if (FOLDER_ID_RE.test(String(localPath).trim()) && window.matchMedia?.('(max-width: 767.98px)').matches) {
       const id = escHtml(String(localPath).trim());
       return `<a href="https://drive.google.com/drive/folders/${id}" target="_blank" rel="noopener"
-                 class="text-decoration-none" style="color: #0d6efd;">구글 드라이브에서 열기</a>`;
+                 class="text-decoration-none" style="color: #1d4ed8;">구글 드라이브에서 열기</a>`;
     }
     // 폴더 ID 패턴이면 itgfolder:// (탐색기 직접 열기) — 리드 페이지와 공용 유틸
     const itgLink = renderItgfolderLink(localPath);
     if (itgLink) return itgLink;
-    return `<a href="#" class="text-decoration-none folder-open-link" data-project-code="${escHtml(projectCode)}" style="color: #0d6efd;">${escHtml(localPath)}</a>`;
+    return `<a href="#" class="text-decoration-none folder-open-link" data-project-code="${escHtml(projectCode)}" style="color: #1d4ed8;">${escHtml(localPath)}</a>`;
   }
 
   /**
@@ -1464,7 +1464,7 @@ export default class ProjectRowAccordion {
             </span>
             <span class="il-status" data-il-status="${code}"
                   style="display:inline-flex; align-items:center; padding:3px 10px; border-radius:12px;
-                         background:#eef0f2; color:#6b7280;">확인 중…</span>
+                         background:#eef0f2; color:#4b5563;">확인 중…</span>
             <span class="il-edit-controls" data-il-edit="${code}"
                   style="display:none; gap:8px; align-items:center; flex-wrap:wrap;"></span>
             <input type="file" data-il-file="${code}" accept="image/*,.pdf,.heic" style="display:none;"

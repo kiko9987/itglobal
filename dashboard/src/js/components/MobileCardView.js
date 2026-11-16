@@ -27,6 +27,12 @@ const STATUS_TONE = {
   공사취소: 'cancel',
 };
 
+/** 미수금 색: 받을 돈이 남았으면 빨강. 단 공사대기는 아직 받을 때가 아니라 보통 글자(밀린 돈처럼 보이던 것) */
+function dueClass(due, status) {
+  if (!(due > 0)) return 'pmm-due-zero';
+  return status === '공사대기' ? 'pmm-due-later' : 'pmm-due';
+}
+
 function won(n) {
   return `${Math.round(n).toLocaleString('ko-KR')}원`;
 }
@@ -175,6 +181,7 @@ export default class MobileCardView {
     const addr = String(r['현장 주소'] || '').trim();
     const manager = String(r['담당자'] || '').trim();
     const cancelled = status === '공사취소';
+    const dueCls = dueClass(due, status);
 
     return `
       <div class="pmm-card${cancelled ? ' is-cancelled' : ''}" role="button" tabindex="0"
@@ -187,7 +194,7 @@ export default class MobileCardView {
         ${partner && partner !== '-' ? `<div class="pmm-partner">${escHtml(partner)}</div>` : ''}
         <div class="pmm-money">
           <span>총액 <b>${total > 0 ? won(total) : '-'}</b></span>
-          <span class="${due > 0 ? 'pmm-due' : 'pmm-due-zero'}">미수금 <b>${won(due)}</b></span>
+          <span class="${dueCls}">미수금 <b>${won(due)}</b></span>
         </div>
         <div class="pmm-meta">
           <span>${escHtml(manager || '담당 미정')}</span>
@@ -302,7 +309,7 @@ export default class MobileCardView {
       <div class="pmm-sheet-sum">
         <span class="pmm-status pmm-st-${STATUS_TONE[status] || 'wait'}"><span class="pmm-dot" aria-hidden="true"></span>${escHtml(status || '상태 없음')}</span>
         <span class="pmm-sum-money">총액 <b>${total > 0 ? won(total) : '-'}</b></span>
-        <span class="pmm-sum-money ${due > 0 ? 'pmm-due' : 'pmm-due-zero'}">미수금 <b>${won(due)}</b></span>
+        <span class="pmm-sum-money ${dueClass(due, status)}">미수금 <b>${won(due)}</b></span>
       </div>`];
     if (tel) {
       parts.push(`<a class="pmm-quick-btn" href="${escHtml(tel)}">

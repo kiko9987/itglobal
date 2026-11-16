@@ -106,11 +106,13 @@
     <div class="loading-overlay" id="loadingOverlay" style="display: none;">
         <div class="text-center">
             <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;"></div>
-            <p class="mt-2">데이터를 불러오는 중...</p>
+            <p class="mt-2">데이터를 불러오는 중…</p>
         </div>
     </div>
 
     {% if gw_layout %}
+    {# 본문 바로가기 — 키보드로 들어오면 왼쪽 메뉴를 다 지나지 않고 바로 본문으로(누르기 전엔 안 보임) #}
+    <a class="gw-skip" href="#mainContent">본문으로 건너뛰기</a>
     {% include 'components/_gw_shell.html' %}
     {% else %}
     <!-- Header -->
@@ -178,7 +180,7 @@
     {% endif %}
 
     <!-- Main Content -->
-    <main class="main-content" id="mainContent">
+    <main class="main-content" id="mainContent"{% if gw_layout %} tabindex="-1"{% endif %}>
         {% block content %}{% endblock %}
     </main>
 

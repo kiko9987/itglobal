@@ -50,10 +50,21 @@ export default class MobileDetailSheet {
     //   빠져나갈 때: 마지막 칸에서 앞으로 → 뒤로 단추, 첫 칸(뒤로 단추)에서 거꾸로 → 시트 마지막 칸
     const backBtn = sheet.querySelector('.pmm-sheet-back');
     let last = null;
+    //   메모 창(.field-memo-popover)처럼 시트를 연 뒤 몸통 끝에 붙여 위에 띄운 창도 그대로 둔다
+    //   (11-16: 휴대폰에서 메모 칸을 누르면 포커스를 뒤로 단추로 빼앗아 자판이 안 뜨던 것)
+    const overSheet = (el) => {
+      let top = el;
+      while (top.parentElement && top.parentElement !== document.body) top = top.parentElement;
+      if (top.parentElement !== document.body) return false;
+      if (!(sheet.compareDocumentPosition(top) & Node.DOCUMENT_POSITION_FOLLOWING)) return false;
+      const pos = getComputedStyle(top).position;
+      return pos === 'fixed' || pos === 'absolute';
+    };
     document.addEventListener('focusin', (e) => {
       if (!this.isOpen) return;
       if (sheet.contains(e.target)) { last = e.target; return; }
-      if (e.target.closest?.('.modal, .dropdown-menu, [data-portal], .ts-dropdown, .tooltip, .popover')) return;
+      if (e.target.closest?.('.modal, .dropdown-menu, [data-portal], .ts-dropdown, .tooltip, .popover, .field-memo-popover')) return;
+      if (overSheet(e.target)) return;
       if (last === backBtn) {
         const items = [...sheet.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex="0"]')]
           .filter((el) => el.offsetParent !== null);

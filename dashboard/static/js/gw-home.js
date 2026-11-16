@@ -163,7 +163,7 @@
         (t.desc ? '<div class="gw-todo-desc">' + esc(t.desc) + '</div>' : '') + '</div>' +
         (t.href ? '<a class="gw-todo-act" href="' + esc(t.href) + '"' +
           (t.external ? ' target="_blank" rel="noopener"' : '') + '>' + esc(t.action) + '</a>' : '') +
-        '<button type="button" class="gw-todo-close">닫기</button>';
+        '<button type="button" class="gw-todo-close" aria-label="' + esc(t.title) + ' 닫기">닫기</button>';
       card.querySelector('.gw-todo-close').addEventListener('click', function () {
         hideTodo(t);
         card.remove();
@@ -223,10 +223,11 @@
     var W = Math.max(320, Math.round(box.clientWidth - 24)), H = 200, L = 30, R = 8, T = 12, B = 24;
     var pw = W - L - R, ph = H - T - B, slot = pw / n, bw = Math.max(2, slot - 2);
     function y(v) { return T + ph - (v / maxV) * ph; }
-    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="최근 ' + n + '일 날짜별 ' + m.label + ' 막대 그래프">';
+    // tabindex: 키보드로 그래프에 와서 ←→ 로 날짜별 값을 봄(마우스를 올려야만 보이던 것)
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" tabindex="0" aria-label="최근 ' + n + '일 날짜별 ' + m.label + ' 막대 그래프. 좌우 화살표로 날짜별 값을 봅니다.">';
     [0, Math.round(maxV / 2), maxV].forEach(function (t) {
       svg += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(t) + '" y2="' + y(t) + '" stroke="#eef0f3" stroke-width="1"/>' +
-        '<text x="' + (L - 6) + '" y="' + (y(t) + 4) + '" text-anchor="end" font-size="11" fill="#868b94">' + t + '</text>';
+        '<text x="' + (L - 6) + '" y="' + (y(t) + 4) + '" text-anchor="end" font-size="11" fill="#868b94" class="ax">' + t + '</text>';
     });
     days.forEach(function (d, i) {
       var v = d[m.key], x = L + i * slot + 1, top = y(v), h = T + ph - top;
@@ -255,22 +256,38 @@
     box.innerHTML = '<div class="gw-sales-chart-head"><span><strong>최근 ' + n + '일 날짜별 ' + m.label + '</strong>' +
       (goal ? ' <span class="gw-sales-goal">점선 = 평일 목표 ' + goal + '건</span>' : '') +
       '</span><span>합계 ' + total.toLocaleString('ko-KR') + '건</span></div>' +
-      svg + '<div class="gw-sales-tip" id="homeSalesTip"></div>';
+      svg + '<div class="gw-sales-tip" id="homeSalesTip" aria-live="polite"></div>';
     var tip = el('homeSalesTip'), svgEl = box.querySelector('svg');
-    box.querySelectorAll('rect.hit').forEach(function (r) {
-      r.addEventListener('mousemove', function () {
-        var d = days[Number(r.getAttribute('data-i'))];
-        var line = md(d.date) + ' · ' + m.label + ' ' + d[m.key] + '건';
-        if (m.key === 'contract' && d.amount) line += ' · ' + won(d.amount);
-        if (!d.workday) line += ' (휴일)';
-        tip.textContent = line;
-        var br = svgEl.getBoundingClientRect(), bb = box.getBoundingClientRect(), rb = r.getBoundingClientRect();
-        tip.style.left = (rb.left - bb.left + rb.width / 2) + 'px';
-        tip.style.top = (br.top - bb.top + (y(d[m.key]) / H) * br.height - 6) + 'px';
-        tip.style.display = 'block';
-      });
+    var hits = box.querySelectorAll('rect.hit'), cur = -1;
+    function show(i) {
+      var r = hits[i], d = days[i];
+      if (!r || !d) return;
+      cur = i;
+      var line = md(d.date) + ' · ' + m.label + ' ' + d[m.key] + '건';
+      if (m.key === 'contract' && d.amount) line += ' · ' + won(d.amount);
+      if (!d.workday) line += ' (휴일)';
+      tip.textContent = line;
+      var br = svgEl.getBoundingClientRect(), bb = box.getBoundingClientRect(), rb = r.getBoundingClientRect();
+      tip.style.left = (rb.left - bb.left + rb.width / 2) + 'px';
+      tip.style.top = (br.top - bb.top + (y(d[m.key]) / H) * br.height - 6) + 'px';
+      tip.style.display = 'block';
+    }
+    hits.forEach(function (r) {
+      var i = Number(r.getAttribute('data-i'));
+      r.addEventListener('mousemove', function () { show(i); });
+      r.addEventListener('click', function () { show(i); });   // 휴대폰: 눌러서 보기
       r.addEventListener('mouseleave', function () { tip.style.display = 'none'; });
     });
+    svgEl.addEventListener('keydown', function (e) {
+      var k = e.key;
+      if (k === 'ArrowRight' || k === 'ArrowLeft' || k === 'Home' || k === 'End') {
+        e.preventDefault();
+        var i = k === 'Home' ? 0 : k === 'End' ? n - 1 : cur < 0 ? n - 1 : cur + (k === 'ArrowRight' ? 1 : -1);
+        show(Math.max(0, Math.min(n - 1, i)));
+      } else if (k === 'Escape') { tip.style.display = 'none'; }
+    });
+    svgEl.addEventListener('focus', function () { if (cur < 0) show(n - 1); });
+    svgEl.addEventListener('blur', function () { tip.style.display = 'none'; });
   }
 
   function renderSales() {
@@ -287,6 +304,9 @@
       salesMetric = b.getAttribute('data-k');
       renderSalesTiles();
       renderSalesChart();
+      // 칸을 다시 그려 누른 단추가 사라지며 포커스를 잃던 것 → 같은 칸으로
+      var nb = el('homeSalesTiles').querySelector('[data-k="' + salesMetric + '"]');
+      if (nb) nb.focus({ preventScroll: true });
     });
     api('/api/home/sales').then(function (j) { salesData = j.sales; renderSales(); })
       .catch(function (e) { fail('homeSalesTiles', e.message); });
