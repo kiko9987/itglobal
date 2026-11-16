@@ -1347,16 +1347,8 @@ html.pmm-sheet-open body {
     width: 44px !important;
   }
 
-  /* 창 안 표: project-table.css 가 휴대폰에서 모든 .table 의 4번째 칸부터 숨겨
-     사용자 관리 [상태 변경]·작업 로그 [작업·이전값·새값]이 안 보였음 → 이 창들에서만 되살리고 표는 가로로 넘김 */
-  html body :is(#userManagementModal, #auditLogsModal, #sequenceManagementModal, #constructorManagementModal,
-                #ilActionModal, #asActionModal, #cancelReasonModal) .table :is(th, td) {
-    display: table-cell;
-  }
-
-  html body #auditLogsModal .audit-logs-table {
-    min-width: 760px;
-  }
+  /* 사용자 관리 표: 칸 7개 — 좁혀서 글자가 세로로 쌓이지 않게 넓이를 두고 가로로 넘김
+     (휴대폰에서 모든 .table 의 4번째 칸부터 숨기던 옛 전역 규칙은 11-16 에 project-table.css 에서 지움) */
 
   html body #userManagementModal #usersTable {
     min-width: 960px;
@@ -1606,6 +1598,144 @@ html.pmm-sheet-open body {
   html body:not(.gw-shell) > header.header #headerActions .btn .d-none {
     display: inline !important;
     color: #1a1c20; /* 연한 단추 바탕 위 색 글자(3.4:1) → 진한 글자, 아이콘만 색 유지 */
+  }
+}
+
+/* ════════ 남은 개선 2묶음(11-16): 정렬 · 리드 상세 정리 · 체크박스 · 작업 로그 카드 ════════ */
+@media (max-width: 767.98px) {
+  .pmm-sort {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    margin: 0 0 8px;
+  }
+
+  .pmm-sort label {
+    margin: 0;
+    color: #4b5563;
+    font-size: 14px;
+  }
+
+  .pmm-sort-select {
+    height: 44px;
+    padding: 0 32px 0 12px;
+    border: 1px solid #dcdee3;
+    border-radius: 9999px;
+    background-color: #ffffff;
+    color: #1a1c20;
+    font-size: 16px;
+  }
+
+  .pmm-sort-select:focus-visible {
+    outline: 2px solid #2a3038;
+    outline-offset: 2px;
+  }
+
+  /* 리드 상세: 리드 번호가 시트 제목과 겹쳐 두 번 나오던 것 → 아래 칸에서 뺌 */
+  html body.pmm-leads .pmm-sheet .project-title-section .project-code-badge {
+    display: none !important;
+  }
+
+  .pmm-sheet .lead-inflow-tag {
+    display: inline-block;
+    margin-bottom: 8px;
+    padding: 2px 10px;
+    border-radius: 9999px;
+    background: #eef0f2;
+    color: #374151;
+    font-size: 13px;
+  }
+
+  /* 새 프로젝트 창 체크 칸: 16px·이름표 20px → 상자 22px, 이름표까지 누르는 높이 44px */
+  html body.pmm-page #modernProjectModal .form-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    margin: 0 8px 0 0;
+    padding-left: 0;
+  }
+
+  html body.pmm-page #modernProjectModal .form-check-input {
+    float: none;
+    flex: 0 0 auto;
+    width: 22px;
+    height: 22px;
+    margin: 0;
+  }
+
+  html body.pmm-page #modernProjectModal .form-switch .form-check-input {
+    width: 40px;
+  }
+
+  html body.pmm-page #modernProjectModal .form-check-label {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    white-space: nowrap; /* 좁은 칸(공사 구분 4칸)에서 '설/치'로 꺾이던 것 */
+  }
+
+  /* 작업 로그(휴대폰): 8칸 표를 옆으로 넘기던 것 → 줄마다 카드
+     1줄 시간 / 2줄 사용자·권한·작업·프로젝트·필드 / 3·4줄 이전 값·새 값 */
+  html body #auditLogsModal .audit-logs-table,
+  html body #auditLogsModal .audit-logs-table tbody {
+    display: block;
+    border: 0;
+  }
+
+  html body #auditLogsModal .audit-logs-table thead {
+    display: none;
+  }
+
+  html body #auditLogsModal .audit-logs-table tbody tr {
+    height: auto !important;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    padding: 12px 4px;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  html body #auditLogsModal .audit-logs-table tbody td {
+    display: block !important;
+    width: auto !important;
+    height: auto !important; /* 표일 때 칸 높이 40px 고정이 카드에선 줄마다 빈 공간이 됨 */
+    min-height: 0 !important;
+    line-height: 1.5 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    text-align: left !important;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  html body #auditLogsModal .audit-logs-table tbody td:nth-child(1),
+  html body #auditLogsModal .audit-logs-table tbody td[colspan] {
+    flex: 1 1 100%;
+    color: #4b5563;
+    font-size: 13px !important;
+  }
+
+  html body #auditLogsModal .audit-logs-table tbody td:nth-child(2) {
+    font-weight: 600;
+  }
+
+  html body #auditLogsModal .audit-logs-table tbody td:nth-child(7),
+  html body #auditLogsModal .audit-logs-table tbody td:nth-child(8) {
+    flex: 1 1 100%;
+  }
+
+  html body #auditLogsModal .audit-logs-table tbody td:nth-child(7)::before {
+    content: '이전 값 ';
+    color: #4b5563;
+  }
+
+  html body #auditLogsModal .audit-logs-table tbody td:nth-child(8)::before {
+    content: '새 값 ';
+    color: #4b5563;
   }
 }
 

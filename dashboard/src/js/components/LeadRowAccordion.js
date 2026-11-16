@@ -312,12 +312,22 @@ export default class LeadRowAccordion {
   }
 
   renderInquiryCard(lead) {
-    const text = val(lead, '문의 내용');
+    let text = val(lead, '문의 내용');
+    // 휴대폰: 맨 앞 '[유입:네이버/캠페인/검색어/광고 번호]' 내부 표시를 '유입 · 네이버' 배지로(원문이 길게 보였음)
+    let inflow = '';
+    if (window.matchMedia && window.matchMedia('(max-width: 767.98px)').matches) {
+      const m = text.match(/^\s*\[유입:([^\]]*)\]\s*/);
+      if (m) {
+        inflow = m[1].split('/')[0].trim();
+        text = text.slice(m[0].length);
+      }
+    }
     return `
       <div class="info-card compact-card">
         <div class="d-flex justify-content-between align-items-center mb-3">
           <h6 class="text-warning"><i class="fas fa-inbox me-1"></i>문의 내용</h6>
         </div>
+        ${inflow ? `<div class="lead-inflow-tag">유입 · ${esc(inflow)}</div>` : ''}
         <div class="lead-text-scroll">${text ? esc(text) : '<span class="lead-empty">문의 내용 없음</span>'}</div>
       </div>`;
   }

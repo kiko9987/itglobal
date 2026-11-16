@@ -541,11 +541,6 @@ div.dt-container .bottom {
   .table-wrapper table {
     /* 모바일 반응형 스타일 */
   }
-  .table th:nth-child(n+4),
-  .table td:nth-child(n+4) {
-    display: none; /* 모바일에서 불필요한 컬럼 숨기기 */
-  }
-
   /* 로딩 오버레이 모바일 최적화 */
   .table-loading-overlay .spinner-border {
     width: 2.5rem;
