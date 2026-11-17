@@ -2019,10 +2019,17 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
                                    'placeholder': {'type': 'plain_text',
                                                    'text': '코드·상호·주소로 검색 (누르면 내 담당 현장이 최근 순으로 나와요)'}}})
     ev_opts = _opts(EVIDENCE_TYPES)
+    # 증빙 기본값은 계산서 글을 골랐을 때만 '전자계산서' — 안 고르고 올리는 선입금에서도 기본값이 남아
+    #   '증빙: 전자계산서'인데 스레드엔 계산서가 없는 카드가 됐다(11-01 검수 개선안, 2026-11-17 #45).
+    ev_el = {'type': 'static_select', 'action_id': 'evidence', 'options': ev_opts,
+             'placeholder': {'type': 'plain_text', 'text': '증빙 종류 고르기'}}
+    if inv:
+        ev_el['initial_option'] = ev_opts[0]
+    # 법인 간 이체는 증빙이 없다(제출 때 '없음 (법인 간 이체)'로 채워진다) — 기본값을 비웠으니 비워도 넘어가게
+    ev_move = meta.get('move_opts') is not None or bool(meta.get('move_manual'))
     blocks += [
         {'type': 'input', 'block_id': 'evidence', 'label': {'type': 'plain_text', 'text': '증빙'},
-         'element': {'type': 'static_select', 'action_id': 'evidence', 'options': ev_opts,
-                     'initial_option': ev_opts[0]}},
+         'element': ev_el, **({'optional': True} if ev_move else {})},
         # '법인 간 이체'를 고르면 옮길 입금을 고르게 창이 바뀐다(dispatch, 11-16)
         {'type': 'input', 'block_id': 'cost', 'label': {'type': 'plain_text', 'text': '원가 분류'},
          'dispatch_action': True,

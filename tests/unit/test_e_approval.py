@@ -1477,6 +1477,25 @@ def test_grn_required_hidden_only_when_invoice_has_it(tmp_db):
     assert 'grn' in bids(ea.new_request_view({'inv': inv}))
 
 
+def test_evidence_default_only_with_invoice_post(tmp_db):
+    """증빙 기본값은 계산서 글을 골랐을 때만 — 선입금에도 '전자계산서'가 남아
+    증빙은 계산서인데 스레드엔 계산서가 없는 카드가 됐다(2026-11-17 #45)."""
+    bids = lambda v: {b.get('block_id'): b for b in v['blocks']}   # noqa: E731
+    e = bids(ea.new_request_view({}))['evidence']
+    assert 'initial_option' not in e['element'] and not e.get('optional')
+    assert e['element']['placeholder']['text'] == '증빙 종류 고르기'
+    inv = {'ch': 'C1', 'ts': '1.0', 'parsed': {'grn': 'G', 'amount': 1000, 'partner': '강원포장'}}
+    e = bids(ea.new_request_view({'inv': inv}))['evidence']
+    assert e['element']['initial_option']['value'] == '전자계산서'
+    # 법인 간 이체는 증빙이 없다 — 비워도 넘어가고 제출 때 채워진다
+    for meta in ({'move_manual': True}, {'move_opts': []}):
+        e = bids(ea.new_request_view(meta))['evidence']
+        assert e.get('optional') and 'initial_option' not in e['element']
+    f = {'cost_category': ea.COST_MOVE, 'project_code': 'R4292-SJ', 'evidence': None}
+    ea.apply_move_fields(f, {})
+    assert f['evidence'] == ea.EVIDENCE_MOVE
+
+
 # ── 수정 요청 → 수정하기 · 첨부 (11-05) ─────────────────────────────
 def _state_from_view(view: dict, override: dict = None) -> dict:
     """창의 처음 값(initial_*)을 제출 state 로 — 사용자가 손대지 않고 일부만 고친 것처럼."""
