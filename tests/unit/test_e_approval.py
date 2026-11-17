@@ -1371,6 +1371,8 @@ def test_edit_view_loads_folder_docs_and_license_note(se, monkeypatch):
     blk = next(b for b in view['blocks'] if b.get('block_id') == forms.FOLDER_DOCS_BLOCK)
     assert 'initial_options' not in blk['element']
     assert json.loads(view['private_metadata'])['edit'] == 7
+    ea.kv_set('docs_posted:7', json.dumps(['P2']))
+    assert '이미 붙어 있음' in json.dumps(se.edit_view(row), ensure_ascii=False)
 
 
 def test_contract_blocked_without_license(se, monkeypatch):
@@ -1652,13 +1654,23 @@ def test_folder_docs_block_carry_and_post(se):
     assert up['thread_ts'] == row['card_ts'] and [f['filename'] for f in up['file_uploads']] == ['최종 견적.pdf']
     assert '<itgfolder://FOLDER123|탐색기에서 열기>' in up['initial_comment']
     assert '사업자등록증 — 못 붙였어요' in up['initial_comment'] and got == ['lic', 'P2']
+    assert se.posted_doc_ids(row) == {'P2'}                            # 붙인 것만 기록(못 받은 등록증은 아님)
+    # 보완 요청 뒤 다시 올려도 이미 붙인 파일은 또 안 붙인다(11-17 #48 등록증·견적서 두 번)
+    n = len(se._fake.of('files_upload_v2'))
+    with _pt.MonkeyPatch.context() as mp:
+        mp.setattr(bl, '_project_folder_id_for', lambda code, fresh=False: 'FOLDER123')
+        mp.setattr(se, '_folder_doc_file', lambda code, d: {'content': b'X', 'filename': d['name'], 'title': d['name']})
+        se.post_folder_docs(row, [{'id': 'P2', 'name': '최종 견적.pdf'}])
+        assert len(se._fake.of('files_upload_v2')) == n
+        se.post_folder_docs(row, picked)                                # 등록증만 새로
+    assert [f['filename'] for f in se._fake.of('files_upload_v2')[-1]['file_uploads']] == ['사업자등록증']
     # 하나도 못 받으면 예전처럼 폴더 링크 + 이름
     with _pt.MonkeyPatch.context() as mp:
         mp.setattr(bl, '_project_folder_id_for', lambda code, fresh=False: 'FOLDER123')
         mp.setattr(se, '_folder_doc_file', lambda code, d: None)
-        se.post_folder_docs(row, picked[1:])
+        se.post_folder_docs(row, [{'id': 'P3', 'name': '도면.pdf'}])
     msg = se._fake.of('chat_postMessage')[-1]
-    assert '<itgfolder://FOLDER123|탐색기에서 열기>' in msg['text'] and '• 최종 견적.pdf' in msg['text']
+    assert '<itgfolder://FOLDER123|탐색기에서 열기>' in msg['text'] and '• 도면.pdf' in msg['text']
 
 
 def test_folder_doc_file_reads_drive(monkeypatch):
