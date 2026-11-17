@@ -582,9 +582,8 @@ def edit_view(row: dict) -> dict:
             return ea.new_request_view(meta, mv['code'], mv['code'], prefill=prefill)
         label = project_display(code, _project_rec(code)) if code else ''
         prefill['_project_label'] = label
-        if row.get('origin_ts') and code:   # 계산서 글 현장 지정과 어긋나지 않게 현장도 고정(11-05 점검)
-            meta['project'] = code
-            return ea.new_request_view(meta, code, label, prefill=prefill)
+        # 계산서 글로 올린 결재도 현장은 고칠 수 있다(11-17 #49 프로젝트0 → 실제 현장을 못 바꿨다).
+        # 바꾸면 process_new_submit 이 계산서 글 현장 지정도 같이 고친다(어긋남 방지 — 11-05 점검 때 고정한 이유).
         return ea.new_request_view(meta, prefill=prefill)
     if form == ea.FORM_SUPPLY:
         return ea.supply_request_view({'edit': aid}, ea.supply_prefill(row))
@@ -1071,7 +1070,13 @@ def process_new_submit(uid: str, f: dict) -> dict:
         _x = f.get('extra') or {}
         f['extra'] = {**_x, 'payee_saved': bool(_x.get('payee_saved')), 'payee_changed': _x.get('payee_changed') or None,
                       'payee_known': _x.get('payee_known') or None, 'payee_unlisted': _x.get('payee_unlisted') or None}
-        return process_edit(uid, f['_edit'], f, f.get('_files') or [])
+        before = ea.get(f['_edit']) or {}
+        row = process_edit(uid, f['_edit'], f, f.get('_files') or [])
+        if row and row.get('origin_ts') and (
+                (row.get('project_code') or '') != (before.get('project_code') or '')
+                or (row.get('cost_category') or '') != (before.get('cost_category') or '')):
+            _sync_invoice_assignment(row, uid, name)   # 현장·분류를 고쳤으면 계산서 글 현장 지정도(11-17)
+        return row
     row = ea.create(ea.FORM_FUND, uid, name, f)
     _audit(row, 'request', name)
     row = start(row)
@@ -1081,20 +1086,25 @@ def process_new_submit(uid: str, f: dict) -> dict:
     _post_files_bg(row, f.get('_files') or [], name)
     if row.get('origin_ts'):   # 계산서를 골랐으면 그 글의 현장 지정까지(계산서 글 버튼과 같은 결과)
         _INV_CACHE['at'] = 0.0
-        try:
-            from dashboard.blueprints.slack_bot import finish_pinv_assignment
-            c = _invoice_client()
-            if c:
-                parsed = f.get('_inv_parsed') or {'date_md': '', 'grn': row.get('grn'),
-                                                  'amount': row.get('amount'), 'partner': row.get('partner')}
-                finish_pinv_assignment(
-                    c, row['origin_channel'], row['origin_ts'], None, parsed, row.get('project_code') or '',
-                    row.get('cost_category') or '', row.get('content') or '', uid, name,
-                    extra=f"💸 {ea.title(row)} 결재 올림 — {ea.status_label(row)[1]}")
-        except Exception as exc:
-            logger.error(f'{_LOG} 계산서 글 현장 지정 실패 ({ea.title(row)}): {exc}', exc_info=True,
-                         extra={'force_alert': True})
+        _sync_invoice_assignment(row, uid, name, f.get('_inv_parsed'))
     return row
+
+
+def _sync_invoice_assignment(row: dict, uid: str, name: str, parsed: Optional[dict] = None) -> None:
+    """계산서 글 현장 지정을 결재 값(현장·분류·내용)으로 — 처음 올릴 때와 수정해서 현장을 바꿨을 때."""
+    try:
+        from dashboard.blueprints.slack_bot import finish_pinv_assignment
+        c = _invoice_client()
+        if c:
+            parsed = parsed or {'date_md': '', 'grn': row.get('grn'),
+                                'amount': row.get('amount'), 'partner': row.get('partner')}
+            finish_pinv_assignment(
+                c, row['origin_channel'], row['origin_ts'], None, parsed, row.get('project_code') or '',
+                row.get('cost_category') or '', row.get('content') or '', uid, name,
+                extra=f"💸 {ea.title(row)} 결재 올림 — {ea.status_label(row)[1]}")
+    except Exception as exc:
+        logger.error(f'{_LOG} 계산서 글 현장 지정 실패 ({ea.title(row)}): {exc}', exc_info=True,
+                     extra={'force_alert': True})
 
 
 def handle_new_submit(ack, body, view) -> None:

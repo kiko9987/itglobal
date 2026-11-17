@@ -1760,6 +1760,23 @@ def test_invoice_linked_edit_can_fix_grn(se):
     assert se.process_new_submit(MGR, f)['grn'] == 'R'
 
 
+def test_invoice_linked_edit_can_change_project_and_syncs_invoice_post(se, monkeypatch):
+    # 11-17 #49: 프로젝트0 으로 올린 계산서 결재를 실제 현장으로 못 바꿨다 → 고칠 수 있고, 계산서 글 지정도 같이
+    synced = []
+    monkeypatch.setattr(se, '_sync_invoice_assignment', lambda row, uid, name, parsed=None: synced.append(row['project_code']))
+    row = se.start(ea.create(ea.FORM_FUND, SB, '황샛별',
+                             dict(FIELDS, project_code='프로젝트0', grn='G', origin_channel='CINV', origin_ts='9.0')))
+    v = se.edit_view(ea.get(row['id']))
+    proj = next(b for b in v['blocks'] if b.get('block_id') == 'project')
+    assert proj['element']['initial_option']['value'] == '프로젝트0'
+    f, errs = se.validate_new_submit(_state_from_view(v, {'project': {'selected_option': {'value': 'G4303-YG'}}}))
+    assert errs == {} and f['project_code'] == 'G4303-YG'
+    assert se.process_new_submit(SB, f)['project_code'] == 'G4303-YG' and synced == ['G4303-YG']
+    f2, _ = se.validate_new_submit(_state_from_view(se.edit_view(ea.get(row['id'])), {'memo': {'value': '메모만'}}))
+    se.process_new_submit(SB, f2)
+    assert synced == ['G4303-YG']                                       # 현장·분류 그대로면 계산서 글은 안 건드림
+
+
 def test_requester_self_edit_before_approval(se, monkeypatch):
     """11-11 KiKO: 올리고 나서 실수를 알아도 고칠 길이 없었다 — 최종 승인 전엔 요청자가 [✏️ 수정하기]."""
     monkeypatch.setenv('EAPPROVAL_FINAL_ENABLED', 'true')

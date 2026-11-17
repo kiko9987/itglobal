@@ -1891,7 +1891,8 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
                                                    '계산서가 없으면 비워 두세요(선입금).'}}]
     if inv and edit:
         blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
-                       '📄 거래처·금액·현장은 계산서 글에 지정된 그대로예요. 계산서 파일은 처음 올릴 때 카드 스레드에 붙었어요.'}]})
+                       '📄 거래처·금액은 계산서 글 그대로예요. 현장을 바꾸면 계산서 글의 현장 지정도 같이 바뀌어요. '
+                       '계산서 파일은 처음 올릴 때 카드 스레드에 붙었어요.'}]})
     elif inv:
         files = meta.get('inv_files') or []
         link = f" <{meta['inv_link']}|계산서 글 보기>" if meta.get('inv_link') else ''
