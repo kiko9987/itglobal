@@ -90,5 +90,18 @@ def test_online_shared_with_initials_coexist(monkeypatch):
     assert 'JK' in r['online_duty']
 
 
+def test_initials_only_memo_line_is_not_visit(monkeypatch):
+    """'신입인원' 아래 'JH / LSH / LJW / KMW' 는 방문 줄이 아님 (2026-11-17).
+    전화 없는 방문 줄('/ - / 주소 /')은 그대로 잡혀야 함."""
+    monkeypatch.setattr(vas, '_load_initial_maps',
+                        lambda: ({'JK': '강정권', 'JH': '권진현', 'LSH': '이상효'}, {}))
+    r = vas.parse_assignment_canvas_full(
+        '<p>JK</p>'
+        '<p>(SB) 11월 18일 / - / 가까운 우체국 / R4270-YG 계약서 등기접수</p>'
+        '<p>신입인원</p><p>JH / LSH / LJW / KMW</p>')
+    raws = [a['raw'] for a in r['assignments']]
+    assert len(raws) == 1 and '우체국' in raws[0]
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))

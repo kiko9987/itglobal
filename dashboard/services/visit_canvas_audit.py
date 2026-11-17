@@ -46,8 +46,12 @@ def lead_in_canvas_lines(lead: Dict, lines: List[str]) -> bool:
     ph = _digits(lead.get('고객 연락처'))
     if len(ph) >= 9 and any(ph[-8:] in _digits(x) for x in lines):
         return True
-    m = _ADDR_KEY_RE.search(str(lead.get('방문 주소') or ''))
-    return bool(m and any(m.group(0) in x for x in lines))
+    addr = str(lead.get('방문 주소') or '').strip()
+    m = _ADDR_KEY_RE.search(addr)
+    if m:
+        return any(m.group(0) in x for x in lines)
+    # 도로명이 없는 주소('가까운 우체국' 같은 심부름)는 주소 칸 글자 그대로 찾음 (2026-11-17 ETC-1cdfac)
+    return len(addr) >= 4 and addr != '-' and any(f'/ {addr}' in x for x in lines)
 
 
 def classify_card(lead: Optional[Dict], in_canvas1: bool, today: date) -> Optional[str]:

@@ -828,6 +828,10 @@ def parse_assignment_canvas_full(html: str) -> Dict:
             # '/' 로 여러 필드 구분된 형태에 주소가 있으면 assignment 로 추가 → 주소 fallback 매칭용
             if current_section and current_section not in ('_ONLINE_', '_OFF_') and line.count('/') >= 2:
                 parts = [p.strip() for p in line.split('/')]
+                # 'JH / LSH / LJW / KMW' 처럼 이니셜만 나열한 메모 줄은 방문이 아님
+                #   (2026-11-17 '신입인원' 아래 줄이 매번 '리드를 못 찾은 줄'로 잡혔음)
+                if all(re.fullmatch(r'[A-Za-z]{1,4}', p) for p in parts if p):
+                    continue
                 # 형태: "(MW) 7월 21일 / - / 주소 / 내용"  →  parts[2] = 주소
                 address = parts[2] if len(parts) >= 3 else ''
                 # 전화칸에 '/' 등 잡값이 섞이면 필드가 밀려 parts[2]가 빈 값이 됨.
