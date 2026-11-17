@@ -472,10 +472,12 @@ def partner_key(name: str) -> str:
     return re.sub(r'[\s\.\,\-\(\)·]', '', s).lower()
 
 
-def find_unlinked_match(grn: str, amount: int, partner: str) -> Optional[dict]:
+def find_unlinked_match(grn: str, amount: int, partner: str, code: str = '') -> Optional[dict]:
     """계산서 글과 G/R·금액·거래처가 같은데 아직 계산서 글에 안 묶인 자금집행(반려·취소 제외).
 
-    딱 한 건일 때만 돌려준다(여러 건이면 사람이 고른다)."""
+    딱 한 건일 때만 돌려준다(여러 건이면 사람이 고른다). 단 후보가 여럿이면 계산서 글에 적힌 공사 코드로
+    좁힌다 — 크레인 양중 33만 원처럼 흔한 금액은 90일 안에 쉽게 겹쳐, 짝을 못 찾으면 제출 창 경고도
+    [📍 현장 지정]의 자동 연결도 둘 다 안 됐다 (2026-11-17 #45 서울크레인)."""
     key = partner_key(partner)
     if not key or not amount:
         return None
@@ -490,6 +492,10 @@ def find_unlinked_match(grn: str, amount: int, partner: str) -> Optional[dict]:
             # 수정 요청 중인 결재도 후보 — 빼면 같은 건으로 결재를 또 올려 두 번 이체할 수 있다(11-05)
             (FORM_FUND, int(amount), grn, PENDING, FINAL, APPROVED, REVISE, DONE, DONE, since)).fetchall()
     hits = [dict(r) for r in rows if partner_key(r['partner']) == key]
+    if len(hits) > 1 and (code or '').strip():
+        same = [h for h in hits if (h.get('project_code') or '').strip().upper() == code.strip().upper()]
+        if len(same) == 1:
+            return same[0]
     return hits[0] if len(hits) == 1 else None
 
 
@@ -1316,6 +1322,14 @@ def fund_warning_lines(row: dict) -> List[str]:
     if row.get('origin_ts') and 'inv_by' in x:
         who = x.get('inv_by') or '작성자 확인 안 됨'
         out.append(f"계산서 글: {who} 작성" + (' ⚠️ 경영지원이 올린 글이 아니에요' if x.get('inv_by_other') else ''))
+    # 증빙은 계산서인데 계산서 글을 안 골랐으면 — 스레드에 붙을 사진이 없다(2026-11-17 #45 서울크레인).
+    #   창에서 직접 올린 첨부가 있으면 증빙은 있는 셈이니 띄우지 않는다. 공통비 비품 구매는 선입금 뒤
+    #   계산서를 받는 게 정상이라 공사 현장(G/R) 건만 본다 — 안 그러면 경고가 흔해져 무뎌진다.
+    if (not row.get('origin_ts') and '계산서' in str(row.get('evidence') or '')
+            and grn_from_code(row.get('project_code') or '')
+            and row.get('cost_category') != COST_MOVE and not x.get('files')):
+        out.append('⚠️ 계산서 글을 고르지 않았어요 — 선입금이면 그대로 두고, 계산서가 있으면 '
+                   '#영업_관리 그 글에서 [📍 현장 지정]을 눌러 주세요')
     return out
 
 
@@ -2170,7 +2184,8 @@ def complete_new_request(f: Dict) -> Dict[str, str]:
             errs['invoice'] = f'이 계산서로 올린 {title(dup)}이 이미 있어요.'
         else:
             # 계산서 없이 먼저 올린(선입금) 같은 건 — G/R·금액·거래처가 같으면 두 번 이체될 수 있다(11-06 검수)
-            m = find_unlinked_match(f.get('grn') or '', int(f.get('amount') or 0), f.get('partner') or '')
+            m = find_unlinked_match(f.get('grn') or '', int(f.get('amount') or 0), f.get('partner') or '',
+                                    f.get('project_code') or '')
             if m and m['id'] != f.get('_edit'):
                 errs['invoice'] = (f"{initial(m.get('requester_name'))}님이 먼저 올린 {title(m)}"
                                    f"({int(m.get('amount') or 0):,}원)과 같은 건이에요. 새로 올리지 않아도 돼요.")

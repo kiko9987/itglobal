@@ -754,7 +754,7 @@ def open_invoice_posts(force: bool = False) -> list:
                     continue
                 # 계산서 없이 먼저 올린 같은 건이 있으면 목록에서 뺀다 — [📍 현장 지정]이 그 결재에 연결한다(11-06)
                 if ea.find_unlinked_match(parsed.get('grn') or '', int(parsed.get('amount') or 0),
-                                          parsed.get('partner') or ''):
+                                          parsed.get('partner') or '', parsed.get('code') or ''):
                     continue
                 items.append({'ch': ch, 'ts': m['ts'], 'parsed': parsed})
         except Exception as exc:

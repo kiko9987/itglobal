@@ -5273,7 +5273,8 @@ def _pinv_modal_for(meta: dict, transfer: bool) -> dict:
         if approval and approval['status'] in (ea.REJECTED, ea.CANCELLED):
             approval = None  # 반려·취소됐으면 다시 올릴 수 있게
         if not approval:
-            candidate = ea.find_unlinked_match(parsed['grn'], parsed['amount'], parsed['partner'])
+            candidate = ea.find_unlinked_match(parsed['grn'], parsed['amount'], parsed['partner'],
+                                               parsed.get('code') or '')
         if transfer:
             payee = ea.lookup_payee(parsed['partner'])
     except Exception as exc:
@@ -5345,7 +5346,7 @@ def _validate_pinv_submit(view) -> dict:
             ap = ea.find_by_origin(meta.get('ch', ''), meta.get('ts', ''))
             if not (ap and ap['status'] not in (ea.REJECTED, ea.CANCELLED)):
                 ap = ea.find_unlinked_match(parsed.get('grn') or '', int(parsed.get('amount') or 0),
-                                            parsed.get('partner') or '')
+                                            parsed.get('partner') or '', parsed.get('code') or '')
             if ap:
                 errs['account'] = (f"{ea.title(ap)}({ea.initial(ap.get('requester_name'))})이 이미 올라와 있어요. "
                                    '「이체 필요」 체크를 풀고 지정만 해 주세요.')
@@ -5378,6 +5379,10 @@ def _process_pinv_submit(client, body, view) -> None:
         linked = ea.get(int(meta['link_aid']))
         if linked:
             extra = f"💸 {ea.title(linked)} ({ea.initial(linked.get('requester_name'))})에 연결 — {ea.STATUS_LABELS[linked['status']][1]}"
+            # 계산서를 골라 올린 결재와 같게 — 사진을 카드 스레드에 붙이고 작성자도 카드에 남긴다.
+            #   연결만 하고 사진을 안 붙여, 증빙은 '전자계산서'인데 댓글이 빈 카드가 됐다 (2026-11-17 #45)
+            from dashboard.blueprints.slack_eapproval import post_invoice_files
+            threading.Thread(target=post_invoice_files, args=(linked,), daemon=True).start()
     elif pinv.transfer_requested(vals) and 'payee_name' in vals:
         def _t(bid):
             return ea.field_value(vals, bid)   # 은행은 고르기 칸(11-05)

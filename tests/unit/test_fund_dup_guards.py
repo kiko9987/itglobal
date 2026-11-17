@@ -99,7 +99,9 @@ def test_known_accounts_list_replaces_changed_warning(se):
     assert x['payee_known'] == '강남' and 'payee_changed' not in x and 'payee_unlisted' not in x
     row = se.process_new_submit(KIKO, f)
     card = ea.card_text(row, ea.steps(row['id']), 'G4049-JW')
-    assert '✅ 확인된 계좌(강남)' in card and '⚠️' not in card
+    # 계좌 경고는 하나도 없어야 한다(계산서 글 미선택 ⚠️ 는 별개 — test_card_warns_when_invoice_post_not_picked)
+    assert '✅ 확인된 계좌(강남)' in card
+    assert not any(w in card for w in ('예전에 보낸 계좌', '계좌 목록에 없는 계좌', '어음 계좌'))
     btn = next(b for b in ea.buttons(row) if b['action_id'] == ea.A_TRANSFER)
     assert '확인된 계좌(강남)' in btn['confirm']['text']['text']
 
@@ -357,6 +359,55 @@ def test_old_prepaid_window(tmp_db):
     assert ea.find_old_prepaid('R', FIELDS['amount'], FIELDS['partner'])['id'] == a['id']   # 사업자를 잘못 골라도(5차)
     _age(a['id'], ea.OLD_PREPAID_DAYS + 5)
     assert ea.find_old_prepaid('G', FIELDS['amount'], FIELDS['partner']) is None      # 1년 넘음
+
+
+# ── ⑥ 흔한 금액이 겹쳤을 때 — 공사 코드로 좁히기 (2026-11-17 #45 서울크레인) ──────
+
+def test_common_amount_two_candidates_narrowed_by_code(se):
+    """크레인 양중 33만 원처럼 흔한 금액이 90일 안에 두 번이면, 코드 없이는 짝을 못 찾았다."""
+    a = se.process_new_submit(KIKO, dict(FIELDS, project_code='R4226-YM', grn='R', partner='서울크레인'))
+    se.apply_action('transfer', a['id'], SB)                 # 먼저 건은 이체 완료
+    b = se.process_new_submit(MGR, dict(FIELDS, project_code='R4256-MJ', grn='R', partner='서울크레인'))
+    # 후보가 둘 — 코드를 안 주면 예전처럼 포기한다(제출 창 경고도, 자동 연결도 안 됨)
+    assert ea.find_unlinked_match('R', FIELDS['amount'], '서울크레인') is None
+    # 계산서 글에 적힌 코드로 좁히면 그 건
+    assert ea.find_unlinked_match('R', FIELDS['amount'], '서울크레인', 'R4256-MJ')['id'] == b['id']
+    assert ea.find_unlinked_match('R', FIELDS['amount'], '서울크레인(주)', 'r4226-ym')['id'] == a['id']
+    # 어느 쪽도 아닌 코드면 좁혀지지 않는다 — 사람이 고른다
+    assert ea.find_unlinked_match('R', FIELDS['amount'], '서울크레인', 'R9999-ZZ') is None
+
+
+def test_single_candidate_ignores_code_mismatch(se):
+    """후보가 하나면 코드가 달라도 그대로 — 코드를 잘못 적은 계산서 글도 짝이 지어져야 한다."""
+    a = se.process_new_submit(MGR, dict(FIELDS, project_code='G4049-JW'))
+    assert ea.find_unlinked_match('G', FIELDS['amount'], FIELDS['partner'], 'G9999-ZZ')['id'] == a['id']
+
+
+# ── ⑦ 계산서 글을 안 고른 결재 — 카드 경고 줄 ─────────────────────────
+
+def _card(row):
+    return ea.card_text(ea.get(row['id']), ea.steps(row['id']), 'G4049-JW')
+
+
+def test_card_warns_when_invoice_post_not_picked(se):
+    a = se.process_new_submit(MGR, dict(FIELDS))              # 증빙=전자계산서, 계산서 글 안 고름
+    assert '계산서 글을 고르지 않았어요' in _card(a)
+
+
+def test_no_warning_for_supply_cost_without_site(se):
+    """공통비 비품은 선입금 뒤 계산서를 받는 게 정상 — 경고가 흔해지면 무뎌진다."""
+    a = se.process_new_submit(MGR, dict(FIELDS, project_code='공통비', amount=90000))
+    assert '계산서 글을 고르지 않았어요' not in _card(a)
+
+
+def test_no_warning_when_invoice_picked_or_receipt_or_attached(se):
+    picked = se.process_new_submit(MGR, dict(FIELDS, origin_channel='CINV', origin_ts='1700000000.000700'))
+    assert '계산서 글을 고르지 않았어요' not in _card(picked)
+    receipt = se.process_new_submit(MGR, dict(FIELDS, amount=70000, evidence='기타영수증'))
+    assert '계산서 글을 고르지 않았어요' not in _card(receipt)
+    attached = se.process_new_submit(MGR, dict(FIELDS, amount=80000))
+    ea.add_extra_files(attached['id'], [{'name': '계산서.pdf', 'url': 'https://x/1'}])
+    assert '계산서 글을 고르지 않았어요' not in _card(attached)
 
 
 def test_socket_touch_keeps_active_tab_connected(monkeypatch):
