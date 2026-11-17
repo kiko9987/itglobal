@@ -619,7 +619,9 @@ def edit_view(row: dict) -> dict:
         # 보완 요청으로 돌아온 수정 창에도 공사 폴더 서류·등록증 안내를 처음 창처럼(11-17 KiKO).
         # 처음 올릴 때 붙인 서류는 카드 스레드에 이미 있으니 미리 고르지 않는다(같은 파일 두 번 붙음 방지).
         if form in ea.forms.FOLDER_DOC_FORMS:
-            vals['_docs'] = folder_docs(code)
+            posted = posted_doc_ids(row)
+            vals['_docs'] = [dict(d, note='이미 붙어 있음 — 골라도 다시 안 붙어요') if d['id'] in posted else d
+                             for d in folder_docs(code)]
         note = _form_notes(form, code)
         if note:
             meta['extra_note'] = note
@@ -1325,7 +1327,11 @@ def post_folder_docs(row: dict, docs: list) -> None:
     except Exception as exc:
         logger.warning(f'{_LOG} 공사 폴더 찾기 실패 ({code}): {exc}')
     head = f'📁 공사 폴더 서류 · <itgfolder://{folder}|탐색기에서 열기>' if folder else '📁 공사 폴더 서류'
-    uploads, failed = [], []
+    posted = posted_doc_ids(row)
+    docs = [d for d in docs if d['id'] not in posted]   # 이 결재 카드에 이미 붙인 파일은 다시 안 붙인다(11-17 #48)
+    if not docs:
+        return
+    uploads, failed, up_ids = [], [], []
     for d in docs:
         label = '사업자등록증' if d['id'] == ea.forms.LICENSE_DOC else d['name']
         try:
@@ -1333,18 +1339,37 @@ def post_folder_docs(row: dict, docs: list) -> None:
         except Exception as exc:
             logger.warning(f'{_LOG} 공사 폴더 서류 받기 실패 ({code} {label}): {exc}')
             f = None
-        (uploads.append(f) if f else failed.append(label))
+        if f:
+            uploads.append(f)
+            up_ids.append(d['id'])
+        else:
+            failed.append(label)
     note = ('\n' + '\n'.join(f'• {n} — 못 붙였어요. 폴더에서 열어 주세요.' for n in failed)) if failed else ''
     if uploads and row.get('card_channel') and row.get('card_ts'):
         try:
             eap_client().files_upload_v2(channel=row['card_channel'], thread_ts=row['card_ts'],
                                          file_uploads=uploads, initial_comment=head + note)
+            try:
+                ea.kv_set(_DOCS_POSTED + str(row['id']), json.dumps(sorted(posted | set(up_ids))))
+            except Exception as exc:
+                logger.warning(f'{_LOG} 붙인 서류 기록 실패 ({ea.title(row)}): {exc}')
             return
         except Exception as exc:
             logger.warning(f'{_LOG} 공사 폴더 서류 올리기 실패 ({ea.title(row)}): {exc}')
             failed = [u['filename'] for u in uploads] + failed
     # 하나도 못 붙였으면 예전처럼 폴더 링크 + 파일 이름
     _thread_log(row, head + '\n' + '\n'.join(f'• {n}' for n in failed))
+
+
+_DOCS_POSTED = 'docs_posted:'
+
+
+def posted_doc_ids(row: dict) -> set:
+    """이 결재 카드 스레드에 이미 붙인 공사 폴더 서류(드라이브 파일 ID, 등록증은 'lic')."""
+    try:
+        return set(json.loads(ea.kv_get(_DOCS_POSTED + str(row.get('id'))) or '[]'))
+    except Exception:
+        return set()
 
 
 def _post_folder_docs_bg(row: dict, docs: list) -> None:
