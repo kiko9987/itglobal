@@ -17,6 +17,7 @@ from dashboard.services.payment_sync import (
     _card_fee_line, _is_itg_card_deposit, _is_card_payment, _parse_notes,
     _fmt_payment_date, _fill_sibling_years, _parse_memo_block,
     _collection_gross_fee, _collection_fee_line,
+    _card_stage_val, _same_stage_card_total, _resolve_real_payment,
 )
 from dashboard.blueprints.slack_bot import _card_settlement_target, _collection_settlement_target
 
@@ -51,6 +52,81 @@ class TestCardFeeLine:
         out = _card_fee_line('잔금', 253200, 247000, 453200,
                              {'계약금': 200000, '중도금': 0, '잔금': 253200})
         assert out == '(실결제 253,200원 / 카드 수수료 6,200원)'
+
+
+class TestCardStageValMix:
+    """같은 칸에 계좌 입금 + 카드 결제가 섞인 경우 (2026-11-17 G3957-JW).
+
+    계약금 칸 10,230,000원 = 9/7 계좌 230,000 + 11/17 카드 실결제 10,000,000(순입금 9,813,000).
+    비카드분을 안 걷어내면 9월 계좌 입금액이 통째로 '카드 수수료'로 찍힌다.
+    """
+    INV = '계약금 - 미발행'          # 실제 Y값 — 카드 인식은 입금자('삼성카드962')로 됨
+    TOTAL_T = 23628000
+    PAYMENTS = [
+        {'stage': '계약금', 'amount': 230000, 'partner': '프레임플러스'},
+        {'stage': '계약금', 'amount': 9813000, 'partner': '삼성카드962'},
+    ]
+
+    def test_non_card_deposit_removed(self):
+        assert _card_stage_val(10230000, self.PAYMENTS, '계약금', self.INV) == 10000000
+
+    def test_card_total_counts_cards_only(self):
+        assert _same_stage_card_total(self.PAYMENTS, '계약금', self.INV) == 9813000
+
+    def test_fee_line_shows_real_fee(self):
+        cv = _card_stage_val(10230000, self.PAYMENTS, '계약금', self.INV)
+        ct = _same_stage_card_total(self.PAYMENTS, '계약금', self.INV)
+        real = _resolve_real_payment(cv, ct, self.TOTAL_T)
+        out = _card_fee_line('계약금', real, ct, self.TOTAL_T,
+                             {'계약금': 10230000, '중도금': 0, '잔금': 0})
+        assert out == '(실결제 10,000,000원 / 카드 수수료 187,000원)'
+
+    def test_old_behaviour_turned_deposit_into_fee(self):
+        # 걷어내기 전 동작 — 칸 전체를 실결제로 보고 수수료가 부풀었다
+        real = _resolve_real_payment(10230000, 9813000, self.TOTAL_T)
+        out = _card_fee_line('계약금', real, 9813000, self.TOTAL_T, {'계약금': 10230000})
+        assert out == '(실결제 10,230,000원 / 카드 수수료 417,000원)'
+
+    def test_net_recorded_cell_shows_no_fee_line(self):
+        # 칸에 순입금만 적혀 있으면(실결제 미반영) 수수료 0 → 줄 자체가 안 나온다
+        cv = _card_stage_val(10043000, self.PAYMENTS, '계약금', self.INV)
+        ct = _same_stage_card_total(self.PAYMENTS, '계약금', self.INV)
+        real = _resolve_real_payment(cv, ct, self.TOTAL_T)
+        assert _card_fee_line('계약금', real, ct, self.TOTAL_T, {'계약금': 10043000}) == ''
+
+    def test_card_only_stage_unchanged(self):
+        # 카드만 있는 칸은 기존 그대로 — 칸 값 = 실결제 (G3954-TH 회귀)
+        pays = [{'stage': '잔금', 'amount': 443003, 'partner': 'SHC0117935'}]
+        assert _card_stage_val(453200, pays, '잔금', '잔금 - 미발행') == 453200
+
+    def test_split_card_payments_all_counted(self):
+        # 같은 칸 카드 2건(G1884-SH 잔금: KB + 롯데) — 둘 다 카드라 칸 값 그대로
+        pays = [{'stage': '잔금', 'amount': 4441360, 'partner': 'KB97390776'},
+                {'stage': '잔금', 'amount': 4427764, 'partner': '롯데26648732'}]
+        assert _card_stage_val(9064000, pays, '잔금', '잔금 - 미발행') == 9064000
+        assert _same_stage_card_total(pays, '잔금', '잔금 - 미발행') == 8869124
+
+    def test_refund_counted_as_negative(self):
+        # 반환은 amount 가 음수로 들어와 비카드 합에 그대로 반영된다
+        pays = [{'stage': '계약금', 'amount': 500000, 'partner': '홍길동'},
+                {'stage': '계약금', 'amount': -100000, 'partner': '홍길동', 'is_refund': True},
+                {'stage': '계약금', 'amount': 1000000, 'partner': '삼성카드962'}]
+        assert _card_stage_val(1430000, pays, '계약금', self.INV) == 1030000
+
+    def test_substitute_payment_removed(self):
+        # 대체수금(비현금 상계)도 카드 실결제가 아니다
+        pays = [{'stage': '잔금', 'amount': 400000, 'partner': '대체수금', 'is_substitute': True},
+                {'stage': '잔금', 'amount': 1000000, 'partner': '삼성카드962'}]
+        assert _card_stage_val(1430000, pays, '잔금', '잔금 - 미발행') == 1030000
+
+    def test_other_stages_untouched(self):
+        pays = [{'stage': '중도금', 'amount': 500000, 'partner': '홍길동'},
+                {'stage': '계약금', 'amount': 1000000, 'partner': '삼성카드962'}]
+        assert _card_stage_val(1000000, pays, '계약금', self.INV) == 1000000
+
+    def test_empty_payments_passthrough(self):
+        assert _card_stage_val(453200, [], '잔금', '잔금 - 미발행') == 453200
+        assert _card_stage_val(453200, None, '잔금', '잔금 - 미발행') == 453200
 
 
 class FakeMgr:

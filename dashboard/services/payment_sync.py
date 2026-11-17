@@ -1564,6 +1564,9 @@ def _build_stage_message(
         f"은행 : {slack_esc(bank)} ({slack_esc(code_display)})",
     ])
     if is_card:
+        # 이 빌더는 payment 한 건만 받아 같은 칸의 다른 입금을 알 수 없다 → 비카드 입금 보정
+        #   (_card_stage_val) 불가. 쓰이는 경로가 계약금·중도금·잔금 밖(나눠 내는 공사 사람 칸)
+        #   뿐이라 그대로 둔다. 세 단계는 _build_stage_with_history_message 가 그린다.
         real_payment = _resolve_real_payment(stage_sheet_val, amount, total_t)
         _fee_line = _card_fee_line(stage, real_payment, amount, total_t, {stage: stage_sheet_val})
         if _fee_line:
@@ -1584,12 +1587,46 @@ def _resolve_real_payment(stage_val: int, amount: int, total_t: int) -> int:
     - stage_val >= amount: 시트 값 = 실결제 (G2530-TH 양식, 매니저가 카드 부담분 반영)
     - stage_val < amount: 시트 값 = R (R3282-MJ 양식), 실결제 = 시트 값 × 1.03
     - stage_val 없으면 total_t × 1.03 fallback
+
+    stage_val 은 **그 칸의 카드 몫**이어야 한다 — 칸에 계좌 입금이 섞여 있으면 부르는 쪽에서
+    _card_stage_val 로 걷어내고 넘긴다 (안 걷어내면 그 입금액이 수수료로 둔갑, 2026-11-17).
     """
     if stage_val <= 0:
         return round(total_t * 1.03)
     if stage_val >= amount:
         return stage_val
     return round(stage_val * 1.03)
+
+
+def _card_stage_val(stage_val: int, payments: Optional[List[Dict]], stage: str,
+                    invoice_value: str) -> int:
+    """카드 수수료 계산에 쓸 '그 칸의 카드 몫'.
+
+    칸 값은 그 칸에 들어온 입금을 모두 더한 값이다. 카드가 아닌 입금(계좌 입금·대체수금)이
+    같은 칸에 섞여 있으면 그 금액까지 이번 카드의 실결제로 잡혀 **수수료로 둔갑**한다.
+    계기 2026-11-17 G3957-JW: 9/7 계좌 입금 230,000원 + 11/17 카드 순입금 9,813,000원 이
+    한 칸에 있어 카드가 '실결제 10,043,000원 / 카드 수수료 230,000원'으로 찍혔다(실제 수수료
+    187,000원). 비카드 입금분을 빼서 카드 몫만 남긴다.
+
+    반환(출금)은 amount 가 음수로 들어와 그대로 더해지고, 대체수금은 입금자가 '대체수금'이라
+    _is_card_payment 가 False → 비카드로 빠진다.
+    """
+    non_card = sum(
+        int(p.get('amount') or 0) for p in (payments or [])
+        if p.get('stage') == stage
+        and not _is_card_payment(invoice_value, p.get('partner', ''))
+    )
+    return int(stage_val or 0) - non_card
+
+
+def _same_stage_card_total(payments: Optional[List[Dict]], stage: str,
+                           invoice_value: str) -> int:
+    """같은 칸의 카드 결제 순입금 합 (분할 카드 결제 대응)."""
+    return sum(
+        int(p.get('amount') or 0) for p in (payments or [])
+        if p.get('stage') == stage
+        and _is_card_payment(invoice_value, p.get('partner', ''))
+    )
 
 
 def _card_fee_line(stage: str, real_payment: int, deposit: int,
@@ -1743,9 +1780,13 @@ def _build_stage_with_history_message(
             f"은행 : {slack_esc(bank)} ({slack_esc(code_display)})",
         ])
         if is_card:
-            stage_val = (stage_sheet_vals or {}).get(stage, 0)
-            real_payment = _resolve_real_payment(stage_val, amount, total_t)
-            _fee_line = _card_fee_line(stage, real_payment, amount, total_t, stage_sheet_vals)
+            # 칸에서 비카드 입금분을 걷어내고(_card_stage_val), 같은 칸 카드 결제는 합쳐서 본다
+            #   — 수금완료 카드(_build_complete_message)와 같은 규칙 (2026-11-17)
+            stage_val = _card_stage_val((stage_sheet_vals or {}).get(stage, 0),
+                                        all_payments, stage, invoice_value)
+            _card_total = _same_stage_card_total(all_payments, stage, invoice_value) or amount
+            real_payment = _resolve_real_payment(stage_val, _card_total, total_t)
+            _fee_line = _card_fee_line(stage, real_payment, _card_total, total_t, stage_sheet_vals)
             if _fee_line:
                 lines.append(_fee_line)
     lines.append('')
@@ -1869,7 +1910,9 @@ def _build_complete_message(
                 and _is_card_payment(invoice_value, pp.get('partner', ''))
             ]
             if same_stage_cards and same_stage_cards[-1] is p:
-                stage_val = stage_sheet_vals.get(stage, 0)
+                # 같은 칸에 섞인 비카드 입금(계좌·대체수금)은 카드 실결제가 아니다 (2026-11-17)
+                stage_val = _card_stage_val(stage_sheet_vals.get(stage, 0),
+                                            payments, stage, invoice_value)
                 same_stage_card_total = sum(c['amount'] for c in same_stage_cards)
                 real_payment = _resolve_real_payment(stage_val, same_stage_card_total, total_t)
                 _fee_line = _card_fee_line(stage, real_payment, same_stage_card_total, total_t, stage_sheet_vals)
