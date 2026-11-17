@@ -132,7 +132,7 @@ def test_intake_view_plain_project_unchanged(monkeypatch):
 
 def test_search_finds_project_by_payer_name(monkeypatch):
     import dashboard.services.project_service as psv
-    monkeypatch.setattr(psv, 'get_project_records', lambda: [REC_303, PLAIN])
+    monkeypatch.setattr(psv, 'get_project_records', lambda **kw: [REC_303, PLAIN])
     opts = sb._build_payment_intake_options('제이케이디')
     assert [o['value'] for o in opts] == ['G4146-JW']
 
@@ -153,7 +153,7 @@ def test_invariant_split_check():
 def test_split_payer_license_choice(monkeypatch):
     import dashboard.services.project_service as psv
     import dashboard.services.business_license_handler as blh
-    monkeypatch.setattr(psv, 'get_project_records', lambda: [REC_303, PLAIN])
+    monkeypatch.setattr(psv, 'get_project_records', lambda **kw: [REC_303, PLAIN])
     monkeypatch.setattr(blh, '_own_canonical', lambda code, drive=None: ('F_OWN', 'jpg'))
     monkeypatch.setattr(blh, '_file_biz', lambda fid: blh._norm_biz('이희승') if fid == 'F_OWN' else '')
     asked = []

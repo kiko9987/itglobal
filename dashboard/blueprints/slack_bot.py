@@ -1468,7 +1468,7 @@ def _build_payment_intake_options(query: str, limit: int = 30, manager_name: str
     """
     try:
         from dashboard.services.project_service import get_project_records
-        recs = get_project_records() or []
+        recs = get_project_records(stale_ok=True) or []   # 슬랙 3초 제한 — 시트 로드를 기다리지 않는다(11-17)
     except Exception as exc:
         logger.warning(f"[SLACK/수금봇] 프로젝트 레코드 로드 실패: {exc}")
         return []
@@ -5654,8 +5654,10 @@ def _register_invoice_handlers(app):
             from dashboard.services.project_service import get_project_records
             query = (body.get('value') or '').strip()
             mgr = None if query else _resolve_intake_manager_name((body.get('user') or {}).get('id', ''))
+            # stale_ok — 슬랙은 3초만 기다린다. 시트 로드(8~15초)를 기다리면 목록이 빈칸이 된다
             ack(options=pinv.build_project_options(
-                get_project_records() or [], query, manager_name=mgr, label_fn=_intake_option_label))
+                get_project_records(stale_ok=True) or [], query, manager_name=mgr,
+                label_fn=_intake_option_label))
         except Exception as exc:
             logger.error(f'[SLACK/현장지정] 프로젝트 목록 실패: {exc}', exc_info=True)
             try:

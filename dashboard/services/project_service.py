@@ -19,6 +19,20 @@ logger = logging.getLogger(__name__)
 
 _load_lock = None  # lazy initialization
 
+# 마지막으로 성공한 공사 현황 — 캐시(5분 TTL)가 비어 로드가 도는 동안 기다리면 안 되는 곳에서 쓴다.
+#   시트 전체 로드는 8~15초라, 하필 그때 슬랙 모달이 현장 목록을 물으면 3초 제한을 넘겨
+#   "연결하는 데 문제가 발생했습니다"가 떴다 (2026-11-17 계약서 작성 요청, 강정권).
+_last_df = None
+_last_df_at = 0.0
+STALE_MAX_AGE = 900   # 15분 — 이보다 묵었으면 그냥 로드한다(주기 갱신 10분 + 여유)
+
+
+def _remember_df(df) -> None:
+    global _last_df, _last_df_at
+    import time
+    if df is not None and len(df):
+        _last_df, _last_df_at = df, time.time()
+
 PROJECT_CONFIG: Dict[str, Any] = {}
 
 def _load_project_config() -> Dict[str, Any]:
@@ -414,7 +428,10 @@ def _apply_backend_calculations(df: pd.DataFrame) -> pd.DataFrame:
 
 
 @handle_error(category=ErrorCategory.HIGH, reraise=False, fallback_value=None)
-def load_data(force_refresh: bool = False, skip_cache: bool = False) -> Optional[pd.DataFrame]:
+def load_data(force_refresh: bool = False, skip_cache: bool = False,
+              stale_ok: bool = False) -> Optional[pd.DataFrame]:
+    """stale_ok=True 면 캐시가 비었을 때 로드를 기다리지 않고 직전 자료를 돌려준다.
+    슬랙 모달의 현장 목록처럼 3초 안에 답해야 하고 몇 분 묵어도 되는 곳 전용."""
     import threading
     import time
     global _load_lock
@@ -429,7 +446,12 @@ def load_data(force_refresh: bool = False, skip_cache: bool = False) -> Optional
         cached = smart_get(cache_key, CacheStrategy.CRITICAL_DATA)
         if cached is not None:
             logger.debug("Using cached project data")
+            _remember_df(cached)
             return cached
+        if stale_ok and _last_df is not None and time.time() - _last_df_at <= STALE_MAX_AGE:
+            logger.info(f"[LOAD_DATA] 캐시 없음 — 직전 자료로 바로 응답 "
+                        f"({int(time.time() - _last_df_at)}초 지남, {len(_last_df)}행)")
+            return _last_df
 
     # Lock으로 보호: 동시에 여러 스레드가 Google Sheets API를 호출하지 않도록
     with _load_lock:
@@ -438,6 +460,7 @@ def load_data(force_refresh: bool = False, skip_cache: bool = False) -> Optional
             cached = smart_get(cache_key, CacheStrategy.CRITICAL_DATA)
             if cached is not None:
                 logger.info("[LOAD_DATA] 다른 스레드가 이미 로드함 - 캐시 사용")
+                _remember_df(cached)
                 return cached
 
         # 🔒 레이스 컨디션 방지: 데이터 수집 시작 시각 기록
@@ -514,6 +537,7 @@ def load_data(force_refresh: bool = False, skip_cache: bool = False) -> Optional
             # 정상 완료 시 캐시 저장 및 반환
             # 🔒 레이스 컨디션 방지: fetch_start 전달하여 무효화 마커와 비교
             # skip_cache=True면 캐시에 쓰지 않음 (재시도 검증용)
+            _remember_df(df)
             if not skip_cache:
                 smart_set(cache_key, df, CacheStrategy.CRITICAL_DATA, fetched_at=fetch_start)
                 logger.info(f"[LOAD_DATA][PID:{os.getpid()}] 완료: {len(df)}행 로드됨 (캐시 저장, fetch_start: {fetch_start})")
@@ -552,15 +576,17 @@ def load_data(force_refresh: bool = False, skip_cache: bool = False) -> Optional
                 return None
 
 
-def get_project_records(force_refresh: bool = False) -> List[Dict[str, Any]]:
+def get_project_records(force_refresh: bool = False,
+                        stale_ok: bool = False) -> List[Dict[str, Any]]:
     """
     프로젝트 레코드 조회 (dict 리스트 반환)
 
     Note:
         날짜 필드(공사 시작, 공사 종료, 수금 날짜, 공사 확정)는
         pandas Timestamp 객체를 문자열('YYYY-MM-DD')로 변환하여 반환
+        stale_ok=True 는 슬랙 모달 목록 전용 — load_data 설명 참고
     """
-    df = load_data(force_refresh=force_refresh)
+    df = load_data(force_refresh=force_refresh, stale_ok=stale_ok)
     if df is None:
         return []
     if isinstance(df, pd.DataFrame):

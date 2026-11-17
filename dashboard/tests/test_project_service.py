@@ -204,7 +204,7 @@ def test_get_project_records_with_dataframe():
     })
 
     with pytest.MonkeyPatch().context() as m:
-        m.setattr(project_service, 'load_data', lambda force_refresh=False: test_df)
+        m.setattr(project_service, 'load_data', lambda force_refresh=False, **kw: test_df)
         records = project_service.get_project_records()
 
         assert len(records) == 2

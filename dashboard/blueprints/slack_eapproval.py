@@ -1838,7 +1838,8 @@ def _register_form_handlers(app) -> None:
             # 나머지(계약서 등)는 실제 현장만
             specials = {ea.forms.FORM_EXPENSE: None, ea.forms.FORM_CORPDOCS: (pinv.NO_SITE_CODE,)}.get(
                 meta.get('form'), ())
-            ack(options=pinv.build_project_options(get_project_records() or [], query, manager_name=mgr,
+            # stale_ok — 슬랙 3초 제한. 시트 로드를 기다리면 목록이 빈칸이 된다(11-17 계약서 창)
+            ack(options=pinv.build_project_options(get_project_records(stale_ok=True) or [], query, manager_name=mgr,
                                                    label_fn=_intake_option_label, specials=specials))
         except Exception as exc:
             logger.error(f'{_LOG} 양식 현장 목록 실패: {exc}', exc_info=True)
@@ -2331,7 +2332,8 @@ def register_eapproval_handlers(app) -> None:
             mgr = None if query else _name((body.get('user') or {}).get('id', ''))
             # 프로젝트0·공통비 둘 다(11-02) — 프로젝트0 자재 구매는 비품보다 자금집행이 더 많다
             ack(options=pinv.build_project_options(
-                get_project_records() or [], query, manager_name=mgr, label_fn=_intake_option_label))
+                get_project_records(stale_ok=True) or [], query, manager_name=mgr,
+                label_fn=_intake_option_label))   # stale_ok — 슬랙 3초 제한(11-17)
         except Exception as exc:
             logger.error(f'{_LOG} 프로젝트 목록 실패: {exc}', exc_info=True)
             try:
