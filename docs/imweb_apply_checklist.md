@@ -198,3 +198,31 @@ SNS 주소 칸에 `instagram.com/systemaircon_itg` 로 `https://` 없이 들어�
   어느 쪽을 공식으로 할지 정하고 다른 쪽은 노출을 끈다.
 - **H1 없는 페이지**: /review · /review1 · /contact-board · /event.
 - **이미지**: 홈 이미지 21개가 모두 즉시 로드된다(lazy 0개). alt 빈 것 7개.
+
+---
+
+## 9. 헤더 코드 교체 — FAQ 스키마를 홈에만 (2026-11-17, 붙여 넣기만 하면 됨)
+
+`docs/imweb_header_code.html` 을 고쳐 뒀다. **설정 → SEO → Header Code 칸의 내용을 이 파일 내용으로 통째로 바꾸면 된다.**
+
+무엇이 달라졌나:
+
+- FAQ 스키마가 `END HEADER` 뒤에 그냥 박혀 있어서 **FAQ 섹션이 없는 `/cleaning`·`/construction-case`·`/review`·`/event` 에도 질문 8개가 붙어 있었다.** 구글 구조화 데이터 지침 위반이다(화면에 보이는 FAQ 와 같아야 한다).
+- 그 블록을 주소별로 넣는 기존 틀(`injectJSONLD`) 안으로 옮겨, **홈(`/`·`/index`)에만** 들어가게 했다. 질문·답변 글자는 하나도 안 바꿨다.
+- 영상(VideoObject) 조건에 있던 `/home`·`/introduce` 도 뺐다. 두 곳은 비울 옛 페이지다.
+
+주소별 주입 결과(스크립트를 그대로 실행해 확인):
+
+```
+/                   FAQPage, VideoObject
+/index              FAQPage, VideoObject
+/cleaning           VideoObject, VideoObject
+/review             없음
+/event              없음
+/construction-case  없음
+/introduce          없음
+/home               없음
+```
+
+붙여 넣은 뒤 확인: 홈과 `/cleaning` 을 열어 화면이 깨지지 않는지 보고,
+[리치 결과 테스트](https://search.google.com/test/rich-results)에 `https://www.itg-aircon.com/cleaning` 을 넣어 FAQ 가 안 잡히는지 본다.
