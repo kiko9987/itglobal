@@ -5678,8 +5678,10 @@ def _register_invoice_handlers(app):
             view = body['view']
             meta = json.loads(view.get('private_metadata') or '{}')
             on = pinv.transfer_requested(view['state']['values'])
-            client.views_update(view_id=view['id'], hash=view.get('hash'),
-                                view=_pinv_modal_for(meta, transfer=on))
+            # hash 를 넘기지 않는다 — 체크를 누르면 슬랙이 창 상태를 먼저 바꿔 body 의 hash 가 이미 옛 값이고,
+            #   그러면 hash_conflict 로 거부돼 체크만 되고 이체 칸이 안 펼쳐졌다 (2026-11-17 KiKO).
+            #   이 창을 다시 그리는 건 서버뿐이라 마지막 요청이 이기면 된다.
+            client.views_update(view_id=view['id'], view=_pinv_modal_for(meta, transfer=on))
         except Exception as exc:
             logger.warning(f'[SLACK/현장지정] 이체 칸 펼치기 실패: {exc}')
 

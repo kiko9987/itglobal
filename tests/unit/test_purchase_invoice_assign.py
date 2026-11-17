@@ -179,7 +179,9 @@ def test_assignments_are_per_message(tmp_db):
 def test_prompt_button_value_roundtrip():
     blocks = pinv.prompt_blocks('C1', '111.1', PARSED)
     btn = next(b for b in blocks if b['type'] == 'actions')['elements'][0]
-    assert blocks[-1]['elements'][0]['text'] == '⠀'          # 다른 카드와 같은 아래 여백(11-06)
+    # 스레드 답글은 빈 줄 없이 본문 바로 아래 버튼 (11-17 KiKO — 채널 카드 여백은 그대로)
+    assert [b['type'] for b in blocks] == ['section', 'actions']
+    assert '⠀' not in json.dumps(blocks, ensure_ascii=False)
     assert btn['action_id'] == pinv.ACTION_OPEN
     v = json.loads(btn['value'])
     assert (v['ch'], v['ts']) == ('C1', '111.1')

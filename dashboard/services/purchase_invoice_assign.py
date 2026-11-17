@@ -325,11 +325,21 @@ def parsed_from_row(row: Dict) -> Dict:
     return {k: row.get(k) for k in ('date_md', 'grn', 'amount', 'partner')}
 
 
+def _thread_blocks(text: str, elements: Optional[List[dict]] = None) -> List[dict]:
+    """계산서 글 스레드용 — 채널 카드(e_approval.spaced)와 달리 빈 줄을 넣지 않는다.
+
+    스레드 답글은 폭이 좁아 본문·버튼 사이에 빈 줄 블록까지 들어가면 너무 떨어져 보인다
+    (2026-11-17 KiKO). 채널 카드의 위아래 빈 줄 규칙(11-06)은 그대로 둔다."""
+    blocks: List[dict] = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}}]
+    if elements:
+        blocks.append({'type': 'actions', 'elements': elements})
+    return blocks
+
+
 def prompt_blocks(channel: str, msg_ts: str, parsed: Dict) -> List[dict]:
     """계산서 글 스레드에 다는 버튼 메시지."""
-    from dashboard.services.e_approval import spaced
     value = button_value(channel, msg_ts, parsed)
-    return spaced('어느 현장 건인지 골라 주세요. 고르면 이 글의 고정이 풀립니다.', [{
+    return _thread_blocks('어느 현장 건인지 골라 주세요. 고르면 이 글의 고정이 풀립니다.', [{
         'type': 'button', 'action_id': ACTION_OPEN, 'style': 'primary', 'value': value,
         'text': {'type': 'plain_text', 'text': '📍 현장 지정', 'emoji': True},
     }])
@@ -364,11 +374,10 @@ def result_blocks(row: Dict, project_line: str, channel: str, msg_ts: str, extra
                   with_button: bool = True) -> List[dict]:
     """with_button=False — 계산서 글 현장 지정이 꺼져 있으면 [✏️ 다시 지정]을 달지 않는다
     (눌러도 '지금 쓰지 않아요'만 떠서 헷갈림, 11-17 R4298-MW #36)."""
-    from dashboard.services.e_approval import spaced
     if not with_button:
-        return [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': result_text(row, project_line, extra)}}]
+        return _thread_blocks(result_text(row, project_line, extra))
     value = button_value(channel, msg_ts, parsed_from_row(row))
-    return spaced(result_text(row, project_line, extra), [{
+    return _thread_blocks(result_text(row, project_line, extra), [{
         'type': 'button', 'action_id': ACTION_OPEN, 'value': value,
         'text': {'type': 'plain_text', 'text': '✏️ 다시 지정', 'emoji': True},
     }])
