@@ -375,6 +375,16 @@ def test_branch_and_coffee_signal_l04558():
     # '공실'(성씨 '공'+1자)은 사람 이름 아님
     assert ar._strip_personal_name('메가커피 김포마송가현점 옆 공실') == '메가커피 김포마송가현점 옆 공실'
     assert ar._strip_personal_name('그로브리조트 정승종') == '그로브리조트'
+    # 지점명 '공세점'(성씨 '공'+2자)도 사람 이름 아님 (11-17)
+    assert ar._strip_personal_name('1층 국면당 공세점') == '1층 국면당 공세점'
+
+
+def test_planned_paren_glued_l04587():
+    # '(골프연습장예정)' — '예정)'에서 잘려 '2층(골프연습장'이 되던 것
+    assert ar._extract_building_tail('도봉구 도당로 141 진일빌딩 2층(골프연습장예정)') == \
+        '진일빌딩 2층(골프연습장예정)'
+    assert ar._post_normalize_display('도봉구 도당로 141 진일빌딩 2층(골프연습장') == \
+        '도봉구 도당로 141 진일빌딩 2층 골프연습장'
 
 
 def test_visit_modal_keeps_typed_tail():

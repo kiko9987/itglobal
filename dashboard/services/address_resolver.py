@@ -227,6 +227,12 @@ def _post_normalize_display(addr: str) -> str:
         return addr
     # 끝에 남은 물음표 — 고객이 상호를 확신 못 해 붙인 것 (2026-11-10 L-04108 '인더크림 카페 ?')
     addr = re.sub(r'\s*[?？]+\s*$', '', addr)
+    # 닫히지 않은 마지막 여는 괄호는 풀어 씀 — 절단 등으로 ')'가 잘린 경우 '2층(골프연습장'이
+    #   남지 않게 (2026-11-17 L-04587). 괄호 안 내용은 살림.
+    if addr.count('(') > addr.count(')'):
+        _i = addr.rfind('(')
+        if ')' not in addr[_i:]:
+            addr = (addr[:_i].rstrip() + ' ' + addr[_i + 1:].strip()).strip()
     # (법정동 + 건물명) 무-콤마 괄호 → 건물명만 밖으로, 법정동 제거 (2026-08-18 L-03702).
     #   매니저가 '(갈현동 벧엘)' 처럼 '법정동 <건물>'을 괄호로 적은 케이스. 카카오/관행
     #   정식 괄호는 '(법정동, 건물)' **콤마형**이라 미매치(아래 콤마 정리로만 처리, 괄호
@@ -753,6 +759,8 @@ _SHOP_NAME_SUFFIX = (
     '안과', '치과', '내과', '외과', '피부과', '소아과',
     # 위치 설명 (2026-11-13 L-04558 '가현점 옆 공실'의 '공실'(성씨 '공'+1자)을 사람 이름으로 보고 삭제)
     '공실',
+    # 지점명 (2026-11-17 '국면당 공세점'의 '공세점'(성씨 '공'+2자)을 사람 이름으로 보고 삭제)
+    '점',
 )
 
 
@@ -961,8 +969,10 @@ def _extract_building_tail(text: str, require_signal: bool = True) -> str:
             #   ('설치 예정')로 보고 기존대로 절단.
             # '예정지'(장소) 및 '(예정)'(괄호 지정어)는 절단 안 함 — 계획 중 장소 표시.
             #   뒤 _mark_planned 가 'X (예정)' 로 정규화. '설치 예정'(동사구, 괄호X)만 절단.
+            # '(골프연습장예정)'처럼 괄호 안 상호에 붙은 '예정)'도 장소 표시 (2026-11-17 L-04587:
+            #   여기서 잘려 '2층(골프연습장'으로 여는 괄호만 남음)
             if sw == '예정' and 0 <= p and (
-                    tail[p + 2:p + 3] == '지' or (p > 0 and tail[p - 1] == '(')):
+                    tail[p + 2:p + 3] in ('지', ')') or (p > 0 and tail[p - 1] == '(')):
                 continue
             # 2026-08-06 ETC-f89e73: '회사' 가 법인 표기 '주식/유한/합자/합명회사'
             #   내부를 자르는 것 방지 — 매니저가 붙인 법인 표기 보존(사용자 결정).
@@ -1931,6 +1941,17 @@ def _enrich_verified_address(
     )
     if _mshop2:
         _phrase = _mshop2.group(1).strip()
+        # 문의글 절단어(설치·문의·단독 '예정' 등)부터는 상호 아님 — '8층 사무실 설치 예정'이
+        #   통째로 붙던 것 (2026-11-17). '사무실'·붙은 '○○예정'(장소 표시)은 상호 쪽으로 둠.
+        from dashboard.services.lead_helpers import _mask_stop_exempt
+        _ptoks = _phrase.split()
+        for _pi, _pt in enumerate(_ptoks):
+            if any(_sw in _mask_stop_exempt(_pt) for _sw in _TAIL_STOP_WORDS
+                   if _sw != '사무실' and not (_sw == '예정' and not _pt.startswith('예정'))):
+                _ptoks = _ptoks[:_pi]
+                break
+        _phrase = ' '.join(_ptoks)
+    if _mshop2 and _phrase:
         _fw, _lw = _phrase.split()[0], _phrase.split()[-1]
         if (not re.search(r'(?:로|길|구|시|군|동|읍|면|층|호|번지)$', _lw)
                 and _fw not in verified_addr
