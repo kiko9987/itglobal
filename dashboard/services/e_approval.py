@@ -71,6 +71,7 @@ A_BRANCH = 'eap_branch'               # 계산서로 거래처가 정해졌을 �
 A_COST = 'eap_cost'                   # 자금집행 「원가 분류」 — '법인 간 이체'를 고르면 창이 바뀐다(11-16)
 A_MOVE_PICK = 'eap_move_pick'         # 법인 간 이체 — 옮길 입금(대기 중인 자금 이동 요청) 고르기
 A_MOVE_OPEN = 'eap_move_open'         # 매니저 DM [📝 결재 올리기] — 채워진 법인 간 이체 창 열기
+A_SITE, CB_SITE = 'eap_site', 'eap_site_submit'   # 이체 대기 자금집행 [📍 현장 바꾸기] — 경영지원, 현장·분류만(11-17)
 CB_NEW, CB_REJECT = 'eap_new_submit', 'eap_reject_submit'
 A_REVISE, CB_REVISE = 'eap_revise', 'eap_revise_submit'   # [✏️ 수정 요청] → 무엇을 고칠지 적는 창(11-05)
 A_EDIT = 'eap_edit'                                         # [✏️ 수정하기] → 원래 값이 채워진 양식 창
@@ -1430,6 +1431,8 @@ def buttons(row: dict, role: str = 'all') -> List[dict]:
             + ('\n⚠️ 거래처가 알려 준 계좌 목록에 없어요.' if _x.get('payee_unlisted') else '')
             + ((f"\n✅ 확인된 계좌({_known})" + (' — ⚠️ 어음 계좌예요.' if '어음' in _known else '')) if _known else ''),
             '이체 완료')))
+    if site_changeable(row) and role in ('all', 'executor'):
+        out.append(_btn('📍 현장 바꾸기', A_SITE, aid))
     # 순서: 처리하는 사람 버튼 → [보완 요청](돌려보내기) → 요청자 버튼 [수정하기]·[취소하기] 붙여서 맨 뒤(11-11 KiKO)
     if st in (PENDING, FINAL, APPROVED) and role == 'all':   # 고칠 게 있으면 반려 대신 돌려보내기(11-05)
         out.append(_btn('🔁 보완 요청', A_REVISE, aid))
@@ -2258,6 +2261,59 @@ ENTITY_PAYEE = {   # 받는 통장 — 그룹 기업은행(하도급지킴이)�
     'R': {'payee_name': '(주)아이티글로벌그룹', 'bank': '하나은행', 'account': '255-910014-31304'},
 }
 MOVE_PICK_MANUAL = 'manual'
+
+
+def site_changeable(row: dict) -> bool:
+    """[📍 현장 바꾸기] — 최종 승인이 끝나 요청자가 못 고치는 자금집행(이체 대기). 법인 간 이체는 현장이 입금에 묶여 제외."""
+    return (row.get('form') == FORM_FUND and row.get('status') == APPROVED
+            and not extra(row).get('fund_move') and row.get('cost_category') != COST_MOVE)
+
+
+def change_site(aid: int, project_code: str, cost_category: str) -> Optional[Tuple[dict, Dict[str, tuple]]]:
+    """현장·원가 분류만 고친다(금액·계좌·승인 기록은 그대로). 이체 대기가 아니게 됐으면 None.
+    돌려주는 changed = {'project_code': (전, 후), 'cost_category': (전, 후)} 중 바뀐 것."""
+    row = get(aid)
+    if not row or not site_changeable(row):
+        return None
+    changed = {k: (row.get(k) or '', v) for k, v in (('project_code', project_code), ('cost_category', cost_category))
+               if v and (row.get(k) or '') != v}
+    if not changed:
+        return row, {}
+    with _db()._get_connection() as conn:
+        cur = conn.execute('UPDATE approvals SET project_code=?, cost_category=?, updated_at=? WHERE id=? AND status=?',
+                           (project_code or row.get('project_code'), cost_category or row.get('cost_category'),
+                            datetime.now().strftime('%Y-%m-%d %H:%M:%S'), aid, APPROVED))
+        conn.commit()
+        if cur.rowcount != 1:
+            return None
+    return get(aid), changed
+
+
+def site_view(row: dict, project_label: str = '') -> dict:
+    """[📍 현장 바꾸기] 창 — 현장·원가 분류 두 칸만."""
+    from dashboard.services.purchase_invoice_assign import COST_CATEGORIES
+    blocks = [
+        {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
+         f"{title(row)} · {int(row.get('amount') or 0):,}원 → {row.get('partner') or '-'}\n"
+         '금액·계좌·승인은 그대로 두고 현장과 원가 분류만 바꿔요. 계산서 글로 올린 결재면 그 글의 현장 지정도 같이 바뀌어요.'}]},
+        {'type': 'input', 'block_id': 'project', 'label': {'type': 'plain_text', 'text': '현장'},
+         'element': {'type': 'external_select', 'action_id': A_PROJECT, 'min_query_length': 0,
+                     'placeholder': {'type': 'plain_text', 'text': '코드·상호·주소로 검색'}}},
+        {'type': 'input', 'block_id': 'cost', 'label': {'type': 'plain_text', 'text': '원가 분류'},
+         'element': {'type': 'static_select', 'action_id': 'cost', 'options': _opts(COST_CATEGORIES)}},
+    ]
+    _set_initial(blocks, 'project', row.get('project_code'), project_label)
+    _set_initial(blocks, 'cost', row.get('cost_category'))
+    return {'type': 'modal', 'callback_id': CB_SITE, 'title': {'type': 'plain_text', 'text': '현장 바꾸기'},
+            'submit': {'type': 'plain_text', 'text': '바꾸기'}, 'close': {'type': 'plain_text', 'text': '취소'},
+            'private_metadata': json.dumps({'aid': row['id']}), 'blocks': blocks}
+
+
+def read_site_view(view: dict) -> Tuple[str, str]:
+    vals = (view.get('state') or {}).get('values') or {}
+    proj = ((vals.get('project') or {}).get(A_PROJECT) or {}).get('selected_option') or {}
+    cost = ((vals.get('cost') or {}).get('cost') or {}).get('selected_option') or {}
+    return proj.get('value') or '', cost.get('value') or ''
 
 
 def fund_cost_categories() -> List[Tuple[str, str]]:

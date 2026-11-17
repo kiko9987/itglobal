@@ -1808,6 +1808,35 @@ def test_invoice_linked_edit_can_change_project_and_syncs_invoice_post(se, monke
     assert synced == ['G4303-YG']                                       # 현장·분류 그대로면 계산서 글은 안 건드림
 
 
+def test_site_change_after_final_approval(se, monkeypatch):
+    # 11-17 #49: 최종 승인 뒤 [수정하기]가 없어 프로젝트0 → 실제 현장을 못 바꿨다 → 경영지원 [📍 현장 바꾸기]
+    synced = []
+    monkeypatch.setattr(se, '_sync_invoice_assignment', lambda row, uid, name, parsed=None: synced.append(row['project_code']))
+    monkeypatch.setattr(ea, 'executor_ids', lambda: (SB,))
+    row = se.start(ea.create(ea.FORM_FUND, SB, '황샛별',
+                             dict(FIELDS, project_code='프로젝트0', cost_category='자재비', origin_channel='CINV', origin_ts='9.0')))
+    assert not any(b['action_id'] == ea.A_SITE for b in ea.buttons(row))      # 승인 전엔 [수정하기]로
+    with ea._db()._get_connection() as conn:
+        conn.execute('UPDATE approvals SET status=? WHERE id=?', (ea.APPROVED, row['id']))
+        conn.commit()
+    row = ea.get(row['id'])
+    assert any(b['action_id'] == ea.A_SITE for b in ea.buttons(row))
+    v = ea.site_view(row, '프로젝트 0 · 회사 재고')
+    proj = next(b for b in v['blocks'] if b.get('block_id') == 'project')
+    assert proj['element']['initial_option']['value'] == '프로젝트0'
+    assert se.process_site_change(MGR, row['id'], 'G4303-YG', '자재비') is None   # 경영지원만
+    new = se.process_site_change(SB, row['id'], 'G4303-YG', '자재비')
+    assert new['project_code'] == 'G4303-YG' and new['status'] == ea.APPROVED and new['amount'] == row['amount']
+    assert synced == ['G4303-YG']
+    logs = [kw['text'] for kw in se._fake.of('chat_postMessage') if kw.get('thread_ts') == row['card_ts']]
+    assert any('현장 변경 — 현장 프로젝트0 → G4303-YG' in t for t in logs)
+    view = {'state': {'values': {'project': {ea.A_PROJECT: {'selected_option': {'value': 'G1'}}},
+                                 'cost': {'cost': {'selected_option': {'value': '제품대'}}}}}}
+    assert ea.read_site_view(view) == ('G1', '제품대')
+    ea.transition(row['id'], 'transfer', SB, '황샛별')
+    assert ea.change_site(row['id'], 'G1', '자재비') is None                  # 이체 끝나면 못 바꿈
+
+
 def test_requester_self_edit_before_approval(se, monkeypatch):
     """11-11 KiKO: 올리고 나서 실수를 알아도 고칠 길이 없었다 — 최종 승인 전엔 요청자가 [✏️ 수정하기]."""
     monkeypatch.setenv('EAPPROVAL_FINAL_ENABLED', 'true')

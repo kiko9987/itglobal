@@ -1116,6 +1116,40 @@ def process_new_submit(uid: str, f: dict) -> dict:
     return row
 
 
+def process_site_change(uid: str, aid: int, code: str, cost: str) -> Optional[dict]:
+    """[📍 현장 바꾸기] 제출 — 현장·분류만 바꾸고 카드·DM 다시 그림, 스레드에 한 줄, 계산서 글 현장 지정도(11-17)."""
+    from dashboard.services.purchase_invoice_assign import cost_label
+    try:
+        if uid not in ea.executor_ids():
+            return None
+        name = _name(uid)
+        res = ea.change_site(aid, code, cost)
+        if res is None:
+            _notify(eap_client(), uid, f'⚠️ #{aid} — 그 사이 이체가 끝났거나 상태가 바뀌어 현장을 바꾸지 못했어요.')
+            return None
+        row, changed = res
+        if not changed:
+            return row
+        parts = []
+        if 'project_code' in changed:
+            a, b = changed['project_code']
+            parts.append(f'현장 {a or "-"} → {b}')
+        if 'cost_category' in changed:
+            a, b = changed['cost_category']
+            parts.append(f'분류 {cost_label(a) if a else "-"} → {cost_label(b)}')
+        text = ' · '.join(parts)
+        _thread_log(row, f'📍 {ea.initial(name)} 현장 변경 — {text}')
+        refresh(row)
+        if row.get('origin_ts'):
+            _sync_invoice_assignment(row, uid, name)
+        _audit(row, 'site', name, text)
+        logger.info(f'{_LOG} {ea.title(row)} 현장 바꿈 ({name}): {changed}')
+        return row
+    except Exception as exc:
+        logger.error(f'{_LOG} 현장 바꾸기 실패 (#{aid}): {exc}', exc_info=True, extra={'force_alert': True})
+        return None
+
+
 def _sync_invoice_assignment(row: dict, uid: str, name: str, parsed: Optional[dict] = None) -> None:
     """계산서 글 현장 지정을 결재 값(현장·분류·내용)으로 — 처음 올릴 때와 수정해서 현장을 바꿨을 때."""
     try:
@@ -2295,6 +2329,36 @@ def register_eapproval_handlers(app) -> None:
         except Exception as exc:
             logger.error(f'{_LOG} 수정 창 열기 실패 (#{aid}): {exc}', exc_info=True)
             _ephemeral(client, body, ':warning: 수정 창을 열지 못했어요. 잠시 뒤 다시 눌러 주세요.')
+
+    @app.action(ea.A_SITE)
+    def handle_site_open(ack, body, client):
+        """[📍 현장 바꾸기] — 이체 대기 자금집행, 경영지원(정산 승인 명단)만. 현장·분류만(11-17 KiKO)."""
+        ack()
+        aid = int(body['actions'][0]['value'])
+        uid = (body.get('user') or {}).get('id', '')
+        row = ea.get(aid)
+        if uid not in ea.executor_ids():
+            _ephemeral(client, body, '🔒 현장 바꾸기는 경영지원만 할 수 있어요. 고칠 게 있으면 [🔁 보완 요청]으로 돌려보내 주세요.')
+            return
+        if not row or not ea.site_changeable(row):
+            _ephemeral(client, body, '🔒 이체 대기 중인 자금집행만 현장을 바꿀 수 있어요.')
+            return
+        try:   # 현장 이름(공사현황 조회)은 느릴 수 있어 코드로 먼저 연다 — trigger 3초
+            client.views_open(trigger_id=body['trigger_id'], view=ea.site_view(row))
+        except Exception as exc:
+            logger.error(f'{_LOG} 현장 바꾸기 창 열기 실패 (#{aid}): {exc}', exc_info=True)
+            _ephemeral(client, body, ':warning: 창을 열지 못했어요. 잠시 뒤 다시 눌러 주세요.')
+
+    @app.view(ea.CB_SITE)
+    def handle_site_submit(ack, body, view):
+        code, cost = ea.read_site_view(view)
+        if not code:
+            ack(response_action='errors', errors={'project': '현장을 골라 주세요.'})
+            return
+        ack()
+        aid = int(json.loads(view.get('private_metadata') or '{}').get('aid') or 0)
+        uid = (body.get('user') or {}).get('id', '')
+        threading.Thread(target=process_site_change, args=(uid, aid, code, cost), daemon=True).start()
 
     @app.action(ea.A_REJECT)
     def handle_reject_open(ack, body, client):
