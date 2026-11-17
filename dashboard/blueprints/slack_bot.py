@@ -5215,15 +5215,26 @@ def _pinv_deny(body: dict, view: Optional[dict] = None) -> str:
 
 
 def _pinv_project_rec(code: str):
-    """프로젝트 코드 → 공사현황 레코드(없으면 None). 프로젝트0·공통비는 None."""
+    """프로젝트 코드 → 공사현황 레코드(없으면 None). 프로젝트0·공통비는 None.
+
+    모달을 그릴 때마다 부르므로 get_project_records(4,300행 전체 변환 0.27초, 캐시가 비면 10초)
+    대신 캐시 DataFrame 한 행 + 직전 자료 허용 — _intake_split_payers 와 같은 수법(2026-11-17 실측
+    268ms → 52ms). 쓰는 쪽(project_display·_intake_option_label)은 주소·상호 같은 글자 칸만 본다.
+    """
     from dashboard.services import purchase_invoice_assign as pinv
     if not code or code in pinv.SPECIAL_LABELS:
         return None
     try:
-        from dashboard.services.project_service import get_project_records
-        for r in get_project_records() or []:
-            if str(r.get('프로젝트 코드') or '').strip() == code:
-                return r
+        import pandas as pd
+        from dashboard.services.project_service import load_data
+        df = load_data(stale_ok=True)
+        if not isinstance(df, pd.DataFrame) or df.empty or '프로젝트 코드' not in df.columns:
+            return None
+        sub = df[df['프로젝트 코드'].astype(str).str.strip() == str(code).strip()]
+        if sub.empty:
+            return None
+        row = sub.iloc[0]
+        return row.where(pd.notna(row), None).to_dict()
     except Exception as exc:
         logger.warning(f'[SLACK/현장지정] 프로젝트 조회 실패 ({code}): {exc}')
     return None

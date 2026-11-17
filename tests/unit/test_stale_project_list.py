@@ -66,6 +66,36 @@ def test_cache_hit_refreshes_snapshot(monkeypatch):
     assert ps._last_df is DF and ps._last_df_at > 0
 
 
+def test_pinv_project_rec_reads_one_row_without_waiting(monkeypatch):
+    """현장 지정 모달은 한 행만 쓰는데 4,300행을 통째로 변환하고 있었다(268ms, 캐시 비면 10초).
+
+    캐시 DataFrame 한 행 + stale_ok 로 바꿈 — get_project_records 를 타면 안 된다."""
+    from dashboard.blueprints import slack_bot as sb
+    import dashboard.services.project_service as psv
+
+    df = pd.DataFrame([
+        {'프로젝트 코드': 'G4049-JW', '사업자명': '강원포장', '현장 주소': '광명 양지로 21'},
+        {'프로젝트 코드': 'R4256-MJ', '사업자명': '현금', '현장 주소': '구로구 부일로15길'},
+    ])
+    monkeypatch.setattr(psv, 'load_data', lambda **kw: df)
+    monkeypatch.setattr(psv, 'get_project_records',
+                        lambda **kw: pytest.fail('전체 변환 경로를 타면 안 된다'))
+
+    rec = sb._pinv_project_rec('R4256-MJ')
+    assert rec['사업자명'] == '현금' and rec['현장 주소'] == '구로구 부일로15길'
+    assert sb._pinv_project_rec('G9999-ZZ') is None       # 없는 코드
+    assert sb._pinv_project_rec('프로젝트0') is None        # 특수 라벨은 조회 안 함
+    assert sb._pinv_project_rec('') is None
+
+
+def test_pinv_project_rec_survives_empty_cache(monkeypatch):
+    """직전 자료도 없으면(기동 직후) None — 모달은 주소 없이라도 떠야 한다."""
+    from dashboard.blueprints import slack_bot as sb
+    import dashboard.services.project_service as psv
+    monkeypatch.setattr(psv, 'load_data', lambda **kw: None)
+    assert sb._pinv_project_rec('R4256-MJ') is None
+
+
 def test_empty_frame_is_not_remembered(monkeypatch):
     """빈 결과를 스냅샷으로 들고 있으면 목록이 영영 빈칸이 된다."""
     monkeypatch.setattr(ps, '_last_df', None)
