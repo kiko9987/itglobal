@@ -1963,3 +1963,129 @@ tr.accordion-row:hover .row-details,
     padding: 1.3rem !important;
   }
 }
+
+/* ===== 펼침 위 단추 줄 — PC (2026-11-17 KiKO 안 1) =====
+   성격이 다른 세 무리로 나눔: [A/S 요청 · 세금계산서 요청 · 부담자 설정] 붙인 묶음 → [편집] 진한 주 단추
+   → 세로 구분선 → [공사 취소]/[공사 재개] 글자 단추. 간격이 12·4·4·24px 로 제각각이던 것 정리.
+   HTML 순서(편집·A/S·계산서·부담자·취소)는 그대로 두고 order 로만 옮김 — 휴대폰 격자(pm-mobile.css)와
+   편집 모드 숨김(ProjectRowAccordion style.display) 로직을 건드리지 않으려고.
+   그룹웨어 틀(body.gw-shell .btn-outline-*)보다 앞서야 해서 html body 로 우선순위를 올림. */
+@media (min-width: 768px) {
+  html body .project-actions-container {
+    gap: 0;
+  }
+
+  html body .project-actions-container > .as-action-slot {
+    display: contents;
+  }
+
+  /* 순서: 요청 묶음 → 편집 → 취소/재개 */
+  html body .project-actions-container .as-action-slot .btn { order: 1; }
+  html body .project-actions-container .invoice-request-btn[data-il-invoice] { order: 2; }
+  html body .project-actions-container .invoice-request-btn:not([data-il-invoice]) { order: 3; }
+  html body .project-actions-container > .unified-edit-buttons {
+    order: 4;
+    margin: 0 0 0 12px !important; /* .me-2 대신 묶음과 12px */
+    display: inline-flex;
+    gap: 6px;
+  }
+  html body .project-actions-container .cancel-construction-btn,
+  html body .project-actions-container .resume-construction-btn { order: 5; }
+
+  /* 요청 묶음: 테두리를 겹쳐 붙이고(-1px) 바깥 두 끝만 둥글게 */
+  html body .project-actions-container .as-action-slot .btn,
+  html body .project-actions-container .invoice-request-btn {
+    margin-left: -1px;
+    border-radius: 0 !important;
+    transform: none !important;
+    box-shadow: none !important;
+    position: relative;
+  }
+  html body .project-actions-container .as-action-slot .btn:hover,
+  html body .project-actions-container .invoice-request-btn:hover {
+    z-index: 1; /* 겹친 테두리 중 마우스 올린 쪽이 위로 */
+  }
+  html body .project-actions-container .as-action-slot .btn:first-child {
+    margin-left: 0;
+    border-top-left-radius: 8px !important;
+    border-bottom-left-radius: 8px !important;
+  }
+  html body .project-actions-container .invoice-request-btn:not([data-il-invoice]),
+  html body .project-actions-container:not(:has(.invoice-request-btn:not([data-il-invoice]))) .invoice-request-btn[data-il-invoice] {
+    border-top-right-radius: 8px !important;
+    border-bottom-right-radius: 8px !important;
+  }
+  /* 묶음 안 테두리 단추는 같은 회색으로(세금계산서만 파랑이던 것). A/S 관리 모드의 [A/S 접수]·[A/S 완료] 채운 단추는 그대로 */
+  html body .project-actions-container .as-action-slot .btn.btn-outline-secondary,
+  html body .project-actions-container .invoice-request-btn {
+    background: #ffffff;
+    border: 1px solid #dcdee3;
+    color: #1a1c20;
+  }
+  html body .project-actions-container .as-action-slot .btn.btn-outline-secondary:hover,
+  html body .project-actions-container .invoice-request-btn:hover {
+    background: #f7f8f9;
+    border-color: #b9bdc6;
+    color: #1a1c20;
+  }
+  html body .project-actions-container .as-action-slot .btn.btn-outline-secondary i,
+  html body .project-actions-container .invoice-request-btn i {
+    color: #555d6d;
+  }
+
+  /* [편집]: 가장 자주 누르는 단추 → 진한 주 단추(당근 비즈니스 주 단추 색) */
+  html body .project-actions-container .unified-edit-btn {
+    background: #2a3038;
+    border: 1px solid #2a3038;
+    color: #ffffff;
+    border-radius: 8px !important;
+  }
+  html body .project-actions-container .unified-edit-btn:hover {
+    background: #111418;
+    border-color: #111418;
+    color: #ffffff;
+  }
+  html body .project-actions-container .unified-edit-btn i {
+    color: #ffffff;
+  }
+
+  /* [공사 취소]·[공사 재개]: 구분선 뒤 글자 단추. 앞에 다른 단추가 있을 때만 선을 그림
+     (취소·재개 직후엔 이 단추 하나만 남기도 함 — handleCancel/Resume 의 innerHTML 교체) */
+  html body .project-actions-container .cancel-construction-btn,
+  html body .project-actions-container .resume-construction-btn {
+    position: relative;
+    background: transparent !important;
+    border-color: transparent !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+    transform: none !important;
+  }
+  html body .project-actions-container .cancel-construction-btn:not(:first-child),
+  html body .project-actions-container .resume-construction-btn:not(:first-child) {
+    margin-left: 25px;
+  }
+  html body .project-actions-container .cancel-construction-btn:not(:first-child)::before,
+  html body .project-actions-container .resume-construction-btn:not(:first-child)::before {
+    content: '';
+    position: absolute;
+    left: -13px;
+    top: 50%;
+    width: 1px;
+    height: 20px;
+    margin-top: -10px;
+    background: #dcdee3;
+  }
+  html body .project-actions-container .cancel-construction-btn,
+  html body .project-actions-container .cancel-construction-btn i {
+    color: #b42318 !important; /* 흰 바탕 6.5:1 */
+  }
+  html body .project-actions-container .cancel-construction-btn:hover {
+    background: #fef3f2 !important;
+  }
+  html body .project-actions-container .resume-construction-btn {
+    color: #1a1c20 !important;
+  }
+  html body .project-actions-container .resume-construction-btn:hover {
+    background: #f7f8f9 !important;
+  }
+}
