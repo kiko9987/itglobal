@@ -250,8 +250,8 @@ def test_buttons_by_status_and_role(tmp_db):
     assert ids(row, 'executor') == []
     row = ea.transition(row['id'], 'approve', KIKO, '고광일')
     # 승인 뒤(이체 대기)엔 요청자 취소 없음 — 경영지원이 은행에서 보내는 중일 수 있다(11-06 검수). 반려로
-    assert ids(row) == [ea.A_TRANSFER, ea.A_REVISE]
-    assert ids(row, 'executor') == [ea.A_TRANSFER]
+    assert ids(row) == [ea.A_TRANSFER, ea.A_SITE, ea.A_REVISE]       # [📍 현장 바꾸기] 경영지원(11-17)
+    assert ids(row, 'executor') == [ea.A_TRANSFER, ea.A_SITE]
     assert not ea.can_act('cancel', row, MGR) and ea.can_act('cancel', row, KIKO)
     task = ea.create(ea.forms.FORM_CORPDOCS, MGR, '박정우', {'project_code': '', 'amount': 0})
     assert task['status'] == ea.APPROVED and ea.can_act('cancel', task, MGR)   # 업무요청형은 처리 전까지 취소
