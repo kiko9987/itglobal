@@ -7,3 +7,4 @@
   - 대상 아님: 사용자와 나누는 대화 답변, 코드 주석·커밋 메시지·로그.
 - 광고·홈페이지·공지처럼 **문구 자체가 결과물이면** 스킬의 결과 형식(고친 문구 → 바꾼 이유 → 확인 필요)으로 보고한다. 코드 안의 봇 메시지는 기준만 지키고 따로 보고하지 않아도 된다.
 - 스킬의 "쓸 수 있는 사실" 밖의 숫자·주장(가격·지원금·시공 기간·최상급)은 확인 전까지 쓰지 않는다.
+- 마케팅 스킬(copywriting·copy-editing·ads·ad-creative·ai-seo·seo-audit·schema·cro·customer-research·competitor-profiling·marketing-psychology, 외부 고정 사본)을 함께 쓸 때도 **한국어 문구의 마지막 기준은 copy-polish-ko**다. 영어권 관행(긴급성·희소성 문구, 할인 미끼, 가격 앵커링 등)이 우리 표현 규칙과 부딪치면 우리 규칙을 따른다. 회사 정보는 `.claude/product-marketing.md`.
