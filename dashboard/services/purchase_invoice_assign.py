@@ -417,8 +417,11 @@ def modal_view(parsed: Dict, meta: Dict, current: Optional[Dict] = None,
     if cur_cost in _COST_LABEL:
         cost_el['initial_option'] = {'text': {'type': 'plain_text', 'text': _COST_LABEL[cur_cost]},
                                      'value': cur_cost}
+    # 「이체 필요」면 이 칸이 자금집행 결재의 '내용'이 된다 — 최종 승인이 왜 나가는 돈인지 보고
+    #   판단하므로 그때는 필수(11-09 KiKO 결정을 이 창에도, 2026-11-17)
     memo_el = {'type': 'plain_text_input', 'action_id': 'memo',
-               'placeholder': {'type': 'plain_text', 'text': '필요할 때만 (예: 실외기 반입 크레인)'}}
+               'placeholder': {'type': 'plain_text', 'text': (
+                   '예: 실외기 반입 크레인' if transfer else '필요할 때만 (예: 실외기 반입 크레인)')}}
     if (current or {}).get('memo'):
         memo_el['initial_value'] = current['memo']
     return {
@@ -437,8 +440,11 @@ def modal_view(parsed: Dict, meta: Dict, current: Optional[Dict] = None,
              'element': proj_el},
             {'type': 'input', 'block_id': 'cost', 'label': {'type': 'plain_text', 'text': '원가 분류'},
              'element': cost_el},
-            {'type': 'input', 'block_id': 'memo', 'optional': True,
-             'label': {'type': 'plain_text', 'text': '메모'}, 'element': memo_el},
+            {'type': 'input', 'block_id': 'memo', 'optional': not transfer,
+             'label': {'type': 'plain_text', 'text': '내용' if transfer else '메모'},
+             'element': memo_el,
+             **({'hint': {'type': 'plain_text', 'text': '자금집행 결재에 그대로 올라가요.'}}
+                if transfer else {})},
             *_transfer_blocks(transfer, payee, approval, candidate),
         ],
     }
