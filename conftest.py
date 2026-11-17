@@ -22,6 +22,13 @@ os.environ['REDIS_DB'] = os.environ.get('REDIS_TEST_DB', '15')
 # 테스트 중 외부 발신 차단 (에러 슬랙 알림 등)
 os.environ.setdefault('ERROR_SLACK_ALERTS_ENABLED', '0')
 
+# 슬랙 토큰·웹훅 제거 — 아래 '_load_redis_conn_env' 가 .env 를 안 읽는 것만 믿고 있었는데,
+#   .env 가 이미 로드된 셸에서 pytest 를 돌리면 토큰이 살아 있어 실제로 나갔다.
+#   2026-11-17: 단위 테스트(test_lead_project_link)가 경영지원 4명에게 가짜 '공사 취소' DM 12건 발송.
+for _k in [k for k in os.environ if k.startswith(('SLACK_', 'SLACK'))
+           and ('TOKEN' in k.upper() or 'WEBHOOK' in k.upper())]:
+    os.environ.pop(_k, None)
+
 
 # Redis 접속 정보만 .env 에서 — 2026-10-29 Redis 에 비밀번호를 건 뒤로 테스트(.env 안 읽음)가 비밀번호
 #   없이 붙어 'Authentication required' 로 깨지고 연결 재시도에 60초씩 묶였음(2026-11-09 발견).
@@ -103,6 +110,37 @@ def sheet_layout_45(monkeypatch):
     fields = [f for _, f in sorted(gs._STATIC_COLUMN_MAPPING.items(), key=lambda kv: gs.column_index(kv[0]))
               if f != '거래처명']
     monkeypatch.setattr(gs, '_STATIC_COLUMN_MAPPING', {gs.column_letter(i): f for i, f in enumerate(fields)})
+
+
+# ── 실제 슬랙 호출 차단 (2026-11-17 가짜 '공사 취소' DM 12건) ─────────
+@pytest.fixture(autouse=True, scope='session')
+def _block_real_slack(request):
+    """테스트가 진짜 슬랙 API 를 부르면 거부한다 — 토큰 제거(위)가 뚫려도 막는 둘째 겹.
+
+    계기: test_lead_project_link 가 apply_project_cancel_to_slack 를 실제로 부르는데
+    _project_client 만 가짜로 막고 _dm_client(메인봇 토큰)는 안 막아, 경영지원 4명에게
+    가짜 취소 DM 이 나갔다. 테스트는 가짜 클라이언트를 써야 하고, 진짜 호출은 버그다.
+    통합 테스트(--run-integration)는 실제 호출이 목적이라 걸지 않는다.
+    """
+    if request.config.getoption('--run-integration'):
+        yield
+        return
+    try:
+        from slack_sdk.web.base_client import BaseClient
+    except Exception:
+        yield
+        return
+    _orig = BaseClient.api_call
+
+    def _blocked(self, api_method, *a, **kw):
+        raise RuntimeError(
+            f'테스트에서 실제 슬랙 호출 금지 ({api_method}) — 가짜 클라이언트를 쓰세요.')
+
+    BaseClient.api_call = _blocked
+    try:
+        yield
+    finally:
+        BaseClient.api_call = _orig
 
 
 # ── 세션 tripwire: 앱 Redis 싱글톤이 비-프로덕션 DB 에 묶였는지 검증 ───

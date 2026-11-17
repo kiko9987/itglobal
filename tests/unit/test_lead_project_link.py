@@ -115,6 +115,9 @@ def test_cancel_and_resume_hooks_call_sync(monkeypatch):
     calls = []
     monkeypatch.setattr(lpl, 'sync_lead_status_async', lambda code, p, cancelled: calls.append((code, cancelled)))
     monkeypatch.setattr(sb, '_project_client', lambda: None)
+    # _dm_client 는 메인봇 토큰으로 따로 만든다 — 안 막으면 경영지원 4명에게 진짜 취소 DM 이
+    #   나간다(2026-11-17 가짜 DM 12건). 루트 conftest 가 한 겹 더 막지만 여기서도 끊는다.
+    monkeypatch.setattr(sb, '_dm_client', lambda: None)
     for fn in (sb.apply_project_cancel_to_slack, sb.apply_project_uncancel_to_slack):
         try:
             fn('G1-AA', {'Lead No': 'L-1'}, 'JW')
