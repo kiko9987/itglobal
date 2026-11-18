@@ -677,10 +677,12 @@ div.dt-container .bottom {
      넣고 상자는 가운데, 상자 안은 왼쪽부터 → 시작점이 한 줄로 맞으면서 전체는 가운데. */
   /* 상자는 칸 가운데 — 머리글 글자도 칸 가운데에 오게 머리글 좌우 여백을 같게 했으므로(아래 2차 ①, 11-16 저녁)
      예전 '오른쪽 10px 맞춤'(머리글이 왼쪽으로 쏠려 있던 것에 값을 맞춘 것)은 걷어 냄 */
+  /* 11-17 부장님: 두 모드 모두 값이 조금 더 오른쪽이어야 함 → 왼쪽 여백만 늘려 상자를 약 8px 오른쪽으로
+     (가운데 정렬 유지, 왼16·오0). QHD 코드 칸 168px 에서 상자 141px 안 잘림. */
   html body .table-wrapper #projectsTable tbody tr:not(.accordion-row) > td:first-child {
     text-align: center !important;
-    padding-left: 8px !important;
-    padding-right: 8px !important;
+    padding-left: 16px !important;
+    padding-right: 0 !important;
   }
 
   html body .table-wrapper #projectsTable tbody tr:not(.accordion-row) > td:first-child .code-with-copy {
@@ -750,22 +752,26 @@ div.dt-container .bottom {
 /* 수금 관리 모드(계약금 칸 = DataTables 11번 칸이 머리글에 있을 때)만 칸 넓이를 따로 준다(PC 점검 2차 11-16).
    공용 칸 넓이(코드 16%·주소 22% …)에 금액 다섯 칸이 더해져 합계가 120%를 넘어 금액 칸이 83px 로 눌렸음.
    브라우저는 칸마다 <col> 넓이와 머리글 th 인라인 넓이 중 큰 값을 쓰므로 둘 다 같은 값으로 덮는다(합계 100%).
-   수금 특이사항은 예전부터 머리글이 숨겨져 있어 3.5% 만 둔다. 1280·1440·1920px 잘림·넘침·금액 꺾임 0 확인. */
+   수금 특이사항(12번 칸)은 머리글·칸이 모두 display:none 인데 <col> 만 남아 3.5~4.3% 를 빈칸으로 먹어
+   표 오른쪽 끝이 비어 보였음(11-17 부장님) → 0 으로 두고 그 몫은 거래처(일반 모드 넓이까지)→주소에만 줌. 코드·담당자·유입 구분·거래처는
+   일반 모드와 같은 넓이(담당자·유입은 11-17 저녁 부장님 요청). 주소도 일반 모드와 같고,
+   주소 오른쪽 6칸(공사 종료·총액·계약금·중도금·잔금·미수금)은 남은 넓이를 똑같이 나눔(11-17 부장님).
+   단 768~1439px(노트북 1280·1366)은 금액 칸이 94px 로 줄어 1억 넘는 금액이 칸을 넘쳐서 주소 11%·오른쪽 6칸 8.5%(≈103px) 유지 — 모드를 바꿔도 표 왼쪽이 안 흔들리게(11-17 부장님, 모든 칸 비율 확대는 되돌림). */
 @media (min-width: 768px) {
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(1),
   #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(1) { width: 14.5% !important; } /* 코드 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(2),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(2) { width: 5.5% !important; } /* 담당자 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(2) { width: 6% !important; } /* 담당자 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(3),
   #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(3) { width: 7.5% !important; } /* 유입 구분 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(4),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(4) { width: 8% !important; } /* 거래처 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(4) { width: 10% !important; } /* 거래처 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(5),
   #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(5) { width: 11% !important; } /* 주소 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(6),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(6) { width: 7% !important; } /* 공사 종료 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(6) { width: 8.5% !important; } /* 공사 종료 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(7),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(7) { width: 9% !important; } /* 총액 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(7) { width: 8.5% !important; } /* 총액 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(8),
   #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(8) { width: 8.5% !important; } /* 계약금 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(9),
@@ -775,7 +781,7 @@ div.dt-container .bottom {
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(11),
   #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(11) { width: 8.5% !important; } /* 미수금 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(12),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(12) { width: 3.5% !important; } /* 수금 특이사항 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(12) { width: 0% !important; } /* 수금 특이사항 */
 }
 
 /* 일반 모드(공사 시작 칸 = 5번 칸이 머리글에 있을 때)도 칸 넓이를 정확히 준다(PC 점검 2차 11-16).
@@ -835,27 +841,27 @@ div.dt-container .bottom {
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(1),
   #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(1) { width: 13% !important; } /* 수금 코드 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(2),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(2) { width: 5.6% !important; } /* 수금 담당자 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(2) { width: 5.5% !important; } /* 수금 담당자 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(3),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(3) { width: 7.6% !important; } /* 수금 유입 구분 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(3) { width: 6.3% !important; } /* 수금 유입 구분 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(4),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(4) { width: 8.2% !important; } /* 수금 거래처 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(4) { width: 10% !important; } /* 수금 거래처 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(5),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(5) { width: 11% !important; } /* 수금 주소 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(5) { width: 19.9% !important; } /* 수금 주소 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(6),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(6) { width: 7.1% !important; } /* 수금 공사 종료 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(6) { width: 7.55% !important; } /* 수금 공사 종료 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(7),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(7) { width: 9.1% !important; } /* 수금 총액 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(7) { width: 7.55% !important; } /* 수금 총액 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(8),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(8) { width: 8.6% !important; } /* 수금 계약금 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(8) { width: 7.55% !important; } /* 수금 계약금 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(9),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(9) { width: 8.6% !important; } /* 수금 중도금 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(9) { width: 7.55% !important; } /* 수금 중도금 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(10),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(10) { width: 8.6% !important; } /* 수금 잔금 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(10) { width: 7.55% !important; } /* 수금 잔금 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(11),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(11) { width: 8.6% !important; } /* 수금 미수금 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(11) { width: 7.55% !important; } /* 수금 미수금 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(12),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(12) { width: 4% !important; } /* 수금 수금 특이사항 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(12) { width: 0% !important; } /* 수금 수금 특이사항 */
 }
 @media (min-width: 1800px) {
   #projectsTable:has(thead th[data-dt-column="5"]) colgroup col:nth-child(1),
@@ -883,27 +889,27 @@ div.dt-container .bottom {
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(1),
   #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(1) { width: 9.6% !important; } /* 수금 코드 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(2),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(2) { width: 5.8% !important; } /* 수금 담당자 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(2) { width: 5.7% !important; } /* 수금 담당자 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(3),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(3) { width: 7.9% !important; } /* 수금 유입 구분 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(3) { width: 6.5% !important; } /* 수금 유입 구분 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(4),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(4) { width: 8.5% !important; } /* 수금 거래처 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(4) { width: 10.3% !important; } /* 수금 거래처 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(5),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(5) { width: 12.0% !important; } /* 수금 주소 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(5) { width: 21.1% !important; } /* 수금 주소 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(6),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(6) { width: 7.4% !important; } /* 수금 공사 종료 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(6) { width: 7.8% !important; } /* 수금 공사 종료 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(7),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(7) { width: 9.5% !important; } /* 수금 총액 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(7) { width: 7.8% !important; } /* 수금 총액 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(8),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(8) { width: 8.75% !important; } /* 수금 계약금 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(8) { width: 7.8% !important; } /* 수금 계약금 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(9),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(9) { width: 8.75% !important; } /* 수금 중도금 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(9) { width: 7.8% !important; } /* 수금 중도금 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(10),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(10) { width: 8.75% !important; } /* 수금 잔금 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(10) { width: 7.8% !important; } /* 수금 잔금 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(11),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(11) { width: 8.75% !important; } /* 수금 미수금 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(11) { width: 7.8% !important; } /* 수금 미수금 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(12),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(12) { width: 4.3% !important; } /* 수금 수금 특이사항 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(12) { width: 0% !important; } /* 수금 수금 특이사항 */
 }
 @media (min-width: 2000px) {
   #projectsTable:has(thead th[data-dt-column="5"]) colgroup col:nth-child(1),
@@ -931,27 +937,27 @@ div.dt-container .bottom {
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(1),
   #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(1) { width: 8.5% !important; } /* 수금 코드 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(2),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(2) { width: 5.8% !important; } /* 수금 담당자 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(2) { width: 5.7% !important; } /* 수금 담당자 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(3),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(3) { width: 7.9% !important; } /* 수금 유입 구분 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(3) { width: 6.5% !important; } /* 수금 유입 구분 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(4),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(4) { width: 8.5% !important; } /* 수금 거래처 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(4) { width: 10.3% !important; } /* 수금 거래처 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(5),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(5) { width: 13.1% !important; } /* 수금 주소 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(5) { width: 22.2% !important; } /* 수금 주소 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(6),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(6) { width: 7.4% !important; } /* 수금 공사 종료 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(6) { width: 7.8% !important; } /* 수금 공사 종료 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(7),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(7) { width: 9.5% !important; } /* 수금 총액 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(7) { width: 7.8% !important; } /* 수금 총액 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(8),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(8) { width: 8.75% !important; } /* 수금 계약금 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(8) { width: 7.8% !important; } /* 수금 계약금 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(9),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(9) { width: 8.75% !important; } /* 수금 중도금 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(9) { width: 7.8% !important; } /* 수금 중도금 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(10),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(10) { width: 8.75% !important; } /* 수금 잔금 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(10) { width: 7.8% !important; } /* 수금 잔금 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(11),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(11) { width: 8.75% !important; } /* 수금 미수금 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(11) { width: 7.8% !important; } /* 수금 미수금 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(12),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(12) { width: 4.3% !important; } /* 수금 수금 특이사항 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(12) { width: 0% !important; } /* 수금 수금 특이사항 */
 }
 @media (min-width: 2400px) {
   #projectsTable:has(thead th[data-dt-column="5"]) colgroup col:nth-child(1),
@@ -979,27 +985,27 @@ div.dt-container .bottom {
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(1),
   #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(1) { width: 7.1% !important; } /* 수금 코드 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(2),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(2) { width: 5.8% !important; } /* 수금 담당자 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(2) { width: 5.7% !important; } /* 수금 담당자 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(3),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(3) { width: 7.9% !important; } /* 수금 유입 구분 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(3) { width: 6.5% !important; } /* 수금 유입 구분 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(4),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(4) { width: 8.5% !important; } /* 수금 거래처 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(4) { width: 10.3% !important; } /* 수금 거래처 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(5),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(5) { width: 14.5% !important; } /* 수금 주소 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(5) { width: 23.6% !important; } /* 수금 주소 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(6),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(6) { width: 7.4% !important; } /* 수금 공사 종료 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(6) { width: 7.8% !important; } /* 수금 공사 종료 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(7),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(7) { width: 9.5% !important; } /* 수금 총액 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(7) { width: 7.8% !important; } /* 수금 총액 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(8),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(8) { width: 8.75% !important; } /* 수금 계약금 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(8) { width: 7.8% !important; } /* 수금 계약금 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(9),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(9) { width: 8.75% !important; } /* 수금 중도금 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(9) { width: 7.8% !important; } /* 수금 중도금 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(10),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(10) { width: 8.75% !important; } /* 수금 잔금 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(10) { width: 7.8% !important; } /* 수금 잔금 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(11),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(11) { width: 8.75% !important; } /* 수금 미수금 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(11) { width: 7.8% !important; } /* 수금 미수금 */
   #projectsTable:has(thead th[data-dt-column="11"]) colgroup col:nth-child(12),
-  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(12) { width: 4.3% !important; } /* 수금 수금 특이사항 */
+  #projectsTable:has(thead th[data-dt-column="11"]) thead th:nth-child(12) { width: 0% !important; } /* 수금 수금 특이사항 */
 }
 
 /* ── 보기 방식·목록 거르기 나누기(11-16 저녁, 부장님 지적) ─────────────────────

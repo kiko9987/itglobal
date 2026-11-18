@@ -86,10 +86,20 @@
 
   // 본인 취소 단추 — 서버가 정한 것(cancel: 'all' | 'rest')만. 문구는 슬랙 카드와 같다
   function cancelBtn(e) {
-    if (!e.cancel) return '';
-    return '<button type="button" class="btn btn-outline-danger btn-sm gw-lv-cancel" data-lv-cancel="' + esc(e.id) + '"' +
+    var edit = editBtn(e);
+    if (!e.cancel) return edit;
+    return edit + '<button type="button" class="btn btn-outline-danger btn-sm gw-lv-cancel" data-lv-cancel="' + esc(e.id) + '"' +
       ' data-what="' + esc(period(e) + ' · ' + e.type) + '" data-confirm="' + esc(e.cancel_confirm) + '"' +
       ' data-mode="' + esc(e.cancel) + '">' + esc(e.cancel_label) + '</button>';
+  }
+
+  // 본인 고치기 단추(11-18) — edit: 'edit'(승인 대기, 고치면 승인 다시) | 'change'(승인된 시작 전 휴가, 변경 신청)
+  var editVals = {};
+  function editBtn(e) {
+    if (!e.edit || !e.edit_vals) return '';
+    editVals[e.id] = { mode: e.edit, vals: e.edit_vals, what: period(e) + ' · ' + e.type };
+    return '<button type="button" class="btn btn-outline-secondary btn-sm gw-lv-cancel gw-lv-edit" data-lv-edit="' + esc(e.id) + '">' +
+      esc(e.edit_label) + '</button>';
   }
 
   // ── 한 사람 휴가(내 휴가·직원별 상세 공용) ───────────────────────
@@ -289,10 +299,26 @@
       if (v && Array.prototype.some.call(sel.options, function (o) { return o.value === v; })) sel.value = v;
     }
 
+    // 고치기·변경 신청(11-18) — 같은 창을 지금 값으로 채워 연다. editing = { id, mode, what }
+    var editing = null;
+    var titleEl = document.getElementById('lvApplyTitle');
+
+    function setMode(ed) {
+      editing = ed;
+      titleEl.textContent = !ed ? '휴가 신청' : (ed.mode === 'change' ? '휴가 변경 신청' : '휴가 고치기');
+      submitBtn.textContent = !ed ? '신청' : (ed.mode === 'change' ? '변경 신청' : '고치기');
+    }
+
+    function fillTypes() {
+      typeSel.innerHTML = form.types.map(function (o) { return '<option value="' + esc(o.value) + '">' + esc(o.label) + '</option>'; }).join('');
+      subSel.innerHTML = '<option value="">고르기</option>' + form.event_subs.map(function (o) { return '<option value="' + esc(o.value) + '">' + esc(o.label) + '</option>'; }).join('');
+    }
+
     function openApply() {
       if (!form || !form.can_apply) return;
       clearErrors();
       closingAfterApply = false;
+      if (editing) { setMode(null); applyFresh = true; }   // 고치기 창을 연 뒤 새 신청이면 처음부터
       var keepType = applyFresh ? '' : typeSel.value;
       var keepSub = applyFresh ? '' : subSel.value;
       if (applyFresh) {
@@ -301,8 +327,7 @@
         applyFresh = false;
       }
       document.getElementById('lvApplyLeft').innerHTML = '<strong>' + esc(form.name) + '</strong> 님 오늘 기준 남은 연차: <strong>' + days(form.balance) + '</strong>';
-      typeSel.innerHTML = form.types.map(function (o) { return '<option value="' + esc(o.value) + '">' + esc(o.label) + '</option>'; }).join('');
-      subSel.innerHTML = '<option value="">고르기</option>' + form.event_subs.map(function (o) { return '<option value="' + esc(o.value) + '">' + esc(o.label) + '</option>'; }).join('');
+      fillTypes();
       typeSel.value = form.types.length ? form.types[0].value : '';
       selectIfThere(typeSel, keepType);
       selectIfThere(subSel, keepSub);
@@ -310,12 +335,43 @@
       if (window.bootstrap) { returnFocusOnHide(modalEl); window.bootstrap.Modal.getOrCreateInstance(modalEl).show(); }
     }
 
-    // 적던 중에 [닫기]·✕·Esc 를 누르면 한 번 묻는다(바깥 클릭은 data-bs-backdrop="static" 으로 막음)
+    function openEdit(id) {
+      var ed = editVals[id];
+      if (!form || !form.types || !ed) return;
+      clearErrors();
+      closingAfterApply = false;
+      setMode({ id: id, mode: ed.mode, what: ed.what });
+      applyFresh = true;   // 고치기를 닫고 새 신청을 열면 빈 창으로
+      f.reset();
+      fillTypes();
+      var v = ed.vals;
+      selectIfThere(typeSel, v.type);
+      selectIfThere(subSel, v.sub);
+      syncType();
+      f.start.value = v.start || '';
+      var half = (form.half_types || []).indexOf(v.type) !== -1;
+      f.end.value = half || v.end === v.start ? '' : (v.end || '');
+      document.getElementById('lvEnd').min = f.start.value || '';
+      f.reason.value = v.reason || '';
+      document.getElementById('lvApplyLeft').innerHTML = '<strong>' + esc(ed.what) + '</strong><br>' +
+        (ed.mode === 'change'
+          ? '바뀐 날짜로 다시 승인받아요. 승인되면 원래 휴가는 자동으로 취소되고, 반려되면 원래 휴가가 그대로 남아요.'
+          : '고치면 승인을 처음부터 다시 받아요.');
+      if (window.bootstrap) { returnFocusOnHide(modalEl); window.bootstrap.Modal.getOrCreateInstance(modalEl).show(); }
+    }
+
+    // 적던 중에 [닫기]·✕·Esc 를 누르면 한 번 묻는다(바깥 클릭은 data-bs-backdrop="static" 으로 막음).
+    // 고치기 창은 처음부터 값이 차 있어 묻지 않는다
     modalEl.addEventListener('hide.bs.modal', function (ev) {
-      if (closingAfterApply || !applyDirty()) return;
+      if (closingAfterApply || editing || !applyDirty()) return;
       if (!window.confirm('아직 신청하지 않았어요. 닫을까요?')) ev.preventDefault();
     });
     modalEl.addEventListener('hidden.bs.modal', function () { closingAfterApply = false; });
+
+    mine.addEventListener('click', function (ev) {
+      var b = ev.target.closest('[data-lv-edit]');
+      if (b) openEdit(b.getAttribute('data-lv-edit'));
+    });
 
     applyBtn.addEventListener('click', openApply);
     typeSel.addEventListener('change', function () { clearErrors(); syncType(); });
@@ -344,21 +400,34 @@
       if (!body.reason) errs.reason = '사유를 적어 주세요.';
       if (Object.keys(errs).length) { showErrors(errs); return; }
 
+      var ed = editing;
+      var label = submitBtn.textContent;
       submitBtn.disabled = true;
-      submitBtn.textContent = '신청하는 중…';
-      api('/api/leave/apply', { method: 'POST', body: body }).then(function (j) {
+      submitBtn.textContent = ed ? '보내는 중…' : '신청하는 중…';
+      api(ed ? '/api/leave/' + encodeURIComponent(ed.id) + '/edit' : '/api/leave/apply', { method: 'POST', body: body }).then(function (j) {
         applyFresh = true;
         closingAfterApply = true;
         if (window.bootstrap) window.bootstrap.Modal.getOrCreateInstance(modalEl).hide();
-        showFlash(j.status === 'approved'
-          ? '휴가가 확정됐어요 (' + days(j.days) + ').'
-          : '휴가를 신청했어요 (' + days(j.days) + '). 승인되면 아래 기록이 「승인」으로 바뀌어요.', 'ok');
+        var msg;
+        if (ed && j.mode === 'change') {
+          msg = j.status === 'approved' ? '휴가를 바꿨어요 (' + days(j.days) + ').'
+            : '변경 신청을 보냈어요 (' + days(j.days) + '). 승인되면 원래 휴가는 자동으로 취소돼요.';
+        } else if (ed) {
+          msg = j.status === 'approved' ? '휴가를 고쳤어요 (' + days(j.days) + ').'
+            : '휴가를 고쳤어요 (' + days(j.days) + '). 승인을 다시 받아요.';
+        } else {
+          msg = j.status === 'approved'
+            ? '휴가가 확정됐어요 (' + days(j.days) + ').'
+            : '휴가를 신청했어요 (' + days(j.days) + '). 승인되면 아래 기록이 「승인」으로 바뀌어요.';
+        }
+        showFlash(msg, 'ok');
+        setMode(null);
         load();
       }).catch(function (e) {
         showErrors(e.fields, e.message);
       }).then(function () {
         submitBtn.disabled = false;
-        submitBtn.textContent = '신청';
+        submitBtn.textContent = label;
       });
     });
 
@@ -562,12 +631,156 @@
   var modalEl = document.getElementById('lvPersonModal');
   var bodyEl = document.getElementById('lvPersonBody');
 
-  function openPerson(id, name) {
+  // ── 경영지원 칸(11-18): 연차 조정·관리자 부여 휴가 등록·고치기·취소 — 플렉스 관리자 기능 맞추기 ──
+  var adm = null;        // 서버가 준 경영지원 정보(admin)
+  var admPid = null;
+  var admEntries = {};   // 신청 번호 → 화면 줄(기간·종류)
+
+  function optList(list, sel) {
+    return list.map(function (o) {
+      return '<option value="' + esc(o.value) + '"' + (o.value === sel ? ' selected' : '') + '>' + esc(o.label) + '</option>';
+    }).join('');
+  }
+
+  function renderAdmin(L) {
+    if (!adm || !adm.can) return adm && adm.why ? '<div class="gw-note">' + esc(adm.why) + '</div>' : '';
+    admEntries = {};
+    (L.entries || []).forEach(function (e) { if (e.source === 'slack') admEntries[e.id] = e; });
+    var h = '<div class="gw-lv-adm"><div class="gw-sec-head"><div class="gw-sec-title m-0">휴가 관리</div>' +
+      '<div class="gw-lv-adm-btns"><button type="button" class="btn btn-sm btn-outline-secondary" data-adm="adjust">연차 조정</button>' +
+      '<button type="button" class="btn btn-sm btn-outline-secondary" data-adm="register">휴가 등록</button></div></div>' +
+      '<div id="lvAdmForm"></div><div class="gw-lv-err" id="lvAdmMsg" role="alert"></div>';
+    var ids = (adm.editable || []).filter(function (id) { return admEntries[id]; });
+    if (ids.length) {
+      h += '<ul class="gw-lv-upcoming">';
+      ids.sort(function (a, b) { return admEntries[a].start < admEntries[b].start ? -1 : 1; });
+      ids.forEach(function (id) {
+        var e = admEntries[id];
+        h += '<li><div class="gw-lv-up-main"><div class="gw-lv-up-when">' + esc(period(e)) + '</div>' +
+          '<div class="gw-lv-up-sub">' + esc(e.type) + ' · ' + days(e.days) + ' ' + statusBadge(e.status) + '</div></div>' +
+          '<button type="button" class="btn btn-outline-secondary btn-sm gw-lv-cancel" data-adm="edit" data-id="' + esc(id) + '">고치기</button>' +
+          '<button type="button" class="btn btn-outline-danger btn-sm gw-lv-cancel" data-adm="cancel" data-id="' + esc(id) + '">취소</button></li>';
+      });
+      h += '</ul>';
+    } else {
+      h += '<div class="gw-note">고치거나 취소할 승인 대기·승인 휴가가 없어요.</div>';
+    }
+    if (adm.adjustments && adm.adjustments.length) {
+      h += '<div class="gw-sec-title">연차 조정 기록</div><ul class="gw-plain-list">' + adm.adjustments.map(function (a) {
+        return '<li>' + esc(a.at.slice(0, 10)) + ' · ' + esc(a.note) + ' <span class="text-muted">(' + esc(a.valid_to) + '까지)</span></li>';
+      }).join('') + '</ul>';
+    }
+    return h + '</div>';
+  }
+
+  function admField(id, label, input, hint) {
+    return '<div class="gw-lv-field"><label class="form-label" for="' + id + '">' + label + '</label>' + input +
+      (hint ? '<div class="gw-lv-hint">' + hint + '</div>' : '') + '</div>';
+  }
+
+  function openAdmForm(kind, id) {
+    var box = document.getElementById('lvAdmForm');
+    document.getElementById('lvAdmMsg').textContent = '';
+    var h = '<form class="gw-lv-form gw-lv-adm-form" id="lvAdmF" data-kind="' + kind + '"' + (id ? ' data-id="' + esc(id) + '"' : '') + ' novalidate>';
+    if (kind === 'adjust') {
+      h += admField('lvAdmDays', '조정 일수', '<input type="number" step="0.5" min="-30" max="30" class="form-control" id="lvAdmDays" name="days" required>',
+        '늘리려면 2, 빼려면 -1 처럼 적어요. 0.5일 단위예요. 지금 쓸 수 있는 연차와 같은 날 소멸해요.') +
+        admField('lvAdmReason', '사유', '<input type="text" class="form-control" id="lvAdmReason" name="reason" maxlength="200" required placeholder="예: 보상 연차, 결근 차감">');
+    } else {
+      var v = id ? (adm.rows || {})[String(id)] || {} : {};
+      var types = adm.types;   // 휴가 관리: 모든 종류 등록(11-18 부장님 — 경영지원 관리 기능)
+      var cur = id && admEntries[id];
+      h += cur ? '<p class="gw-lv-left mb-2">고치는 휴가: <strong>' + esc(period(cur) + ' · ' + cur.type + ' · ' + days(cur.days)) + '</strong></p>'
+        : (kind === 'register' ? '<p class="gw-lv-left mb-2">승인 없이 바로 확정돼요. 연차·반차는 지금 남은 연차(<strong>' +
+          days(adm.balance || 0) + '</strong>)에서 빠져요. 지난 날짜도 등록할 수 있어요.</p>' : '');
+      h += admField('lvAdmType', '휴가 종류', '<select class="form-select" id="lvAdmType" name="type">' + optList(types, v.type) + '</select>') +
+        '<div id="lvAdmSubWrap" hidden>' + admField('lvAdmSub', '경조사 종류', '<select class="form-select" id="lvAdmSub" name="sub"><option value="">고르기</option>' + optList(adm.event_subs, v.sub) + '</select>') + '</div>' +
+        admField('lvAdmStart', '시작일', '<input type="date" class="form-control" id="lvAdmStart" name="start" required value="' + esc(v.start || '') + '">') +
+        '<div id="lvAdmEndWrap">' + admField('lvAdmEnd', '마지막 날', '<input type="date" class="form-control" id="lvAdmEnd" name="end" value="' + esc(v.end && v.end !== v.start ? v.end : '') + '">', '하루면 비워 두세요.') + '</div>' +
+        admField('lvAdmReason', '사유', '<input type="text" class="form-control" id="lvAdmReason" name="reason" maxlength="200" value="' + esc(v.reason || '') + '">',
+          kind === 'register' ? '본인·승인하는 분께 알림이 가고, 회사 휴가 일정에 올라가요.' : '상태는 그대로 두고 고쳐요. 본인에게 알림이 가요.');
+    }
+    h += '<div class="gw-lv-adm-actions"><button type="button" class="btn btn-sm btn-link" data-adm="close">닫기</button>' +
+      '<button type="submit" class="btn btn-sm btn-primary">' + ({ adjust: '조정', register: '등록', edit: '고치기' }[kind]) + '</button></div></form>';
+    box.innerHTML = h;
+    var f = document.getElementById('lvAdmF');
+    function sync() {
+      var t = f.type ? f.type.value : '';
+      var sw = document.getElementById('lvAdmSubWrap');
+      if (sw) sw.hidden = t !== adm.event;
+      var ew = document.getElementById('lvAdmEndWrap');
+      if (ew) ew.hidden = (adm.half_types || []).indexOf(t) !== -1;
+    }
+    if (f.type) f.type.addEventListener('change', sync);
+    sync();
+    var first = f.querySelector('select, input');
+    if (first) first.focus();
+  }
+
+  function admSubmit(f) {
+    var kind = f.getAttribute('data-kind'), id = f.getAttribute('data-id');
+    var msg = document.getElementById('lvAdmMsg');
+    var body, url;
+    if (kind === 'adjust') {
+      body = { days: f.days.value, reason: f.reason.value.trim() };
+      if (!body.days || !body.reason) { msg.textContent = '일수와 사유를 적어 주세요.'; return; }
+      url = '/api/leave/person/' + admPid + '/adjust';
+    } else {
+      var t = f.type.value, half = (adm.half_types || []).indexOf(t) !== -1;
+      body = { type: t, sub: t === adm.event ? f.sub.value : '', start: f.start.value, end: half ? '' : (f.end.value || f.start.value), reason: f.reason.value.trim() };
+      if (!body.start) { msg.textContent = '날짜를 골라 주세요.'; return; }
+      url = kind === 'register' ? '/api/leave/person/' + admPid + '/register' : '/api/leave/' + encodeURIComponent(id) + '/admin-edit';
+    }
+    var btn = f.querySelector('[type="submit"]');
+    btn.disabled = true;
+    api(url, { method: 'POST', body: body }).then(function () {
+      reloadPerson({ adjust: '연차를 조정했어요.', register: '휴가를 등록했어요.', edit: '휴가를 고쳤어요.' }[kind]);
+    }).catch(function (e) {
+      msg.textContent = e.message;
+      btn.disabled = false;
+    });
+  }
+
+  function admCancel(id) {
+    var e = admEntries[id];
+    if (!window.confirm((e ? period(e) + ' · ' + e.type + '\n' : '') + '이 휴가를 취소할까요? 쓴 연차는 돌아오고 본인에게 알림이 가요.')) return;
+    api('/api/leave/' + encodeURIComponent(id) + '/admin-cancel', { method: 'POST' }).then(function () {
+      reloadPerson('휴가를 취소했어요.');
+    }).catch(function (err) {
+      document.getElementById('lvAdmMsg').textContent = err.message;
+    });
+  }
+
+  bodyEl.addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-adm]');
+    if (!b || !adm) return;
+    var k = b.getAttribute('data-adm');
+    if (k === 'close') { document.getElementById('lvAdmForm').innerHTML = ''; return; }
+    if (k === 'cancel') { admCancel(b.getAttribute('data-id')); return; }
+    openAdmForm(k, b.getAttribute('data-id'));
+  });
+  bodyEl.addEventListener('submit', function (ev) {
+    if (ev.target.id !== 'lvAdmF') return;
+    ev.preventDefault();
+    admSubmit(ev.target);
+  });
+
+  var curName = '';
+  function reloadPerson(note) {
+    openPerson(admPid, curName, note);
+    loadTeam();
+  }
+
+  function openPerson(id, name, note) {
+    admPid = id;
+    curName = name;
     document.getElementById('lvPersonTitle').textContent = name + ' 휴가';
-    bodyEl.innerHTML = '<div class="gw-empty">불러오는 중…</div>';
-    if (window.bootstrap) { returnFocusOnHide(modalEl); window.bootstrap.Modal.getOrCreateInstance(modalEl).show(); }
+    if (!note) bodyEl.innerHTML = '<div class="gw-empty">불러오는 중…</div>';
+    if (window.bootstrap && !note) { returnFocusOnHide(modalEl); window.bootstrap.Modal.getOrCreateInstance(modalEl).show(); }
     api('/api/leave/person/' + id).then(function (j) {
-      bodyEl.innerHTML = renderSummary(j.leave, { hideApplyNote: true });
+      adm = j.admin || { can: false };
+      bodyEl.innerHTML = (note ? '<div class="gw-lv-flash ok" role="status">' + esc(note) + '</div>' : '') +
+        renderAdmin(j.leave) + renderSummary(j.leave, { hideApplyNote: true });
       bindYearFilter(bodyEl);
     }).catch(function (e) {
       bodyEl.innerHTML = '<div class="gw-empty">' + esc(e.message) + '</div>';

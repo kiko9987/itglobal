@@ -1210,6 +1210,26 @@ def _money_edit_gate(current_values, field_to_index, data, permission_level):
     return None
 
 
+def _company_edit_gate(current_values, field_to_index, data, permission_level):
+    """내부 사업자(글로벌·글로벌그룹·사업자 없음) 변경은 관리자만 (2026-11-18 KiKO, R4130-JSH 계기).
+
+    사업자는 세금계산서 발행 법인과 입금 통장을 정하고, 바꾸면 코드 앞글자(G/R)도 자동으로 바뀐다.
+    R4130-JSH: 글로벌로 잔금 계산서를 발행한 뒤 고객이 글로벌그룹 통장에 입금하자 담당 매니저가 PM 에서
+    사업자를 글로벌그룹으로 바꿔 코드가 G→R 로 바뀌었고, 경영지원은 몰랐다(법인 간 이체 감지도 비켜 감).
+    값이 실제로 바뀔 때만 막는다 — 기본정보 카드는 안 고친 칸도 같이 보낸다."""
+    if permission_level in ('admin', 'super_admin'):
+        return None
+    if '사업자' not in (data or {}):
+        return None
+    i = field_to_index.get('사업자')
+    cur = str(current_values[i] or '').strip() if i is not None and i < len(current_values) else ''
+    new = str(data.get('사업자') or '').strip()
+    if not new or new == cur:
+        return None
+    return ('사업자(글로벌·글로벌그룹) 변경은 관리자만 할 수 있습니다. 세금계산서 발행 법인과 '
+            '입금 통장이 함께 바뀌는 칸이라 경영지원에 요청해 주세요.'), 403
+
+
 def _partner_edit_gate(current_values, field_to_index, data):
     """거래처 유입 공사의 거래처명을 온라인·전화 같은 분류값으로 바꾸는 저장을 막음 (2026-10-28).
 
@@ -1304,6 +1324,11 @@ def update_project(project_code):
         if _gate:
             return jsonify({'success': False, 'error': _gate[0]}), _gate[1]
         _gate = _money_edit_gate(
+            current_values, field_to_index, data,
+            (session.get('user') or {}).get('permission_level', 'viewer'))
+        if _gate:
+            return jsonify({'success': False, 'error': _gate[0]}), _gate[1]
+        _gate = _company_edit_gate(
             current_values, field_to_index, data,
             (session.get('user') or {}).get('permission_level', 'viewer'))
         if _gate:

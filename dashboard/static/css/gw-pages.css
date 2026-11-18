@@ -1196,6 +1196,14 @@
   color: #6b7280;
 }
 
+/* 비율(문의의 78% 등) — 건수 옆 작은 글자 (11-18) */
+.gw-sales-tile .v .r {
+  margin-left: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d4ed8;
+}
+
 .gw-sales-tile .up { color: #07916f; font-weight: 700; }
 .gw-sales-tile .down { color: #d6332c; font-weight: 700; }
 
@@ -2288,3 +2296,25 @@ body.gw-drawer-open {
   .gw-ye-check { min-height: 44px; }
   .gw-ye-check input[type="checkbox"] { width: 20px; height: 20px; flex-shrink: 0; }
 }
+
+/* ── 휴가 고치기·경영지원 칸(11-18) ───────────────────────────────── */
+.gw-lv-upcoming .gw-lv-up-main { flex: 1 1 auto; min-width: 0; }
+.gw-lv-edit + .gw-lv-cancel { margin-left: -4px; }
+.gw-lv-mine-table td.gw-lv-act .gw-lv-edit { margin-right: 6px; }
+.gw-lv-adm {
+  border: 1px solid #dcdee3;
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  background: #fafbfc;
+}
+.gw-lv-adm-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.gw-lv-adm-form {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  padding: 12px;
+  margin: 10px 0;
+}
+.gw-lv-adm-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+.gw-lv-adm .gw-lv-upcoming { margin-top: 10px; }

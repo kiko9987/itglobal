@@ -196,6 +196,9 @@ def test_cutover_check_reads_only(db, tmp_path):
             reason TEXT, approval TEXT, comment TEXT, requested_at TEXT)''')
         conn.execute("INSERT INTO gw_leave_history VALUES ('e1', 1, '박민우', '연차', '2026-11-20', '2026-11-20', 1, "
                      "'DAY', '승인', '', '', '', '2026-11-05')")
+        # 잔여를 읽은 날(11-10) 뒤에 신청된 것 — 그 잔여엔 아직 안 빠짐(11-18 R3: 날짜가 아니라 신청 시각 기준)
+        conn.execute("INSERT INTO gw_leave_history VALUES ('e2', 1, '박민우', '연차', '2026-11-12', '2026-11-12', 1, "
+                     "'DAY', '승인', '', '', '', '2026-11-11 09:00')")
         conn.commit()
     sys.path.insert(0, 'scripts')
     import leave_cutover_check as cc
@@ -204,7 +207,11 @@ def test_cutover_check_reads_only(db, tmp_path):
     assert ('김신입', '인사카드에 같은 슬랙 ID 없음') in res['mismatch']
     assert res['no_accrue_from'] == ['김신입']
     assert ('김신입', 10, 10, True) in res['accrue']
-    assert [r['name'] for r in res['flex_after']] == ['박민우']
+    # ④ 신청 시각이 11-10 뒤인 e2 만(e1 은 11-05 신청이라 11-10 잔여에 이미 빠짐)
+    assert [(r['name'], r['start']) for r in res['flex_after']] == [('박민우', '2026-11-12')]
+    # ⑤ 오늘(11-16) 뒤 날짜로 확정된 e1 — 아직 장부로 안 옮김
+    assert [(r['flex_event_id'], r['moved']) for r in res['flex_future']] == [('e1', False)]
+    assert res['requests'] == {}
     with pytest.raises(sqlite3.OperationalError):                         # 읽기 전용 연결
         ro.execute("UPDATE leave_staff SET active=0")
 

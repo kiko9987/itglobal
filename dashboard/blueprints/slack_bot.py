@@ -5215,15 +5215,26 @@ def _pinv_deny(body: dict, view: Optional[dict] = None) -> str:
 
 
 def _pinv_project_rec(code: str):
-    """프로젝트 코드 → 공사현황 레코드(없으면 None). 프로젝트0·공통비는 None."""
+    """프로젝트 코드 → 공사현황 레코드(없으면 None). 프로젝트0·공통비는 None.
+
+    모달을 그릴 때마다 부르므로 get_project_records(4,300행 전체 변환 0.27초, 캐시가 비면 10초)
+    대신 캐시 DataFrame 한 행 + 직전 자료 허용 — _intake_split_payers 와 같은 수법(2026-11-17 실측
+    268ms → 52ms). 쓰는 쪽(project_display·_intake_option_label)은 주소·상호 같은 글자 칸만 본다.
+    """
     from dashboard.services import purchase_invoice_assign as pinv
     if not code or code in pinv.SPECIAL_LABELS:
         return None
     try:
-        from dashboard.services.project_service import get_project_records
-        for r in get_project_records() or []:
-            if str(r.get('프로젝트 코드') or '').strip() == code:
-                return r
+        import pandas as pd
+        from dashboard.services.project_service import load_data
+        df = load_data(stale_ok=True)
+        if not isinstance(df, pd.DataFrame) or df.empty or '프로젝트 코드' not in df.columns:
+            return None
+        sub = df[df['프로젝트 코드'].astype(str).str.strip() == str(code).strip()]
+        if sub.empty:
+            return None
+        row = sub.iloc[0]
+        return row.where(pd.notna(row), None).to_dict()
     except Exception as exc:
         logger.warning(f'[SLACK/현장지정] 프로젝트 조회 실패 ({code}): {exc}')
     return None
@@ -5315,6 +5326,35 @@ def _pinv_code_mismatch_once(view, code: str) -> str:
         return ''
 
 
+def _pinv_grn_mismatch_once(view, code: str) -> str:
+    """계산서가 발행된 법인(G/R)과 고른 현장의 법인이 다르면 처음 한 번만 막고 알린다 (2026-11-17 KiKO).
+
+    계산서 글은 '이거 어느 현장 건이냐'고 묻는 글이라 현장은 지정할 때 비로소 정해진다. 그래서 계산서를
+    잘못된 법인 앞으로 받은 것도 이 순간에야 드러난다(수정세금계산서를 받아야 하는 건). 한 법인이 사서
+    다른 법인 공사에 쓰는 경우도 있어 막지 않고 한 번만 묻는다. 창에서 G/R 은 고칠 수 없으므로
+    자금집행 창의 grn_mismatch 와 문구가 다르다."""
+    from dashboard.services import purchase_invoice_assign as pinv
+    from dashboard.services import e_approval as ea
+    try:
+        meta = json.loads(view.get('private_metadata') or '{}')
+        inv = (pinv.parsed_from_value(meta).get('grn') or '').strip()[:1].upper()
+        want = ea.grn_from_code(code)       # 프로젝트0·공통비는 '' — 묻지 않는다
+        if not want or inv not in ('G', 'R') or want == inv:
+            return ''
+        from dashboard.utils.redis_client import get_redis_client
+        r = get_redis_client().redis
+        key = f"pinv_grn_warn:{view.get('id', '')}:{code}"
+        if r.get(key):
+            return ''
+        r.set(key, '1', ex=3600)
+        return (f'이 계산서는 {inv}({ea.GRN_BIZ[inv]}) 앞으로 발행됐는데 {code}는 '
+                f'{ea.GRN_BIZ[want]} 현장이에요. 계산서를 잘못 받은 게 아닌지 확인해 주세요. '
+                '맞으면 [지정]을 한 번 더 눌러 주세요.')
+    except Exception as exc:
+        logger.warning(f'[SLACK/현장지정] 사업자 대조 실패(무시): {exc}')
+        return ''
+
+
 def _validate_pinv_submit(view) -> dict:
     """제출 직후 동기 검사 — 「이체 필요」면 이체 칸·전자결재 봇 설정 확인. {block_id: 문구}"""
     from dashboard.services import purchase_invoice_assign as pinv
@@ -5325,11 +5365,15 @@ def _validate_pinv_submit(view) -> dict:
     _ce = pinv.cost_project_error(_cost, _code)
     if _ce:   # 공통비 분류는 공통비 현장에만(11-06)
         return {'cost': _ce}
-    _warn = _pinv_code_mismatch_once(view, _code)
+    _warn = _pinv_code_mismatch_once(view, _code) or _pinv_grn_mismatch_once(view, _code)
     if _warn:
         return {'project': _warn}
     if not pinv.transfer_requested(vals) or 'payee_name' not in vals:
         return {}
+    # 「이체 필요」면 '내용'은 필수 — 최종 승인(JW·YG)이 왜 나가는 돈인지 보고 판단한다(11-09 KiKO).
+    #   자금집행 창과 달리 이 창의 메모는 선택 칸이라 내용이 빈 결재가 올라갈 수 있었다(2026-11-17)
+    if not (((vals.get('memo') or {}).get('memo') or {}).get('value') or '').strip():
+        return {'memo': '이체 결재에는 무엇을 왜 쓴 돈인지 적어 주세요. (예: 실외기 반입 크레인)'}
 
     def _t(bid):
         return ea.field_value(vals, bid)   # 은행은 고르기 칸(11-05)
@@ -5678,8 +5722,10 @@ def _register_invoice_handlers(app):
             view = body['view']
             meta = json.loads(view.get('private_metadata') or '{}')
             on = pinv.transfer_requested(view['state']['values'])
-            client.views_update(view_id=view['id'], hash=view.get('hash'),
-                                view=_pinv_modal_for(meta, transfer=on))
+            # hash 를 넘기지 않는다 — 체크를 누르면 슬랙이 창 상태를 먼저 바꿔 body 의 hash 가 이미 옛 값이고,
+            #   그러면 hash_conflict 로 거부돼 체크만 되고 이체 칸이 안 펼쳐졌다 (2026-11-17 KiKO).
+            #   이 창을 다시 그리는 건 서버뿐이라 마지막 요청이 이기면 된다.
+            client.views_update(view_id=view['id'], view=_pinv_modal_for(meta, transfer=on))
         except Exception as exc:
             logger.warning(f'[SLACK/현장지정] 이체 칸 펼치기 실패: {exc}')
 

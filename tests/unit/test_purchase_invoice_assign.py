@@ -179,7 +179,9 @@ def test_assignments_are_per_message(tmp_db):
 def test_prompt_button_value_roundtrip():
     blocks = pinv.prompt_blocks('C1', '111.1', PARSED)
     btn = next(b for b in blocks if b['type'] == 'actions')['elements'][0]
-    assert blocks[-1]['elements'][0]['text'] == '⠀'          # 다른 카드와 같은 아래 여백(11-06)
+    # 스레드 답글은 빈 줄 없이 본문 바로 아래 버튼 (11-17 KiKO — 채널 카드 여백은 그대로)
+    assert [b['type'] for b in blocks] == ['section', 'actions']
+    assert '⠀' not in json.dumps(blocks, ensure_ascii=False)
     assert btn['action_id'] == pinv.ACTION_OPEN
     v = json.loads(btn['value'])
     assert (v['ch'], v['ts']) == ('C1', '111.1')
@@ -217,6 +219,16 @@ def test_modal_view_fresh_has_no_initials():
     assert 'initial_option' not in by_id['project']['element']
     assert 'initial_option' not in by_id['cost']['element']
     assert 'initial_value' not in by_id['memo']['element']
+
+
+def test_memo_becomes_required_content_when_transfer():
+    """「이체 필요」면 이 칸이 자금집행 결재의 '내용'이 된다 — 그때는 필수(2026-11-17)."""
+    off = {b.get('block_id'): b for b in pinv.modal_view(PARSED, {'ch': 'C1'})['blocks']}['memo']
+    assert off['optional'] is True and off['label']['text'] == '메모' and 'hint' not in off
+    on = {b.get('block_id'): b
+          for b in pinv.modal_view(PARSED, {'ch': 'C1'}, transfer=True)['blocks']}['memo']
+    assert on['optional'] is False and on['label']['text'] == '내용'
+    assert '자금집행 결재' in on['hint']['text']
 
 
 # ── 슬랙 처리 (가짜 클라이언트) ─────────────────────────────────────
@@ -463,7 +475,8 @@ def test_modal_links_earlier_request_with_same_invoice(sb):
     assert f'자금집행 #{row["id"]}' in c.calls[0][1]['text'] and '연결' in c.calls[0][1]['text']
 
 
-def _transfer_values(view, payee='김강원', bank='신한', account='110-511-825643'):
+def _transfer_values(view, payee='김강원', bank='신한', account='110-511-825643',
+                     memo='실외기 반입 크레인'):
     vals = view['state']['values']
     vals['transfer_toggle'] = {pinv.ACTION_TRANSFER_TOGGLE: {'selected_options': [{'value': 'yes'}]}}
     vals['evidence'] = {'evidence': {'selected_option': {'value': '수기계산서'}}}
@@ -471,6 +484,7 @@ def _transfer_values(view, payee='김강원', bank='신한', account='110-511-82
     vals['bank'] = {'bank': {'value': bank}}
     vals['account'] = {'account': {'value': account}}
     vals['urgency'] = {'urgency': {'selected_option': {'value': '긴급'}}}
+    vals['memo'] = {'memo': {'value': memo}}   # 「이체 필요」면 '내용'은 필수(11-17)
     return view
 
 
@@ -485,6 +499,40 @@ def test_validate_transfer_fields_and_bot_config(sb, monkeypatch):
     monkeypatch.setenv('SLACK_EAPPROVAL_BOT_TOKEN', 'x')
     monkeypatch.setenv('SLACK_EAPPROVAL_CHANNEL', 'CEAP')
     assert sb._validate_pinv_submit(v) == {}
+
+
+def test_transfer_needs_content(sb, monkeypatch):
+    """「이체 필요」면 내용이 필수 — 자금집행 창과 같은 기준(11-09 KiKO, 11-17 이 창에도)."""
+    monkeypatch.setenv('SLACK_EAPPROVAL_BOT_TOKEN', 'x')
+    monkeypatch.setenv('SLACK_EAPPROVAL_CHANNEL', 'CEAP')
+    v = _transfer_values(_submit_body()[1], memo='   ')
+    assert set(sb._validate_pinv_submit(v)) == {'memo'}
+    v = _transfer_values(_submit_body()[1])
+    assert sb._validate_pinv_submit(v) == {}
+    # 이체를 안 하면 지정 장부 메모라 비워도 된다
+    assert sb._validate_pinv_submit(_submit_body(memo='')[1]) == {}
+
+
+def test_grn_mismatch_asks_once(sb, monkeypatch):
+    """계산서가 발행된 법인과 고른 현장의 법인이 다르면 한 번 묻는다 (2026-11-17 KiKO).
+
+    계산서를 잘못된 법인 앞으로 받은 것은 현장을 지정할 때에야 드러난다."""
+    monkeypatch.setenv('SLACK_EAPPROVAL_BOT_TOKEN', 'x')
+    monkeypatch.setenv('SLACK_EAPPROVAL_CHANNEL', 'CEAP')
+    _b, v = _submit_body(code='R4120-YM')      # 글은 G, 현장은 R
+    v['id'] = 'VG1'
+    errs = sb._validate_pinv_submit(v)
+    assert set(errs) == {'project'}
+    assert '글로벌그룹' in errs['project'] and '잘못 받은' in errs['project']
+    assert sb._validate_pinv_submit(v) == {}   # 한 번 더 누르면 통과
+    # 같은 법인이면 묻지 않는다
+    _b, same = _submit_body(code='G4049-JW')
+    same['id'] = 'VG2'
+    assert sb._validate_pinv_submit(same) == {}
+    # 프로젝트0·공통비는 현장이 아니라 비교 대상이 아니다
+    _b, stock = _submit_body(code=pinv.STOCK_CODE, cost='자재비')
+    stock['id'] = 'VG3'
+    assert sb._validate_pinv_submit(stock) == {}
 
 
 def test_submit_with_transfer_starts_approval(sb, monkeypatch):

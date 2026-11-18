@@ -95,6 +95,9 @@ def _flex_rows(person_id: Optional[int] = None, start_from: str = '', end_to: st
         sql += ' AND COALESCE("end", start) >= ?'
         args.append(start_from)
     with _conn() as conn:
+        # 장부로 옮긴 플렉스 휴가(사유 'flex:<ID>', leave_import_flex ③)는 장부 쪽 한 줄만 — 두 번 보이지 않게(11-18)
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='leave_requests'").fetchone():
+            sql += " AND flex_event_id NOT IN (SELECT substr(reason, 6) FROM leave_requests WHERE reason LIKE 'flex:%')"
         return [dict(r) for r in conn.execute(sql + ' ORDER BY start DESC', args).fetchall()]
 
 
@@ -120,7 +123,8 @@ def _entry_from_slack(r: dict) -> dict:
         'annual': lv.deducts(r['ltype']), 'sick': r['ltype'] == lv.SICK,
         'start': r['start'], 'end': r.get('end') or r['start'], 'half': half,
         'days': float(r.get('days') or 0), 'status': _SLACK_STATUS.get(r['status'], r['status']),
-        'reason': r.get('reason') or '', 'requested_at': (r.get('created_at') or '')[:16],
+        'reason': '플렉스에서 옮김' if str(r.get('reason') or '').startswith('flex:') else (r.get('reason') or ''),
+        'requested_at': (r.get('created_at') or '')[:16],
     }
 
 

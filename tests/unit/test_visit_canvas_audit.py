@@ -39,6 +39,12 @@ def test_in_canvas_by_address_when_no_phone():
     assert va.lead_in_canvas_lines(_lead(ph='-', addr='인천 미추홀구 인하로 79 2층'), C1)
 
 
+def test_in_canvas_by_plain_place_when_no_road_address():
+    lines = ['(SB) 11월 18일 / - / 가까운 우체국 / R4270-YG 계약서 등기접수']
+    assert va.lead_in_canvas_lines(_lead(ph='-', addr='가까운 우체국'), lines)
+    assert not va.lead_in_canvas_lines(_lead(ph='-', addr='먼 우체국'), lines)
+
+
 def test_not_in_canvas():
     assert not va.lead_in_canvas_lines(_lead(ph='010-0000-1234', addr='부천 옥길로 131'), C1)
 

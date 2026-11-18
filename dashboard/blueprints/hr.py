@@ -349,17 +349,105 @@ def api_leave_cancel(rid):
     return jsonify({'success': True})
 
 
+@hr_bp.route('/api/leave/<int:rid>/edit', methods=['POST'])
+@gw_page
+def api_leave_edit(rid):
+    """본인 고치기(승인 대기)·변경 신청(승인된 시작 전 휴가) — 11-18."""
+    from dashboard.services import leave_web
+    try:
+        row, errs, mode = leave_web.edit(session.get('user') or {}, rid, request.get_json(silent=True) or {})
+    except Exception as e:
+        return _fail(e)
+    if errs:
+        msg = errs.pop('_', '') or next(iter(errs.values()))
+        return jsonify({'success': False, 'message': msg, 'errors': errs}), 400
+    return jsonify({'success': True, 'id': row['id'], 'status': row['status'], 'days': row['days'], 'mode': mode})
+
+
+# ── 휴가(경영지원) — 고치기·취소·연차 조정·관리자 부여 휴가 등록(11-18, 플렉스 관리자 기능 맞추기) ─────
+def _leave_person_name(pid: int):
+    from dashboard.services import leave_view
+    p = hr.get_person(pid)
+    return p, (leave_view.leave_name(p) if p else None)
+
+
+@hr_bp.route('/api/leave/<int:rid>/admin-edit', methods=['POST'])
+@gw_page
+def api_leave_admin_edit(rid):
+    from dashboard.services import leave_web
+    try:
+        row, errs = leave_web.admin_edit(session.get('user') or {}, rid, request.get_json(silent=True) or {})
+    except Exception as e:
+        return _fail(e)
+    if errs:
+        msg = errs.pop('_', '') or next(iter(errs.values()))
+        return jsonify({'success': False, 'message': msg, 'errors': errs}), 400
+    return jsonify({'success': True, 'id': row['id'], 'days': row['days']})
+
+
+@hr_bp.route('/api/leave/<int:rid>/admin-cancel', methods=['POST'])
+@gw_page
+def api_leave_admin_cancel(rid):
+    from dashboard.services import leave_web
+    try:
+        msg = leave_web.admin_cancel(session.get('user') or {}, rid)
+    except Exception as e:
+        return _fail(e)
+    if msg:
+        return jsonify({'success': False, 'message': msg}), 400
+    return jsonify({'success': True})
+
+
+@hr_bp.route('/api/leave/person/<int:pid>/adjust', methods=['POST'])
+@gw_page
+def api_leave_adjust(pid):
+    from dashboard.services import leave_web
+    p, name = _leave_person_name(pid)
+    if not name:
+        return jsonify({'success': False, 'message': '휴가 장부에 연결되지 않은 직원이에요.'}), 404
+    try:
+        g, err = leave_web.adjust(session.get('user') or {}, name, request.get_json(silent=True) or {})
+    except Exception as e:
+        return _fail(e)
+    if err:
+        return jsonify({'success': False, 'message': err}), 400
+    return jsonify({'success': True, 'days': g['days']})
+
+
+@hr_bp.route('/api/leave/person/<int:pid>/register', methods=['POST'])
+@gw_page
+def api_leave_register(pid):
+    from dashboard.services import leave_web
+    p, name = _leave_person_name(pid)
+    if not name:
+        return jsonify({'success': False, 'message': '휴가 장부에 연결되지 않은 직원이에요.'}), 404
+    try:
+        row, errs = leave_web.admin_register(session.get('user') or {}, name, request.get_json(silent=True) or {})
+    except Exception as e:
+        return _fail(e)
+    if errs:
+        msg = errs.pop('_', '') or next(iter(errs.values()))
+        return jsonify({'success': False, 'message': msg, 'errors': errs}), 400
+    return jsonify({'success': True, 'id': row['id'], 'days': row['days']})
+
+
 @hr_bp.route('/api/leave/person/<int:pid>', methods=['GET'])
 @gw_page
 def api_leave_person(pid):
-    from dashboard.services import leave_view
+    from dashboard.services import leave_view, leave_web
     mine = _my_person()
     if not _leave_all() and not (mine and mine['id'] == pid):
         return jsonify({'success': False, 'message': '본인 휴가만 볼 수 있습니다.'}), 403
     p = hr.get_person(pid)
     if not p:
         return jsonify({'success': False, 'message': '없는 구성원입니다.'}), 404
-    return jsonify({'success': True, 'leave': leave_view.summary(p)})
+    admin = {'can': False}
+    if _leave_all():
+        try:
+            admin = leave_web.admin_info(session.get('user') or {}, p)
+        except Exception as e:
+            logger.warning(f'[GW휴가] 경영지원 칸 정보 실패: {e}', exc_info=True)
+    return jsonify({'success': True, 'leave': leave_view.summary(p), 'admin': admin})
 
 
 @hr_bp.route('/api/leave/team', methods=['GET'])

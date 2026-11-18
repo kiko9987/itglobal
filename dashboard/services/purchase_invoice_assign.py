@@ -325,11 +325,21 @@ def parsed_from_row(row: Dict) -> Dict:
     return {k: row.get(k) for k in ('date_md', 'grn', 'amount', 'partner')}
 
 
+def _thread_blocks(text: str, elements: Optional[List[dict]] = None) -> List[dict]:
+    """계산서 글 스레드용 — 채널 카드(e_approval.spaced)와 달리 빈 줄을 넣지 않는다.
+
+    스레드 답글은 폭이 좁아 본문·버튼 사이에 빈 줄 블록까지 들어가면 너무 떨어져 보인다
+    (2026-11-17 KiKO). 채널 카드의 위아래 빈 줄 규칙(11-06)은 그대로 둔다."""
+    blocks: List[dict] = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': text}}]
+    if elements:
+        blocks.append({'type': 'actions', 'elements': elements})
+    return blocks
+
+
 def prompt_blocks(channel: str, msg_ts: str, parsed: Dict) -> List[dict]:
     """계산서 글 스레드에 다는 버튼 메시지."""
-    from dashboard.services.e_approval import spaced
     value = button_value(channel, msg_ts, parsed)
-    return spaced('어느 현장 건인지 골라 주세요. 고르면 이 글의 고정이 풀립니다.', [{
+    return _thread_blocks('어느 현장 건인지 골라 주세요. 고르면 이 글의 고정이 풀립니다.', [{
         'type': 'button', 'action_id': ACTION_OPEN, 'style': 'primary', 'value': value,
         'text': {'type': 'plain_text', 'text': '📍 현장 지정', 'emoji': True},
     }])
@@ -364,11 +374,10 @@ def result_blocks(row: Dict, project_line: str, channel: str, msg_ts: str, extra
                   with_button: bool = True) -> List[dict]:
     """with_button=False — 계산서 글 현장 지정이 꺼져 있으면 [✏️ 다시 지정]을 달지 않는다
     (눌러도 '지금 쓰지 않아요'만 떠서 헷갈림, 11-17 R4298-MW #36)."""
-    from dashboard.services.e_approval import spaced
     if not with_button:
-        return [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': result_text(row, project_line, extra)}}]
+        return _thread_blocks(result_text(row, project_line, extra))
     value = button_value(channel, msg_ts, parsed_from_row(row))
-    return spaced(result_text(row, project_line, extra), [{
+    return _thread_blocks(result_text(row, project_line, extra), [{
         'type': 'button', 'action_id': ACTION_OPEN, 'value': value,
         'text': {'type': 'plain_text', 'text': '✏️ 다시 지정', 'emoji': True},
     }])
@@ -409,8 +418,11 @@ def modal_view(parsed: Dict, meta: Dict, current: Optional[Dict] = None,
     if cur_cost in _COST_LABEL:
         cost_el['initial_option'] = {'text': {'type': 'plain_text', 'text': _COST_LABEL[cur_cost]},
                                      'value': cur_cost}
+    # 「이체 필요」면 이 칸이 자금집행 결재의 '내용'이 된다 — 최종 승인이 왜 나가는 돈인지 보고
+    #   판단하므로 그때는 필수(11-09 KiKO 결정을 이 창에도, 2026-11-17)
     memo_el = {'type': 'plain_text_input', 'action_id': 'memo',
-               'placeholder': {'type': 'plain_text', 'text': '필요할 때만 (예: 실외기 반입 크레인)'}}
+               'placeholder': {'type': 'plain_text', 'text': (
+                   '예: 실외기 반입 크레인' if transfer else '필요할 때만 (예: 실외기 반입 크레인)')}}
     if (current or {}).get('memo'):
         memo_el['initial_value'] = current['memo']
     return {
@@ -429,8 +441,11 @@ def modal_view(parsed: Dict, meta: Dict, current: Optional[Dict] = None,
              'element': proj_el},
             {'type': 'input', 'block_id': 'cost', 'label': {'type': 'plain_text', 'text': '원가 분류'},
              'element': cost_el},
-            {'type': 'input', 'block_id': 'memo', 'optional': True,
-             'label': {'type': 'plain_text', 'text': '메모'}, 'element': memo_el},
+            {'type': 'input', 'block_id': 'memo', 'optional': not transfer,
+             'label': {'type': 'plain_text', 'text': '내용' if transfer else '메모'},
+             'element': memo_el,
+             **({'hint': {'type': 'plain_text', 'text': '자금집행 결재에 그대로 올라가요.'}}
+                if transfer else {})},
             *_transfer_blocks(transfer, payee, approval, candidate, branches, meta, parsed.get('partner') or ''),
         ],
     }

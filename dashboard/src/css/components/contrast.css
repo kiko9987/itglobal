@@ -16,18 +16,15 @@ html body .project-title-section .project-content-info {
   color: #4b5563 !important;
 }
 
-/* 정보 카드 제목: 노랑(금액정보 1.63:1)·하늘(손익정보 1.96:1) 글자 → 글자는 진하게, 아이콘만 색 유지 */
-html body .info-card h6.text-warning,
+/* 정보 카드 제목: 노랑(금액정보 1.63:1)·하늘(손익정보 1.96:1)은 흐려서 같은 계열의 진한 색으로.
+   검정으로 두면 다섯 카드 중 둘만 색이 빠져 보여(11-17 KiKO) 색은 살리고 4.5:1 만 넘긴다.
+   황토 #a16207 4.92:1 · 청록 #0e7490 5.36:1. 아이콘도 글자와 같은 색(다른 카드와 같게). */
+html body .info-card h6.text-warning {
+  color: #a16207 !important;
+}
+
 html body .info-card h6.text-info {
-  color: #1a1c20 !important;
-}
-
-html body .info-card h6.text-warning > i {
-  color: #e0a800;
-}
-
-html body .info-card h6.text-info > i {
-  color: #0aa2c0;
+  color: #0e7490 !important;
 }
 
 /* 계산서 '미발행' 배지 4.45:1 · 폴더 링크 4.30:1 · 사업자등록증 '첨부되지 않음' 4.41:1 */
@@ -71,11 +68,6 @@ html body #leadsTable .badge.company-badge {
   color: #374151 !important;
 }
 
-/* ── PC 점검(11-16) ── */
-@media (min-width: 768px) {
-  /* 펼침 위 단추 줄: [공사 취소]·[공사 재개]가 [부담자 설정] 바로 옆(4px)이라 잘못 누르기 쉬웠음 → 앞에 넓은 틈 */
-  .project-actions-container .cancel-construction-btn,
-  .project-actions-container .resume-construction-btn {
-    margin-left: 20px !important;
-  }
-}
+/* ── PC 점검(11-16) ──
+   펼침 위 단추 줄의 [공사 취소] 앞 넓은 틈은 11-17 단추 줄 재배치(accordion-system.css 끝
+   '펼침 위 단추 줄 — PC')에서 구분선으로 바꿈. */
