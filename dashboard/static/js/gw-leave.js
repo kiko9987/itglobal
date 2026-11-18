@@ -936,13 +936,16 @@
   function openBulk() {
     if (!bulkEl) return;
     var f = document.getElementById('lvBulkForm');
+    // '늘리면 2'가 2만 되는 것처럼 읽혀 고침(11-19 부장님). 템플릿도 같은 글 — 재시작 전에도 바로 보이게 여기서도 넣음
+    var hint = bulkEl.querySelector('.gw-lv-left');
+    if (hint) hint.innerHTML = '조정할 사람만 일수를 적어요. 늘리면 1, 2.5처럼, 빼면 -1, -0.5처럼 적어요(0.5일 단위). 모두 맞아야 한꺼번에 반영되고, 본인에게 알림이 가요. 날짜가 있는 휴가는 직원별 창의 <strong>휴가 등록</strong>으로 넣어 주세요.';
     f.reset();
     f.applies_on.value = todayIso();
     document.getElementById('lvBulkMsg').textContent = '';
     document.getElementById('lvBulkRows').innerHTML = teamRows.filter(function (p) { return p.linked; }).map(function (p) {
       return '<tr data-pid="' + esc(p.person_id) + '"><td>' + esc(p.name) + '<div class="gw-lv-err" data-err="' + esc(p.person_id) + '"></div></td>' +
         '<td class="n">' + days(p.balance) + '</td>' +
-        '<td><input type="number" step="0.5" min="-30" max="30" class="form-control form-control-sm" aria-label="' + esc(p.name) + ' 조정 일수" data-k="days"></td>' +
+        '<td><input type="number" step="0.5" min="-30" max="30" class="form-control form-control-sm" placeholder="예: 1, -0.5" aria-label="' + esc(p.name) + ' 조정 일수" data-k="days"></td>' +
         '<td><input type="text" maxlength="200" class="form-control form-control-sm" aria-label="' + esc(p.name) + ' 사유" placeholder="비우면 공통 사유" data-k="reason"></td></tr>';
     }).join('');
     if (window.bootstrap) { returnFocusOnHide(bulkEl); window.bootstrap.Modal.getOrCreateInstance(bulkEl).show(); }
@@ -1071,8 +1074,8 @@
     var h = '<form class="gw-lv-form gw-lv-adm-form" id="lvAdmF" data-kind="' + kind + '"' + (id ? ' data-id="' + esc(id) + '"' : '') + ' novalidate>';
     if (kind === 'adjust') {
       h += '<p class="gw-lv-left mb-2">날짜가 있는 휴가(병원·반차 등)는 조정 말고 <strong>휴가 등록</strong>으로 넣어 주세요. 그래야 휴가 기록과 일정에 남아요.</p>' +
-        admField('lvAdmDays', '조정 일수', '<input type="number" step="0.5" min="-30" max="30" class="form-control" id="lvAdmDays" name="days" required>',
-        '늘리려면 2, 빼려면 -1 처럼 적어요. 0.5일 단위예요. 적용일에 쓸 수 있는 연차와 같은 날 소멸해요.') +
+        admField('lvAdmDays', '조정 일수', '<input type="number" step="0.5" min="-30" max="30" class="form-control" id="lvAdmDays" name="days" placeholder="예: 1, -0.5" required>',
+        '늘리면 1, 2.5처럼, 빼면 -1, -0.5처럼 적어요(0.5일 단위). 적용일에 쓸 수 있는 연차와 같은 날 소멸해요.') +
         admField('lvAdmOn', '적용일', '<input type="date" class="form-control" id="lvAdmOn" name="applies_on" value="' + todayIso() + '">', '이날부터 남은 연차에 반영돼요.') +
         admField('lvAdmReason', '사유', '<input type="text" class="form-control" id="lvAdmReason" name="reason" maxlength="200" required placeholder="예: 보상 연차, 결근 차감">');
     } else if (kind === 'settle') {

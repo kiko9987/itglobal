@@ -2323,6 +2323,21 @@ body.gw-drawer-open {
 .gw-lv-team-tools { display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
 .gw-lv-bulk-head { display: grid; grid-template-columns: 180px 1fr; gap: 10px; margin-bottom: 8px; }
 .gw-lv-bulk-table td { vertical-align: middle; }
+/* 일괄 조정 창은 .gw-page 밖(모달)이라 예전 사이트 글 칸 스타일(큰 패딩)이 붙어 칸 높이가 들쭉날쭉 → 맞춤(11-19) */
+#lvBulkModal .form-control-sm {
+  height: 31px;
+  min-height: 31px;
+  padding: 4px 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: left;
+  width: 100%;
+  max-width: none;
+  border-color: #8b95a5;
+}
+@media (max-width: 767.98px) {
+  #lvBulkModal .form-control-sm { font-size: 16px; height: 38px; min-height: 38px; }
+}
 .gw-lv-bulk-table input { min-width: 80px; }
 @media (max-width: 575.98px) {
   .gw-lv-bulk-head { grid-template-columns: 1fr; }
