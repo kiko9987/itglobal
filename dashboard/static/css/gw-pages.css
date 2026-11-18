@@ -2359,3 +2359,91 @@ body.gw-drawer-open {
   .gw-lv-pdate { grid-template-columns: 1fr 1fr; }
   .gw-lv-pdate [data-pd-del] { grid-column: 1 / -1; justify-self: end; }
 }
+
+/* ── 입찰 공고(나라장터, 2026-11-18) ─────────────────────────────── */
+.gw-bd-rule {
+  margin: 0 0 10px;
+  color: #555d6d;
+  font-size: 13px;
+}
+
+.gw-bd-closed {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: #555d6d;
+  cursor: pointer;
+}
+
+.gw-bd-table td {
+  vertical-align: top;
+}
+
+.gw-bd-table .gw-bd-close,
+.gw-bd-table .gw-bd-nw {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.gw-bd-title {
+  font-weight: 600;
+  color: #1a1c20;
+  word-break: keep-all;
+}
+
+.gw-bd-sub {
+  margin-top: 2px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.gw-bd-miss {
+  margin-top: 2px;
+  color: #b45309;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.gw-bd-soon {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.gw-bd-closed-t {
+  color: #9ca3af;
+}
+
+.gw-bd-links {
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.gw-bd-mark {
+  height: 32px;
+  font-size: 13px;
+}
+
+.gw-bd-by {
+  margin-top: 3px;
+  color: #6b7280;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.gw-bd-skip td {
+  opacity: 0.55;
+}
+
+.gw-badge-new { background: #fff1e8; color: #c2410c; }
+
+.gw-bd-foot {
+  margin: 8px 2px 0;
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .gw-ap-tabs { display: flex; flex-wrap: wrap; border-radius: 14px; }
+  .gw-bd-table { min-width: 760px; }
+}

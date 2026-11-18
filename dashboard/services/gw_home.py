@@ -177,6 +177,15 @@ def todos(person: Optional[dict], slack_id: str, field: bool, hr_admin: bool,
                             'action': '현황 보기', 'href': '/yearend/admin'})
     except Exception as e:
         logger.warning(f'[GW-HOME] 연말정산 할 일 실패: {e}')
+    # 5) 나라장터 입찰 공고(11-18) — 마감 전 '들어갈 수 있는 공고'가 있을 때만 한 줄
+    if not field:
+        from dashboard.services import g2b_bids
+        n, sig = g2b_bids.home_summary()
+        if n:
+            out.append({'id': 'g2b-bids', 'sig': sig, 'tone': 'info', 'icon': 'fas fa-gavel',
+                        'title': f'마감 전 입찰 공고 {n}건',
+                        'desc': '경기·김포 업체가 지금 면허로 들어갈 수 있는 나라장터 공고예요.',
+                        'action': '공고 보기', 'href': '/bids'})
     return out
 
 

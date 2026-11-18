@@ -166,6 +166,7 @@ AREAS = [
             {'href': '/projects', 'label': '프로젝트', 'icon': 'fas fa-folder-open'},
             {'href': '/leads', 'label': '고객 리드', 'icon': 'fas fa-user-tie'},
             {'href': '/stats', 'label': '매출통계', 'icon': 'fas fa-chart-bar'},
+            {'href': '/bids', 'label': '입찰 공고', 'icon': 'fas fa-gavel'},   # 나라장터(11-18)
             {'href': '/case-posts', 'label': '시공사례', 'icon': 'fas fa-camera', 'admin': True},
         ],
     },

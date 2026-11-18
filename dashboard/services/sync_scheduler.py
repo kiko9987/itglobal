@@ -595,6 +595,27 @@ def start_scheduler():
         )
         jobs.append('거래처 신규 증분 매일 07:00')
 
+    # 2026-11-18 나라장터 입찰 공고 — 하루 세 번 모으고, 평일 08:30 새 공고 있을 때만 부장님 DM 한 통.
+    #   G2B_SERVICE_KEY 있을 때만. 화면은 그룹웨어 /bids.
+    if os.getenv('G2B_SERVICE_KEY', '').strip():
+        _scheduler.add_job(
+            _safe_g2b_collect,
+            'cron',
+            hour='7,12,16', minute=20,
+            id='g2b_collect',
+            replace_existing=True,
+        )
+        _scheduler.add_job(
+            _safe_g2b_digest,
+            'cron',
+            hour=8, minute=30,
+            id='g2b_morning_digest',
+            replace_existing=True,
+        )
+        import threading as _th_g2b
+        _th_g2b.Timer(120, _safe_g2b_bootstrap).start()
+        jobs.append('나라장터 공고 모으기 07:20·12:20·16:20 + 평일 08:30 새 공고 DM')
+
     # 2026-10-22 거래처 탭 캐시 10분마다 — 새 줄이 다음 날 아침까지 반영 안 되던 문제.
     #   (원래 07:00 국세청 증분에 묶여 있었음. 캐시는 시트 읽기뿐이라 국세청 키와 무관하게 등록.)
     _scheduler.add_job(
@@ -1221,6 +1242,32 @@ def _safe_partner_status_refresh():
             )
     except Exception as exc:
         logger.error(f'[SCHED] 거래처 상태 갱신 실패: {exc}', exc_info=True)
+
+
+def _safe_g2b_collect():
+    try:
+        from dashboard.services import g2b_bids
+        g2b_bids.collect(days=2)
+    except Exception as e:
+        logger.error(f'[SCHED] 나라장터 공고 모으기 실패: {e}', exc_info=True)
+
+
+def _safe_g2b_digest():
+    try:
+        from dashboard.services import g2b_bids
+        g2b_bids.collect(days=2)          # 07:20 이후 올라온 것까지 담아서
+        r = g2b_bids.send_morning_digest()
+        logger.info(f'[SCHED] 나라장터 아침 알림 — {r}')
+    except Exception as e:
+        logger.error(f'[SCHED] 나라장터 아침 알림 실패: {e}', exc_info=True)
+
+
+def _safe_g2b_bootstrap():
+    try:
+        from dashboard.services import g2b_bids
+        g2b_bids.maybe_bootstrap()
+    except Exception as e:
+        logger.warning(f'[SCHED] 나라장터 첫 채우기 실패: {e}')
 
 
 def _safe_partner_status_fill_new():

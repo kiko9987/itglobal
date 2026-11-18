@@ -1,0 +1,47 @@
+{% extends "modern_base.html" %}
+
+{% block title %}입찰 공고 - 아이티글로벌그룹{% endblock %}
+
+{% block additional_css %}
+<link rel="stylesheet" href="{{ gw_asset('css/gw-pages.css') }}">
+{% endblock %}
+
+{% block content %}
+{# 나라장터 입찰 공고(11-18) — 서버가 하루 세 번 모아 둔 것만 보여 준다. 기준은 services/g2b_bids.py #}
+<div class="gw-page gw-bids" id="bdPage">
+  <div class="gw-page-head">
+    <h1 class="gw-page-title">입찰 공고</h1>
+    <div class="gw-page-actions">
+      <a class="btn btn-sm btn-outline-secondary" href="https://www.g2b.go.kr" target="_blank" rel="noopener">
+        <i class="fas fa-up-right-from-square me-1" aria-hidden="true"></i>나라장터</a>
+    </div>
+  </div>
+
+  <p class="gw-bd-rule" id="bdRule">나라장터 냉난방 관련 공사 공고 중 경기도·김포시 업체가 참가할 수 있는 것만 모았어요.</p>
+
+  <div class="gw-ap-tabs" role="tablist" id="bdTabs" aria-label="공고 구분">
+    <button type="button" role="tab" data-tab="eligible" class="active" aria-selected="true">들어갈 수 있는 공고 <b id="bdCntEligible">-</b></button>
+    <button type="button" role="tab" data-tab="license_only" aria-selected="false" tabindex="-1">면허만 없어서 못 들어가는 공고 <b id="bdCntLicense">-</b></button>
+  </div>
+
+  <div class="gw-ap-filters">
+    <input type="search" class="gw-chip-search" id="bdQ" placeholder="공고명·발주기관" aria-label="검색" autocomplete="off">
+    <label class="gw-bd-closed"><input type="checkbox" id="bdClosed"> 마감 지난 공고도 보기</label>
+    <span class="gw-ap-count" id="bdCount" aria-live="polite"></span>
+  </div>
+
+  <div class="gw-panel gw-ap-tablewrap">
+    <table class="gw-table gw-bd-table">
+      <thead><tr>
+        <th>마감</th><th>공고</th><th>방식</th><th class="num">추정가격</th><th>참가 지역·면허</th><th>보기</th><th>표시</th>
+      </tr></thead>
+      <tbody id="bdRows"><tr><td colspan="7" class="gw-empty">불러오는 중…</td></tr></tbody>
+    </table>
+  </div>
+  <p class="gw-bd-foot" id="bdFoot"></p>
+</div>
+{% endblock %}
+
+{% block additional_js %}
+<script src="{{ gw_asset('js/gw-bids.js') }}" defer></script>
+{% endblock %}

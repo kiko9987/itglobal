@@ -1,0 +1,220 @@
+"""나라장터 입찰 공고(2026-11-18) — 지역·면허 묶음·까다로운 조건 분류, 모으기(정정공고), 아침 DM, 화면 API."""
+import json
+from datetime import datetime, timedelta
+
+import pytest
+
+from dashboard.services import g2b_bids as g
+
+MECH, REFRIG, ELEC = '기계설비ㆍ가스공사업', '냉매회수업', '전기공사업'
+
+
+@pytest.fixture
+def db(tmp_path, monkeypatch):
+    from dashboard.utils.user_database import UserDatabase
+    d = UserDatabase(db_path=str(tmp_path / 'users.db'))
+    monkeypatch.setattr(g, '_db', lambda: d)
+    monkeypatch.setattr(g, '_table_ready', False)
+    monkeypatch.setenv('G2B_SERVICE_KEY', 'test-key')
+    monkeypatch.delenv('G2B_LICENSES', raising=False)
+    monkeypatch.delenv('G2B_LICENSES_PLANNED', raising=False)
+    return d
+
+
+def _future(days=3):
+    return (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+
+
+def _item(no='R26BK0001', ord_='000', title='OO초 냉난방개선 부대공사', **kw):
+    it = {'bidNtceNo': no, 'bidNtceOrd': ord_, 'bidNtceNm': title, 'ntceInsttNm': '경기도김포교육지원청',
+          'dminsttNm': '경기도김포교육지원청', 'cntrctCnclsMthdNm': '수의계약',
+          'sucsfbidMthdNm': '소액수의견적-소액수의견적(2인 이상 견적 제출)', 'presmptPrce': '58208182',
+          'bidNtceDt': '2026-11-17 10:00:00', 'bidClseDt': _future(), 'opengDt': _future(),
+          'bidNtceDtlUrl': f'https://www.g2b.go.kr/link/PNPE027_01/single/?bidPbancNo={no}&bidPbancOrd={ord_}',
+          'ntceSpecDocUrl1': 'https://www.g2b.go.kr/x1', 'ntceSpecFileNm1': '입찰공고문.hwp',
+          'arsltCmptYn': 'N', 'pqEvalYn': '', 'dsgntCmptYn': 'N'}
+    it.update(kw)
+    return it
+
+
+# ── 분류 ──────────────────────────────────────────────────────────────
+def test_region_needs_gyeonggi_whole_or_gimpo():
+    assert g.region_ok(['경기도'])
+    assert g.region_ok(['경기도 고양시', '경기도 김포시', '경기도 파주시'])
+    assert g.region_ok(['경기도', '서울특별시', '인천광역시'])
+    assert not g.region_ok(['경기도 군포시', '경기도 수원시'])   # 시 단위 제한 — 김포 업체는 못 들어감
+    assert not g.region_ok(['인천광역시'])
+    assert not g.region_ok([])
+
+
+def test_license_group_is_and_inside_or_between():
+    # 같은 묶음 = 모두 있어야
+    ok, miss = g.license_status([[MECH, REFRIG]], [MECH], [REFRIG])
+    assert not ok and miss == [REFRIG]
+    # 묶음끼리는 하나만 맞으면
+    assert g.license_status([[ELEC], [MECH]], [MECH])[0]
+    # 가운뎃점·업종코드 달라도 같은 면허
+    assert g.license_status([['기계설비·가스공사업/6202']], [MECH])[0]
+    # 제한 없음
+    assert g.license_status([], [MECH]) == (True, [])
+    # 준비 중 면허로도 안 되면 모자란 목록 없음
+    assert g.license_status([[ELEC]], [MECH], [REFRIG]) == (False, [])
+
+
+@pytest.mark.parametrize('kw,reason', [
+    ({'arsltCmptYn': 'Y'}, '실적제한'),
+    ({'pqEvalYn': 'Y'}, 'PQ(사전심사)'),
+    ({'cntrctCnclsMthdNm': '지명경쟁'}, '지명경쟁'),
+    ({'sucsfbidMthdNm': '적격심사제-추정가격이 10억원 미만 4억원 이상', 'presmptPrce': '450000000'}, '4억 이상 적격심사'),
+    ({'sucsfbidMthdNm': '적격심사제-추정가격이 4억원 미만 2억원 이상', 'presmptPrce': '340000000'}, ''),
+    ({'sucsfbidMthdNm': '최저가낙찰제', 'presmptPrce': '454545455'}, ''),   # 최저가는 금액 커도 남김
+])
+def test_hard_reason(kw, reason):
+    assert g.hard_reason(_item(**kw)) == reason
+
+
+def test_classify_categories():
+    held, planned = [MECH], [REFRIG]
+    assert g.classify(_item(), ['경기도'], [[MECH]], held, planned)['category'] == g.ELIGIBLE
+    c = g.classify(_item(), ['경기도 김포시'], [[MECH, REFRIG]], held, planned)
+    assert c['category'] == g.LICENSE_ONLY and c['missing'] == [REFRIG]
+    assert g.classify(_item(), [], [[MECH]], held, planned)['reason'] == '지역 제한 없는 전국 공고'
+    assert g.classify(_item(), ['경기도 수원시'], [[MECH]], held, planned)['category'] == g.OTHER
+    assert g.classify(_item(arsltCmptYn='Y'), ['경기도'], [[MECH]], held, planned)['reason'] == '실적제한'
+    assert g.classify(_item(), ['경기도'], [[ELEC]], held, planned)['category'] == g.OTHER
+
+
+# ── 모으기 ────────────────────────────────────────────────────────────
+def _fake_api(monkeypatch, items, limits):
+    calls = {'limits': 0}
+
+    def search(kw, start, end):
+        assert (end - start) < timedelta(days=7)   # 7일 넘으면 나라장터 07 오류
+        return [dict(i) for i in items] if kw == '냉난방' else []
+
+    def fetch_limits(no, ord_):
+        calls['limits'] += 1
+        return limits[no]
+    monkeypatch.setattr(g, 'search', search)
+    monkeypatch.setattr(g, 'fetch_limits', fetch_limits)
+    return calls
+
+
+def test_collect_saves_and_skips_known(db, monkeypatch):
+    items = [_item('A1'), _item('B2', title='수원 냉난방', ), _item('C3', title='김포 철거')]
+    limits = {'A1': (['경기도'], [[MECH]]), 'B2': (['경기도 수원시'], [[MECH]]),
+              'C3': (['경기도 김포시'], [[MECH, REFRIG]])}
+    calls = _fake_api(monkeypatch, items, limits)
+    r = g.collect(days=7)
+    assert r['new'] == 3 and calls['limits'] == 3
+    data = g.list_bids(g.ELIGIBLE)
+    assert [x['bid_no'] for x in data['items']] == ['A1']
+    assert data['counts'] == {g.ELIGIBLE: 1, g.LICENSE_ONLY: 1, g.OTHER: 1}
+    assert data['items'][0]['files'][0]['name'] == '입찰공고문.hwp'
+    assert data['last_collect']
+    # 다시 모아도 이미 있는 건 지역·면허를 다시 부르지 않는다
+    g.collect(days=2)
+    assert calls['limits'] == 3
+
+
+def test_correction_notice_updates_but_keeps_mark(db, monkeypatch):
+    calls = _fake_api(monkeypatch, [_item('A1')], {'A1': (['경기도'], [[MECH]])})
+    g.collect()
+    g.set_mark('A1', 'review', '고광일')
+    _fake_api(monkeypatch, [_item('A1', ord_='001', title='정정 냉난방')], {'A1': (['경기도'], [[MECH]])})
+    r = g.collect()
+    assert r['changed'] == 1
+    it = g.list_bids()['items'][0]
+    assert it['title'] == '정정 냉난방' and it['bid_ord'] == '001' and it['mark'] == 'review'
+    assert calls['limits'] == 1
+
+
+def test_reclassify_after_new_license(db, monkeypatch):
+    _fake_api(monkeypatch, [_item('C3')], {'C3': (['경기도 김포시'], [[MECH, REFRIG]])})
+    g.collect()
+    assert g.list_bids(g.LICENSE_ONLY)['counts'][g.LICENSE_ONLY] == 1
+    monkeypatch.setenv('G2B_LICENSES', f'{MECH},{REFRIG}')
+    assert g.reclassify() == 1
+    assert [x['bid_no'] for x in g.list_bids(g.ELIGIBLE)['items']] == ['C3']
+
+
+def test_closed_hidden_unless_asked(db, monkeypatch):
+    past = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
+    _fake_api(monkeypatch, [_item('OLD', bidClseDt=past)], {'OLD': (['경기도'], [[MECH]])})
+    g.collect()
+    assert g.list_bids()['items'] == []
+    assert g.list_bids(include_closed=True)['items'][0]['closed']
+
+
+def test_missing_close_falls_back_to_opening(db, monkeypatch):
+    _fake_api(monkeypatch, [_item('N1', bidClseDt='')], {'N1': (['경기도'], [[MECH]])})
+    g.collect()
+    assert g.list_bids()['items'][0]['bid_no'] == 'N1'
+
+
+def test_mark_validation(db, monkeypatch):
+    _fake_api(monkeypatch, [_item('A1')], {'A1': (['경기도'], [[MECH]])})
+    g.collect()
+    with pytest.raises(ValueError):
+        g.set_mark('A1', 'bogus', 'x')
+    with pytest.raises(LookupError):
+        g.set_mark('NOPE', 'join', 'x')
+    assert g.set_mark('A1', 'join', '고광일')['mark_label'] == '참여'
+    assert g.set_mark('A1', '', '고광일')['mark_by'] == ''
+
+
+# ── 아침 DM ───────────────────────────────────────────────────────────
+def test_digest_only_when_new_eligible_and_once(db, monkeypatch):
+    sent = []
+    monkeypatch.setattr(g, '_post_slack', lambda ch, text: sent.append((ch, text)) or True)
+    _fake_api(monkeypatch, [_item('C3')], {'C3': (['경기도 김포시'], [[MECH, REFRIG]])})
+    g.collect()
+    r = g.send_morning_digest(force=True)
+    assert r['sent'] is False and sent == []            # 면허만 없는 공고만 있으면 안 보냄
+
+    _fake_api(monkeypatch, [_item('A1', title='정평중 냉난방개선 부대공사')], {'A1': (['경기도'], [[MECH]])})
+    g.collect()
+    r = g.send_morning_digest(force=True)
+    assert r == {'sent': True, 'eligible': 1, 'license_only': 1}
+    ch, text = sent[0]
+    assert ch == 'U04UL2ZLJAX'
+    assert '정평중 냉난방개선 부대공사' in text and '나라장터에서 보기' in text and '|공고문 HWP>' in text
+    assert '면허만 없어서 못 들어가는 새 공고도 1건' in text and '/bids|그룹웨어에서 전체 보기' in text
+    # 같은 공고로 다시 보내지 않는다
+    assert g.send_morning_digest(force=True)['sent'] is False
+    assert len(sent) == 1
+
+
+def test_digest_skips_weekend(db):
+    from datetime import date
+    assert g.send_morning_digest(today=date(2026, 11, 21)) == {'skipped': '영업일 아님'}   # 토요일
+
+
+def test_won_format():
+    assert g._won(116415455) == '1억 1,641만 원'
+    assert g._won(58208182) == '5,820만 원'
+    assert g._won(400000000) == '4억 원'
+
+
+def test_home_summary_excludes_skip(db, monkeypatch):
+    _fake_api(monkeypatch, [_item('A1'), _item('A2')], {'A1': (['경기도'], [[MECH]]), 'A2': (['경기도'], [[MECH]])})
+    g.collect()
+    assert g.home_summary()[0] == 2
+    g.set_mark('A2', 'skip', 'x')
+    n, sig = g.home_summary()
+    assert n == 1 and sig == 'A1'
+
+
+def test_disabled_without_key(db, monkeypatch):
+    monkeypatch.delenv('G2B_SERVICE_KEY')
+    assert g.collect() == {'skipped': 'G2B_SERVICE_KEY 없음'}
+
+
+# ── 메뉴 ──────────────────────────────────────────────────────────────
+def test_menu_has_bids_for_office_not_field():
+    from dashboard.services import groupware as gw
+    nav = gw.build_nav('/bids', 'user')
+    sales = next(a for a in nav['areas'] if a['key'] == 'sales')
+    assert any(c['href'] == '/bids' and c['active'] for c in sales['children'])
+    field = gw.build_nav('/bids', 'user', field=True)
+    assert not any(c['href'] == '/bids' for a in field['areas'] for c in a['children'])
