@@ -646,9 +646,9 @@
     if (!adm || !adm.can) return adm && adm.why ? '<div class="gw-note">' + esc(adm.why) + '</div>' : '';
     admEntries = {};
     (L.entries || []).forEach(function (e) { if (e.source === 'slack') admEntries[e.id] = e; });
-    var h = '<div class="gw-lv-adm"><div class="gw-sec-head"><div class="gw-sec-title m-0">경영지원</div>' +
+    var h = '<div class="gw-lv-adm"><div class="gw-sec-head"><div class="gw-sec-title m-0">휴가 관리</div>' +
       '<div class="gw-lv-adm-btns"><button type="button" class="btn btn-sm btn-outline-secondary" data-adm="adjust">연차 조정</button>' +
-      '<button type="button" class="btn btn-sm btn-outline-secondary" data-adm="register">대신 등록</button></div></div>' +
+      '<button type="button" class="btn btn-sm btn-outline-secondary" data-adm="register">휴가 등록</button></div></div>' +
       '<div id="lvAdmForm"></div><div class="gw-lv-err" id="lvAdmMsg" role="alert"></div>';
     var ids = (adm.editable || []).filter(function (id) { return admEntries[id]; });
     if (ids.length) {
@@ -688,10 +688,10 @@
         admField('lvAdmReason', '사유', '<input type="text" class="form-control" id="lvAdmReason" name="reason" maxlength="200" required placeholder="예: 보상 연차, 결근 차감">');
     } else {
       var v = id ? (adm.rows || {})[String(id)] || {} : {};
-      var types = adm.types;   // 대신 등록도 모든 종류(11-18 부장님 — 본인이 급히 자리를 비운 사이 반영)
+      var types = adm.types;   // 휴가 관리: 모든 종류 등록(11-18 부장님 — 경영지원 관리 기능)
       var cur = id && admEntries[id];
       h += cur ? '<p class="gw-lv-left mb-2">고치는 휴가: <strong>' + esc(period(cur) + ' · ' + cur.type + ' · ' + days(cur.days)) + '</strong></p>'
-        : (kind === 'register' ? '<p class="gw-lv-left mb-2">본인 대신 휴가를 등록해요. 승인 없이 바로 확정되고, 연차·반차는 지금 남은 연차(<strong>' +
+        : (kind === 'register' ? '<p class="gw-lv-left mb-2">승인 없이 바로 확정돼요. 연차·반차는 지금 남은 연차(<strong>' +
           days(adm.balance || 0) + '</strong>)에서 빠져요. 지난 날짜도 등록할 수 있어요.</p>' : '');
       h += admField('lvAdmType', '휴가 종류', '<select class="form-select" id="lvAdmType" name="type">' + optList(types, v.type) + '</select>') +
         '<div id="lvAdmSubWrap" hidden>' + admField('lvAdmSub', '경조사 종류', '<select class="form-select" id="lvAdmSub" name="sub"><option value="">고르기</option>' + optList(adm.event_subs, v.sub) + '</select>') + '</div>' +

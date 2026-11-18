@@ -153,7 +153,7 @@ def test_requester_card_has_edit_button(db):
 
 
 def test_admin_register_annual_on_behalf_deducts(db):
-    """본인이 급히 자리를 비운 사이 경영지원이 연차·반차를 대신 등록(11-18 부장님) — 바로 확정, 그 자리에서 차감."""
+    """본인이 급히 자리를 비운 사이 경영지원 휴가 관리로 연차·반차 등록(11-18 부장님) — 바로 확정, 그 자리에서 차감."""
     row, errs = lv.admin_register('박민우', lv.ANNUAL, '', date(2026, 12, 2), date(2026, 12, 3), '급한 일로 조퇴 후 결근',
                                   SB, '황샛별')                          # 지난 날짜도
     assert errs == {} and row['status'] == lv.APPROVED and row['days'] == 2
@@ -166,5 +166,5 @@ def test_admin_register_annual_on_behalf_deducts(db):
     # 모자라면 [연차 조정]으로 먼저 — '경영지원에 문의' 같은 직원용 문구는 안 보임
     _, errs = lv.admin_register('박민우', lv.ANNUAL, '', date(2026, 12, 21), date(2026, 12, 24), '', SB, '황샛별')
     assert '[연차 조정]' in errs['start'] and '경영지원에 문의' not in errs['start']
-    # 대신 등록한 연차는 본인이 취소할 수 있다(관리자 부여 휴가와 다름)
+    # 경영지원이 등록한 연차는 본인이 취소할 수 있다(관리자 부여 휴가와 다름)
     assert lv.own_cancel_mode(row, MW, date(2026, 12, 1)) == 'all'

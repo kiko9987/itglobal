@@ -73,7 +73,7 @@ def _datepicker(block_id: str, label: str, initial: str = '', optional: bool = F
 
 
 def leave_view(meta: dict, vals: Optional[dict] = None) -> dict:
-    """meta: name(신청하는 본인). vals: 고른 값(다시 그릴 때). 휴가는 본인만 신청(대신 신청 없음, 11-05)."""
+    """meta: name(신청하는 본인). vals: 고른 값(다시 그릴 때). 직원 신청 창 = 본인 휴가만(경영지원은 그룹웨어 휴가 관리, 11-18)."""
     vals = vals or {}
     name = meta.get('name', '')
     ltype = vals.get('type') or lv.ANNUAL
@@ -312,7 +312,7 @@ def after_admin_register(row: dict, uid: str) -> None:
         if u not in told:
             _send_card(client, row, u, 'requester')
             left = f" 남은 연차: {lv.fmt_days(lv.balance(row['name']))}" if lv.deducts(row['ltype']) else ''
-            _notify(client, u, f"🗂 경영지원({actor})이 휴가를 대신 등록했어요: {what}.{left}")
+            _notify(client, u, f"🗂 경영지원({actor})이 휴가를 등록했어요: {what}.{left}")
             told.add(u)
     # 승인 단계를 건너뛴 확정이라 승인자(JW·YG)도 알게(11-18 부장님 — 급히 자리를 비운 사이 경영지원이 반영)
     for u in lv.approver_ids():

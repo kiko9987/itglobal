@@ -104,7 +104,7 @@ def test_manager_edit_cancel_adjust_register(client, mgr):
     assert j['success']
     row = lv.get(j['id'])
     assert row['status'] == lv.APPROVED and row['ltype'] == 'reward'
-    assert any('대신 등록했어요' in p['text'] for p in mgr.to('UMW'))
+    assert any('휴가를 등록했어요' in p['text'] for p in mgr.to('UMW'))
     assert any(p['ch'] == 'C-ANNOUNCE' for p in mgr.posts)
     # 본인은 관리자 등록 휴가를 취소·변경 못 함, 경영지원은 취소 가능
     assert lv.own_cancel_mode(row, 'UMW') == '' and lv.own_edit_mode(row, 'UMW') == ''
@@ -141,7 +141,7 @@ def test_manager_registers_annual_on_behalf_notifies_approvers(client, mgr):
     j = client.post(f'/api/leave/person/{_pid("박민우")}/register', json=_body(d, reason='급히 자리 비움')).get_json()
     assert j['success'] and j['days'] == 1
     assert lv.get(j['id'])['status'] == lv.APPROVED and lv.balance('박민우') == before - 1
-    assert any('대신 등록했어요' in p['text'] and '남은 연차' in p['text'] for p in mgr.to('UMW'))
+    assert any('휴가를 등록했어요' in p['text'] and '남은 연차' in p['text'] for p in mgr.to('UMW'))
     assert any('박민우 님 휴가를 등록했어요' in p['text'] for p in mgr.to(JW))
     assert any('박민우 님 휴가를 등록했어요' in p['text'] for p in mgr.to(YG))
     info = client.get(f'/api/leave/person/{_pid("박민우")}').get_json()['admin']
