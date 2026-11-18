@@ -201,16 +201,29 @@
     return '<span class="' + (d > 0 ? 'up' : 'down') + '">' + (d > 0 ? '+' : '−') + Math.abs(d).toLocaleString('ko-KR') + '</span>';
   }
 
+  // 비율(11-18 부장님): 방문 예약 = 문의 가운데 몇 %, 계약 = 문의·방문 예약 대비 몇 %. 같은 기간 건수끼리 나눈 값
+  function pct(a, b) {
+    return b ? Math.round((a / b) * 100) + '%' : '-';
+  }
+
+  function rateText(key, T) {
+    if (key === 'visit') return '문의의 ' + pct(T.visit, T.inquiry);
+    if (key === 'contract') return '문의의 ' + pct(T.contract, T.inquiry) + ' · 방문 예약의 ' + pct(T.contract, T.visit);
+    return '';
+  }
+
   function renderSalesTiles() {
     var S = salesData, box = el('homeSalesTiles');
     box.innerHTML = METRICS.map(function (m) {
       var v = S.this[m.key], p = S.prev[m.key];
+      var rate = rateText(m.key, S.this);
       var sub = '지난달 같은 기간(' + esc(S.prev_label) + ') ' + p.toLocaleString('ko-KR') + '건 ' + diff(v, p);
       var extra = m.goal
         ? '평일 하루 ' + (S.workday_avg[m.key] == null ? '-' : S.workday_avg[m.key]) + '건 · 목표 ' + S.goals[m.key] + (m.key === 'inquiry' ? '~25건' : '건 이상')
         : '계약 금액 ' + won(S.this.amount);
       return '<button type="button" class="gw-sales-tile' + (m.key === salesMetric ? ' active' : '') + '" data-k="' + m.key + '" aria-pressed="' + (m.key === salesMetric) + '">' +
-        '<span class="k">' + m.label + '</span><span class="v">' + v.toLocaleString('ko-KR') + '건</span>' +
+        '<span class="k">' + m.label + '</span><span class="v">' + v.toLocaleString('ko-KR') + '건' +
+        (rate ? '<span class="r">' + rate + '</span>' : '') + '</span>' +
         '<span class="s">' + extra + '</span><span class="s">' + sub + '</span></button>';
     }).join('');
   }
@@ -307,7 +320,9 @@
     // 집계 규칙은 services/gw_home.py _sales_counts 와 맞춤: 방문은 문의 행의 상태로 세서 문의 날짜에 들어간다
     el('homeSalesNote').textContent = '문의는 리드 시트의 상담 날짜 기준이에요(모든 경로). ' +
       '방문 예약은 그 문의 가운데 방문 예약까지 간 건이고, 문의한 날에 들어가요. ' +
-      '계약은 공사현황의 공사 확정 날짜 기준이며 취소된 공사는 빼요. 흐린 막대는 주말·공휴일이고, 숫자는 5분마다 새로 계산해요.';
+      '계약은 공사현황의 공사 확정 날짜 기준이며 취소된 공사는 빼요. ' +
+      '비율은 이번 달 건수끼리 나눈 값이라, 계약 비율은 이번 달 문의가 실제로 계약까지 간 비율과는 달라요. ' +
+      '흐린 막대는 주말·공휴일이고, 숫자는 5분마다 새로 계산해요.';
   }
 
   if (el('homeSalesTiles')) {

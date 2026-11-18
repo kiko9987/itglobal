@@ -1196,6 +1196,14 @@
   color: #6b7280;
 }
 
+/* 비율(문의의 78% 등) — 건수 옆 작은 글자 (11-18) */
+.gw-sales-tile .v .r {
+  margin-left: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d4ed8;
+}
+
 .gw-sales-tile .up { color: #07916f; font-weight: 700; }
 .gw-sales-tile .down { color: #d6332c; font-weight: 700; }
 
