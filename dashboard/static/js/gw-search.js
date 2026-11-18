@@ -10,6 +10,18 @@
 
   var input = document.getElementById('gwFindInput');
   var list = document.getElementById('gwFindList');
+
+  // 휴대폰엔 Esc 키가 없어 닫을 방법이 없었다(11-18 부장님) — 입력칸 오른쪽에 [닫기] 단추.
+  //   템플릿을 고치면 재시작이 필요해 여기서 붙인다. 누르면 아래 [data-close] 처리로 닫힘
+  if (input && !root.querySelector('.gw-find-close')) {
+    var xb = document.createElement('button');
+    xb.type = 'button';
+    xb.className = 'gw-find-close';
+    xb.setAttribute('data-close', '');
+    xb.setAttribute('aria-label', '찾기 닫기');
+    xb.textContent = '닫기';
+    input.parentNode.appendChild(xb);
+  }
   var trigger = document.getElementById('gwFindBtn');
   var scopeAll = root.getAttribute('data-scope') === 'all';
 

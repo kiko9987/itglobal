@@ -469,6 +469,23 @@ body.gw-shell .gw-find-bar input {
   font-size: 16px;
 }
 
+/* 찾기 [닫기] — 넓은 화면은 Esc 안내가 있어 숨기고, 좁은 화면(휴대폰)에서만 */
+body.gw-shell .gw-find-close {
+  display: none;
+  flex-shrink: 0;
+  min-height: 44px;
+  padding: 0 4px 0 10px;
+  border: 0;
+  background: transparent;
+  color: #4b5563;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+@media (max-width: 767.98px) {
+  body.gw-shell .gw-find-close { display: inline-flex; align-items: center; }
+}
+
 body.gw-shell .gw-find-list {
   flex: 1;
   overflow-y: auto;
