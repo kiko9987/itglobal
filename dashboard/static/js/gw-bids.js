@@ -54,24 +54,11 @@
     var d = new Date(String(s || '').replace(' ', 'T'));
     return !isNaN(d) && d - new Date() < 48 * 3600 * 1000 && d > new Date();
   }
-  function fileLabel(name) {   // 공고문이 hwp·pdf 두 개로 오는 일이 많아 형식을 붙인다
-    var ext = (String(name).match(/\.([A-Za-z0-9]{2,5})$/) || [])[1];
-    var kind = /공고/.test(name) ? '공고문' : /내역/.test(name) ? '내역서' : /시방/.test(name) ? '시방서'
-      : /도면/.test(name) ? '도면' : '';
-    if (!kind) return name.length > 12 ? name.slice(0, 12) + '…' : name;
-    return kind + (ext ? ' ' + ext.toUpperCase() : '');
-  }
+
 
   var state = { tab: 'eligible', q: '', closed: false, seq: 0, items: {}, open: '', anim: false };
 
   function row(it) {
-    var links = [];
-    var du = safeUrl(it.detail_url);
-    if (du) links.push('<a href="' + esc(du) + '" target="_blank" rel="noopener">나라장터에서 보기</a>');
-    (it.files || []).slice(0, 4).forEach(function (f) {
-      var u = safeUrl(f.url);
-      if (u) links.push('<a href="' + esc(u) + '" target="_blank" rel="noopener" title="' + esc(f.name) + '">' + esc(fileLabel(f.name)) + '</a>');
-    });
     var sel = '<select class="gw-chip-select gw-bd-mark" data-no="' + esc(it.bid_no) + '" aria-label="' + esc(it.title) + ' 표시">' +
       MARKS.map(function (m) {
         return '<option value="' + m[0] + '"' + (m[0] === it.mark ? ' selected' : '') + '>' + m[1] + '</option>';
@@ -94,7 +81,6 @@
       '<td class="gw-bd-nw">' + esc(it.award_method || it.contract_method) + '</td>' +
       '<td class="num gw-bd-nw">' + esc(won(it.price)) + '</td>' +
       '<td>' + cond + '</td>' +
-      '<td class="gw-bd-links">' + (links.join('<br>') || '-') + '</td>' +
       '<td>' + sel + '</td></tr>';
   }
 
@@ -167,7 +153,7 @@
     var foot = '<div class="gw-bd-acc-foot">처음 본 때 ' + esc(when(it.first_seen)) +
       (it.mark ? ' · ' + esc(it.mark_label) + ' 표시: ' + esc(it.mark_by) + ' ' + esc(when(it.mark_at)) : '') +
       (has ? '' : ' · 일정·낙찰하한율 같은 세부 항목은 다음 모으기 때 채워져요.') + '</div>';
-    return '<tr class="gw-bd-detail"><td colspan="7"><div class="gw-bd-acc' + (state.anim ? ' gw-bd-slide' : '') + '">' +
+    return '<tr class="gw-bd-detail"><td colspan="6"><div class="gw-bd-acc' + (state.anim ? ' gw-bd-slide' : '') + '">' +
       '<div class="gw-bd-acc-top"><ul class="gw-bd-chks" aria-label="확인할 것">' + checks + '</ul>' +
       (du ? '<a class="btn btn-sm btn-primary gw-bd-acc-go" href="' + esc(du) + '" target="_blank" rel="noopener">' +
         '<i class="fas fa-up-right-from-square me-1" aria-hidden="true"></i>나라장터에서 보기</a>' : '') + '</div>' +
@@ -210,7 +196,7 @@
       if (state.open && !state.items[state.open]) state.open = '';
       $('bdCount').textContent = rows.length + '건';
       $('bdRows').innerHTML = rows.length ? rows.map(row).join('') :
-        '<tr><td colspan="7" class="gw-empty">' + (j.enabled ? (state.tab === 'eligible'
+        '<tr><td colspan="6" class="gw-empty">' + (j.enabled ? (state.tab === 'eligible'
           ? '지금 들어갈 수 있는 마감 전 공고가 없어요.' : '면허만 없어서 못 들어가는 마감 전 공고가 없어요.')
           : '나라장터 연결 키가 서버에 없어요.') + '</td></tr>';
       if (state.open) {   // 표시를 바꿔 다시 그려도 펼친 줄은 그대로(애니메이션 없이)
@@ -220,7 +206,7 @@
       $('bdFoot').textContent = j.last_collect ? '마지막으로 모은 때: ' + j.last_collect + ' (하루 세 번 07:20·12:20·16:20)' : '';
     }).catch(function (e) {
       if (my !== state.seq) return;
-      $('bdRows').innerHTML = '<tr><td colspan="7" class="gw-empty">' + esc(e.message) + '</td></tr>';
+      $('bdRows').innerHTML = '<tr><td colspan="6" class="gw-empty">' + esc(e.message) + '</td></tr>';
     });
   }
 

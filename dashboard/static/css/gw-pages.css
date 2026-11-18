@@ -2414,11 +2414,6 @@ body.gw-drawer-open {
   color: #9ca3af;
 }
 
-.gw-bd-links {
-  white-space: nowrap;
-  font-size: 13px;
-}
-
 .gw-bd-mark {
   height: 32px;
   font-size: 13px;
@@ -2473,7 +2468,6 @@ body.gw-drawer-open {
 }
 
 .gw-bd-acc {
-  max-width: 1100px;
   padding: 14px 18px 16px;
 }
 

@@ -177,6 +177,12 @@ def test_detail_from_raw(db, monkeypatch):
     assert d['contact_name'] == '신수견' and d['contact_email'] == 'a@korea.kr' and d['joint_region'] == '아니오'
 
 
+def test_files_sorted_by_leading_number():
+    names = ['03_입찰조서.hwp', '04_내역서.xlsx', '01_입찰공고서.pdf', '★시방서.hwp', '02_과업지시서.pdf', '10_도면.pdf']
+    got = [f['name'] for f in g.sort_files([{'name': n, 'url': 'u'} for n in names])]
+    assert got == ['01_입찰공고서.pdf', '02_과업지시서.pdf', '03_입찰조서.hwp', '04_내역서.xlsx', '10_도면.pdf', '★시방서.hwp']
+
+
 def test_single_price_has_no_draw_count():
     d = g._detail(json.dumps({'prearngPrceDcsnMthdNm': '단일예가', 'totPrdprcNum': '1', 'drwtPrdprcNum': '0'}))
     assert d['price_method'] == '단일예가' and d['price_count'] == ''

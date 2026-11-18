@@ -279,7 +279,16 @@ def _files(item: dict) -> List[dict]:
         url, name = item.get(f'ntceSpecDocUrl{i}'), item.get(f'ntceSpecFileNm{i}')
         if url and name:
             files.append({'name': name, 'url': url})
-    return files
+    return sort_files(files)
+
+
+def sort_files(files: List[dict]) -> List[dict]:
+    """첨부는 나라장터가 준 순서가 03·04·01… 처럼 섞여 온다 → 이름 앞 번호 순, 번호 없는 건 뒤에 받은 순서대로."""
+    def key(x):
+        i, f = x
+        m = re.match(r'\s*[★*\[(]?\s*(\d+)', f.get('name') or '')
+        return (0, int(m.group(1)), i) if m else (1, 0, i)
+    return [f for _, f in sorted(enumerate(files), key=key)]
 
 
 def _contact(item: dict) -> str:
@@ -453,7 +462,7 @@ def maybe_bootstrap() -> None:
 
 # ── 화면용 ────────────────────────────────────────────────────────────
 def _view(r: dict, now_s: str) -> dict:
-    files = json.loads(r.get('files') or '[]')
+    files = sort_files(json.loads(r.get('files') or '[]'))   # 정렬 전에 저장된 줄도
     groups = json.loads(r.get('license_groups') or '[]')
     return {
         'bid_no': r['bid_no'], 'bid_ord': r['bid_ord'], 'title': r['title'], 'org': r['org'],
@@ -551,7 +560,7 @@ def _when(s: str) -> str:
 def format_digest(rows: List[dict], license_only: int, page_url: str) -> str:
     lines = [f'*나라장터 새 입찰 공고 {len(rows)}건* (경기·김포 업체 참가 가능, 지금 면허로 들어갈 수 있는 것)']
     for r in rows:
-        files = json.loads(r.get('files') or '[]')
+        files = sort_files(json.loads(r.get('files') or '[]'))
         links = [f"<{r['detail_url']}|나라장터에서 보기>"] if r.get('detail_url') else []
         for f in files[:4]:
             name = f['name']
