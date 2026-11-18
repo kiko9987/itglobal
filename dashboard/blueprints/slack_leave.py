@@ -98,12 +98,37 @@ def leave_view(meta: dict, vals: Optional[dict] = None) -> dict:
         reason['initial_value'] = vals['reason']
     blocks.append({'type': 'input', 'block_id': 'lv_reason', 'optional': False, 'label': _plain('사유'),   # 필수(11-05)
                    'element': reason, 'hint': _plain('승인자(JW·YG)에게만 보여요. #휴가_일정에는 날짜만 올라가요.')})
+    # 고치기·변경 신청(11-18): meta edit=신청 번호, mode='edit'(승인 대기) | 'change'(승인된 휴가)
+    mode = meta.get('mode') or ''
+    title, submit = '휴가 신청', '신청'
+    if mode == 'edit':
+        title, submit = '휴가 고치기', '고치기'
+        blocks.insert(1, {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
+                          '고치면 승인을 처음부터 다시 받아요.'}]})
+    elif mode == 'change':
+        title, submit = '휴가 변경 신청', '변경 신청'
+        blocks.insert(1, {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
+                          '바뀐 날짜로 다시 승인받아요. 승인되면 원래 휴가는 자동으로 취소되고, 반려되면 원래 휴가가 그대로 남아요.'}]})
     return {
         'type': 'modal', 'callback_id': lv.CB_SUBMIT,
-        'title': _plain('휴가 신청'), 'submit': _plain('신청'), 'close': _plain('취소'), 'notify_on_close': True,
+        'title': _plain(title), 'submit': _plain(submit), 'close': _plain('취소'), 'notify_on_close': True,
         'private_metadata': json.dumps(meta, ensure_ascii=False),
         'blocks': blocks,
     }
+
+
+def edit_view(rid: int, uid: str) -> Optional[dict]:
+    """[✏️ 고치기]·[✏️ 변경 신청] 창 — 지금 신청 내용을 채워서. 고칠 수 없으면 None."""
+    row = lv.get(rid)
+    if not row:
+        return None
+    mode = lv.own_edit_mode(row, uid)
+    if not mode:
+        return None
+    vals = {'type': row['ltype'], 'sub': row.get('sub') or '', 'start': row['start'],
+            'end': '' if row['ltype'] in lv.HALF_TYPES or row['end'] == row['start'] else row['end'],
+            'reason': row.get('reason') or ''}
+    return leave_view({'name': row['name'], 'edit': rid, 'mode': mode}, vals)
 
 
 def read_view(view: dict) -> dict:
@@ -224,6 +249,71 @@ def start(row: dict) -> None:
     _next_round(client, lv.get(row['id']))
 
 
+# ── 고치기·변경 신청·연차 조정·관리자 등록 알림 (11-18) ──────────────────
+def _finish_replace(client, new: dict) -> None:
+    """변경 신청이 확정되면 원래 휴가의 카드·#휴가_일정 글을 '취소(변경됨)'로."""
+    if new.get('status') != lv.APPROVED or not new.get('replaces'):
+        return
+    orig = lv.get(int(new['replaces']))
+    if not orig or orig['status'] != lv.CANCELLED:
+        return
+    _refresh(client, orig)
+    if orig.get('announce_ts'):
+        try:
+            client.chat_update(channel=orig['announce_ch'], ts=orig['announce_ts'],
+                               text=f"{lv.cancelled_announce_text(orig)} (변경 신청으로 바뀜)")
+        except Exception as exc:
+            logger.warning(f'{_LOG} #휴가_일정 변경 표시 실패 (#{orig["id"]}): {exc}')
+
+
+def after_edit(row: dict, uid: str, as_admin: bool) -> None:
+    """고친 뒤 — 카드 전부 새로. 본인이 고쳤으면 승인할 사람에게 다시 알림, 경영지원이 고쳤으면 본인에게 알림."""
+    client = _client()
+    _refresh(client, row)
+    what = f"{lv.period_text(row)} ({lv.type_label(row['ltype'], row.get('sub') or '')})"
+    if as_admin:
+        actor = _eap()._name(uid)
+        for u in _requester_ids(row):
+            if u != uid:
+                _notify(client, u, f"✏️ 경영지원({actor})이 {row['name']} 님 휴가를 고쳤어요: {what}")
+        if row['status'] == lv.APPROVED and row.get('announce_ts'):
+            try:
+                client.chat_update(channel=row['announce_ch'], ts=row['announce_ts'], text=lv.announce_text(row))
+            except Exception as exc:
+                logger.warning(f'{_LOG} #휴가_일정 고침 반영 실패 (#{row["id"]}): {exc}')
+        return
+    _next_round(client, row)
+    cur = lv.current_approver(row)
+    if cur:
+        _notify(client, cur, f"✏️ {row['name']} 님이 휴가 신청을 고쳤어요. 다시 확인해 주세요: {what}")
+
+
+def after_change(new: dict) -> None:
+    """변경 신청 — 새 신청처럼 카드를 보내고(마지막 승인자 본인이면 바로 확정) 원래 휴가 정리."""
+    start(new)
+    _finish_replace(_client(), lv.get(new['id']))
+
+
+def after_adjust(name: str, grant: dict, uid: str) -> None:
+    st = lv.staff_by_name(name) or {}
+    sid = st.get('slack_id')
+    if not sid:
+        return
+    _notify(_client(), sid, f"🌴 {name} 님 연차가 조정됐어요 — {grant.get('note') or ''}\n"
+                            f"지금 남은 연차: {lv.fmt_days(lv.balance(name))}")
+
+
+def after_admin_register(row: dict, uid: str) -> None:
+    client = _client()
+    actor = _eap()._name(uid)
+    for u in _requester_ids(row):
+        if u != uid:
+            _send_card(client, row, u, 'requester')
+            _notify(client, u, f"🗂 경영지원({actor})이 휴가를 등록했어요: {lv.period_text(row)} "
+                               f"({lv.type_label(row['ltype'])})")
+    _announce(client, row)
+
+
 def apply_action(action: str, rid: int, uid: str, reason: str = '') -> Optional[str]:
     """버튼 처리. 못 하면 사용자에게 보여 줄 문구."""
     client = _client()
@@ -258,6 +348,7 @@ def apply_action(action: str, rid: int, uid: str, reason: str = '') -> Optional[
     _refresh(client, new)
     if action == 'approve':
         _next_round(client, new)
+        _finish_replace(client, new)
     elif action == 'reject':
         for u in _requester_ids(new):
             _notify(client, u, f"❌ {new['name']} 님 휴가 신청이 반려됐어요: {lv.period_text(new)}\n사유: {reason}")
@@ -433,6 +524,33 @@ def register_leave_handlers(app) -> None:
         ltype, sub = vals.get('type', ''), vals.get('sub', '')
         start = lv._d(vals.get('start'))
         end = start if ltype in lv.HALF_TYPES else (lv._d(vals.get('end')) or start)
+        meta = json.loads(view.get('private_metadata') or '{}')
+        if meta.get('edit'):
+            # 고치기(승인 대기)·변경 신청(승인된 휴가) — 11-18
+            change = meta.get('mode') == 'change'
+            fn = lv.change_request if change else lv.edit_request
+            row, errs = fn(int(meta['edit']), ltype, sub, start, end, vals.get('reason', ''), uid, name)
+            if errs:
+                msg = errs.pop('_', '')
+                if msg:
+                    errs['type'] = msg
+                ack(response_action='errors', errors=_errors(errs))
+                return
+            ack()
+
+            def _bg_edit():
+                try:
+                    if change:
+                        after_change(row)
+                    else:
+                        after_edit(row, uid, False)
+                    logger.info(f'{_LOG} #{row["id"]} {"변경 신청" if change else "고침"} {name} '
+                                f'{row["start"]}~{row["end"]} ({row["days"]}일)')
+                except Exception as exc:
+                    logger.error(f'{_LOG} 고치기 처리 실패 (#{row["id"]}): {exc}', exc_info=True,
+                                 extra={'force_alert': True})
+            threading.Thread(target=_bg_edit, daemon=True).start()
+            return
         errs = lv.validate(name, ltype, sub, start, end)
         if errs:
             ack(response_action='errors', errors=_errors(errs))
@@ -484,6 +602,24 @@ def register_leave_handlers(app) -> None:
 
     app.action(lv.A_APPROVE)(_bg_action('approve'))
     app.action(lv.A_CANCEL)(_bg_action('cancel'))
+
+    @app.action(lv.A_EDIT)
+    def handle_leave_edit(ack, body, client):
+        """요청자 카드 [✏️ 고치기]·[✏️ 변경 신청] → 지금 내용을 채운 창(11-18)."""
+        ack()
+        uid = (body.get('user') or {}).get('id', '')
+        try:
+            view = edit_view(int(body['actions'][0]['value']), uid) or {
+                'type': 'modal', 'title': _plain('휴가 고치기'), 'close': _plain('닫기'),
+                'blocks': [{'type': 'section', 'text': {'type': 'mrkdwn', 'text':
+                            '이 휴가는 지금 고칠 수 없어요. 이미 처리됐거나 시작한 휴가예요. 필요하면 경영지원에 말씀해 주세요.'}}]}
+            push = se._push_kw(body)
+            if push:
+                client.views_push(**push, view=view)
+            else:
+                client.views_open(trigger_id=body['trigger_id'], view=view)
+        except Exception as exc:
+            logger.error(f'{_LOG} 고치기 창 열기 실패: {exc}', exc_info=True)
 
     @app.action(lv.A_REJECT)
     def handle_leave_reject_open(ack, body, client):

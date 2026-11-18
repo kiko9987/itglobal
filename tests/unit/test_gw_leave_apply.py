@@ -233,12 +233,13 @@ def test_rest_cancel_for_leave_in_progress(slack):
 
 
 def test_requester_card_button_unchanged(slack):
-    """요청자 DM 카드의 취소 단추는 예전과 같다(대기 = 신청 취소)."""
+    """요청자 DM 카드의 취소 단추는 예전과 같다(대기 = 신청 취소). 11-18 부터 그 앞에 [✏️ 고치기]."""
     d = _next_workday(2)
     row = lv.create('박민우', 'UMW', 'UMW', '박민우', 'annual', '', d, d, 'x')
     acts = [b for blk in lv.card_blocks(row, [], 'requester') if blk['type'] == 'actions' for b in blk['elements']]
-    assert [b['text']['text'] for b in acts] == ['신청 취소'] and acts[0]['action_id'] == lv.A_CANCEL
-    assert acts[0]['confirm']['text']['text'] == '이 휴가를 취소할까요? 쓴 연차는 돌아와요.'
+    assert [b['text']['text'] for b in acts] == ['✏️ 고치기', '신청 취소']
+    assert [b['action_id'] for b in acts] == [lv.A_EDIT, lv.A_CANCEL]
+    assert acts[1]['confirm']['text']['text'] == '이 휴가를 취소할까요? 쓴 연차는 돌아와요.'
 
 
 def test_slack_mine_view_has_cancel_buttons(slack):

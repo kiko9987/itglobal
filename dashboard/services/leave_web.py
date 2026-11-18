@@ -143,6 +143,160 @@ def cancel(user: dict, rid: int) -> Optional[str]:
     return slack_leave.apply_action('cancel', row['id'], sid)
 
 
+def _vals(data: dict) -> Tuple[Dict[str, str], Optional[date], Optional[date]]:
+    vals = {k: str((data or {}).get(k) or '').strip() for k in ('type', 'sub', 'start', 'end', 'reason')}
+    start = lv._d(vals['start'])
+    end = start if vals['type'] in lv.HALF_TYPES else (lv._d(vals['end']) or start)
+    return vals, start, end
+
+
+def edit(user: dict, rid: int, data: dict) -> Tuple[Optional[dict], Dict[str, str], str]:
+    """본인 고치기(승인 대기)·변경 신청(승인된 휴가) — (줄, 오류, 'edit'|'change'). 슬랙 [✏️] 창과 같은 함수."""
+    p, sid, why = _person_and_sid(user or {})
+    if why:
+        return None, {'_': why}, ''
+    row = lv.get(int(rid))
+    if not row or sid not in (row.get('slack_id'), row.get('submitter_id')):
+        return None, {'_': '본인 휴가만 고칠 수 있어요.'}, ''
+    mode = lv.own_edit_mode(row, sid)
+    if not mode:
+        msg = '이미 변경 신청이 승인을 기다리고 있어요.' if lv.pending_change(row['id']) else '이 휴가는 지금 고칠 수 없어요.'
+        return None, {'_': msg}, ''
+    vals, start, end = _vals(data)
+    if len(vals['reason']) > 200:
+        return None, {'reason': '사유는 200자까지 적을 수 있어요.'}, mode
+    fn = lv.change_request if mode == 'change' else lv.edit_request
+    name = row['name']
+    new, errs = fn(row['id'], vals['type'], vals['sub'], start, end, vals['reason'], sid, name)
+    if errs:
+        return None, errs, mode
+
+    def _bg():
+        try:
+            from dashboard.blueprints import slack_leave
+            if mode == 'change':
+                slack_leave.after_change(new)
+            else:
+                slack_leave.after_edit(new, sid, False)
+        except Exception as exc:
+            logger.error(f'{_LOG} 고치기 알림 실패 (#{new["id"]}): {exc}', exc_info=True, extra={'force_alert': True})
+    _run_bg(_bg)
+    logger.info(f'{_LOG} #{new["id"]} {"변경 신청" if mode == "change" else "고침"}(웹) {name} {new["start"]}~{new["end"]}')
+    return new, {}, mode
+
+
+def manager_sid(user: dict) -> str:
+    """경영지원(휴가 관리자)이면 그 사람 슬랙 ID, 아니면 ''."""
+    try:
+        _p, sid, why = _person_and_sid(user or {})
+    except Exception:
+        return ''
+    return sid if (not why and sid and sid in lv.manager_ids()) else ''
+
+
+def _actor(user: dict, sid: str) -> str:
+    p, _s, _w = _person_and_sid(user or {})
+    return (p or {}).get('name') or (user or {}).get('name') or sid
+
+
+def admin_edit(user: dict, rid: int, data: dict) -> Tuple[Optional[dict], Dict[str, str]]:
+    sid = manager_sid(user)
+    if not sid:
+        return None, {'_': '경영지원만 고칠 수 있어요.'}
+    vals, start, end = _vals(data)
+    actor = _actor(user, sid)
+    row, errs = lv.edit_request(int(rid), vals['type'], vals['sub'], start, end, vals['reason'], sid, actor, as_admin=True)
+    if errs:
+        return None, errs
+
+    def _bg():
+        try:
+            from dashboard.blueprints import slack_leave
+            slack_leave.after_edit(row, sid, True)
+        except Exception as exc:
+            logger.error(f'{_LOG} 경영지원 고침 알림 실패 (#{row["id"]}): {exc}', exc_info=True, extra={'force_alert': True})
+    _run_bg(_bg)
+    logger.info(f'{_LOG} #{row["id"]} 경영지원 고침({actor}) {row["name"]} {row["start"]}~{row["end"]}')
+    return row, {}
+
+
+def admin_cancel(user: dict, rid: int) -> Optional[str]:
+    """경영지원 취소(끝난 휴가 포함) — 슬랙 카드와 같은 함수."""
+    sid = manager_sid(user)
+    if not sid:
+        return '경영지원만 취소할 수 있어요.'
+    from dashboard.blueprints import slack_leave
+    return slack_leave.apply_action('cancel', int(rid), sid)
+
+
+def adjust(user: dict, name: str, data: dict) -> Tuple[Optional[dict], str]:
+    sid = manager_sid(user)
+    if not sid:
+        return None, '경영지원만 조정할 수 있어요.'
+    actor = _actor(user, sid)
+    g, err = lv.adjust(name, (data or {}).get('days'), str((data or {}).get('reason') or ''), sid, actor)
+    if err:
+        return None, err
+
+    def _bg():
+        try:
+            from dashboard.blueprints import slack_leave
+            slack_leave.after_adjust(name, g, sid)
+        except Exception as exc:
+            logger.error(f'{_LOG} 연차 조정 알림 실패 ({name}): {exc}', exc_info=True)
+    _run_bg(_bg)
+    logger.info(f'{_LOG} 연차 조정 {name} {g["days"]:+g}일 ({actor})')
+    return g, ''
+
+
+def admin_register(user: dict, name: str, data: dict) -> Tuple[Optional[dict], Dict[str, str]]:
+    sid = manager_sid(user)
+    if not sid:
+        return None, {'_': '경영지원만 등록할 수 있어요.'}
+    vals, start, end = _vals(data)
+    if len(vals['reason']) > 200:
+        return None, {'reason': '사유는 200자까지 적을 수 있어요.'}
+    actor = _actor(user, sid)
+    row, errs = lv.admin_register(name, vals['type'], '', start, end, vals['reason'], sid, actor)
+    if errs:
+        return None, errs
+
+    def _bg():
+        try:
+            from dashboard.blueprints import slack_leave
+            slack_leave.after_admin_register(row, sid)
+        except Exception as exc:
+            logger.error(f'{_LOG} 경영지원 등록 알림 실패 (#{row["id"]}): {exc}', exc_info=True, extra={'force_alert': True})
+    _run_bg(_bg)
+    logger.info(f'{_LOG} #{row["id"]} 경영지원 등록({actor}) {name} {row["ltype"]} {row["start"]}~{row["end"]}')
+    return row, {}
+
+
+def admin_info(user: dict, person: dict) -> Dict:
+    """직원별 휴가 창의 경영지원 칸 — 쓸 수 있는지·종류·조정 기록·신청 줄(고치기·취소용)."""
+    sid = manager_sid(user)
+    if not sid:
+        return {'can': False}
+    from dashboard.services import leave_view
+    name = leave_view.leave_name(person)
+    if not name:
+        return {'can': False, 'why': '휴가 장부에 연결되지 않은 직원이에요.'}
+    rows = {r['id']: r for r in lv.requests_of(name, limit=500)}
+    editable = [rid for rid, r in rows.items() if r['status'] in lv.HOLDING]
+    return {
+        'can': True, 'name': name,
+        'types': [{'value': k, 'label': v} for k, v in lv.type_options() + lv.admin_type_options()],
+        'admin_types': [{'value': k, 'label': v} for k, v in lv.admin_type_options()],
+        'event': lv.EVENT, 'half_types': list(lv.HALF_TYPES),
+        'event_subs': [{'value': k, 'label': f'{v[0]} ({v[1]}일)'} for k, v in lv.EVENT_SUBS.items()],
+        'editable': editable,
+        'rows': {str(rid): {'type': r['ltype'], 'sub': r.get('sub') or '', 'start': r['start'], 'end': r['end'],
+                            'reason': r.get('reason') or ''} for rid, r in rows.items() if rid in editable},
+        'adjustments': [{'days': a['days'], 'note': a.get('note') or '', 'at': (a.get('created_at') or '')[:16],
+                         'valid_to': a['valid_to']} for a in lv.adjustments(name)],
+    }
+
+
 def annotate(summary: dict, user: dict, today: Optional[date] = None) -> dict:
     """내 휴가 요약의 슬랙(장부) 기록마다 본인 취소 단추 정보 — cancel: 'all'|'rest'|'' 와 확인 문구."""
     today = today or date.today()
@@ -156,10 +310,20 @@ def annotate(summary: dict, user: dict, today: Optional[date] = None) -> dict:
     if staff:
         rows = {r['id']: r for r in lv.requests_of(staff['name'], limit=500)}
     for e in summary.get('entries') or []:
-        mode = ''
+        mode, emode, r = '', '', None
         if e.get('source') == 'slack' and e.get('id') in rows:
-            mode = lv.own_cancel_mode(rows[e['id']], sid, today)
+            r = rows[e['id']]
+            mode = lv.own_cancel_mode(r, sid, today)
+            emode = lv.own_edit_mode(r, sid, today)
         e['cancel'] = mode
         e['cancel_label'] = lv.cancel_label(mode) if mode else ''
         e['cancel_confirm'] = lv.cancel_confirm_text(mode) if mode else ''
+        # 고치기(11-18): 'edit' 승인 대기 / 'change' 승인된 시작 전 휴가 — 창을 채울 지금 값도 같이
+        e['edit'] = emode
+        e['edit_label'] = lv.edit_label(emode) if emode else ''
+        if emode and r:
+            e['edit_vals'] = {'type': r['ltype'], 'sub': r.get('sub') or '', 'start': r['start'], 'end': r['end'],
+                              'reason': r.get('reason') or ''}
+        if r and r.get('replaces'):
+            e['change_of'] = r['replaces']
     return summary
