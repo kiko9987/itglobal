@@ -120,7 +120,7 @@ def test_adjust_plus_minus(db):
     assert err == '' and lv.balance('박민우', TODAY) == 5.5
     assert [a['days'] for a in lv.adjustments('박민우')] == [-1.5, 2]
     assert '−1.5일 조정: 결근 차감 (황샛별)' in lv.adjustments('박민우')[0]['note']
-    assert lv.adjust('박민우', -9, '많이', SB, '황샛별', today=TODAY)[1].startswith('남은 연차')
+    assert '남은 연차(5.5일)보다' in lv.adjust('박민우', -9, '많이', SB, '황샛별', today=TODAY)[1]
     assert lv.adjust('박민우', 0.3, 'x', SB, '황샛별', today=TODAY)[1].startswith('일수는')
     assert lv.adjust('박민우', 1, '', SB, '황샛별', today=TODAY)[1] == '사유를 적어 주세요.'
     assert lv.adjust('박민우', 1, 'x', MW, '박민우', today=TODAY)[1].startswith('경영지원만')

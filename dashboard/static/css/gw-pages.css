@@ -2318,3 +2318,44 @@ body.gw-drawer-open {
 }
 .gw-lv-adm-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
 .gw-lv-adm .gw-lv-upcoming { margin-top: 10px; }
+
+/* ── 휴가 관리 플렉스 맞추기(11-18): 일괄 조정·월별 상세·맞춤 휴가·촉진 ───────────── */
+.gw-lv-team-tools { display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+.gw-lv-bulk-head { display: grid; grid-template-columns: 180px 1fr; gap: 10px; margin-bottom: 8px; }
+.gw-lv-bulk-table td { vertical-align: middle; }
+.gw-lv-bulk-table input { min-width: 80px; }
+@media (max-width: 575.98px) {
+  .gw-lv-bulk-head { grid-template-columns: 1fr; }
+}
+.gw-lv-export { margin-left: auto; margin-right: 8px; }
+.gw-lv-export .dropdown-menu { min-width: 220px; }
+.gw-lv-monthly { margin: 12px 0 16px; }
+.gw-lv-monthly-body:not(:empty) { margin-top: 10px; }
+.gw-lv-monthly .gw-lv-monthly-year { width: auto; flex: 0 0 auto; }
+.gw-lv-monthly .gw-sec-title { white-space: nowrap; }
+.gw-lv-monthly-table td, .gw-lv-monthly-table th { white-space: nowrap; }
+.gw-lv-monthly-table tr.gw-lv-proj td { color: #64748b; }
+/* 연차 사용 촉진 */
+.gw-lv-promo {
+  border: 1px solid #f0c36d;
+  background: #fffaf0;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.gw-lv-promo-title { font-size: 1rem; font-weight: 600; margin: 0 0 8px; }
+.gw-lv-promo-title small { font-weight: 400; color: #64748b; }
+.gw-lv-promo-text { white-space: pre-line; line-height: 1.6; }
+.gw-lv-promo-des { margin-top: 10px; padding-top: 10px; border-top: 1px dashed #e5c07b; }
+.gw-lv-promo-meta { color: #64748b; font-size: .85rem; margin-top: 6px; }
+.gw-lv-promo-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.gw-lv-promo-btns:empty { display: none; }
+.gw-lv-pform { margin-top: 10px; max-width: 560px; }
+.gw-lv-pdate { display: grid; grid-template-columns: minmax(140px, 1fr) 120px auto; gap: 6px; align-items: center; margin-bottom: 6px; }
+.gw-lv-pfoot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.gw-lv-ptotal { color: #475569; font-size: .85rem; }
+.gw-lv-promo-table td { vertical-align: top; }
+@media (max-width: 575.98px) {
+  .gw-lv-pdate { grid-template-columns: 1fr 1fr; }
+  .gw-lv-pdate [data-pd-del] { grid-column: 1 / -1; justify-self: end; }
+}

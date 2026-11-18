@@ -525,6 +525,15 @@ def start_scheduler():
             replace_existing=True,
         )
         jobs.append('연차 자동 발생 매일 07:30')
+        # 연차 사용 촉진(11-18) — 연차가 생긴 뒤(07:30)에 본다. 주말에도 돈다(법 기간 10일은 달력 날짜)
+        _scheduler.add_job(
+            _safe_leave_promotion,
+            'cron',
+            hour=8, minute=10,
+            id='leave_promotion_daily',
+            replace_existing=True,
+        )
+        jobs.append('연차 사용 촉진 매일 08:10')
     # 2026-11-06 시공팀 출퇴근 — 세콤 ERP 내보내기(매시 5분 C:\S1) 파일을 10분마다 장부로.
     #   누락 묻기(매일 08:30 본인 DM)·월말 정산(매달 1일 09:10 경영지원 DM)은 ATTENDANCE_ENABLED 뒤에만
     _scheduler.add_job(
@@ -1109,6 +1118,15 @@ def _safe_leave_accrual():
             logger.info(f'[SCHED] 연차 자동 발생 {n}줄')
     except Exception as exc:
         logger.error(f'[SCHED] 연차 자동 발생 실패: {exc}', exc_info=True)
+
+
+def _safe_leave_promotion():
+    """연차 사용 촉진 (매일 08:10) — 촉구 보내기·계획 기한 알림·지정 필요 경영지원 알림."""
+    try:
+        from dashboard.blueprints.slack_leave import run_promotion
+        run_promotion()
+    except Exception as exc:
+        logger.error(f'[SCHED] 연차 사용 촉진 실패: {exc}', exc_info=True)
 
 
 def _safe_attendance_ingest():
