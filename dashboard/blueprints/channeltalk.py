@@ -1147,6 +1147,13 @@ def events():
         if chat_state == 'closed':
             _handle_chat_closed(payload)
 
+        # 4. 봇 입력 창(이름·연락처·설치 장소·문의) — 고객이 낸 값은 채팅 메시지가 아니라 양식 제출로
+        #   들어와 위 1번이 못 받는다. 봇·기타 이벤트가 오면 몇 초 뒤 그 대화의 제출된 창을 읽어
+        #   리드·카드·스레드에 반영 (2026-11-19 L-04606 — 신축 견적인데 '견적 문의' 한 줄만 남았다)
+        if person_type != 'user':
+            from dashboard.services.channeltalk_form import schedule_check
+            schedule_check(entity.get('chatId') or user_chat.get('id'))
+
     except Exception as exc:
         logger.error(f'[ChannelTalk] 핸들러 예외: {exc}', exc_info=True)
 
