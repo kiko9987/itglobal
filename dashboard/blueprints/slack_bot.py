@@ -5173,7 +5173,7 @@ def _maybe_post_pinv_prompt(client, channel: str, ts: str, text: str) -> None:
     try:
         r = client.chat_postMessage(
             channel=channel, thread_ts=ts,
-            text='어느 현장 건인지 골라 주세요.',
+            text='어느 프로젝트 건인지 골라 주세요.',
             blocks=pinv.prompt_blocks(channel, ts, parsed))
         logger.info(f'[SLACK/현장지정] 버튼 게시: ts={ts} | {pinv.post_summary(parsed)}')
         try:   # 자금집행 창에서 이 계산서를 골라 지정하면 이 버튼 메시지도 정리하려고 위치를 기억
@@ -5191,7 +5191,7 @@ def _pinv_deny(body: dict, view: Optional[dict] = None) -> str:
     11-14 보안 점검 4차: 기능을 꺼도(PURCHASE_INVOICE_ASSIGN_ENABLED=false) 자금집행 창에서 계산서를 고르면 글 스레드에
     [✏️ 다시 지정]이 붙고, 누구나 눌러 결재와 다른 현장으로 장부를 덮거나 반려된 글로 새 결재를 올릴 수 있었다."""
     if not _pinv_enabled():
-        return '계산서 글의 현장 지정은 지금 쓰지 않아요. 현장이 틀렸으면 자금집행 결재의 [✏️ 수정하기]나 경영지원에 말씀해 주세요.'
+        return '계산서 글의 프로젝트 지정은 지금 쓰지 않아요. 프로젝트가 틀렸으면 자금집행 결재의 [✏️ 수정하기]나 경영지원에 말씀해 주세요.'
     uid = (body.get('user') or {}).get('id', '')
     from dashboard.services import e_approval as ea
     allowed = set(ea.approver_ids()) | set(ea.final_approver_ids()) | set(ea.executor_ids()) | set(_SETTLEMENT_CHECKER_IDS)
@@ -5248,7 +5248,7 @@ def _open_pinv_modal(client, body) -> None:
         k: v.get(k) for k in ('d', 'g', 'a', 'p', 'c') if k != 'c' or v.get('c')}}
     resp = client.views_open(trigger_id=body['trigger_id'], view={
         'type': 'modal', 'callback_id': pinv.CALLBACK_SUBMIT,
-        'title': {'type': 'plain_text', 'text': '현장 지정'},
+        'title': {'type': 'plain_text', 'text': '프로젝트 지정'},
         'close': {'type': 'plain_text', 'text': '취소'},
         'private_metadata': json.dumps(meta),
         'blocks': [{'type': 'section', 'text': {
@@ -5330,7 +5330,7 @@ def _pinv_code_mismatch_once(view, code: str) -> str:
         if r.get(key):
             return ''
         r.set(key, '1', ex=3600)
-        return f'계산서 글에는 {want}로 적혀 있어요. 이 현장이 맞으면 [지정]을 한 번 더 눌러 주세요.'
+        return f'계산서 글에는 {want}로 적혀 있어요. 이 프로젝트가 맞으면 [지정]을 한 번 더 눌러 주세요.'
     except Exception as exc:
         logger.warning(f'[SLACK/현장지정] 코드 대조 실패(무시): {exc}')
         return ''
@@ -5491,7 +5491,7 @@ def _post_pinv_result(client, ch, ts, click_ts, parsed, row, line, code, cost, n
         pinv.set_reply_ts(row['id'], r['ts'])
         if click_ts:
             try:
-                client.chat_update(channel=ch, ts=click_ts, text='현장 지정 완료',
+                client.chat_update(channel=ch, ts=click_ts, text='프로젝트 지정 완료',
                                    blocks=pinv.prompt_done_blocks())
             except Exception as exc:
                 logger.warning(f'[SLACK/현장지정] 버튼 메시지 정리 실패: {exc}')
@@ -5779,7 +5779,7 @@ def _register_invoice_handlers(app):
                     if uid and meta.get('ch'):
                         client.chat_postEphemeral(
                             channel=meta['ch'], user=uid, thread_ts=meta.get('ts'),
-                            text=':warning: 현장 지정이 저장되지 않았어요. 잠시 뒤 다시 눌러 주세요.')
+                            text=':warning: 프로젝트 지정이 저장되지 않았어요. 잠시 뒤 다시 눌러 주세요.')
                 except Exception:
                     pass
         threading.Thread(target=_bg, daemon=True).start()
