@@ -198,3 +198,26 @@ def test_slack_edit_view_keeps_used_up_custom_type(client, mgr):
     # 고쳐도(같은 1일) 맞춤 휴가 한도 안 — 자기 몫은 빼고 본다
     new, errs = lv.edit_request(row['id'], 'health', '', _next_workday(5), None, '보건', 'UMW', '박민우')
     assert errs == {} and new['start'] == _next_workday(5).isoformat()
+
+
+def test_settlement_api_manager_only(client, mgr):
+    from datetime import date as _d
+    _as(client, STAFF)
+    assert client.get(f'/api/leave/person/{_pid("박민우")}/settlement?last_day=2027-06-30').status_code in (400, 403)
+    _as(client, ADMIN)
+    j = client.get(f'/api/leave/person/{_pid("박민우")}/settlement?last_day={_d.today().isoformat()}').get_json()
+    assert j['success'] and 'short' in j['settlement'] and 'unused' in j['settlement']
+    r = client.get(f'/api/leave/person/{_pid("박민우")}/settlement?last_day=')
+    assert r.status_code == 400
+
+
+def test_fiscal_accrual_dm_goes_to_managers_only(slack, mgr, monkeypatch):
+    from datetime import date as _d
+    from dashboard.blueprints import slack_leave
+    monkeypatch.setenv('LEAVE_ENABLED', 'true')
+    monkeypatch.setattr(lv, 'ACCRUE_HOLD_OVER', 99)
+    mgr.posts.clear()
+    slack_leave.run_accrual(_d(2026, 12, 15))
+    assert any(g['source'] == 'fiscal:박민우:2027' for g in lv.grants('박민우'))
+    assert not any('2027' in p['text'] and '연차' in p['text'] for p in mgr.to('UMW'))
+    assert any('회계연도 연차를 넣었어요' in p['text'] and '박민우' in p['text'] for p in mgr.to('UKIKO'))

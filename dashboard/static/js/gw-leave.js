@@ -998,7 +998,8 @@
     var h = '<div class="gw-lv-adm"><div class="gw-sec-head"><div class="gw-sec-title m-0">휴가 관리</div>' +
       '<div class="gw-lv-adm-btns"><button type="button" class="btn btn-sm btn-outline-secondary" data-adm="adjust">연차 조정</button>' +
       '<button type="button" class="btn btn-sm btn-outline-secondary" data-adm="register">휴가 등록</button>' +
-      '<button type="button" class="btn btn-sm btn-outline-secondary" data-adm="custom">맞춤 휴가 부여</button></div></div>' +
+      '<button type="button" class="btn btn-sm btn-outline-secondary" data-adm="custom">맞춤 휴가 부여</button>' +
+      '<button type="button" class="btn btn-sm btn-outline-secondary" data-adm="settle">퇴직 정산</button></div></div>' +
       '<div id="lvAdmForm"></div><div class="gw-lv-err" id="lvAdmMsg" role="alert"></div>';
     var ids = (adm.editable || []).filter(function (id) { return admEntries[id]; });
     if (ids.length) {
@@ -1035,6 +1036,30 @@
     return h + '</div>';
   }
 
+  function renderSettle(s) {
+    var list = function (rows) {
+      return rows.length ? '<ul class="gw-plain-list">' + rows.map(function (r) {
+        return '<li>' + esc(r.from) + ' · ' + days(r.days) + (r.note ? ' <span class="text-muted">(' + esc(r.note) + ')</span>' : '') + '</li>';
+      }).join('') + '</ul>' : '<div class="gw-note">없음</div>';
+    };
+    var h = '<div class="gw-lv-settle">';
+    h += '<div class="gw-stats"><div class="gw-stat gw-stat-main"><div class="k">미사용 연차(수당)</div><div class="v">' + days(s.unused) + '</div></div>' +
+      '<div class="gw-stat gw-stat-main"><div class="k">회계연도 차액(수당)</div><div class="v">' + days(s.short) + '</div></div>' +
+      '<div class="gw-stat"><div class="k">입사일 기준(2027~)</div><div class="v">' + days(s.basis_total) + '</div></div>' +
+      '<div class="gw-stat"><div class="k">실제 준 연차(2027~)</div><div class="v">' + days(s.actual_total) + '</div></div></div>';
+    if (s.before_fiscal) h += '<div class="gw-note">2027년 전에 그만두면 회계연도 차액은 없어요(그때까지는 입사일 기준).</div>';
+    else if (!s.short) h += '<div class="gw-note">입사일 기준보다 모자라지 않아 차액 정산이 없어요. 더 준 연차를 깎지는 않아요.</div>';
+    h += '<div class="gw-sec-title">입사일 기준이었다면 받았을 연차(2027-01-01 뒤)</div>' + list(s.basis);
+    h += '<div class="gw-sec-title">실제 준 연차(2027-01-01 뒤)</div>' + list(s.actual);
+    if (s.later && s.later.length) {
+      h += '<div class="gw-lv-err">마지막 근무일 뒤로 잡힌 휴가가 있어요. 먼저 취소해 주세요: ' +
+        s.later.map(function (r) { return esc(r.what); }).join(', ') + '</div>';
+    }
+    h += '<div class="gw-note">근거: 고용노동부 근기 68207-620·근로개선정책과-5352(퇴직 때 입사일 기준에 모자란 일수 정산), ' +
+      '대법원 2021다227100(1년 근로 다음 날 연차 발생 — 그 전에 그만두면 그 해 몫 없음).</div>';
+    return h + '</div>';
+  }
+
   function admField(id, label, input, hint) {
     return '<div class="gw-lv-field"><label class="form-label" for="' + id + '">' + label + '</label>' + input +
       (hint ? '<div class="gw-lv-hint">' + hint + '</div>' : '') + '</div>';
@@ -1050,6 +1075,10 @@
         '늘리려면 2, 빼려면 -1 처럼 적어요. 0.5일 단위예요. 적용일에 쓸 수 있는 연차와 같은 날 소멸해요.') +
         admField('lvAdmOn', '적용일', '<input type="date" class="form-control" id="lvAdmOn" name="applies_on" value="' + todayIso() + '">', '이날부터 남은 연차에 반영돼요.') +
         admField('lvAdmReason', '사유', '<input type="text" class="form-control" id="lvAdmReason" name="reason" maxlength="200" required placeholder="예: 보상 연차, 결근 차감">');
+    } else if (kind === 'settle') {
+      h += '<p class="gw-lv-left mb-2">마지막 근무일을 고르면 그날 기준 미사용 연차와, 회계연도 기준이라 입사일 기준보다 모자란 연차(수당 정산)를 계산해요.</p>' +
+        admField('lvAdmLast', '마지막 근무일', '<input type="date" class="form-control" id="lvAdmLast" name="last_day" required>') +
+        '<div id="lvSettleOut"></div>';
     } else if (kind === 'custom') {
       h += '<p class="gw-lv-left mb-2">보건·난임 치료 같은 휴가를 일수로 먼저 줘요. 직원은 휴가 신청 창에서 그 종류를 골라 신청하고, 보통 승인 절차를 거쳐요.</p>' +
         admField('lvAdmType', '휴가 종류', '<select class="form-select" id="lvAdmType" name="type">' + optList(adm.admin_types, '') + '</select>') +
@@ -1072,7 +1101,7 @@
           kind === 'register' ? '본인·승인하는 분께 알림이 가고, 회사 휴가 일정에 올라가요.' : '상태는 그대로 두고 고쳐요. 본인에게 알림이 가요.');
     }
     h += '<div class="gw-lv-adm-actions"><button type="button" class="btn btn-sm btn-link" data-adm="close">닫기</button>' +
-      '<button type="submit" class="btn btn-sm btn-primary">' + ({ adjust: '조정', register: '등록', edit: '고치기', custom: '부여' }[kind]) + '</button></div></form>';
+      '<button type="submit" class="btn btn-sm btn-primary">' + ({ adjust: '조정', register: '등록', edit: '고치기', custom: '부여', settle: '계산' }[kind]) + '</button></div></form>';
     box.innerHTML = h;
     var f = document.getElementById('lvAdmF');
     function sync() {
@@ -1092,6 +1121,15 @@
     var kind = f.getAttribute('data-kind'), id = f.getAttribute('data-id');
     var msg = document.getElementById('lvAdmMsg');
     var body, url;
+    if (kind === 'settle') {
+      if (!f.last_day.value) { msg.textContent = '마지막 근무일을 골라 주세요.'; return; }
+      var out = document.getElementById('lvSettleOut');
+      out.innerHTML = '<div class="gw-empty">계산하는 중…</div>';
+      api('/api/leave/person/' + admPid + '/settlement?last_day=' + encodeURIComponent(f.last_day.value)).then(function (j) {
+        out.innerHTML = renderSettle(j.settlement);
+      }).catch(function (e) { out.innerHTML = ''; msg.textContent = e.message; });
+      return;
+    }
     if (kind === 'adjust') {
       body = { days: f.days.value, reason: f.reason.value.trim(), applies_on: f.applies_on.value };
       if (!body.days || !body.reason) { msg.textContent = '일수와 사유를 적어 주세요.'; return; }

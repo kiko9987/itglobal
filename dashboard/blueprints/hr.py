@@ -495,6 +495,23 @@ def api_leave_register(pid):
     return jsonify({'success': True, 'id': row['id'], 'days': row['days']})
 
 
+@hr_bp.route('/api/leave/person/<int:pid>/settlement', methods=['GET'])
+@gw_page
+def api_leave_settlement(pid):
+    """퇴직 정산(회계연도 기준 ↔ 입사일 기준 차이·미사용 연차) — 경영지원만, last_day=마지막 근무일."""
+    from dashboard.services import leave_web
+    p = hr.get_person(pid)
+    if not p:
+        return jsonify({'success': False, 'message': '없는 구성원입니다.'}), 404
+    try:
+        out = leave_web.settlement(session.get('user') or {}, p, request.args.get('last_day') or '')
+    except Exception as e:
+        return _fail(e)
+    if not out.get('ok'):
+        return jsonify({'success': False, 'message': out.get('why') or '계산하지 못했어요.'}), 400
+    return jsonify({'success': True, 'settlement': out})
+
+
 @hr_bp.route('/api/leave/person/<int:pid>', methods=['GET'])
 @gw_page
 def api_leave_person(pid):

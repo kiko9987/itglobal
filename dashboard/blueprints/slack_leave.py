@@ -915,7 +915,16 @@ def run_accrual(today: Optional[date] = None) -> int:
     if not made:
         return 0
     client = _client()
+    fiscal = [g for g in made if str(g.get('source') or '').startswith('fiscal:')]
+    if fiscal and client:
+        text = ('🌴 *회계연도 연차를 넣었어요* (직원 DM 은 보내지 않았어요 — #휴가_일정 공지로 한 번에 안내해 주세요)\n'
+                + '\n'.join(f"• {g['name']} {lv.fmt_days(g['days'])} ({lv.kdate(g['valid_from'])}~{lv.kdate(g['valid_to'])}) — {g['note']}"
+                             for g in fiscal))
+        for u in lv.manager_ids():
+            _notify(client, u, text)
     for g in made:
+        if g in fiscal:
+            continue
         p = lv.staff_by_name(g['name']) or {}
         if client and p.get('slack_id'):
             _notify(client, p['slack_id'],

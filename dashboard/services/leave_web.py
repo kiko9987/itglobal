@@ -381,6 +381,26 @@ def cancel_custom_grant(user: dict, gid: int) -> Optional[str]:
     return None
 
 
+def settlement(user: dict, person: dict, last_day: str) -> Dict:
+    """퇴직 정산 — 경영지원만. 퇴사 처리한 직원도(장부 이름은 슬랙 ID·이름으로, 퇴사 여부 무관)."""
+    if not manager_sid(user):
+        return {'ok': False, 'why': '경영지원만 볼 수 있어요.'}
+    d = lv._d(last_day)
+    if not d:
+        return {'ok': False, 'why': '마지막 근무일을 골라 주세요.'}
+    name = None
+    with lv._conn() as c:
+        if person.get('slack_id'):
+            r = c.execute('SELECT name FROM leave_staff WHERE slack_id=?', (person['slack_id'],)).fetchone()
+            name = r[0] if r else None
+        if not name:
+            r = c.execute('SELECT name FROM leave_staff WHERE name=?', (person.get('name') or '',)).fetchone()
+            name = r[0] if r else None
+    if not name:
+        return {'ok': False, 'why': '휴가 장부에 연결되지 않은 직원이에요.'}
+    return lv.resign_settlement(name, d)
+
+
 def admin_info(user: dict, person: dict) -> Dict:
     """직원별 휴가 창의 경영지원 칸 — 쓸 수 있는지·종류·조정 기록·신청 줄(고치기·취소용)."""
     sid = manager_sid(user)

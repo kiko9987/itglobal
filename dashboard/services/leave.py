@@ -9,9 +9,10 @@
   - 전자결재와 따로 '휴가' 봇(slack_leave). 입구 = #휴가_일정 워크플로 버튼·봇 홈 탭.
   - 신청 카드는 채널에 올리지 않고 DM 으로만. 확정되면 #휴가_일정에 '누가 언제 휴가/반차'만(종류·사유 없음).
   - 직원 신청 창은 본인 휴가만. 경영지원은 휴가 관리 기능으로 등록·고치기·취소·연차 조정(11-18).
-  - 연차는 지금 입사일 기준. 회계연도 기준 전환은 FISCAL_FROM 날짜부터(정산표는 따로).
-    11-17 KiKO: 안전한 기본값으로 2028-01-01 — 취업규칙 절차·노무 확인이 12-22 까지 끝나야만 2027-01-01 로 당긴다
-    (docs/designs/leave-cutover-2026-12.review.md R1·R2·E4). 미루지 않으면 준비가 늦을 때 2027 기념일 연차가 아무에게도 안 생긴다.
+  - 연차는 2026년까지 입사일 기준, **2027-01-01 부터 회계연도(1/1~12/31) 기준**(11-18 부장님 확정 — 11-17 의 2028 기본값을 당김).
+    2027-01-01 = 마지막 입사 기념일~2026-12-31 근무 비례분(0.5일 올림), 2028 부터 매년 1/1 만 근속 기준(fiscal_grants).
+    퇴직 때 입사일 기준보다 모자라면 그 일수만 수당 정산(resign_settlement — 고용노동부 근기 68207-620·근로개선정책과-5352,
+    더 준 몫을 깎는 정산은 취업규칙 단서 없인 안 됨 — 임금근로시간정책팀-489). 취업규칙 개정·신고는 따로(경영지원).
 
 장부: 연차는 '부여(grant)' 줄마다 쓸 수 있는 기간이 있고, 신청은 그 휴가 첫날에 살아 있는 부여에서
 소멸이 빠른 것부터 떼어 쓴다(leave_uses). 승인 대기 중에도 떼어 두어 두 번 신청해 넘치는 일이 없게 하고,
@@ -19,6 +20,7 @@
 """
 import json
 import logging
+import math
 import os
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
@@ -433,7 +435,8 @@ def _allocate(conn, rid: int, name: str, on: date, need: float, until: Optional[
 
 
 # ── 자동 발생 (입사일 기준) ──────────────────────────────────────────
-FISCAL_FROM = date(2028, 1, 1)   # 이날부터 1년 이상 근속자의 연차는 회계연도 기준(별도 정산표로 부여). 안전한 기본값(11-17) — 위 머리말 참고
+FISCAL_FROM = date(2027, 1, 1)   # 이날부터 회계연도 기준(11-18 부장님 확정). 이날·그 뒤 입사 기념일 부여는 만들지 않고 fiscal_grants 로
+FISCAL_PREGRANT_DAYS = 17        # 다음 해 1/1 부여를 12-15 부터 미리 넣는다(12월에 1월 휴가 신청 가능, 설계 D10)
 
 
 def annual_days(years: int) -> int:
@@ -441,15 +444,74 @@ def annual_days(years: int) -> int:
     return min(25, 15 + max(0, years - 1) // 2)
 
 
-def due_grants(person: dict, today: date) -> List[dict]:
-    """오늘까지 생겼어야 할 입사일 기준 부여(accrue_from 이후 것만 — 그 전 몫은 플렉스 잔여로 옮겨 넣었다).
+def _prorate(base: float, days: int) -> float:
+    """비례분 — base × 일수/365, 0.5일 단위로 올림(설계 D2)."""
+    return math.ceil(base * days / 365 * 2 - 1e-9) / 2
 
-    1년 미만: 한 달 개근마다 1일(최대 11), 입사 1년이 되는 날까지 쓴다.
-    1년 이상: 입사 기념일에 annual_days, 다음 기념일 전날까지 쓴다. FISCAL_FROM 이후 기념일은 만들지 않는다."""
+
+def completed_years(hire: date, on: date) -> int:
+    """on 날까지 채운 근속 연수(기념일이 on 이하인 횟수)."""
+    n = 0
+    while add_years(hire, n + 1) <= on:
+        n += 1
+    return n
+
+
+def fiscal_grants(person: dict, today: date) -> List[dict]:
+    """회계연도 부여(11-18 확정) — 해 Y 부여는 Y-1 년 12-15 부터 미리 만든다.
+      2027(전환 해): 1년 이상 = annual_days(다음 기념일 근속연수) × (마지막 기념일~2026-12-31 일수)/365,
+                    1년 미만 = 15 × (입사일~2026-12-31 일수)/365. 모두 0.5일 올림.
+      2028~: 1/1 기준 만 근속 1년 이상 = annual_days(만 근속), 전년도 입사자 = 15 × 전년도 근무일/365.
+      그해 1/1 이후 입사자는 그해 몫 없음(1년이 될 때까지 월차는 due_grants 가 그대로)."""
     hire = _d(person.get('hire_date'))
     if not hire:
         return []
-    start = _d(person.get('accrue_from')) or hire
+    name, out = person['name'], []
+    y = FISCAL_FROM.year
+    while today >= date(y, 1, 1) - timedelta(days=FISCAL_PREGRANT_DAYS):
+        first, prev_end = date(y, 1, 1), date(y - 1, 12, 31)
+        if hire < first:
+            if y == FISCAL_FROM.year:
+                k = completed_years(hire, prev_end)
+                frm = add_years(hire, k) if k >= 1 else hire
+                base = annual_days(k + 1) if k >= 1 else 15
+                span = (prev_end - frm).days + 1
+                days = _prorate(base, span)
+                note = f'회계연도 전환 비례분 ({frm.isoformat()}~{prev_end.isoformat()} {span}일, 기준 {base}일)'
+            else:
+                k = completed_years(hire, first)
+                if k >= 1:
+                    days, note = float(annual_days(k)), f'{y}년 회계연도 연차 (1/1 기준 만 {k}년)'
+                else:
+                    span = (prev_end - hire).days + 1
+                    days, note = _prorate(15, span), f'{y}년 회계연도 연차 (전년도 입사 {span}일 비례)'
+            if days > 0:
+                out.append({'name': name, 'days': days, 'valid_from': first, 'valid_to': date(y, 12, 31),
+                            'source': f'fiscal:{name}:{y}', 'note': note})
+        y += 1
+    return out
+
+
+def hire_basis_grants(person: dict, until: date) -> List[dict]:
+    """입사일 기준이었다면 until 날까지 생겼을 부여 — 월차(1개월 개근 다음 날)·기념일 연차(1년 근로 다음 날,
+    대법원 2021다227100: 그 전에 그만두면 그 해 몫은 없다). 퇴직 정산용이라 FISCAL_FROM·accrue_from 을 보지 않는다."""
+    return _hire_grants(person, until, cut=None, start=_d(person.get('hire_date')))
+
+
+def due_grants(person: dict, today: date) -> List[dict]:
+    """오늘까지 생겼어야 할 부여 — 입사일 기준 월차·기념일(accrue_from 이후, FISCAL_FROM 전 기념일만) + 회계연도 부여.
+
+    1년 미만: 한 달 개근마다 1일(최대 11), 입사 1년이 되는 날까지 쓴다.
+    1년 이상: 입사 기념일에 annual_days, 다음 기념일 전날까지 쓴다. FISCAL_FROM 이후 기념일은 만들지 않는다(fiscal_grants)."""
+    start = _d(person.get('accrue_from')) or _d(person.get('hire_date'))
+    return _hire_grants(person, today, cut=FISCAL_FROM, start=start) + fiscal_grants(person, today)
+
+
+def _hire_grants(person: dict, today: date, cut: Optional[date], start: Optional[date]) -> List[dict]:
+    hire = _d(person.get('hire_date'))
+    if not hire:
+        return []
+    start = start or hire
     name, out = person['name'], []
     first_year_end = add_years(hire, 1) - timedelta(days=1)
     for m in range(1, 12):
@@ -462,7 +524,7 @@ def due_grants(person: dict, today: date) -> List[dict]:
     n = 1
     while True:
         d = add_years(hire, n)
-        if d > today or d >= FISCAL_FROM:
+        if d > today or (cut and d >= cut):
             break
         if d >= start:
             out.append({'name': name, 'days': annual_days(n), 'valid_from': d,
@@ -1271,6 +1333,50 @@ def monthly_detail(name: str, year: int, today: Optional[date] = None) -> dict:
         })
     opening = left_on(date(year, months[0]['month'], 1).isoformat()) if months else 0.0
     return {'year': year, 'months': months, 'opening': opening}
+
+
+_SETTLE_SOURCES = ('fiscal:', 'monthly:', 'annual:')
+
+
+def resign_settlement(name: str, last_day: date) -> dict:
+    """퇴직 정산(11-18) — 회계연도 기준으로 실제 준 연차와 입사일 기준이었다면 받았을 연차를 2027-01-01 뒤 몫끼리 비교.
+    2026년까지는 두 기준이 같다(플렉스·장부 모두 입사일 기준). 모자라면 그 일수를 수당으로(더 준 몫은 깎지 않음).
+    미사용 연차 = 마지막 근무일에 살아 있는 연차 − 그날까지 시작한 휴가로 쓴 몫(수당 대상)."""
+    st = staff_by_name(name)
+    if not st:
+        return {'ok': False, 'why': '휴가 명단에 없는 직원이에요.'}
+    hire = _d(st.get('hire_date'))
+    if not hire or last_day < hire:
+        return {'ok': False, 'why': '마지막 근무일이 입사일보다 빨라요.'}
+    lo, hi = FISCAL_FROM.isoformat(), last_day.isoformat()
+    basis = [g for g in hire_basis_grants(st, last_day) if g['valid_from'] >= FISCAL_FROM]
+    actual = [g for g in grants(name) if str(g['source'] or '').startswith(_SETTLE_SOURCES)
+              and lo <= g['valid_from'] <= hi]
+    b_total = round(sum(g['days'] for g in basis), 2)
+    a_total = round(sum(g['days'] for g in actual), 2)
+    nxt = (last_day + timedelta(days=1)).isoformat()
+    with _conn() as conn:
+        used_before = {r[0]: r[1] for r in conn.execute(
+            f'SELECT u.grant_id, SUM(u.days) FROM leave_uses u JOIN leave_requests r ON r.id=u.request_id '
+            f'WHERE r.name=? AND r.status IN ({",".join("?" * len(HOLDING))}) AND r.start<? GROUP BY u.grant_id',
+            (name, *HOLDING, nxt))}
+        later = [dict(r) for r in conn.execute(
+            f'SELECT * FROM leave_requests WHERE name=? AND status IN ({",".join("?" * len(HOLDING))}) AND start>? '
+            'ORDER BY start', (name, *HOLDING, hi))]
+    alive = [g for g in grants(name) if g['valid_from'] <= hi <= g['valid_to']]
+    unused = round(sum(g['days'] - used_before.get(g['id'], 0.0) for g in alive), 2)
+
+    def rows(gs):
+        return [{'from': (g['valid_from'].isoformat() if isinstance(g['valid_from'], date) else g['valid_from']),
+                 'days': g['days'], 'note': g.get('note') or ''} for g in gs]
+    return {
+        'ok': True, 'name': name, 'hire_date': hire.isoformat(), 'last_day': hi,
+        'basis': rows(basis), 'basis_total': b_total, 'actual': rows(actual), 'actual_total': a_total,
+        'short': round(max(0.0, b_total - a_total), 2), 'unused': max(0.0, unused),
+        'later': [{'id': r['id'], 'what': f"{type_label(r['ltype'], r.get('sub') or '')} {period_text(r, False)}",
+                   'days': r['days']} for r in later],
+        'before_fiscal': last_day < FISCAL_FROM,
+    }
 
 
 _ASK_MANAGER = ' 연차가 더 있어야 한다면 경영지원에 문의해 주세요.'

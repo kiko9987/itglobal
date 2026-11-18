@@ -35,15 +35,15 @@ def test_annual_days_rule():
 
 def test_due_grants_monthly_then_annual():
     p = {'name': '권진현', 'hire_date': '2026-11-02', 'accrue_from': '2026-11-02'}
-    g = lv.due_grants(p, date(2027, 3, 5))
+    g = [x for x in lv.due_grants(p, date(2027, 3, 5)) if x['source'].startswith('monthly:')]
     assert [x['valid_from'] for x in g] == [date(2026, 12, 2), date(2027, 1, 2), date(2027, 2, 2), date(2027, 3, 2)]
     assert all(x['valid_to'] == date(2027, 11, 1) for x in g)
-    # 1년 이상 근속 기념일은 FISCAL_FROM(안전한 기본값 2028-01-01) 전까지만(그 뒤는 회계연도 정산표로)
-    assert lv.FISCAL_FROM == date(2028, 1, 1)
+    # 1년 이상 근속 기념일은 FISCAL_FROM(2027-01-01, 11-18 확정) 전까지만 — 그 뒤는 회계연도 부여(fiscal:)
+    assert lv.FISCAL_FROM == date(2027, 1, 1)
     old = {'name': '주영민', 'hire_date': '2024-04-08', 'accrue_from': '2026-11-06'}
     g27 = lv.due_grants(old, date(2027, 6, 1))
-    assert [(x['valid_from'], x['days'], x['valid_to']) for x in g27] == [(date(2027, 4, 8), 16, date(2028, 4, 7))]
-    assert lv.due_grants(old, date(2028, 6, 1)) == g27          # 2028-04-08 기념일은 FISCAL_FROM 뒤라 안 만듦
+    assert [(x['source'], x['days'], x['valid_to']) for x in g27] == [('fiscal:주영민:2027', 12, date(2027, 12, 31))]
+    assert not any(x['source'].startswith('annual:') for x in lv.due_grants(old, date(2028, 6, 1)))
     mid = {'name': 'X', 'hire_date': '2025-12-01', 'accrue_from': '2026-11-06'}
     a = [x for x in lv.due_grants(mid, date(2026, 12, 31)) if x['source'].startswith('annual')]
     assert a and a[0]['days'] == 15 and a[0]['valid_to'] == date(2027, 11, 30)
