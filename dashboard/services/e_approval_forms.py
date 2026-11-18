@@ -102,11 +102,11 @@ def _add(form: Form) -> None:
 
 _add(Form(FORM_CONTRACT, '계약서 작성 요청', '📑', 'task', project_card=True, amount_key='total',
           # 사업자등록증 확인은 현장이 정해지면 상태(공사 폴더·같은 사업자·거래처 탭)로 따로 보여 준다(extra_note)
-          note='현장을 고르면 총액·인수자·연락처가 공사현황 값으로 채워지고, 사업자등록증 확인 결과가 보여요.',
+          note='프로젝트를 고르면 총액·인수자·연락처가 공사현황 값으로 채워지고, 사업자등록증 확인 결과가 보여요.',
           note_fixed='',
           fields=[
               # 칸이 많아 묶음마다 구분선·제목(11-05). 총 금액을 대금 묶음 맨 위로 — 총액 → 나눠 받는 금액 순
-              F('project', '현장', 'project'),
+              F('project', '프로젝트', 'project'),
               F('total', '총 금액 (VAT 포함, 원)', 'money', auto='총액 2', section='💰 대금'),
               F('deposit', '계약금 (VAT 포함, 원)', 'money', required=False),
               F('deposit_date', '계약금 입금 일자', 'date', required=False),
@@ -131,7 +131,7 @@ _add(Form(FORM_CONTRACT, '계약서 작성 요청', '📑', 'task', project_card
 _add(Form(FORM_INSURANCE, '보증보험 신청', '🛡️', 'task', project_card=True, amount_key='total',
           fields=[
               F('kind', '보증 종류', 'select', options=GUARANTEE_TYPES, dispatch=True),   # 고르면 계약서 조건 채움
-              F('project', '현장', 'project'),
+              F('project', '프로젝트', 'project'),
               F('total', '총 금액 (VAT 포함, 원)', 'money', auto='총액 2'),
               F('rate', '보증금율 (%)', 'number', placeholder='예: 10', auto='@contract'),   # 계약서 보증 조건(11-05)
               F('start', '보증 시작일', 'date'),
@@ -145,7 +145,7 @@ _add(Form(FORM_CARDPAY, '카드결제 요청', '💳', 'task', project_card=True
           # 수수료는 3% 고정이 아니다 — 플렉스 36건에 0%·1.5%·3%(회사·고객 부담 협의). 직접 넣고 합계 검수(11-05)
           note='고객 카드로 공사 대금을 결제하는 요청이에요. 수수료는 보통 원 매출의 3%예요.',
           fields=[
-              F('project', '현장', 'project'),
+              F('project', '프로젝트', 'project'),
               F('card_co', '카드사', 'select', options=CARD_COMPANIES),
               # 카드번호는 가리지 않는다(10-30 사용자 결정: 사내 전용). 플렉스 때 CVC·비밀번호를 지워 달라던 일이 있어 안내만(11-06)
               F('card_no', '카드번호', placeholder='예: 1234-5678-9012-3456', hint='CVC·비밀번호는 적지 마세요.'),
@@ -161,7 +161,7 @@ _add(Form(FORM_CARDPAY, '카드결제 요청', '💳', 'task', project_card=True
 _add(Form(FORM_CORPDOCS, '법인서류 요청', '🏢', 'task',
           fields=[
               F('grn', '사업자 구분', 'select', options=GRN_OPTIONS),
-              F('project', '현장', 'project', required=False),
+              F('project', '프로젝트', 'project', required=False),
               F('docs', '서류 종류', 'multiselect', options=CORP_DOC_TYPES),
               F('year', '발행 연도', 'select', required=False, options=[]),   # 열 때 올해부터 채움
               F('other', '기타 선택 시 서류 이름', required=False),
@@ -186,7 +186,7 @@ _add(Form(FORM_EXPENSE, '개인경비 청구', '🙋‍♂️', 'spend', amount_
           note='본인 돈으로 먼저 쓴 비용을 돌려받는 요청이에요. 계좌는 카드에 보이지 않고 경영지원에게만 보여요.',
           fields=[
               F('use_date', '사용일자', 'date'),
-              F('project', '현장', 'project'),
+              F('project', '프로젝트', 'project'),
               # 사업자 구분은 넣지 않는다 — 경영지원이 처리할 때 판단(플렉스도 없었음, 11-05)
               F('cost', '원가 분류', 'select', options=[]),   # COST_CATEGORIES 로 채움
               F('amount', '청구 금액 (원)', 'money'),
@@ -202,7 +202,7 @@ FORM_WASTE = 'waste'
 _add(Form(FORM_WASTE, '폐기물 처리', '♻️', 'task', project_card=True, amount_key='amount',
           note='철거한 실외기·배관 등을 고철로 넘기고 받은 돈을 알려 주세요. 경영지원이 잡수익으로 넣어요.',
           fields=[
-              F('project', '현장', 'project'),
+              F('project', '프로젝트', 'project'),
               F('date', '처리 일자', 'date', auto='@today'),
               F('items', '품목·수량', 'multiline', required=False,
                 placeholder='예: 실외기 410kg (2대), 실내기 204kg (12대)'),
@@ -302,7 +302,7 @@ def _element(form: Form, f: F, value: str, today: Optional[date] = None) -> dict
     aid = f.key
     if f.kind == 'project':
         el = {'type': 'external_select', 'action_id': A_FORM_PROJECT, 'min_query_length': 0,
-              'placeholder': _plain('코드·상호·주소로 검색 (누르면 내 담당 현장이 최근 순으로 나와요)')}
+              'placeholder': _plain('코드·상호·주소로 검색 (누르면 내 담당 프로젝트가 최근 순으로 나와요)')}
         if value:
             el['initial_option'] = {'text': _plain(value[:75]), 'value': value}
         return el
@@ -432,7 +432,7 @@ def form_view(form_key: str, meta: dict, values: Optional[dict] = None, project_
                 blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': f'*{f.section}*'}})
         if f.kind == 'project' and meta.get('project'):
             blocks.append({'type': 'section', 'text': {'type': 'mrkdwn',
-                                                       'text': f'*현장* {project_label or meta["project"]}'}})
+                                                       'text': f'*프로젝트* {project_label or meta["project"]}'}})
             continue
         v = values.get(f.key, '')
         b = {'type': 'input', 'block_id': f.key + (sfx if f.auto and f.kind != 'project' else ''),
