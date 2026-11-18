@@ -78,7 +78,10 @@ def test_classify_categories():
     assert g.classify(_item(), ['경기도'], [[MECH]], held, planned)['category'] == g.ELIGIBLE
     c = g.classify(_item(), ['경기도 김포시'], [[MECH, REFRIG]], held, planned)
     assert c['category'] == g.LICENSE_ONLY and c['missing'] == [REFRIG] and c['reason'] == '냉매회수업 면허 없음'
-    assert g.classify(_item(), [], [[MECH]], held, planned)['reason'] == '경기도 한정 아님(전국 공고)'
+    assert g.classify(_item(), [], [[MECH]], held, planned)['category'] == g.ELIGIBLE        # 전국 공고 = 가능(11-18)
+    c = g.classify(_item(bidNtceNm='파주송화초 냉난방기 전기공사'), [], [], held, planned)
+    assert c['category'] == g.OTHER and c['reason'] == '면허 안 맞음(전기공사업)'           # 면허 제한 없어도 전기공사는 안 됨
+    assert g.classify(_item(bidNtceNm='대학본부1층, 3층 냉난방기 공사'), [], [], held, planned)['category'] == g.ELIGIBLE
     c = g.classify(_item(), ['경기도 수원시'], [[MECH]], held, planned)
     assert c['category'] == g.OTHER and c['reason'] == '김포 업체 참가 불가(지역 제한)'
     assert g.classify(_item(arsltCmptYn='Y'), ['경기도'], [[MECH]], held, planned)['reason'] == '실적제한 있음'

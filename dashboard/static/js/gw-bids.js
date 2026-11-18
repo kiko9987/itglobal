@@ -75,7 +75,8 @@
         '<i class="fas fa-person-chalkboard me-1" aria-hidden="true"></i>현장설명회 ' + esc(when(bAt)) +
         (past(bAt) ? ' (지남)' : '') + '</div>';
     }
-    var cond = '<div>' + esc((it.regions || []).join(', ')) + '</div><div class="gw-bd-sub">' +
+    var cond = '<div>' + (it.nationwide ? '<span class="gw-badge gw-badge-nation">전국</span> 지역 제한 없음'
+      : esc((it.regions || []).join(', '))) + '</div><div class="gw-bd-sub">' +
       esc((it.licenses || []).join(' 또는 ') || '면허 제한 없음') + '</div>' +
       (it.category !== 'eligible' && it.reason ? '<div class="gw-bd-miss">' + esc(it.reason) + '</div>' : '');
     var open = state.open === it.bid_no;
@@ -115,7 +116,7 @@
     // 1) 확인할 것
     var rg = esc((it.regions || []).join(', '));
     var checks = it.region_ok ? chk(true, '참가 지역', rg + ' — 김포 업체 참가 가능')
-      : it.nationwide ? chk(null, '참가 지역', '<b>지역 제한 없음(전국 공고)</b> — 경기도 한정 공고가 아니에요')
+      : it.nationwide ? chk(true, '참가 지역', '<b>지역 제한 없음(전국 공고)</b> — 어느 지역 업체나 들어와서 경쟁이 셀 수 있어요')
       : chk(false, '참가 지역', '<b>' + rg + '</b> — 김포 업체는 참가할 수 없어요');
     checks += it.license_ok
       ? chk(true, '면허', esc(lic || '제한 없음') + (lic ? ' — 보유' : ''))
@@ -202,7 +203,7 @@
       if (my !== state.seq) return;
       $('bdCntEligible').textContent = j.counts.eligible;
       $('bdCntBlocked').textContent = j.counts.blocked;
-      $('bdRule').textContent = '나라장터 냉난방 관련 공사 공고를 모았어요. 입찰 가능 기준: 참가가능지역에 경기도·김포시, ' +
+      $('bdRule').textContent = '나라장터 냉난방 관련 공사 공고를 모았어요. 입찰 가능 기준: 참가가능지역 제한 없음(전국) 또는 경기도·김포시 포함, ' +
         '지금 면허(' + (j.held || []).join(', ') + ')로 참가 가능, 실적제한·PQ·지명경쟁·4억 이상 적격심사 없음.' +
         (j.planned && j.planned.length ? ' 준비 중인 면허: ' + j.planned.join(', ') + '.' : '');
       state.held = j.held || [];

@@ -6,7 +6,10 @@
 
 거르는 기준(11-18 부장님):
 - 지역: 김포 업체라 참가가능지역에 '경기도'(도 전체) 또는 '경기도 김포시'가 있어야 한다.
-  시 단위 제한(예: 군포·수원만)이 많아 '경기도 ○○시' 만으로는 안 된다. 지역 제한 없는 전국 공고는 경쟁이 세서 뺀다.
+  시 단위 제한(예: 군포·수원만)이 많아 '경기도 ○○시' 만으로는 안 된다. 참가가능지역은 회사 소재지 기준이라
+  '서울만'·'인천만' 공고는 시공 지역이어도 못 들어간다.
+  지역 제한 없는 전국 공고는 들어갈 수 있다(11-18 부장님 — 처음엔 경쟁이 세서 뺐다가 넣기로). 화면에 '전국' 표시.
+- 업종: 면허 제한이 안 적힌 전국 공고라도 제목이 전기·통신 공사면 그 등록이 있어야 해서 뺀다(ELEC_WORDS).
 - 면허: 나라장터 면허제한은 같은 묶음(lmtGrpNo) 안 면허를 모두 가져야 하고, 묶음끼리는 하나만 맞으면 된다.
   보유 면허 = G2B_LICENSES(기본 기계설비ㆍ가스공사업). 냉매회수업은 준비 중(G2B_LICENSES_PLANNED) —
   그것만 없어서 못 들어가는 공고는 '면허만 없음'으로 따로 보여 준다.
@@ -38,6 +41,9 @@ OP_LICENSE = 'getBidPblancListInfoLicenseLimit02'      # 면허제한
 
 KEYWORDS = ('냉난방', '시스템에어컨', '냉방기', '에어컨', 'EHP', '냉온수기', '공조', '항온항습')
 REGIONS_OK = ('경기도', '경기도 김포시')
+# 면허 제한이 공고에 없어도 법상 그 업 등록이 필요한 공사(제목으로 판단) — 우리 면허로는 못 함
+ELEC_WORDS = (('전기공사', '전기공사업'), ('정보통신공사', '정보통신공사업'), ('통신공사', '정보통신공사업'),
+              ('소방시설공사', '소방시설공사업'))
 HARD_PRICE = 400_000_000      # 이 금액 이상 적격심사는 시공경험·경영상태 점수가 커서 신규 면허로는 어렵다
 
 ELIGIBLE, LICENSE_ONLY, OTHER = 'eligible', 'license_only', 'other'
@@ -193,12 +199,15 @@ def classify(item: dict, regions: List[str], groups: List[List[str]],
     hard = hard_reason(item)
     lic_ok, missing = license_status(groups, held, planned)
     reasons = []
-    if not regions:
-        reasons.append('경기도 한정 아님(전국 공고)')
-    elif not region_ok(regions):
+    if regions and not region_ok(regions):      # 지역 제한 없는 전국 공고는 들어갈 수 있다(11-18)
         reasons.append('김포 업체 참가 불가(지역 제한)')
     if hard:
         reasons.append(f'{hard} 있음' if hard in ('실적제한', 'PQ(사전심사)') else hard)
+    title = item.get('bidNtceNm') or ''
+    if not groups:   # 면허 제한이 없다고 아무나 되는 게 아님 — 전기·통신·소방 공사는 그 업 등록이 있어야
+        need = next((lic for word, lic in ELEC_WORDS if word in title), '')
+        if need and _norm_lic(need) not in {_norm_lic(x) for x in held}:
+            reasons.append(f'면허 안 맞음({need})')
     if not lic_ok:
         if missing:
             reasons.append(f"{', '.join(missing)} 면허 없음")
@@ -446,7 +455,7 @@ def reclassify() -> int:
                     'pqEvalYn': 'Y' if r['hard_reason'].startswith('PQ') else 'N',
                     'dsgntCmptYn': 'Y' if r['hard_reason'] == '지명경쟁' else 'N',
                     'cntrctCnclsMthdNm': r['contract_method'], 'sucsfbidMthdNm': r['award_method'],
-                    'presmptPrce': r['price']}
+                    'presmptPrce': r['price'], 'bidNtceNm': r['title']}
             c = classify(item, json.loads(r['regions']), json.loads(r['license_groups']), held, planned)
             if c['category'] != r['category'] or c['reason'] != r['reason']:
                 conn.execute('UPDATE g2b_bids SET category=?, reason=?, missing_licenses=? WHERE bid_no=?',
