@@ -77,11 +77,16 @@ def test_classify_categories():
     held, planned = [MECH], [REFRIG]
     assert g.classify(_item(), ['경기도'], [[MECH]], held, planned)['category'] == g.ELIGIBLE
     c = g.classify(_item(), ['경기도 김포시'], [[MECH, REFRIG]], held, planned)
-    assert c['category'] == g.LICENSE_ONLY and c['missing'] == [REFRIG]
-    assert g.classify(_item(), [], [[MECH]], held, planned)['reason'] == '지역 제한 없는 전국 공고'
-    assert g.classify(_item(), ['경기도 수원시'], [[MECH]], held, planned)['category'] == g.OTHER
-    assert g.classify(_item(arsltCmptYn='Y'), ['경기도'], [[MECH]], held, planned)['reason'] == '실적제한'
-    assert g.classify(_item(), ['경기도'], [[ELEC]], held, planned)['category'] == g.OTHER
+    assert c['category'] == g.LICENSE_ONLY and c['missing'] == [REFRIG] and c['reason'] == '냉매회수업 면허 없음'
+    assert g.classify(_item(), [], [[MECH]], held, planned)['reason'] == '경기도 한정 아님(전국 공고)'
+    c = g.classify(_item(), ['경기도 수원시'], [[MECH]], held, planned)
+    assert c['category'] == g.OTHER and c['reason'] == '김포 업체 참가 불가(지역 제한)'
+    assert g.classify(_item(arsltCmptYn='Y'), ['경기도'], [[MECH]], held, planned)['reason'] == '실적제한 있음'
+    c = g.classify(_item(), ['경기도'], [[ELEC]], held, planned)
+    assert c['category'] == g.OTHER and c['reason'] == '면허 안 맞음(전기공사업)'
+    # 사유가 여럿이면 모두 — 지역도 안 되고 냉매회수업도 없으면 '면허만 없음'이 아님
+    c = g.classify(_item(), ['인천광역시'], [[MECH, REFRIG]], held, planned)
+    assert c['category'] == g.OTHER and c['reason'] == '김포 업체 참가 불가(지역 제한) · 냉매회수업 면허 없음'
 
 
 # ── 모으기 ────────────────────────────────────────────────────────────
@@ -109,7 +114,10 @@ def test_collect_saves_and_skips_known(db, monkeypatch):
     assert r['new'] == 3 and calls['limits'] == 3
     data = g.list_bids(g.ELIGIBLE)
     assert [x['bid_no'] for x in data['items']] == ['A1']
-    assert data['counts'] == {g.ELIGIBLE: 1, g.LICENSE_ONLY: 1, g.OTHER: 1}
+    assert data['counts'] == {g.ELIGIBLE: 1, g.BLOCKED: 2, g.LICENSE_ONLY: 1}
+    blocked = g.list_bids(g.BLOCKED)['items']
+    assert [x['bid_no'] for x in blocked] == ['C3', 'B2']          # 면허만 없는 공고가 먼저
+    assert blocked[0]['reason'] == '냉매회수업 면허 없음' and not blocked[1]['region_ok']
     assert data['items'][0]['files'][0]['name'] == '입찰공고문.hwp'
     assert data['last_collect']
     # 다시 모아도 이미 있는 건 지역·면허를 다시 부르지 않는다
@@ -132,7 +140,7 @@ def test_correction_notice_updates_but_keeps_mark(db, monkeypatch):
 def test_reclassify_after_new_license(db, monkeypatch):
     _fake_api(monkeypatch, [_item('C3')], {'C3': (['경기도 김포시'], [[MECH, REFRIG]])})
     g.collect()
-    assert g.list_bids(g.LICENSE_ONLY)['counts'][g.LICENSE_ONLY] == 1
+    assert g.list_bids(g.BLOCKED)['counts'][g.LICENSE_ONLY] == 1
     monkeypatch.setenv('G2B_LICENSES', f'{MECH},{REFRIG}')
     assert g.reclassify() == 1
     assert [x['bid_no'] for x in g.list_bids(g.ELIGIBLE)['items']] == ['C3']
@@ -306,3 +314,13 @@ def test_new_badge_by_posted_date(db, monkeypatch):
               {'F1': (['경기도'], [[MECH]]), 'O1': (['경기도'], [[MECH]])})
     g.collect()   # 둘 다 방금 모았지만 New 는 게시 24시간 안인 것만
     assert {x['bid_no']: x['is_new'] for x in g.list_bids()['items']} == {'F1': True, 'O1': False}
+
+
+def test_bootstrap_reclassifies_existing_rows(db, monkeypatch):
+    _fake_api(monkeypatch, [_item('C3')], {'C3': (['경기도 김포시'], [[MECH, REFRIG]])})
+    g.collect()
+    with g._conn() as conn:   # 옛 사유 문구로 저장된 줄 흉내
+        conn.execute("UPDATE g2b_bids SET reason='면허 없음: 냉매회수업' WHERE bid_no='C3'")
+    monkeypatch.setattr(g, 'collect', lambda **k: pytest.fail('표가 차 있으면 다시 모으지 않음'))
+    g.maybe_bootstrap()
+    assert g.list_bids(g.BLOCKED)['items'][0]['reason'] == '냉매회수업 면허 없음'

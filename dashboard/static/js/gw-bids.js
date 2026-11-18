@@ -77,7 +77,7 @@
     }
     var cond = '<div>' + esc((it.regions || []).join(', ')) + '</div><div class="gw-bd-sub">' +
       esc((it.licenses || []).join(' 또는 ') || '면허 제한 없음') + '</div>' +
-      (it.missing ? '<div class="gw-bd-miss">' + esc(it.missing) + ' 필요</div>' : '');
+      (it.category !== 'eligible' && it.reason ? '<div class="gw-bd-miss">' + esc(it.reason) + '</div>' : '');
     var open = state.open === it.bid_no;
     return '<tr class="gw-bd-row' + (it.mark === 'skip' ? ' gw-bd-skip' : '') + (open ? ' gw-bd-open' : '') +
       '" data-no="' + esc(it.bid_no) + '" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') +
@@ -113,10 +113,14 @@
     var lic = (it.licenses || []).join(' 또는 ');
     var held = (state.held || []).join(', ');
     // 1) 확인할 것
-    var checks = chk(true, '참가 지역', esc((it.regions || []).join(', ')) + ' — 김포 업체 참가 가능');
-    checks += it.category === 'eligible'
+    var rg = esc((it.regions || []).join(', '));
+    var checks = it.region_ok ? chk(true, '참가 지역', rg + ' — 김포 업체 참가 가능')
+      : it.nationwide ? chk(null, '참가 지역', '<b>지역 제한 없음(전국 공고)</b> — 경기도 한정 공고가 아니에요')
+      : chk(false, '참가 지역', '<b>' + rg + '</b> — 김포 업체는 참가할 수 없어요');
+    checks += it.license_ok
       ? chk(true, '면허', esc(lic || '제한 없음') + (lic ? ' — 보유' : ''))
-      : chk(false, '면허', '<b>' + esc(it.missing || '면허') + ' 없음</b> — ' + esc(lic) + (lic.indexOf('+') > -1 ? ' 모두 있어야 해요' : ''));
+      : chk(false, '면허', '<b>' + esc(it.missing || '우리 면허로 안 됨') + (it.missing ? ' 없음' : '') + '</b> — ' + esc(lic) +
+          (lic.indexOf('+') > -1 ? ' 모두 있어야 해요' : ''));
     checks += it.hard_reason ? chk(false, '참가 조건', esc(it.hard_reason))
       : chk(true, '참가 조건', '실적제한·PQ 없음 · ' + esc(it.award_method || it.contract_method));
     if (d.briefing_at) {
@@ -197,10 +201,10 @@
     api('/api/bids' + qs).then(function (j) {
       if (my !== state.seq) return;
       $('bdCntEligible').textContent = j.counts.eligible;
-      $('bdCntLicense').textContent = j.counts.license_only;
-      $('bdRule').textContent = '나라장터 냉난방 관련 공사 공고 중 경기도·김포시 업체가 참가할 수 있는 것만 모았어요. ' +
-        '지금 면허: ' + (j.held || []).join(', ') + (j.planned && j.planned.length ? ' · 준비 중: ' + j.planned.join(', ') : '') +
-        '. 실적제한·PQ·지명경쟁·4억 이상 적격심사는 뺐어요.';
+      $('bdCntBlocked').textContent = j.counts.blocked;
+      $('bdRule').textContent = '나라장터 냉난방 관련 공사 공고를 모았어요. 입찰 가능 기준: 참가가능지역에 경기도·김포시, ' +
+        '지금 면허(' + (j.held || []).join(', ') + ')로 참가 가능, 실적제한·PQ·지명경쟁·4억 이상 적격심사 없음.' +
+        (j.planned && j.planned.length ? ' 준비 중인 면허: ' + j.planned.join(', ') + '.' : '');
       state.held = j.held || [];
       var rows = j.items || [];
       state.items = {};
@@ -209,7 +213,7 @@
       $('bdCount').textContent = rows.length + '건';
       $('bdRows').innerHTML = rows.length ? rows.map(row).join('') :
         '<tr><td colspan="6" class="gw-empty">' + (j.enabled ? (state.tab === 'eligible'
-          ? '지금 들어갈 수 있는 마감 전 공고가 없어요.' : '면허만 없어서 못 들어가는 마감 전 공고가 없어요.')
+          ? '지금 들어갈 수 있는 마감 전 공고가 없어요.' : '입찰 불가능한 마감 전 공고가 없어요.')
           : '나라장터 연결 키가 서버에 없어요.') + '</td></tr>';
       if (state.open) {   // 표시를 바꿔 다시 그려도 펼친 줄은 그대로(애니메이션 없이)
         var tr = $('bdRows').querySelector('tr.gw-bd-row[data-no="' + CSS.escape(state.open) + '"]');

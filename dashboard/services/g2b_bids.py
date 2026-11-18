@@ -41,6 +41,7 @@ REGIONS_OK = ('경기도', '경기도 김포시')
 HARD_PRICE = 400_000_000      # 이 금액 이상 적격심사는 시공경험·경영상태 점수가 커서 신규 면허로는 어렵다
 
 ELIGIBLE, LICENSE_ONLY, OTHER = 'eligible', 'license_only', 'other'
+BLOCKED = 'blocked'   # 화면 탭 '입찰 불가능한 공고' = license_only + other
 MARKS = {'': '', 'review': '검토 중', 'join': '참여', 'skip': '안 함'}
 
 # 아침 DM 받는 곳 — 기본은 부장님 DM(슬랙 사용자 ID 로 보내면 봇과의 DM 으로 간다)
@@ -187,21 +188,26 @@ def hard_reason(item: dict) -> str:
 
 def classify(item: dict, regions: List[str], groups: List[List[str]],
              held: Iterable[str], planned: Iterable[str]) -> dict:
+    """입찰 불가능 사유는 걸리는 것 모두 적는다(11-18 부장님: 탭은 가능/불가능, 사유는 내용에).
+    분류: eligible=가능 / license_only=준비 중 면허만 없으면 됨 / other=그 밖에 불가능."""
     hard = hard_reason(item)
     lic_ok, missing = license_status(groups, held, planned)
+    reasons = []
     if not regions:
-        reason = '지역 제한 없는 전국 공고'
+        reasons.append('경기도 한정 아님(전국 공고)')
     elif not region_ok(regions):
-        reason = '참가가능지역에 경기도·김포시 없음'
-    elif hard:
-        reason = hard
-    elif lic_ok:
+        reasons.append('김포 업체 참가 불가(지역 제한)')
+    if hard:
+        reasons.append(f'{hard} 있음' if hard in ('실적제한', 'PQ(사전심사)') else hard)
+    if not lic_ok:
+        if missing:
+            reasons.append(f"{', '.join(missing)} 면허 없음")
+        else:
+            reasons.append('면허 안 맞음(' + ' 또는 '.join(' + '.join(g) for g in groups) + ')')
+    if not reasons:
         return {'category': ELIGIBLE, 'reason': '', 'missing': []}
-    elif missing:
-        return {'category': LICENSE_ONLY, 'reason': '면허 없음: ' + ', '.join(missing), 'missing': missing}
-    else:
-        reason = '면허 안 맞음'
-    return {'category': OTHER, 'reason': reason, 'missing': missing}
+    only_license = len(reasons) == 1 and not lic_ok and bool(missing)
+    return {'category': LICENSE_ONLY if only_license else OTHER, 'reason': ' · '.join(reasons), 'missing': missing}
 
 
 def _int(v) -> int:
@@ -458,6 +464,10 @@ def maybe_bootstrap() -> None:
             empty = conn.execute('SELECT COUNT(*) FROM g2b_bids').fetchone()[0] == 0
         if empty:
             collect(days=7)
+        else:   # 보유 면허·사유 문구가 바뀌었을 수 있어 재시작마다 다시 분류(API 안 부름)
+            n = reclassify()
+            if n:
+                logger.info(f'[G2B] 다시 분류 {n}건')
     except Exception as e:
         logger.warning(f'[G2B] 첫 채우기 실패: {_safe_err(e)}')
 
@@ -466,7 +476,11 @@ def maybe_bootstrap() -> None:
 def _view(r: dict, now_s: str) -> dict:
     files = sort_files(json.loads(r.get('files') or '[]'))   # 정렬 전에 저장된 줄도
     groups = json.loads(r.get('license_groups') or '[]')
+    regions = json.loads(r.get('regions') or '[]')
     return {
+        # 펼친 '확인할 것' 판정용 — 지역·면허 각각 되는지
+        'region_ok': region_ok(regions), 'nationwide': not regions,
+        'license_ok': license_status(groups, held_licenses())[0],
         'bid_no': r['bid_no'], 'bid_ord': r['bid_ord'], 'title': r['title'], 'org': r['org'],
         'demand_org': r['demand_org'], 'contract_method': r['contract_method'],
         'award_method': (r['award_method'] or '').split('-')[0], 'price': r['price'],
@@ -487,18 +501,26 @@ def _view(r: dict, now_s: str) -> dict:
 def list_bids(tab: str = ELIGIBLE, include_closed: bool = False, q: str = '', limit: int = 300) -> dict:
     now_s = datetime.now().strftime('%Y-%m-%d %H:%M')
     with _conn() as conn:
-        counts = {k: 0 for k in (ELIGIBLE, LICENSE_ONLY, OTHER)}
+        # 탭 = 입찰 가능(eligible) / 입찰 불가능(blocked = 그 밖 전부, 사유는 줄마다)
+        counts = {ELIGIBLE: 0, BLOCKED: 0, LICENSE_ONLY: 0}
         for cat, n in conn.execute('SELECT category, COUNT(*) FROM g2b_bids WHERE close_at >= ? GROUP BY category',
                                    (now_s,)):
-            counts[cat] = n
-        sql, args = 'SELECT * FROM g2b_bids WHERE category = ?', [tab if tab in counts else ELIGIBLE]
+            counts[ELIGIBLE if cat == ELIGIBLE else BLOCKED] += n
+            if cat == LICENSE_ONLY:
+                counts[LICENSE_ONLY] += n
+        if tab == BLOCKED:
+            # 준비 중 면허만 없는 공고를 먼저(면허 따면 바로 들어갈 수 있는 것)
+            sql, args = 'SELECT * FROM g2b_bids WHERE category != ?', [ELIGIBLE]
+        else:
+            sql, args = 'SELECT * FROM g2b_bids WHERE category = ?', [ELIGIBLE]
         if not include_closed:
             sql += ' AND close_at >= ?'
             args.append(now_s)
         if q:
             sql += ' AND (title LIKE ? OR org LIKE ? OR demand_org LIKE ?)'
             args += [f'%{q}%'] * 3
-        sql += ' ORDER BY (close_at < ?) ASC, CASE WHEN close_at < ? THEN close_at END DESC, close_at ASC LIMIT ?'
+        sql += (" ORDER BY (close_at < ?) ASC, (category != 'license_only') ASC,"
+                ' CASE WHEN close_at < ? THEN close_at END DESC, close_at ASC LIMIT ?')
         args += [now_s, now_s, limit]
         rows = [dict(r) for r in conn.execute(sql, args).fetchall()]
         last = conn.execute("SELECT value FROM g2b_kv WHERE key='last_collect'").fetchone()
