@@ -2619,3 +2619,81 @@ html:has(#bdPage) {
 
 .gw-bd-brief.soon { color: #b91c1c; }
 .gw-bd-brief.gone { color: #b91c1c; }
+
+/* 11-19 부장님: 표시 칸을 상세 안으로 → 화면 폭 줄이고(홈과 같은 1240px 가운데) 상세 여백 줄임 */
+.gw-page.gw-bids {
+  max-width: 1240px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.gw-bd-table col.c-close { width: 118px; }
+.gw-bd-table col.c-method { width: 140px; }
+.gw-bd-table col.c-price { width: 120px; }
+.gw-bd-table col.c-cond { width: 280px; }
+
+.gw-bd-acc {
+  padding: 10px 14px 12px;
+}
+
+.gw-bd-acc-top {
+  gap: 12px;
+  padding: 8px 12px;
+}
+
+.gw-bd-chk {
+  grid-template-columns: 18px 96px minmax(0, 1fr);
+  padding: 1px 0;
+  font-size: 13px;
+}
+
+.gw-bd-acc-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.gw-bd-mark-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: #4b5563;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.gw-bd-sec {
+  margin: 10px 0 4px;
+  font-size: 13px;
+}
+
+.gw-bd-kv th,
+.gw-bd-kv td {
+  padding: 4px 8px;
+  line-height: 1.45;
+}
+
+.gw-bd-kv col.k {
+  width: 108px;
+}
+
+.gw-bd-files {
+  padding: 5px 8px 5px 24px;
+}
+
+.gw-bd-acc-foot {
+  margin-top: 6px;
+}
+
+/* 줄 제목 옆 검토 딱지 */
+.gw-bd-mk-review { background: #e0ecff; color: #1d4ed8; }
+.gw-bd-mk-join { background: #dcfce7; color: #166534; }
+.gw-bd-mk-skip { background: #f1f5f9; color: #64748b; }
+
+@media (max-width: 720px) {
+  .gw-bd-acc-side { align-items: flex-start; }
+  .gw-bd-chk { grid-template-columns: 18px 1fr; }
+}

@@ -276,6 +276,7 @@ def test_won_format():
     assert g._won(116415455) == '1억 1,641만 원'
     assert g._won(58208182) == '5,820만 원'
     assert g._won(400000000) == '4억 원'
+    assert g._won(1) == '비공개(공고문 확인)'   # 발주처가 1원으로 넣은 금액 비공개(11-19 동원대학)
 
 
 def test_home_summary_excludes_skip(db, monkeypatch):

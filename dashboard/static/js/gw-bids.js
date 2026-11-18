@@ -38,6 +38,7 @@
   function won(n) {
     n = Number(n) || 0;
     if (!n) return '-';
+    if (n < 1000) return '비공개';   // 발주처가 1원 등으로 넣은 금액 비공개 공고(11-19 동원대학)
     if (n >= 100000000) {
       var eok = Math.floor(n / 100000000), man = Math.floor((n % 100000000) / 10000);
       return eok + '억' + (man ? ' ' + man.toLocaleString('ko-KR') + '만' : '') + ' 원';
@@ -58,15 +59,18 @@
 
   var state = { tab: 'eligible', q: '', closed: false, seq: 0, items: {}, open: '', anim: false };
 
-  function row(it) {
-    var sel = '<select class="gw-chip-select gw-bd-mark" data-no="' + esc(it.bid_no) + '" aria-label="' + esc(it.title) + ' 표시">' +
+  function markSelect(it) {   // 검토 표시 — 펼친 상세 안에서만 고른다(11-19 부장님)
+    return '<label class="gw-bd-mark-wrap"><span>검토</span><select class="gw-chip-select gw-bd-mark" data-no="' + esc(it.bid_no) +
+      '" aria-label="' + esc(it.title) + ' 검토 표시">' +
       MARKS.map(function (m) {
         return '<option value="' + m[0] + '"' + (m[0] === it.mark ? ' selected' : '') + '>' + m[1] + '</option>';
-      }).join('') + '</select>' +
-      (it.mark ? '<div class="gw-bd-by">' + esc(it.mark_by) + ' · ' + esc(when(it.mark_at)) + '</div>' : '');
+      }).join('') + '</select></label>';
+  }
+  function row(it) {
     var close = '<span class="' + (it.closed ? 'gw-bd-closed-t' : (soon(it.close_at) ? 'gw-bd-soon' : '')) + '">' +
       esc(when(it.close_at)) + '</span>' + (it.closed ? '<div class="gw-bd-sub">마감</div>' : '');
     var title = '<div class="gw-bd-title">' + (it.is_new ? '<span class="gw-badge gw-badge-new">New</span> ' : '') +
+      (it.mark ? '<span class="gw-badge gw-bd-mk gw-bd-mk-' + esc(it.mark) + '">' + esc(it.mark_label) + '</span> ' : '') +
       esc(it.title) + '</div><div class="gw-bd-sub">' + esc(it.demand_org || it.org) +
       (it.contact ? ' · 담당 ' + esc(it.contact) : '') + '</div>';
     var bAt = (it.detail || {}).briefing_at;   // 현장설명회 — 놓치면 못 들어가는 공고가 있어 줄에서 바로 보이게
@@ -87,8 +91,7 @@
       '<td>' + title + '</td>' +
       '<td class="gw-bd-nw">' + esc(it.award_method || it.contract_method) + '</td>' +
       '<td class="num gw-bd-nw">' + esc(won(it.price)) + '</td>' +
-      '<td>' + cond + '</td>' +
-      '<td>' + sel + '</td></tr>';
+      '<td>' + cond + '</td></tr>';
   }
 
   // ── 펼친 상세 — 나라장터 공고 상세처럼 표로, 맨 위엔 우리가 판단할 것만 먼저 ──
@@ -168,12 +171,15 @@
       '<h3 class="gw-bd-sec">첨부파일</h3>' +
       (files ? '<ul class="gw-bd-files">' + files + '</ul>' : '<p class="gw-bd-sub">첨부파일이 없어요.</p>');
     var foot = '<div class="gw-bd-acc-foot">처음 본 때 ' + esc(when(it.first_seen)) +
-      (it.mark ? ' · ' + esc(it.mark_label) + ' 표시: ' + esc(it.mark_by) + ' ' + esc(when(it.mark_at)) : '') +
       (has ? '' : ' · 일정·낙찰하한율 같은 세부 항목은 다음 모으기 때 채워져요.') + '</div>';
-    return '<tr class="gw-bd-detail"><td colspan="6"><div class="gw-bd-acc' + (state.anim ? ' gw-bd-slide' : '') + '">' +
+    return '<tr class="gw-bd-detail"><td colspan="5"><div class="gw-bd-acc' + (state.anim ? ' gw-bd-slide' : '') + '">' +
       '<div class="gw-bd-acc-top"><ul class="gw-bd-chks" aria-label="확인할 것">' + checks + '</ul>' +
-      (du ? '<a class="btn btn-sm btn-primary gw-bd-acc-go" href="' + esc(du) + '" target="_blank" rel="noopener">' +
-        '<i class="fas fa-up-right-from-square me-1" aria-hidden="true"></i>나라장터에서 보기</a>' : '') + '</div>' +
+      '<div class="gw-bd-acc-side">' +
+        (du ? '<a class="btn btn-sm btn-primary gw-bd-acc-go" href="' + esc(du) + '" target="_blank" rel="noopener">' +
+          '<i class="fas fa-up-right-from-square me-1" aria-hidden="true"></i>나라장터에서 보기</a>' : '') +
+        markSelect(it) +
+        (it.mark ? '<div class="gw-bd-by">' + esc(it.mark_by) + ' · ' + esc(when(it.mark_at)) + '</div>' : '') +
+      '</div></div>' +
       body + foot + '</div></td></tr>';
   }
   function closeDetail() {
@@ -213,7 +219,7 @@
       if (state.open && !state.items[state.open]) state.open = '';
       $('bdCount').textContent = rows.length + '건';
       $('bdRows').innerHTML = rows.length ? rows.map(row).join('') :
-        '<tr><td colspan="6" class="gw-empty">' + (j.enabled ? (state.tab === 'eligible'
+        '<tr><td colspan="5" class="gw-empty">' + (j.enabled ? (state.tab === 'eligible'
           ? '지금 들어갈 수 있는 마감 전 공고가 없어요.' : '입찰 불가능한 마감 전 공고가 없어요.')
           : '나라장터 연결 키가 서버에 없어요.') + '</td></tr>';
       if (state.open) {   // 표시를 바꿔 다시 그려도 펼친 줄은 그대로(애니메이션 없이)
@@ -223,7 +229,7 @@
       $('bdFoot').textContent = j.last_collect ? '마지막으로 모은 때: ' + j.last_collect + ' (하루 세 번 07:20·12:20·16:20)' : '';
     }).catch(function (e) {
       if (my !== state.seq) return;
-      $('bdRows').innerHTML = '<tr><td colspan="6" class="gw-empty">' + esc(e.message) + '</td></tr>';
+      $('bdRows').innerHTML = '<tr><td colspan="5" class="gw-empty">' + esc(e.message) + '</td></tr>';
     });
   }
 
