@@ -97,7 +97,7 @@
   var editVals = {};
   function editBtn(e) {
     if (!e.edit || !e.edit_vals) return '';
-    editVals[e.id] = { mode: e.edit, vals: e.edit_vals, what: period(e) + ' · ' + e.type };
+    editVals[e.id] = { mode: e.edit, vals: e.edit_vals, what: period(e) + ' · ' + e.type, label: e.type };
     return '<button type="button" class="btn btn-outline-secondary btn-sm gw-lv-cancel gw-lv-edit" data-lv-edit="' + esc(e.id) + '">' +
       esc(e.edit_label) + '</button>';
   }
@@ -398,7 +398,7 @@
         if (p.plan_dates.length) h += '<div class="gw-lv-promo-meta">낸 계획: ' + esc(pdates(p.plan_dates)) + '</div>';
         if (p.designate_text) h += '<div class="gw-lv-promo-text gw-lv-promo-des"><strong>사용 시기 지정 통보</strong>\n' + esc(p.designate_text) + '</div>';
         h += '<div class="gw-lv-promo-btns">' +
-          (!p.ack_at ? '<button type="button" class="btn btn-sm btn-outline-secondary" data-promo-ack="' + esc(p.id) + '">받았어요</button>' : '') +
+          (p.can_ack ? '<button type="button" class="btn btn-sm btn-outline-secondary" data-promo-ack="' + esc(p.id) + '">받았어요</button>' : '') +
           (p.can_plan ? '<button type="button" class="btn btn-sm btn-primary" data-promo-plan="' + esc(p.id) + '" data-left="' + esc(p.left) +
             '" data-max="' + esc(p.grant_to) + '">사용 계획 내기</button>' : '') + '</div><div data-promo-slot="' + esc(p.id) + '"></div></section>';
         return h;
@@ -546,6 +546,10 @@
       f.reset();
       fillTypes();
       var v = ed.vals;
+      // 맞춤 휴가를 다 잡은 신청은 신청 창 목록에 그 종류가 없다 — 고칠 땐 넣어 둔다
+      if (v.type && !Array.prototype.some.call(typeSel.options, function (o) { return o.value === v.type; })) {
+        typeSel.insertAdjacentHTML('beforeend', '<option value="' + esc(v.type) + '">' + esc(ed.label || v.type) + '</option>');
+      }
       selectIfThere(typeSel, v.type);
       selectIfThere(subSel, v.sub);
       syncType();

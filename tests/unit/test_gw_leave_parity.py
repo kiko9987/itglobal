@@ -183,3 +183,18 @@ def test_promo_daily_auto_and_manager_summary(slack, mgr, lp, monkeypatch):
     monkeypatch.setenv('LEAVE_PROMOTION_AUTO', 'false')
     lp_out = lp.daily(day)
     assert lp_out['sent'] == []
+
+
+def test_slack_edit_view_keeps_used_up_custom_type(client, mgr):
+    from dashboard.blueprints import slack_leave
+    lv.custom_grant('박민우', 'health', 1, None, None, '', 'UKIKO', '고광일')
+    d = _next_workday(4)
+    row = lv.create('박민우', 'UMW', 'UMW', '박민우', 'health', '', d, d, '보건')
+    assert lv.custom_left('박민우', 'health') == 0
+    v = slack_leave.edit_view(row['id'], 'UMW')
+    sel = next(b for b in v['blocks'] if b.get('block_id') == 'lv_type')['element']
+    assert sel['initial_option']['value'] == 'health'
+    assert 'health' in [o['value'] for o in sel['options']]
+    # 고쳐도(같은 1일) 맞춤 휴가 한도 안 — 자기 몫은 빼고 본다
+    new, errs = lv.edit_request(row['id'], 'health', '', _next_workday(5), None, '보건', 'UMW', '박민우')
+    assert errs == {} and new['start'] == _next_workday(5).isoformat()

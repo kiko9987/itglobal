@@ -39,7 +39,7 @@ ANNUAL, FIRST, FIRST_LATE = 'annual', 'first_year', 'first_year_late'
 KIND_LABEL = {ANNUAL: '연차', FIRST: '1년 미만 월차', FIRST_LATE: '1년 미만 월차(촉구 뒤 생긴 몫)'}
 PLAN_DAYS = 10
 PLAN_REASON = '연차 사용 계획(촉진)'
-DESIGNATE_REASON = '연차 사용 시기 지정(근로기준법 제61조)'
+DESIGNATE_REASON = lv.PROMO_DESIGNATE_REASON
 
 NOTICED, PLANNED, DESIGNATED, CLOSED, CANCELLED = 'noticed', 'planned', 'designated', 'closed', 'cancelled'
 
@@ -190,15 +190,18 @@ def state(rec: dict, today: Optional[date] = None) -> Dict[str, str]:
     if rec['status'] == DESIGNATED:
         return {'key': 'designated', 'label': '사용일 지정함'}
     left = period_left(rec['name'], rec['grant_to'])
-    if rec['status'] == PLANNED:
-        return {'key': 'planned', 'label': '계획 받음' + (f' · 아직 신청 안 한 연차 {lv.fmt_days(left)}' if left > 1e-9 else '')}
+    planned = rec['status'] == PLANNED
     if rec['plan_due'] and t <= rec['plan_due']:
+        if planned:
+            return {'key': 'planned', 'label': '계획 받음' + (f' · 아직 신청 안 한 연차 {lv.fmt_days(left)}' if left > 1e-9 else '')}
         return {'key': 'wait_plan', 'label': f"계획 기다림 (~{lv.kdate(lv._d(rec['plan_due']))})"}
     if left <= 1e-9:
-        return {'key': 'done', 'label': '남은 연차 없음'}
+        return {'key': 'planned' if planned else 'done', 'label': '계획 받음' if planned else '남은 연차 없음'}
+    # 계획 기한이 지났는데 아직 신청 안 한 연차가 남음(계획을 일부만 냈거나, 낸 날을 취소·반려) → 회사가 지정해야 함
+    head = f'계획 받음 · 미신청 {lv.fmt_days(left)} — ' if planned else ''
     if rec['designate_due'] and t <= rec['designate_due']:
-        return {'key': 'need_designate', 'label': f"사용일 지정 필요 (~{lv.kdate(lv._d(rec['designate_due']))})"}
-    return {'key': 'late', 'label': '지정 기한 지남'}
+        return {'key': 'need_designate', 'label': head + f"사용일 지정 필요 (~{lv.kdate(lv._d(rec['designate_due']))})"}
+    return {'key': 'late', 'label': head + '지정 기한 지남'}
 
 
 # ── 할 일 찾기 ───────────────────────────────────────────────────────
@@ -274,10 +277,17 @@ def send_notice(name: str, kind: str, grant_to: str, actor: str = '자동', toda
     return get(rid), ''
 
 
+def _is_owner(rec: dict, uid: str) -> bool:
+    if not uid:
+        return False
+    st = lv.staff_by_name(rec['name']) or {}
+    return uid in ((rec.get('slack_id') or ''), (st.get('slack_id') or ''))
+
+
 def ack(pid: int, uid: str) -> str:
     """직원 [받았어요] — 받은 시각(서면 촉구 수령 확인). 본인만."""
     rec = get(pid)
-    if not rec or uid != (rec.get('slack_id') or ''):
+    if not rec or not _is_owner(rec, uid):
         return '본인 촉구만 확인할 수 있어요.'
     if not rec.get('ack_at'):
         with _conn() as c:
@@ -361,7 +371,7 @@ def submit_plan(pid: int, uid: str, items, today: Optional[date] = None) -> Tupl
     """직원 사용 계획 → (기록, 만든 신청들, 오류). 날짜마다 보통 휴가 신청(승인 대기)으로 들어간다."""
     today = today or date.today()
     rec = get(pid)
-    if not rec or uid != (rec.get('slack_id') or ''):
+    if not rec or not _is_owner(rec, uid):
         return None, [], '본인 촉구에만 계획을 낼 수 있어요.'
     if rec['status'] not in (NOTICED, PLANNED) or rec['grant_to'] < today.isoformat():
         return None, [], '지금은 계획을 낼 수 없어요.'
@@ -475,6 +485,7 @@ def for_person(name: str, today: Optional[date] = None) -> List[dict]:
         v['notice_text'] = notice_text(r)
         v['designate_text'] = designate_text(r) if r.get('designated_dates') else ''
         v['can_plan'] = r['status'] in (NOTICED, PLANNED) and v['left'] > 1e-9 and bool(r.get('plan_due'))
+        v['can_ack'] = r['status'] in (NOTICED, PLANNED, DESIGNATED) and not r.get('ack_at')
         out.append(v)
     return out
 
@@ -538,9 +549,11 @@ def import_flex(path: str, today: Optional[date] = None, apply: bool = False) ->
     rows = []
     for (name, to), d in sorted(pick.items()):
         st = lv.staff_by_name(name) or {}
+        fy = _first_year_end(st) if st else None
         b = datetime.strptime(d['boostedAt'][:19], '%Y-%m-%dT%H:%M:%S') + timedelta(hours=9)   # UTC → 한국
         rows.append({
-            'name': name, 'slack_id': st.get('slack_id'), 'kind': ANNUAL, 'grant_to': to, 'days': float(d['days'] or 0),
+            'name': name, 'slack_id': st.get('slack_id'), 'kind': FIRST if fy and fy.isoformat() == to else ANNUAL,
+            'grant_to': to, 'days': float(d['days'] or 0),
             'noticed_at': b.strftime('%Y-%m-%d %H:%M:%S'), 'noticed_by': '플렉스', 'plan_due': d.get('userBy'),
             'designate_due': d.get('mgrBy'),
             'plan_at': (datetime.utcfromtimestamp(d['writtenAt'] / 1000) + timedelta(hours=9)).strftime('%Y-%m-%d %H:%M:%S')

@@ -562,6 +562,16 @@ def manager_registered(row: dict) -> bool:
     return bool(row.get('submitter_id')) and row.get('submitter_id') != row.get('slack_id')
 
 
+PROMO_DESIGNATE_REASON = '연차 사용 시기 지정(근로기준법 제61조)'   # leave_promo.designate 가 넣는 사유
+
+
+def manager_only(row: dict) -> bool:
+    """본인이 취소·변경할 수 없는 줄 — 경영지원이 등록한 관리자 부여 휴가, 회사가 지정한 촉진 휴가(법적 지정 통보)."""
+    if row.get('reason') == PROMO_DESIGNATE_REASON:
+        return True
+    return is_admin_type(row['ltype']) and manager_registered(row)
+
+
 # ── 맞춤 휴가 부여 ─────────────────────────────────────────────────────
 ANYTIME = '9999-12-31'   # 쓸 수 있는 기간 '언제든'
 CUSTOM_MAX_DAYS = 120    # 산전후 90일(다태아 120일)
@@ -574,26 +584,44 @@ def _custom_alive(name: str, ltype: str, on: date) -> List[dict]:
             'AND valid_from<=? AND valid_to>=? ORDER BY valid_to, id', (name, ltype, on.isoformat(), on.isoformat()))]
 
 
-def _custom_used(name: str, ltype: str, frm: str, to: str, exclude_id: int = 0) -> float:
-    """그 기간 안에서 시작한 그 종류 신청(승인 대기 포함) 일수."""
+def _custom_alloc(name: str, ltype: str, exclude_rid: int = 0, skip_gid: int = 0) -> Tuple[List[dict], Dict[int, float], float]:
+    """맞춤 휴가 부여(취소 안 된 것)와 신청(승인 대기 포함)을 맞춰 본다 — 신청마다 그 첫날 살아 있는 부여 중
+    소멸이 빠른 것부터 뗀다(연차 _allocate 와 같은 규칙). → (부여들, {부여 id: 뗀 일수}, 어느 부여로도 못 덮은 일수).
+    skip_gid: 그 부여가 없다고 치고(부여 취소 검사)."""
     with _conn() as conn:
-        r = conn.execute(
-            f'SELECT COALESCE(SUM(days), 0) FROM leave_requests WHERE name=? AND ltype=? AND id<>? '
-            f'AND status IN ({",".join("?" * len(HOLDING))}) AND start>=? AND start<=?',
-            (name, ltype, exclude_id, *HOLDING, frm, to)).fetchone()
-    return float(r[0] or 0)
+        every = [dict(r) for r in conn.execute(
+            'SELECT * FROM leave_custom_grants WHERE name=? AND ltype=? AND cancelled_at IS NULL '
+            'ORDER BY valid_to, id', (name, ltype))]
+        gs = [g for g in every if g['id'] != skip_gid]
+        reqs = [dict(r) for r in conn.execute(
+            f'SELECT id, start, days FROM leave_requests WHERE name=? AND ltype=? AND id<>? '
+            f'AND status IN ({",".join("?" * len(HOLDING))}) ORDER BY start, id',
+            (name, ltype, exclude_rid, *HOLDING))]
+    taken: Dict[int, float] = {g['id']: 0.0 for g in gs}
+    short = 0.0
+    for r in reqs:
+        need = float(r['days'] or 0)
+        for g in gs:
+            if need <= 1e-9:
+                break
+            if g['valid_from'] <= r['start'] <= g['valid_to']:
+                t = min(need, g['days'] - taken[g['id']])
+                if t > 0:
+                    taken[g['id']] += t
+                    need -= t
+        # 부여 기간 밖 신청(경영지원이 부여 없이 등록한 것 등)은 셈에 넣지 않는다
+        if any(g['valid_from'] <= r['start'] <= g['valid_to'] for g in every):
+            short += max(0.0, need)
+    return gs, taken, round(short, 2)
 
 
 def custom_left(name: str, ltype: str, on: Optional[date] = None, exclude_id: int = 0) -> float:
-    """그날 쓸 수 있는 맞춤 휴가 일수 = 살아 있는 부여 합 − 그 기간에 신청한 일수."""
+    """그날 쓸 수 있는 맞춤 휴가 일수 = 그날 살아 있는 부여마다 (일수 − 거기서 뗀 신청)."""
     if not name or not is_admin_type(ltype):
         return 0.0
-    alive = _custom_alive(name, ltype, on or date.today())
-    if not alive:
-        return 0.0
-    frm = min(g['valid_from'] for g in alive)
-    to = max(g['valid_to'] for g in alive)
-    return round(sum(g['days'] for g in alive) - _custom_used(name, ltype, frm, to, exclude_id), 2)
+    d = (on or date.today()).isoformat()
+    gs, taken, _ = _custom_alloc(name, ltype, exclude_rid=exclude_id)
+    return round(sum(g['days'] - taken[g['id']] for g in gs if g['valid_from'] <= d <= g['valid_to']), 2)
 
 
 def _custom_covers(name: str, ltype: str, start: date, end: date) -> bool:
@@ -607,9 +635,12 @@ def custom_grants(name: str, include_cancelled: bool = True) -> List[dict]:
         rows = [dict(r) for r in conn.execute(
             'SELECT * FROM leave_custom_grants WHERE name=?' + ('' if include_cancelled else ' AND cancelled_at IS NULL')
             + ' ORDER BY created_at DESC, id DESC', (name,))]
+    allocs = {}
     for g in rows:
+        if not g['cancelled_at'] and g['ltype'] not in allocs:
+            allocs[g['ltype']] = _custom_alloc(name, g['ltype'])[1]
         g['label'] = type_label(g['ltype'])
-        g['used'] = 0.0 if g['cancelled_at'] else _custom_used(name, g['ltype'], g['valid_from'], g['valid_to'])
+        g['used'] = 0.0 if g['cancelled_at'] else round(allocs[g['ltype']].get(g['id'], 0.0), 2)
         g['left'] = 0.0 if g['cancelled_at'] else round(max(0.0, g['days'] - g['used']), 2)
         g['anytime'] = g['valid_to'] == ANYTIME
     return rows
@@ -678,9 +709,11 @@ def cancel_custom_grant(gid: int, uid: str, actor_name: str) -> Tuple[Optional[d
     if not g or g['cancelled_at']:
         return None, '취소할 수 있는 부여가 아니에요.'
     g = dict(g)
-    others = [x for x in _custom_alive(g['name'], g['ltype'], date.today()) if x['id'] != g['id']]
-    used = _custom_used(g['name'], g['ltype'], g['valid_from'], g['valid_to'])
-    if used > sum(x['days'] for x in others) + 1e-9:
+    # 이 부여가 없을 때 덮이지 않는 신청이 늘면 안 된다(다른 부여의 남은 몫까지 따져서)
+    _, taken, short_now = _custom_alloc(g['name'], g['ltype'])
+    _, _, short_after = _custom_alloc(g['name'], g['ltype'], skip_gid=g['id'])
+    if short_after > short_now + 1e-9:
+        used = round(short_after - short_now, 2)
         return None, f"이 부여로 {fmt_days(used)}을 이미 신청했어요. 그 휴가를 먼저 취소해 주세요."
     with _conn() as conn:
         cur = conn.execute('UPDATE leave_custom_grants SET cancelled_at=?, cancelled_by_name=? WHERE id=? '
@@ -837,7 +870,7 @@ def can_act(action: str, row: dict, uid: str, today: Optional[date] = None) -> b
     if action in ('approve', 'reject'):
         return bool(uid) and uid == current_approver(row)
     if action == 'cancel':
-        if is_admin_type(row['ltype']) and manager_registered(row):
+        if manager_only(row):
             # 경영지원이 등록한 휴가(배우자 출산 등)는 경영지원만 취소(11-18). 맞춤 휴가를 본인이 신청한 것은 보통 규칙
             return uid in manager_ids() and row['status'] in HOLDING
         mine = uid in (row.get('slack_id'), row.get('submitter_id'))
@@ -961,7 +994,7 @@ def own_edit_mode(row: dict, uid: str = '', today: Optional[date] = None) -> str
     if row['status'] in OPEN:
         return 'edit'
     if row['status'] == APPROVED and _d(row['start']) > today and not pending_change(row['id']) \
-            and not (is_admin_type(row['ltype']) and manager_registered(row)):
+            and not manager_only(row):
         return 'change'      # 시작 전 휴가만(쓰는 중이면 [남은 날 취소] 뒤 다시 신청). 관리자 등록 휴가는 경영지원이
     return ''
 
@@ -1134,10 +1167,22 @@ def adjust_bulk(items: List[dict], reason: str, uid: str, actor_name: str, today
     if not todo:
         return [], {'_': '조정할 일수를 한 명 이상 적어 주세요.'}
     made = []
-    for name, days, why in todo:
-        g = _add_adjust(name, days, why, actor_name, applies_on)
-        if g:
-            made.append(g)
+    stamp = datetime.now().strftime('%Y%m%d%H%M%S%f')
+    with _conn() as conn:
+        try:
+            for i, (name, days, why) in enumerate(todo):
+                until = _period_end(name, applies_on)
+                src = f'adjust:{name}:{stamp}{i:03d}'
+                sign = '+' if days > 0 else '−'
+                conn.execute('INSERT INTO leave_grants (name, days, valid_from, valid_to, source, note, created_at) '
+                             'VALUES (?,?,?,?,?,?,?)',
+                             (name, float(days), applies_on.isoformat(), until.isoformat(), src,
+                              f'{sign}{fmt_days(abs(days))} 조정: {why.strip()} ({actor_name})', _now()))
+                made.append(dict(conn.execute('SELECT * FROM leave_grants WHERE source=?', (src,)).fetchone()))
+        except Exception:
+            conn.rollback()
+            raise
+        conn.commit()
     return made, {}
 
 

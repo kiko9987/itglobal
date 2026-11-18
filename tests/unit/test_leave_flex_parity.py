@@ -252,6 +252,52 @@ def test_promo_import_flex(promo, tmp_path):
     mw = next(r for r in recs if r['name'] == '박민우')
     assert promo.state(mw, TODAY)['key'] == 'need_designate'         # 12/3 까지 지정
     kt = next(r for r in recs if r['name'] == '김태현')
-    assert promo.state(kt, TODAY)['key'] == 'planned' and [d['date'] for d in kt['plan_dates']] == ['2026-12-30', '2027-01-05']
+    # 플렉스에서 계획만 내고 신청은 안 한 상태 — 계획 기한이 지났으니 지정 대상으로 알림(검토 후속)
+    st = promo.state(kt, TODAY)
+    assert st['key'] == 'need_designate' and '계획 받음' in st['label']
+    assert [d['date'] for d in kt['plan_dates']] == ['2026-12-30', '2027-01-05']
     # 플렉스 기록이 있으면 같은 기간 촉구를 또 보내지 않음
     assert all(c['name'] != '김태현' for c in promo.candidates(date(2026, 11, 16)))
+
+
+# ── 검토 후속(11-18) ─────────────────────────────────────────────────
+def test_custom_fifo_and_cancel_checks(db):
+    a, _ = lv.custom_grant('박민우', 'health', 3, None, date(2026, 12, 31), '', SB, 'x', today=TODAY)
+    b, _ = lv.custom_grant('박민우', 'health', 3, None, None, '', SB, 'x', today=TODAY)
+    lv.create('박민우', MW, MW, '박민우', 'health', '', date(2026, 12, 7), date(2026, 12, 9), '보건')   # 3일
+    assert lv.custom_left('박민우', 'health', TODAY) == 3
+    assert lv.custom_left('박민우', 'health', date(2027, 1, 5)) == 3          # 먼저 소멸하는 A 에서 뗐음
+    _, err = lv.cancel_custom_grant(a['id'], SB, 'x')                      # A 를 빼면 B 3일로 덮임 → 됨
+    assert err == ''
+    assert lv.custom_left('박민우', 'health', TODAY) == 0
+    _, err = lv.cancel_custom_grant(b['id'], SB, 'x')                      # 마지막 부여 → 덮을 곳 없음
+    assert '먼저 취소' in err
+
+
+def test_custom_cancel_refused_when_other_grant_already_used(db):
+    a, _ = lv.custom_grant('박민우', 'health', 3, None, date(2026, 12, 31), '', SB, 'x', today=TODAY)
+    lv.custom_grant('박민우', 'health', 5, None, None, '', SB, 'x', today=TODAY)
+    lv.create('박민우', MW, MW, '박민우', 'health', '', date(2026, 12, 7), date(2026, 12, 9), '보건')
+    lv.create('박민우', MW, MW, '박민우', 'health', '', date(2027, 1, 11), date(2027, 1, 14), '보건')
+    _, err = lv.cancel_custom_grant(a['id'], SB, 'x')
+    assert '먼저 취소' in err
+
+
+def test_designated_leave_is_manager_only(db):
+    from dashboard.services import leave_promo as lp
+    r, _ = lv.admin_register('박민우', lv.ANNUAL, '', date(2026, 12, 7), None, lp.DESIGNATE_REASON, SB, '황샛별')
+    assert not lv.can_act('cancel', r, MW, TODAY) and lv.own_edit_mode(r, MW, TODAY) == ''
+    assert lv.can_act('cancel', r, SB, TODAY)
+    r2, _ = lv.admin_register('박민우', lv.ANNUAL, '', date(2026, 12, 8), None, '급한 반영', SB, '황샛별')
+    assert lv.can_act('cancel', r2, MW, TODAY)                              # 보통 경영지원 등록 연차는 본인 취소 가능
+
+
+def test_planned_falls_to_need_designate_after_due(promo):
+    rec, _ = promo.send_notice('김태현', promo.ANNUAL, '2027-05-09', today=TODAY)          # 계획 기한 12/13
+    r, made, err = promo.submit_plan(rec['id'], TH, [{'date': '2026-12-07'}], today=TODAY)
+    assert err == '' and promo.state(r, date(2026, 12, 10))['key'] == 'planned'
+    lv.transition(made[0]['id'], 'cancel', TH, '김태현')                   # 낸 날을 취소
+    st = promo.state(promo.get(rec['id']), date(2026, 12, 14))
+    assert st['key'] == 'need_designate' and '미신청 3일' in st['label']
+    out = promo.daily(date(2026, 12, 14))
+    assert [v['name'] for v in out['need_designate']] == ['김태현']

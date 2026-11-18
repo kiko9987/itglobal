@@ -82,7 +82,10 @@ def leave_view(meta: dict, vals: Optional[dict] = None) -> dict:
     blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
                    f'*{name}* 님 오늘 기준 남은 연차: *{lv.fmt_days(left)}*'}]})
     # 칸 id 는 lv_ 를 붙인다 — 다른 봇 양식 칸 이름과 헷갈리지 않게
-    blocks.append(_select('lv_type', '휴가 종류', lv.type_options_for(name), initial=ltype, dispatch=True))
+    opts = lv.type_options_for(name)
+    if ltype not in dict(opts):      # 맞춤 휴가를 다 잡은 신청을 고칠 때 — 그 종류가 목록에 없으면 창이 깨진다
+        opts.append((ltype, lv.type_label(ltype)))
+    blocks.append(_select('lv_type', '휴가 종류', opts, initial=ltype, dispatch=True))
     if ltype == lv.EVENT:
         blocks.append(_select('lv_sub', '경조사 종류', [(k, f'{v[0]} ({v[1]}일)') for k, v in lv.EVENT_SUBS.items()],
                               initial=vals.get('sub', '')))
