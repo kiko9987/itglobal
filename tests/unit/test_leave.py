@@ -175,10 +175,11 @@ def test_manager_can_cancel_others_leave(db):
 
 def test_announce_text_hides_type_and_reason():
     base = {'name': '빈승정', 'start': '2026-11-09', 'end': '2026-11-09', 'reason': '병원'}
-    assert lv.announce_text({**base, 'ltype': lv.SICK}) == '🌴 [빈승정] - 11월 9일 하루종일 휴가입니다.'
-    assert lv.announce_text({**base, 'ltype': lv.HALF_PM}) == '🌴 [빈승정] - 11월 9일 오후 반차입니다.'
+    assert lv.announce_text({**base, 'ltype': lv.SICK}) == '🌴 빈승정 · 11월 9일 (월) 휴가'
+    assert lv.announce_text({**base, 'ltype': lv.HALF_PM}) == '🌴 빈승정 · 11월 9일 (월) 오후 반차'
     assert lv.announce_text({**base, 'ltype': lv.ANNUAL, 'end': '2026-11-11'}) == \
-        '🌴 [빈승정] - 11월 9일 ~ 11월 11일 휴가입니다.'
+        '🌴 빈승정 · 11월 9일 (월) ~ 11월 11일 (수) 휴가'
+    assert lv.cancel_notice_text({**base, 'ltype': lv.HALF_PM}) == '❗ 빈승정 · 11월 9일 (월) 오후 반차 취소'
 
 
 def test_grant_expiring_mid_leave_not_used(db):
@@ -255,7 +256,7 @@ def test_flow_dm_only_and_announce_dates_only(slack):
     assert c.posts[-1][0] == f'D-{YG}'
     assert sl.apply_action('approve', r['id'], YG) is None
     ann = [p for p in c.posts if p[0] == lv.ANNOUNCE_CHANNEL_DEFAULT]
-    assert len(ann) == 1 and ann[0][1] == '🌴 [박민우] - 11월 9일 하루종일 휴가입니다.'
+    assert len(ann) == 1 and ann[0][1] == '🌴 박민우 · 11월 9일 (월) 휴가'
     # JW 카드는 버튼이 사라진다
     jw_updates = [u for u in c.updates if u[0] == f'D-{JW}']
     assert jw_updates and _buttons(jw_updates[-1][3]) == []
@@ -269,7 +270,10 @@ def test_cancel_after_announce_strikes_message(slack):
     assert any(p[0] == lv.ANNOUNCE_CHANNEL_DEFAULT for p in c.posts)
     assert sl.apply_action('cancel', r['id'], YG) is None
     ann = [u for u in c.updates if u[0] == lv.ANNOUNCE_CHANNEL_DEFAULT]
-    assert ann and ann[-1][2].startswith('~🌴 [박용구]') and ann[-1][2].endswith('(취소)')
+    assert ann and ann[-1][2].startswith('~🌴 박용구 ·') and ann[-1][2].endswith('(취소)')
+    # 고친 글은 알림이 안 가서 취소 글을 새로도 올린다(11-18, 플렉스처럼)
+    new_posts = [p for p in c.posts if p[0] == lv.ANNOUNCE_CHANNEL_DEFAULT]
+    assert new_posts[-1][1] == '❗ 박용구 · 12월 7일 (월) 오전 반차 취소'
 
 
 def test_leave_view_fields(db):

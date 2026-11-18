@@ -369,6 +369,7 @@ def apply_action(action: str, rid: int, uid: str, reason: str = '') -> Optional[
             try:
                 client.chat_update(channel=new['announce_ch'], ts=new['announce_ts'],
                                    text=f"{lv.announce_text(new)} (남은 날 취소)")
+                client.chat_postMessage(channel=new['announce_ch'], text=lv.cut_notice_text(new))
             except Exception as exc:
                 logger.warning(f'{_LOG} #휴가_일정 기간 줄임 표시 실패 (#{rid}): {exc}')
         for u in lv.approver_ids():
@@ -391,6 +392,8 @@ def apply_action(action: str, rid: int, uid: str, reason: str = '') -> Optional[
             try:
                 client.chat_update(channel=new['announce_ch'], ts=new['announce_ts'],
                                    text=lv.cancelled_announce_text(new))
+                # 고치기만 하면 채널에 알림이 안 가서 아무도 모른다 → 플렉스처럼 취소 글도 새로(11-18)
+                client.chat_postMessage(channel=new['announce_ch'], text=lv.cancel_notice_text(new))
             except Exception as exc:
                 logger.warning(f'{_LOG} #휴가_일정 취소 표시 실패 (#{rid}): {exc}')
         for u in _requester_ids(new):

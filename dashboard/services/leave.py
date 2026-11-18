@@ -1451,19 +1451,34 @@ def requests_of(name: str, limit: int = 15) -> List[dict]:
 
 # ── 문구 ──────────────────────────────────────────────────────────────
 def announce_text(row: dict) -> str:
-    """#휴가_일정 — 누가 언제 휴가/반차인지만(종류·사유 없음). 플렉스 알림과 같은 모양."""
+    """#휴가_일정 — 누가 언제 휴가/반차인지만(종류·사유 없음).
+    11-18 부장님: 플렉스 문구 '하루종일 휴가입니다'가 어색 → '이름 · 날짜(요일) 휴가/오전 반차'로 짧게."""
+    return f"🌴 {row['name']} · {_announce_what(row)}"
+
+
+def _announce_what(row: dict) -> str:
     s, e = _d(row['start']), _d(row['end'])
     if row['ltype'] in HALF_TYPES:
-        what = f"{kdate(s)} {'오전' if row['ltype'] == HALF_AM else '오후'} 반차입니다."
-    elif s == e:
-        what = f'{kdate(s)} 하루종일 휴가입니다.'
-    else:
-        what = f'{kdate(s)} ~ {kdate(e)} 휴가입니다.'
-    return f"🌴 [{row['name']}] - {what}"
+        return f"{kdate(s, True)} {'오전' if row['ltype'] == HALF_AM else '오후'} 반차"
+    if s == e:
+        return f'{kdate(s, True)} 휴가'
+    return f'{kdate(s, True)} ~ {kdate(e, True)} 휴가'
 
 
 def cancelled_announce_text(row: dict) -> str:
+    """처음 올린 글을 고칠 때 — 취소선 + (취소). 달력처럼 채널을 훑는 사람이 지난 글만 봐도 알게."""
     return f'~{announce_text(row)}~ (취소)'
+
+
+def cancel_notice_text(row: dict) -> str:
+    """취소 새 글(11-18 부장님 — 플렉스처럼 채널에 새로 알림. 글을 고치기만 하면 알림이 안 가서 못 봄)."""
+    return f"❗ {row['name']} · {_announce_what(row)} 취소"
+
+
+def cut_notice_text(row: dict, today: Optional[date] = None) -> str:
+    """쓰는 중인 휴가를 오늘부터 취소했을 때 새 글."""
+    today = today or date.today()
+    return f"❗ {row['name']} · {kdate(today, True)}부터 휴가 취소 (어제까지만 휴가)"
 
 
 def step_line(row: dict, step_rows: List[dict], names: Tuple[str, str] = ('박정우', '박용구')) -> str:
