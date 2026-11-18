@@ -517,7 +517,7 @@ def post_invoice_files(row: dict) -> int:
 
 
 # ── 수정 요청 → 수정하기 (11-05) ─────────────────────────────────────
-_FIELD_NAMES = {'project_code': '현장', 'cost_category': '원가 분류', 'content': '내용', 'evidence': '증빙',
+_FIELD_NAMES = {'project_code': '프로젝트', 'cost_category': '원가 분류', 'content': '내용', 'evidence': '증빙',
                 'grn': '사업자 구분', 'partner': '거래처', 'payee_name': '예금주', 'bank': '은행',
                 'account': '계좌', 'amount': '금액', 'urgency': '집행 시기', 'memo': '비고',
                 'link': '상품 링크', 'qty': '수량', 'unit_price': '단가', 'reason': '사유', 'title': '결재 이름'}
@@ -1125,7 +1125,7 @@ def process_site_change(uid: str, aid: int, code: str, cost: str) -> Optional[di
         name = _name(uid)
         res = ea.change_site(aid, code, cost)
         if res is None:
-            _notify(eap_client(), uid, f'⚠️ #{aid} — 그 사이 이체가 끝났거나 상태가 바뀌어 현장을 바꾸지 못했어요.')
+            _notify(eap_client(), uid, f'⚠️ #{aid} — 그 사이 이체가 끝났거나 상태가 바뀌어 프로젝트를 변경하지 못했어요.')
             return None
         row, changed = res
         if not changed:
@@ -1133,12 +1133,12 @@ def process_site_change(uid: str, aid: int, code: str, cost: str) -> Optional[di
         parts = []
         if 'project_code' in changed:
             a, b = changed['project_code']
-            parts.append(f'현장 {a or "-"} → {b}')
+            parts.append(f'프로젝트 {a or "-"} → {b}')
         if 'cost_category' in changed:
             a, b = changed['cost_category']
             parts.append(f'분류 {cost_label(a) if a else "-"} → {cost_label(b)}')
         text = ' · '.join(parts)
-        _thread_log(row, f'📍 {ea.initial(name)} 현장 변경 — {text}')
+        _thread_log(row, f'📍 {ea.initial(name)} 프로젝트 변경 — {text}')
         refresh(row)
         if row.get('origin_ts'):
             _sync_invoice_assignment(row, uid, name)
@@ -1417,7 +1417,7 @@ def post_contract_link(row: dict) -> None:
     if rows:
         link = _card_link(rows[0])
         if link:
-            _thread_log(row, f'📑 이 현장 계약서: <{link}|{ea.title(rows[0])}>')
+            _thread_log(row, f'📑 이 프로젝트 계약서: <{link}|{ea.title(rows[0])}>')
 
 
 _FLEX_CONTRACT_CODES = None
@@ -1456,7 +1456,7 @@ def contract_note(code: str) -> str:
                 '있어야 신청할 수 있어요.')
     if code in _flex_contract_codes():
         return '📑 Flex로 올린 계약서 작성 요청이 있어요. 계약서에 이 보증 내용이 있는지 확인해 주세요.'
-    return ('⚠️ 이 현장의 계약서 작성 요청이 아직 없어요. 입찰보증이 아니라면 계약서를 먼저 요청하거나 '
+    return ('⚠️ 이 프로젝트의 계약서 작성 요청이 아직 없어요. 입찰보증이 아니라면 계약서를 먼저 요청하거나 '
             '계약서 파일을 카드 스레드에 올려 주세요.')
 
 
@@ -2338,10 +2338,10 @@ def register_eapproval_handlers(app) -> None:
         uid = (body.get('user') or {}).get('id', '')
         row = ea.get(aid)
         if uid not in ea.executor_ids():
-            _ephemeral(client, body, '🔒 현장 바꾸기는 경영지원만 할 수 있어요. 고칠 게 있으면 [🔁 보완 요청]으로 돌려보내 주세요.')
+            _ephemeral(client, body, '🔒 프로젝트 변경은 경영지원만 할 수 있어요. 고칠 게 있으면 [🔁 보완 요청]으로 돌려보내 주세요.')
             return
         if not row or not ea.site_changeable(row):
-            _ephemeral(client, body, '🔒 이체 대기 중인 자금집행만 현장을 바꿀 수 있어요.')
+            _ephemeral(client, body, '🔒 이체 대기 중인 자금집행만 프로젝트를 변경할 수 있어요.')
             return
         try:   # 현장 이름(공사현황 조회)은 느릴 수 있어 코드로 먼저 연다 — trigger 3초
             client.views_open(trigger_id=body['trigger_id'], view=ea.site_view(row))
@@ -2353,7 +2353,7 @@ def register_eapproval_handlers(app) -> None:
     def handle_site_submit(ack, body, view):
         code, cost = ea.read_site_view(view)
         if not code:
-            ack(response_action='errors', errors={'project': '현장을 골라 주세요.'})
+            ack(response_action='errors', errors={'project': '프로젝트를 골라 주세요.'})
             return
         ack()
         aid = int(json.loads(view.get('private_metadata') or '{}').get('aid') or 0)

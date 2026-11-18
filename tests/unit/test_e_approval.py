@@ -452,7 +452,7 @@ def test_first_step_kiko_or_jw_yg(se, monkeypatch):
 
 def test_review_1111_fixes(se):
     # ① G/R 불일치 — 한 번 묻고, 같은 창에서 다시 내면 통과
-    assert ea.grn_mismatch('R4226-YM', 'G').startswith('현장 R4226-YM은 R(글로벌그룹) 현장인데 G(글로벌)')
+    assert ea.grn_mismatch('R4226-YM', 'G').startswith('이 프로젝트(R4226-YM)는 R(글로벌그룹) 프로젝트인데 G(글로벌)')
     assert ea.grn_mismatch('R4226-YM', 'R') == '' and ea.grn_mismatch('공통비', 'G') == ''
     assert ea.grn_mismatch('G4049-JW', 'N') == ''
     se._GRN_WARNED.clear()
@@ -1334,7 +1334,7 @@ def test_insurance_contract_note(se, monkeypatch):
 
 def test_contract_note_shorter_when_project_fixed():
     menu = forms.form_view(forms.FORM_CONTRACT, {})['blocks'][0]['elements'][0]['text']
-    assert '현장을 고르면' in menu
+    assert '프로젝트를 고르면' in menu
     card = forms.form_view(forms.FORM_CONTRACT, {'project': 'G4239-YM', 'extra_note': '✅ 사업자등록증 있음'})
     first = card['blocks'][0]
     assert first['type'] == 'context' and first['elements'][0]['text'] == '✅ 사업자등록증 있음'   # 고정 문구 없음
@@ -1829,7 +1829,7 @@ def test_site_change_after_final_approval(se, monkeypatch):
     assert new['project_code'] == 'G4303-YG' and new['status'] == ea.APPROVED and new['amount'] == row['amount']
     assert synced == ['G4303-YG']
     logs = [kw['text'] for kw in se._fake.of('chat_postMessage') if kw.get('thread_ts') == row['card_ts']]
-    assert any('현장 변경 — 현장 프로젝트0 → G4303-YG' in t for t in logs)
+    assert any('프로젝트 변경 — 프로젝트 프로젝트0 → G4303-YG' in t for t in logs)
     view = {'state': {'values': {'project': {ea.A_PROJECT: {'selected_option': {'value': 'G1'}}},
                                  'cost': {'cost': {'selected_option': {'value': '제품대'}}}}}}
     assert ea.read_site_view(view) == ('G1', '제품대')

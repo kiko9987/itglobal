@@ -1058,7 +1058,7 @@ def grn_mismatch(code: str, grn: str) -> str:
     want, got = grn_from_code(code), (grn or '').strip()[:1].upper()
     if not want or got not in ('G', 'R') or want == got:
         return ''
-    return (f"현장 {code}은 {want}({GRN_BIZ[want]}) 현장인데 {got}({GRN_BIZ[got]})로 골랐어요. "
+    return (f"이 프로젝트({code})는 {want}({GRN_BIZ[want]}) 프로젝트인데 {got}({GRN_BIZ[got]})로 골랐어요. "
             f"맞게 고른 거면 아래 버튼을 한 번 더 눌러 주세요.")
 
 
@@ -1246,7 +1246,7 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
     gap = ['']   # 금액·통장 묶음 위아래 빈 줄 — 먼저 눈에 띄게(11-09 KiKO 예시 D, 끝난 카드 박스 안도 같게)
     top = ([f"{emoji} *{title(row)}* · {label}" + (' · 🚨 긴급' if row.get('urgency') == '긴급' and not closed else '')]
            + gap + [_key_line(row)] + ([tag] if tag else []) + gap + [CARD_SEP])
-    head = top + [f'현장: {project_line}']
+    head = top + [f'프로젝트: {project_line}']
     lines = []
     if row.get('form') in forms.FORMS:
         lines += forms.card_lines(row['form'], extra(row).get('f') or {})
@@ -1432,7 +1432,7 @@ def buttons(row: dict, role: str = 'all') -> List[dict]:
             + ((f"\n✅ 확인된 계좌({_known})" + (' — ⚠️ 어음 계좌예요.' if '어음' in _known else '')) if _known else ''),
             '이체 완료')))
     if site_changeable(row) and role in ('all', 'executor'):
-        out.append(_btn('📍 현장 바꾸기', A_SITE, aid))
+        out.append(_btn('📍 프로젝트 변경', A_SITE, aid))
     # 순서: 처리하는 사람 버튼 → [보완 요청](돌려보내기) → 요청자 버튼 [수정하기]·[취소하기] 붙여서 맨 뒤(11-11 KiKO)
     if st in (PENDING, FINAL, APPROVED) and role == 'all':   # 고칠 게 있으면 반려 대신 돌려보내기(11-05)
         out.append(_btn('🔁 보완 요청', A_REVISE, aid))
@@ -2004,7 +2004,7 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
                                                    '계산서가 없으면 비워 두세요(선입금).'}}]
     if inv and edit:
         blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
-                       '📄 거래처·금액은 계산서 글 그대로예요. 현장을 바꾸면 계산서 글의 프로젝트 지정도 같이 바뀌어요. '
+                       '📄 거래처·금액은 계산서 글 그대로예요. 프로젝트를 변경하면 계산서 글의 프로젝트 지정도 같이 바뀌어요. '
                        '계산서 파일은 처음 올릴 때 카드 스레드에 붙었어요.'}]})
     elif inv:
         files = meta.get('inv_files') or []
@@ -2018,10 +2018,10 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
     if fixed_project:
         blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': f'*{fixed_label or fixed_project}*'}})
     else:
-        blocks.append({'type': 'input', 'block_id': 'project', 'label': {'type': 'plain_text', 'text': '현장'},
+        blocks.append({'type': 'input', 'block_id': 'project', 'label': {'type': 'plain_text', 'text': '프로젝트'},
                        'element': {'type': 'external_select', 'action_id': A_PROJECT, 'min_query_length': 0,
                                    'placeholder': {'type': 'plain_text',
-                                                   'text': '코드·상호·주소로 검색 (누르면 내 담당 현장이 최근 순으로 나와요)'}}})
+                                                   'text': '코드·상호·주소로 검색 (누르면 내 담당 프로젝트가 최근 순으로 나와요)'}}})
     ev_opts = _opts(EVIDENCE_TYPES)
     # 증빙 기본값은 계산서 글을 골랐을 때만 '전자계산서' — 안 고르고 올리는 선입금에서도 기본값이 남아
     #   '증빙: 전자계산서'인데 스레드엔 계산서가 없는 카드가 됐다(11-01 검수 개선안, 2026-11-17 #45).
@@ -2183,7 +2183,7 @@ def complete_new_request(f: Dict) -> Dict[str, str]:
     if not (f.get('content') or '').strip():
         errs['content'] = '무엇을 왜 사는지 적어 주세요.'
     if not f.get('project_code'):
-        errs['project'] = '현장을 골라 주세요.'
+        errs['project'] = '프로젝트를 골라 주세요.'
     else:
         from dashboard.services.purchase_invoice_assign import cost_project_error
         e = cost_project_error(f.get('cost_category'), f['project_code'])
@@ -2295,8 +2295,8 @@ def site_view(row: dict, project_label: str = '') -> dict:
     blocks = [
         {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
          f"{title(row)} · {int(row.get('amount') or 0):,}원 → {row.get('partner') or '-'}\n"
-         '금액·계좌·승인은 그대로 두고 현장과 원가 분류만 바꿔요. 계산서 글로 올린 결재면 그 글의 프로젝트 지정도 같이 바뀌어요.'}]},
-        {'type': 'input', 'block_id': 'project', 'label': {'type': 'plain_text', 'text': '현장'},
+         '금액·계좌·승인은 그대로 두고 프로젝트와 원가 분류만 변경해요. 계산서 글로 올린 결재면 그 글의 프로젝트 지정도 같이 바뀌어요.'}]},
+        {'type': 'input', 'block_id': 'project', 'label': {'type': 'plain_text', 'text': '프로젝트'},
          'element': {'type': 'external_select', 'action_id': A_PROJECT, 'min_query_length': 0,
                      'placeholder': {'type': 'plain_text', 'text': '코드·상호·주소로 검색'}}},
         {'type': 'input', 'block_id': 'cost', 'label': {'type': 'plain_text', 'text': '원가 분류'},
@@ -2304,8 +2304,8 @@ def site_view(row: dict, project_label: str = '') -> dict:
     ]
     _set_initial(blocks, 'project', row.get('project_code'), project_label)
     _set_initial(blocks, 'cost', row.get('cost_category'))
-    return {'type': 'modal', 'callback_id': CB_SITE, 'title': {'type': 'plain_text', 'text': '현장 바꾸기'},
-            'submit': {'type': 'plain_text', 'text': '바꾸기'}, 'close': {'type': 'plain_text', 'text': '취소'},
+    return {'type': 'modal', 'callback_id': CB_SITE, 'title': {'type': 'plain_text', 'text': '프로젝트 변경'},
+            'submit': {'type': 'plain_text', 'text': '변경'}, 'close': {'type': 'plain_text', 'text': '취소'},
             'private_metadata': json.dumps({'aid': row['id']}), 'blocks': blocks}
 
 
@@ -2448,7 +2448,7 @@ def move_request_view(meta: dict, prefill: Optional[dict] = None) -> dict:
             f"🔁 *법인 간 이체*\n{slack_esc(move_summary(mv))}\n"
             f"*{int(mv['amount']):,}원*을 {ENTITY_SHORT.get(mv['from'])} 통장에서 {ENTITY_SHORT.get(to)} 통장으로 보내요.")}},
         {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
-            '현장·금액·보내는 통장은 입금 기록 그대로예요. 내용과 받는 통장을 확인하고 요청해 주세요. '
+            '프로젝트·금액·보내는 통장은 입금 기록 그대로예요. 내용과 받는 통장을 확인하고 요청해 주세요. '
             '원가에는 안 들어가요.'}]},
         {'type': 'input', 'block_id': 'content', 'label': {'type': 'plain_text', 'text': '내용'},
          'element': {'type': 'plain_text_input', 'action_id': 'content', 'max_length': 300,
