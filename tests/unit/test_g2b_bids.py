@@ -297,3 +297,12 @@ def test_menu_has_bids_for_office_not_field():
     assert any(c['href'] == '/bids' and c['active'] for c in sales['children'])
     field = gw.build_nav('/bids', 'user', field=True)
     assert not any(c['href'] == '/bids' for a in field['areas'] for c in a['children'])
+
+
+def test_new_badge_by_posted_date(db, monkeypatch):
+    fresh = (datetime.now() - timedelta(hours=3)).strftime('%Y-%m-%d %H:%M:%S')
+    old = (datetime.now() - timedelta(days=5)).strftime('%Y-%m-%d %H:%M:%S')
+    _fake_api(monkeypatch, [_item('F1', bidNtceDt=fresh), _item('O1', bidNtceDt=old)],
+              {'F1': (['경기도'], [[MECH]]), 'O1': (['경기도'], [[MECH]])})
+    g.collect()   # 둘 다 방금 모았지만 New 는 게시 24시간 안인 것만
+    assert {x['bid_no']: x['is_new'] for x in g.list_bids()['items']} == {'F1': True, 'O1': False}

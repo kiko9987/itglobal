@@ -477,7 +477,8 @@ def _view(r: dict, now_s: str) -> dict:
         'contact': r['contact'], 'category': r['category'], 'reason': r['reason'],
         'missing': r['missing_licenses'], 'mark': r['mark'], 'mark_label': MARKS.get(r['mark'], ''),
         'mark_by': r['mark_by'], 'mark_at': r['mark_at'], 'first_seen': r['first_seen'],
-        'is_new': r['first_seen'] >= (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S'),
+        # New 뱃지 = 나라장터 게시 24시간 안(11-18 부장님 — 처음 모은 때 기준이면 첫날 전부 New)
+        'is_new': bool(r['posted_at']) and r['posted_at'] >= (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d %H:%M'),
         'hard_reason': r.get('hard_reason', ''),
         'detail': _detail(r.get('raw') or ''),
     }
