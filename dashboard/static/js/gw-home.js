@@ -207,8 +207,9 @@
   }
 
   function rateText(key, T) {
-    if (key === 'visit') return '문의의 ' + pct(T.visit, T.inquiry);
-    if (key === 'contract') return '문의의 ' + pct(T.contract, T.inquiry) + ' · 방문 예약의 ' + pct(T.contract, T.visit);
+    // '문의의 78%'는 잘 안 읽힌다(11-18 부장님) → '문의량 대비'
+    if (key === 'visit') return '문의량 대비 ' + pct(T.visit, T.inquiry);
+    if (key === 'contract') return '문의량 대비 ' + pct(T.contract, T.inquiry) + ' · 방문 예약 대비 ' + pct(T.contract, T.visit);
     return '';
   }
 
