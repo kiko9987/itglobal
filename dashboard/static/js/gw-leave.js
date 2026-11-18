@@ -936,9 +936,13 @@
   function openBulk() {
     if (!bulkEl) return;
     var f = document.getElementById('lvBulkForm');
-    // '늘리면 2'가 2만 되는 것처럼 읽혀 고침(11-19 부장님). 템플릿도 같은 글 — 재시작 전에도 바로 보이게 여기서도 넣음
+    // 안내·칸 이름은 템플릿과 같은 글 — 재시작 전에도 바로 보이게 여기서도 넣음(11-19 부장님:
+    //   '늘리면 2'가 2만 되는 것처럼, '공통 사유'가 일괄만 되는 것처럼 읽혀 고침)
     var hint = bulkEl.querySelector('.gw-lv-left');
-    if (hint) hint.innerHTML = '조정할 사람만 일수를 적어요. 늘리면 1, 2.5처럼, 빼면 -1, -0.5처럼 적어요(0.5일 단위). 모두 맞아야 한꺼번에 반영되고, 본인에게 알림이 가요. 날짜가 있는 휴가는 직원별 창의 <strong>휴가 등록</strong>으로 넣어 주세요.';
+    if (hint) hint.innerHTML = '사람마다 일수와 사유를 따로 적어요. 한 명만 적어도 돼요. 늘리면 1, 2.5처럼, 빼면 -1, -0.5처럼 적어요(0.5일 단위). 적은 사람만 반영되고, 본인에게 알림이 가요. 날짜가 있는 휴가는 직원별 창의 <strong>휴가 등록</strong>으로 넣어 주세요.';
+    var rl = bulkEl.querySelector('label[for="lvBulkReason"]');
+    if (rl) rl.textContent = '같은 사유 한 번에 (선택)';
+    f.reason.placeholder = '줄마다 사유를 비운 사람에게 들어가요';
     f.reset();
     f.applies_on.value = todayIso();
     document.getElementById('lvBulkMsg').textContent = '';
@@ -946,10 +950,22 @@
       return '<tr data-pid="' + esc(p.person_id) + '"><td>' + esc(p.name) + '<div class="gw-lv-err" data-err="' + esc(p.person_id) + '"></div></td>' +
         '<td class="n">' + days(p.balance) + '</td>' +
         '<td><input type="number" step="0.5" min="-30" max="30" class="form-control form-control-sm" placeholder="예: 1, -0.5" aria-label="' + esc(p.name) + ' 조정 일수" data-k="days"></td>' +
-        '<td><input type="text" maxlength="200" class="form-control form-control-sm" aria-label="' + esc(p.name) + ' 사유" placeholder="비우면 공통 사유" data-k="reason"></td></tr>';
+        '<td><input type="text" maxlength="200" class="form-control form-control-sm" aria-label="' + esc(p.name) + ' 사유" placeholder="사유" data-k="reason"></td></tr>';
     }).join('');
+    bulkCount();
     if (window.bootstrap) { returnFocusOnHide(bulkEl); window.bootstrap.Modal.getOrCreateInstance(bulkEl).show(); }
   }
+  // 적은 사람 수를 단추에 — 한 명만 해도 되는 게 바로 보이게(11-19)
+  function bulkCount() {
+    var n = 0;
+    document.querySelectorAll('#lvBulkRows [data-k="days"]').forEach(function (i) {
+      if (i.value.trim() && Number(i.value) !== 0) n++;
+    });
+    var go = document.querySelector('#lvBulkForm [type="submit"]');
+    if (go) go.textContent = n ? n + '명 적용하기' : '적용하기';
+  }
+  var bulkRowsEl = document.getElementById('lvBulkRows');
+  if (bulkRowsEl) bulkRowsEl.addEventListener('input', bulkCount);
   var bulkBtn = document.getElementById('lvBulkBtn');
   if (bulkBtn) bulkBtn.addEventListener('click', openBulk);
   var bulkForm = document.getElementById('lvBulkForm');
@@ -965,7 +981,7 @@
     });
     if (!items.length) { msg.textContent = '조정할 일수를 한 명 이상 적어 주세요.'; return; }
     var need = items.filter(function (it) { return !it.reason; }).length;
-    if (need && !f.reason.value.trim()) { msg.textContent = '사유를 적어 주세요(사람별 사유가 빈 줄에 공통으로 들어가요).'; f.reason.focus(); return; }
+    if (need && !f.reason.value.trim()) { msg.textContent = '사유를 적어 주세요. 줄마다 적거나, 위의 "같은 사유 한 번에"에 적으면 돼요.'; f.reason.focus(); return; }
     var btn = f.querySelector('[type="submit"]');
     btn.disabled = true;
     api('/api/leave/adjust-bulk', { method: 'POST', body: { items: items, reason: f.reason.value.trim(), applies_on: f.applies_on.value } }).then(function (j) {

@@ -95,12 +95,12 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
       </div>
       <div class="modal-body">
-        <p class="gw-lv-left mb-2" id="lvBulkHint">조정할 사람만 일수를 적어요. 늘리면 1, 2.5처럼, 빼면 -1, -0.5처럼 적어요(0.5일 단위). 모두 맞아야 한꺼번에 반영되고, 본인에게 알림이 가요. 날짜가 있는 휴가는 직원별 창의 <strong>휴가 등록</strong>으로 넣어 주세요.</p>
+        <p class="gw-lv-left mb-2" id="lvBulkHint">사람마다 일수와 사유를 따로 적어요. 한 명만 적어도 돼요. 늘리면 1, 2.5처럼, 빼면 -1, -0.5처럼 적어요(0.5일 단위). 적은 사람만 반영되고, 본인에게 알림이 가요. 날짜가 있는 휴가는 직원별 창의 <strong>휴가 등록</strong>으로 넣어 주세요.</p>
         <div class="gw-lv-bulk-head">
           <div class="gw-lv-field"><label class="form-label" for="lvBulkOn">적용일</label>
             <input type="date" class="form-control form-control-sm" id="lvBulkOn" name="applies_on"></div>
-          <div class="gw-lv-field"><label class="form-label" for="lvBulkReason">공통 사유</label>
-            <input type="text" class="form-control form-control-sm" id="lvBulkReason" name="reason" maxlength="200" placeholder="예: 연말 정정"></div>
+          <div class="gw-lv-field"><label class="form-label" for="lvBulkReason">같은 사유 한 번에 (선택)</label>
+            <input type="text" class="form-control form-control-sm" id="lvBulkReason" name="reason" maxlength="200" placeholder="줄마다 사유를 비운 사람에게 들어가요"></div>
         </div>
         <div class="gw-table-wrap">
           <table class="gw-table gw-lv-bulk-table">
@@ -112,7 +112,7 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-link" data-bs-dismiss="modal">닫기</button>
-        <button type="submit" class="btn btn-primary">적용하기</button>
+        <button type="submit" class="btn btn-primary" id="lvBulkGo">적용하기</button>
       </div>
     </form>
   </div>
