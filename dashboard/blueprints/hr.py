@@ -318,7 +318,13 @@ def api_leave_me():
     except Exception as e:
         logger.warning(f'[GW휴가] 신청 창 정보 실패: {e}', exc_info=True)
         form = {'can_apply': False, 'why': '휴가 신청 정보를 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.'}
-    return jsonify({'success': True, 'leave': leave_web.annotate(leave_view.summary(p), user), 'form': form})
+    summary = leave_web.annotate(leave_view.summary(p), user)
+    try:
+        summary['promotions'] = leave_web.promotions_for(user)   # 연차 사용 촉진 문서(11-18)
+    except Exception as e:
+        logger.warning(f'[GW휴가] 촉진 정보 실패: {e}', exc_info=True)
+        summary['promotions'] = []
+    return jsonify({'success': True, 'leave': summary, 'form': form})
 
 
 # ── 휴가(본인 신청·취소) — 슬랙 휴가 앱과 같은 장부·같은 알림 ──────────────
@@ -570,6 +576,71 @@ def api_leave_monthly():
     if not name:
         return jsonify({'success': True, 'monthly': {'year': year, 'months': [], 'opening': 0}})
     return jsonify({'success': True, 'monthly': lv.monthly_detail(name, year)})
+
+
+@hr_bp.route('/api/leave/promotions', methods=['GET'])
+@gw_page
+def api_leave_promotions():
+    """연차 촉진 탭 — 전 직원 휴가 열람자만(처리 단추는 경영지원만)."""
+    from dashboard.services import leave_web
+    if not _leave_all():
+        return jsonify({'success': False, 'message': '연차 촉진 기록은 볼 수 없는 계정입니다.'}), 403
+    try:
+        return jsonify({'success': True, **leave_web.promo_list(session.get('user') or {})})
+    except Exception as e:
+        return _fail(e)
+
+
+@hr_bp.route('/api/leave/promotions/send', methods=['POST'])
+@gw_page
+def api_leave_promo_send():
+    from dashboard.services import leave_web
+    try:
+        rec, err = leave_web.promo_send(session.get('user') or {}, request.get_json(silent=True) or {})
+    except Exception as e:
+        return _fail(e)
+    if err:
+        return jsonify({'success': False, 'message': err}), 400
+    return jsonify({'success': True, 'id': rec['id']})
+
+
+@hr_bp.route('/api/leave/promotions/<int:pid>/designate', methods=['POST'])
+@gw_page
+def api_leave_promo_designate(pid):
+    from dashboard.services import leave_web
+    try:
+        rec, err = leave_web.promo_designate(session.get('user') or {}, pid, request.get_json(silent=True) or {})
+    except Exception as e:
+        return _fail(e)
+    if err:
+        return jsonify({'success': False, 'message': err}), 400
+    return jsonify({'success': True})
+
+
+@hr_bp.route('/api/leave/promotions/<int:pid>/ack', methods=['POST'])
+@gw_page
+def api_leave_promo_ack(pid):
+    from dashboard.services import leave_web
+    try:
+        msg = leave_web.promo_ack(session.get('user') or {}, pid)
+    except Exception as e:
+        return _fail(e)
+    if msg:
+        return jsonify({'success': False, 'message': msg}), 400
+    return jsonify({'success': True})
+
+
+@hr_bp.route('/api/leave/promotions/<int:pid>/plan', methods=['POST'])
+@gw_page
+def api_leave_promo_plan(pid):
+    from dashboard.services import leave_web
+    try:
+        rec, err = leave_web.promo_plan(session.get('user') or {}, pid, request.get_json(silent=True) or {})
+    except Exception as e:
+        return _fail(e)
+    if err:
+        return jsonify({'success': False, 'message': err}), 400
+    return jsonify({'success': True})
 
 
 @hr_bp.route('/api/leave/calendar', methods=['GET'])

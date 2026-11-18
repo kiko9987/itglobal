@@ -174,6 +174,9 @@ D-1 (12/1 화)   18:00 플렉스 신청 마감. 플렉스 '승인 대기' 건은
                 시험 신청 정리: leave_requests 대기·승인 0건 확인(있으면 취소)
 D   (12/2 수)
   ① 플렉스 다시 받기 — flex_refresh_browser.js → 요약 xlsx (인사·휴가 기록·잔여)
+     + flex_promotion_backup.js → 원본/flex_promotion_YYYYMMDD.json (연차 촉진 기록, 11-18 추가 —
+       11/23~12/2 플렉스가 김종연·김태현에게 보낼 촉구가 들어가야 우리 쪽이 같은 촉구를 또 안 보냄.
+       leave_import_flex.py ④ 가 가장 최근 파일을 옮긴다)
   ② leave_import_flex.py: AS_OF=12/2, SNAPSHOT 18명 고침 → 미리 보기
   ③ 대조: 11/10 잔여 − (11/10~12/2 플렉스 승인 연차) + (그 사이 플렉스가 준 월차) = 새 잔여 ?
         다르면 멈추고 KiKO 확인

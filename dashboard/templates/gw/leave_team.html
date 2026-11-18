@@ -26,6 +26,7 @@
     <div class="gw-seg" role="tablist" aria-label="보기">
       <button type="button" role="tab" class="gw-seg-btn" id="lvTabCal" aria-selected="true" aria-controls="lvCalPane">달력</button>
       <button type="button" role="tab" class="gw-seg-btn" id="lvTabList" aria-selected="false" aria-controls="lvListPane">직원별</button>
+      <button type="button" role="tab" class="gw-seg-btn" id="lvTabPromo" aria-selected="false" aria-controls="lvPromoPane">연차 촉진</button>
     </div>
   </div>
 
@@ -53,6 +54,11 @@
         <tbody><tr><td colspan="8" class="gw-empty">불러오는 중…</td></tr></tbody>
       </table>
     </div>
+  </section>
+
+  {# 연차 사용 촉진(11-18, 근로기준법 61조) — 보낼 사람·기록·사용일 지정 #}
+  <section id="lvPromoPane" role="tabpanel" aria-labelledby="lvTabPromo" hidden>
+    <div id="lvPromo"></div>
   </section>
 </div>
 
@@ -95,7 +101,7 @@
           <div class="gw-lv-field"><label class="form-label" for="lvBulkOn">적용일</label>
             <input type="date" class="form-control form-control-sm" id="lvBulkOn" name="applies_on"></div>
           <div class="gw-lv-field"><label class="form-label" for="lvBulkReason">공통 사유</label>
-            <input type="text" class="form-control form-control-sm" id="lvBulkReason" name="reason" maxlength="200" placeholder="예: 회사 지정 휴일 대체"></div>
+            <input type="text" class="form-control form-control-sm" id="lvBulkReason" name="reason" maxlength="200" placeholder="예: 연말 정정"></div>
         </div>
         <div class="gw-table-wrap">
           <table class="gw-table gw-lv-bulk-table">

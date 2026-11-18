@@ -443,3 +443,94 @@ def annotate(summary: dict, user: dict, today: Optional[date] = None) -> dict:
         if r and r.get('replaces'):
             e['change_of'] = r['replaces']
     return summary
+
+
+# ── 연차 사용 촉진(11-18) ─────────────────────────────────────────────
+def promotions_for(user: dict) -> list:
+    """내 휴가 — 끝나지 않은 촉진(촉구 문서·계획 단추·지정 통보)."""
+    w = who(user)
+    if w['why'] or not w['name']:
+        return []
+    from dashboard.services import leave_promo as lp
+    return lp.for_person(w['name'])
+
+
+def promo_ack(user: dict, pid: int) -> Optional[str]:
+    _p, sid, why = _person_and_sid(user or {})
+    if why:
+        return why
+    from dashboard.services import leave_promo as lp
+    return lp.ack(int(pid), sid) or None
+
+
+def promo_plan(user: dict, pid: int, data: dict) -> Tuple[Optional[dict], str]:
+    """사용 계획 — 날짜마다 휴가 신청(승인 대기)으로 들어가고 승인자 카드·경영지원 알림."""
+    _p, sid, why = _person_and_sid(user or {})
+    if why:
+        return None, why
+    from dashboard.services import leave_promo as lp
+    rec, made, err = lp.submit_plan(int(pid), sid, (data or {}).get('items') or [])
+    if err:
+        return None, err
+
+    def _bg():
+        try:
+            from dashboard.blueprints import slack_leave
+            for row in made:
+                slack_leave.start(lv.get(row['id']))
+            slack_leave.promo_notify('planned', rec)
+        except Exception as exc:
+            logger.error(f'{_LOG} 촉진 계획 알림 실패 (#{pid}): {exc}', exc_info=True, extra={'force_alert': True})
+    _run_bg(_bg)
+    return rec, ''
+
+
+def promo_list(user: dict) -> Dict:
+    """연차 촉진 탭 — 기록(플렉스 포함)·오늘 보낼 사람·경영지원 여부."""
+    from dashboard.services import leave_promo as lp
+    rows = [lp.view(r) for r in lp.records()]
+    return {'rows': rows, 'candidates': lp.candidates(include_missed=True), 'can_manage': bool(manager_sid(user)),
+            'auto': lp.auto(), 'enabled': lv.enabled()}
+
+
+def promo_send(user: dict, data: dict) -> Tuple[Optional[dict], str]:
+    sid = manager_sid(user)
+    if not sid:
+        return None, '경영지원만 보낼 수 있어요.'
+    from dashboard.services import leave_promo as lp
+    data = data or {}
+    rec, err = lp.send_notice(str(data.get('name') or ''), str(data.get('kind') or ''), str(data.get('grant_to') or ''),
+                              actor=_actor(user, sid), uid=sid)
+    if err:
+        return None, err
+
+    def _bg():
+        try:
+            from dashboard.blueprints import slack_leave
+            slack_leave.promo_notify('notice', rec)
+        except Exception as exc:
+            logger.error(f'{_LOG} 촉구 알림 실패 (#{rec["id"]}): {exc}', exc_info=True, extra={'force_alert': True})
+    _run_bg(_bg)
+    return rec, ''
+
+
+def promo_designate(user: dict, pid: int, data: dict) -> Tuple[Optional[dict], str]:
+    sid = manager_sid(user)
+    if not sid:
+        return None, '경영지원만 지정할 수 있어요.'
+    from dashboard.services import leave_promo as lp
+    actor = _actor(user, sid)
+    rec, made, err = lp.designate(int(pid), sid, actor, (data or {}).get('items') or [])
+    if err:
+        return None, err
+
+    def _bg():
+        try:
+            from dashboard.blueprints import slack_leave
+            for row in made:
+                slack_leave.after_admin_register(lv.get(row['id']), sid)
+            slack_leave.promo_notify('designated', rec)
+        except Exception as exc:
+            logger.error(f'{_LOG} 지정 통보 실패 (#{pid}): {exc}', exc_info=True, extra={'force_alert': True})
+    _run_bg(_bg)
+    return rec, ''

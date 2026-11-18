@@ -105,3 +105,81 @@ def test_monthly_api_self_and_others(client, mgr):
     assert client.get(f'/api/leave/monthly?pid={other_pid}').status_code == 403
     _as(client, ADMIN)
     assert client.get(f'/api/leave/monthly?pid={_pid("박민우")}&year=2026').get_json()['success']
+
+
+# ── 연차 사용 촉진 ───────────────────────────────────────────────────
+import pytest  # noqa: E402
+
+
+@pytest.fixture
+def lp(mgr, monkeypatch):
+    from dashboard.services import leave_promo
+    monkeypatch.setattr(leave_promo, '_ready', False)
+    return leave_promo
+
+
+def test_promo_send_ack_plan_designate_web(client, mgr, lp):
+    from dashboard.blueprints import slack_leave
+    from tests.unit.test_gw_leave_apply import JW
+    to = next(g['valid_to'] for g in lv.grants('박민우'))
+    _as(client, STAFF)
+    assert client.get('/api/leave/promotions').status_code == 403
+    r = client.post('/api/leave/promotions/send', json={'name': '박민우', 'kind': 'annual', 'grant_to': to})
+    assert r.status_code == 400 and '경영지원만' in r.get_json()['message']
+    _as(client, ADMIN)
+    mgr.posts.clear()
+    j = client.post('/api/leave/promotions/send', json={'name': '박민우', 'kind': 'annual', 'grant_to': to}).get_json()
+    assert j['success']
+    pid = j['id']
+    dm = mgr.to('UMW')[-1]
+    assert '연차 사용 촉진' in dm['text']
+    ids = [e['action_id'] for b in dm['blocks'] if b['type'] == 'actions' for e in b['elements']]
+    assert slack_leave.A_PROMO_ACK in ids
+    again = client.post('/api/leave/promotions/send', json={'name': '박민우', 'kind': 'annual', 'grant_to': to}).get_json()
+    assert not again['success'] and '이미' in again['message']
+    lst = client.get('/api/leave/promotions').get_json()
+    assert lst['can_manage'] and lst['rows'][0]['state'] == 'wait_plan'
+    # 직원: 내 휴가에 촉구 문서 → 받았어요 → 계획
+    _as(client, STAFF)
+    promos = client.get('/api/leave/me').get_json()['leave']['promotions']
+    assert promos[0]['id'] == pid and '근로기준법 제61조' in promos[0]['notice_text'] and promos[0]['can_plan']
+    assert client.post(f'/api/leave/promotions/{pid}/ack').get_json()['success']
+    d1, d2 = _next_workday(5), _next_workday(6)
+    mgr.posts.clear()
+    j = client.post(f'/api/leave/promotions/{pid}/plan',
+                    json={'items': [{'date': d1.isoformat()}, {'date': d2.isoformat(), 'half': 'pm'}]}).get_json()
+    assert j['success']
+    assert mgr.to(JW)                                                  # 계획 날짜는 보통 신청 → 승인자 카드
+    assert any('사용 계획을 냈어요' in p['text'] for p in mgr.to('UKIKO'))
+    rec = lp.get(pid)
+    assert rec['status'] == lp.PLANNED and rec['ack_at'] and len(rec['plan_rids']) == 2
+    # 경영지원 지정은 계획 기한 뒤에만
+    _as(client, ADMIN)
+    r = client.post(f'/api/leave/promotions/{pid}/designate', json={'items': [{'date': _next_workday(8).isoformat()}]})
+    assert r.status_code == 400 and '계획 기한' in r.get_json()['message']
+    with lv._conn() as c:
+        c.execute("UPDATE leave_promotions SET plan_due='2000-01-01' WHERE id=?", (pid,))
+    mgr.posts.clear()
+    d3 = _next_workday(9)
+    j = client.post(f'/api/leave/promotions/{pid}/designate', json={'items': [{'date': d3.isoformat()}]}).get_json()
+    assert j['success']
+    assert any('사용 시기 지정 통보' in p['text'] for p in mgr.to('UMW'))
+    rec = lp.get(pid)
+    assert rec['status'] == lp.DESIGNATED and lv.get(rec['designated_rids'][0])['status'] == lv.APPROVED
+
+
+def test_promo_daily_auto_and_manager_summary(slack, mgr, lp, monkeypatch):
+    from datetime import timedelta
+    from dashboard.blueprints import slack_leave
+    monkeypatch.setenv('LEAVE_ENABLED', 'true')
+    to = lv._d(next(g['valid_to'] for g in lv.grants('박민우')))
+    day = lp.schedule(lp.ANNUAL, to)['notice_from'] + timedelta(days=1)
+    mgr.posts.clear()
+    out = slack_leave.run_promotion(day)
+    names = sorted(r['name'] for r in out['sent'])
+    assert '박민우' in names
+    assert any('연차 사용 촉진 안내' in p['text'] for p in mgr.to('UMW'))
+    assert any('오늘 촉구를 보냈어요' in p['text'] for p in mgr.to('UKIKO'))
+    monkeypatch.setenv('LEAVE_PROMOTION_AUTO', 'false')
+    lp_out = lp.daily(day)
+    assert lp_out['sent'] == []

@@ -162,3 +162,96 @@ def test_manager_registered_admin_leave_still_manager_only(db):
     assert errs == {} and lv.manager_registered(r)
     assert not lv.can_act('cancel', r, MW, TODAY) and lv.own_edit_mode(r, MW, TODAY) == ''
     assert lv.can_act('cancel', r, SB, TODAY)
+
+
+# ── 5. 연차 사용 촉진 ────────────────────────────────────────────────
+@pytest.fixture
+def promo(db, monkeypatch):
+    from dashboard.services import leave_promo as lp
+    monkeypatch.setattr(lp, '_ready', False)
+    monkeypatch.setenv('LEAVE_ENABLED', 'true')
+    return lp
+
+
+def test_promo_schedule_matches_law_and_flex(promo):
+    s = promo.schedule(promo.ANNUAL, date(2027, 1, 31))           # 김영숙: 플렉스 촉구 8/10, 지정 기한 12/1
+    assert (s['notice_from'], s['notice_to'], s['designate_due']) == (date(2026, 8, 1), date(2026, 8, 10), date(2026, 12, 1))
+    s = promo.schedule(promo.FIRST, date(2027, 5, 9))               # 1년 미만: 3개월 전·1개월 전
+    assert (s['notice_from'], s['designate_due']) == (date(2027, 2, 10), date(2027, 4, 10))
+    s = promo.schedule(promo.FIRST_LATE, date(2027, 5, 9))          # 촉구 뒤 생긴 월차: 1개월 전 5일 안, 10일 전
+    assert (s['notice_from'], s['notice_to'], s['designate_due']) == (date(2027, 4, 10), date(2027, 4, 14), date(2027, 4, 30))
+
+
+def test_promo_daily_sends_in_window_then_plan(promo):
+    # 박민우 플렉스 잔여 5일, 2027-02-02 소멸 → 촉구 기간 2026-08-03 ~ 08-12 (이미 지남)
+    assert promo.candidates(TODAY) == []
+    missed = promo.candidates(TODAY, include_missed=True)
+    assert [(c['name'], c['missed']) for c in missed if c['name'] == '박민우'] == [('박민우', True)]
+    # 김태현 2027-05-09 소멸 → 2026-11-10 ~ 11-19 (오늘 12/3 이면 지남), 11/15 에 돌리면 보냄
+    sent = []
+    out = promo.daily(date(2026, 11, 16), notify=lambda k, p: sent.append(k))
+    names = [r['name'] for r in out['sent']]
+    assert names == ['김태현'] and sent[0] == 'notice' and 'managers' in sent
+    rec = out['sent'][0]
+    assert rec['days'] == 3 and rec['plan_due'] == '2026-11-26' and rec['designate_due'] == '2027-03-10'
+    assert '근로기준법 제61조' in promo.notice_text(rec) and '11월 26일까지' in promo.notice_text(rec)
+    assert promo.daily(date(2026, 11, 17))['sent'] == []            # 한 번만
+    # 본인 확인·계획: 이어진 날은 한 신청으로, 반차 따로
+    assert promo.ack(rec['id'], MW) != '' and promo.ack(rec['id'], TH) == ''
+    _, _, err = promo.submit_plan(rec['id'], TH, [{'date': '2026-12-11'}, {'date': '2026-12-14'},
+                                                  {'date': '2026-12-15'}, {'date': '2026-12-16', 'half': 'am'}],
+                                  today=date(2026, 11, 18))
+    assert '3일이라 3.5일' in err
+    r, made, err = promo.submit_plan(rec['id'], TH, [{'date': '2026-12-11'}, {'date': '2026-12-14'},
+                                                     {'date': '2026-12-16', 'half': 'am'}], today=date(2026, 11, 18))
+    assert err == '' and len(made) == 2 and made[0]['days'] == 2 and made[1]['ltype'] == lv.HALF_AM   # 금·월은 한 신청
+    assert all(m['status'] == lv.WAIT_1 and m['reason'] == promo.PLAN_REASON for m in made)
+    assert promo.get(rec['id'])['ack_at'] and promo.state(r, date(2026, 11, 18))['key'] == 'planned'
+    _, _, err = promo.submit_plan(rec['id'], TH, [{'date': '2026-12-21'}], today=date(2026, 11, 18))
+    assert '0.5일이라 1일' in err
+
+
+def test_promo_designate_after_plan_due(promo):
+    rec, err = promo.send_notice('박민우', promo.ANNUAL, '2027-02-02', today=date(2026, 11, 20))
+    assert err == '' and rec['days'] == 5
+    _, _, err = promo.designate(rec['id'], SB, '황샛별', [{'date': '2026-12-07'}], today=date(2026, 11, 25))
+    assert '계획 기한' in err
+    assert promo.state(rec, date(2026, 12, 3))['key'] == 'need_designate'
+    _, _, err = promo.designate(rec['id'], MW, '박민우', [{'date': '2026-12-07'}], today=TODAY)
+    assert '경영지원만' in err
+    _, _, err = promo.designate(rec['id'], SB, '황샛별', [{'date': '2026-12-12'}], today=TODAY)
+    assert '쉬는 날' in err
+    r, made, err = promo.designate(rec['id'], SB, '황샛별', [{'date': d} for d in
+                                   ('2026-12-07', '2026-12-08', '2026-12-09', '2026-12-10', '2026-12-11')], today=TODAY)
+    assert err == '' and len(made) == 1 and made[0]['status'] == lv.APPROVED and made[0]['days'] == 5
+    assert r['status'] == promo.DESIGNATED and promo.period_left('박민우', '2027-02-02') == 0
+    assert '12월 7일 (월)' in promo.designate_text(r) and '출근하지 않으셔도' in promo.designate_text(r)
+    assert promo.state(r, TODAY)['key'] == 'designated'
+
+
+def test_promo_import_flex(promo, tmp_path):
+    import json
+    p = tmp_path / 'flex.json'
+    p.write_text(json.dumps({'users': {'U1': '박민우', 'U2': '김태현'}, 'docs': [
+        {'u': 'U1', 'task': 't1', 'to': '2027-02-02', 'boostedAt': '2026-08-11T23:00:00', 'days': 8,
+         'status': 'SHOULD_MANAGER_WRITE', 'userBy': '2026-08-22', 'mgrBy': '2026-12-03', 'planned': [], 'canceled': False},
+        {'u': 'U2', 'task': 't2', 'to': '2027-05-09', 'boostedAt': '2026-11-09T23:00:00', 'days': 3,
+         'status': 'PENDING_APPROVAL', 'approval': 'ONGOING', 'userBy': '2026-11-20', 'mgrBy': '2027-03-09',
+         'planned': ['2027-01-05', '2026-12-30'], 'writtenAt': 1793404036000, 'canceled': False},
+        {'u': 'U2', 'task': 't0', 'to': '2027-05-09', 'boostedAt': '2026-11-01T23:00:00', 'days': 3,
+         'status': 'CANCELED', 'userBy': '2026-11-12', 'mgrBy': '2027-03-09', 'planned': [], 'canceled': True},
+    ]}, ensure_ascii=False), encoding='utf-8')
+    rows = promo.import_flex(str(p))
+    assert [(r['name'], r['status'], r['source']) for r in rows] == [('김태현', 'planned', 'flex:t2'),
+                                                                     ('박민우', 'noticed', 'flex:t1')]
+    assert rows[1]['noticed_at'] == '2026-08-12 08:00:00'          # UTC 23시 → 한국 다음 날 8시
+    promo.import_flex(str(p), apply=True)
+    promo.import_flex(str(p), apply=True)                            # 두 번 넣어도 한 번
+    recs = promo.records()
+    assert len(recs) == 2
+    mw = next(r for r in recs if r['name'] == '박민우')
+    assert promo.state(mw, TODAY)['key'] == 'need_designate'         # 12/3 까지 지정
+    kt = next(r for r in recs if r['name'] == '김태현')
+    assert promo.state(kt, TODAY)['key'] == 'planned' and [d['date'] for d in kt['plan_dates']] == ['2026-12-30', '2027-01-05']
+    # 플렉스 기록이 있으면 같은 기간 촉구를 또 보내지 않음
+    assert all(c['name'] != '김태현' for c in promo.candidates(date(2026, 11, 16)))

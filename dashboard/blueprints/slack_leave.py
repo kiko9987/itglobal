@@ -752,6 +752,28 @@ def register_leave_handlers(app) -> None:
         except Exception as exc:
             logger.error(f'{_LOG} 그룹웨어 창 바꾸기 실패: {exc}', exc_info=True)
 
+    @app.action(A_PROMO_ACK)
+    def handle_promo_ack(ack, body, client):
+        """촉구 DM [✅ 받았어요] — 받은 시각을 남기고 버튼 자리를 '받음'으로."""
+        ack()
+        uid = (body.get('user') or {}).get('id', '')
+        try:
+            pid = int(((body.get('actions') or [{}])[0]).get('value') or 0)
+        except (TypeError, ValueError):
+            return
+        from dashboard.services import leave_promo as lp
+        msg = lp.ack(pid, uid)
+        rec = lp.get(pid)
+        ch = (body.get('channel') or {}).get('id')
+        ts = (body.get('message') or {}).get('ts')
+        if msg or not rec or not ch or not ts:
+            return
+        try:
+            client.chat_update(channel=ch, ts=ts, text=promo_notice_fallback(rec),
+                               blocks=promo_notice_blocks(rec, acked=True, uid=uid))
+        except Exception as exc:
+            logger.warning(f'{_LOG} 촉구 받음 표시 실패 (#{pid}): {exc}')
+
     @app.action(A_GW_LINK_OPEN)
     def handle_gw_link_open(ack):
         """링크 버튼(url) 누름 — 슬랙이 알림만 보내므로 받기만 한다."""
@@ -765,6 +787,112 @@ def register_leave_handlers(app) -> None:
             client.views_publish(user_id=event['user'], view=home_view(event['user']))
         except Exception as exc:
             logger.error(f'{_LOG} 홈 탭 게시 실패: {exc}', exc_info=True)
+
+
+# ── 연차 사용 촉진(11-18) — 서면 촉구·지정 통보·경영지원 요약 ─────────────────────
+A_PROMO_ACK = 'leave_promo_ack'
+
+
+def promo_notice_fallback(rec: dict) -> str:
+    return f"📮 연차 사용 촉진 안내 — 안 쓴 연차 {lv.fmt_days(rec['days'])}"
+
+
+def _gw_button(uid: str) -> dict:
+    """그룹웨어로 가는 버튼 — 회사 구글 계정이 없는 현장·미화 직원은 1회용 링크 창, 나머지는 주소."""
+    if uid and _gw_link_ok(uid):
+        return {'type': 'button', 'action_id': A_GW_LINK, 'text': _plain('🔑 그룹웨어 열기')}
+    from dashboard.services import gw_login
+    return {'type': 'button', 'action_id': A_GW_LINK_OPEN, 'text': _plain('그룹웨어 내 휴가'),
+            'url': f'{gw_login.public_url()}/leave'}
+
+
+def promo_notice_blocks(rec: dict, acked: bool = False, uid: str = '') -> list:
+    from dashboard.services import leave_promo as lp
+    blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text':
+               '📮 *연차 사용 촉진 안내* (근로기준법 제61조)\n' + lp.notice_text(rec)}}]
+    els = [_gw_button(uid or rec.get('slack_id') or '')]
+    if acked or rec.get('ack_at'):
+        blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
+                       f"✅ 받음 ({(rec.get('ack_at') or '')[:16] or '방금'})"}]})
+    else:
+        els.insert(0, {'type': 'button', 'action_id': A_PROMO_ACK, 'style': 'primary', 'value': str(rec['id']),
+                       'text': _plain('✅ 받았어요')})
+    blocks.append({'type': 'actions', 'block_id': f"promo_{rec['id']}", 'elements': els})
+    return blocks
+
+
+def _dm_blocks(client, uid: str, text: str, blocks: list) -> bool:
+    if not client or not uid:
+        return False
+    try:
+        ch = client.conversations_open(users=uid)['channel']['id']
+        client.chat_postMessage(channel=ch, text=text, blocks=blocks)
+        return True
+    except Exception as exc:
+        logger.warning(f'{_LOG} 촉진 DM 실패 ({uid}): {exc}')
+        return False
+
+
+def _promo_line(v: dict) -> str:
+    return f"• {v['name']} — {v.get('kind_label') or '연차'} {lv.fmt_days(v.get('left', v.get('days', 0)))} ({v.get('state_label') or ''})"
+
+
+def promo_notify(kind: str, payload) -> None:
+    """leave_promo.daily·그룹웨어에서 부르는 슬랙 알림. kind: notice·remind_plan·designated·planned·managers."""
+    client = _client()
+    if not client:
+        return
+    from dashboard.services import leave_promo as lp
+    if kind == 'notice':
+        rec = payload
+        if not _dm_blocks(client, rec.get('slack_id') or '', promo_notice_fallback(rec), promo_notice_blocks(rec)):
+            logger.error(f"{_LOG} 촉구 DM 을 못 보냄 — {rec['name']} (#{rec['id']}). 그룹웨어 내 휴가에는 보여요",
+                         extra={'force_alert': True})
+    elif kind == 'remind_plan':
+        rec = payload
+        _notify(client, rec.get('slack_id') or '',
+                f"📮 연차 사용 계획 기한이 이틀 남았어요({lv.kdate(lv._d(rec['plan_due']))}까지). "
+                '그룹웨어 [내 휴가]에서 [사용 계획 내기]를 눌러 쓸 날짜를 알려 주세요.')
+    elif kind == 'designated':
+        rec = payload
+        _dm_blocks(client, rec.get('slack_id') or '', '📮 연차 사용 시기 지정 통보',
+                   [{'type': 'section', 'text': {'type': 'mrkdwn', 'text':
+                     '📮 *연차 사용 시기 지정 통보* (근로기준법 제61조)\n' + lp.designate_text(rec)}}])
+    elif kind == 'planned':
+        rec = payload
+        dates = ', '.join(lp._when(d) for d in rec.get('plan_dates') or [])
+        for u in lv.manager_ids():
+            _notify(client, u, f"📮 {rec['name']} 님이 연차 사용 계획을 냈어요: {dates}. 날짜마다 휴가 신청으로 들어가 승인을 기다려요.")
+    elif kind == 'managers':
+        out = payload
+        parts = []
+        if out.get('sent'):
+            parts.append('*오늘 촉구를 보냈어요*\n' + '\n'.join(
+                f"• {r['name']} — 안 쓴 연차 {lv.fmt_days(r['days'])}, 계획 기한 {lv.kdate(lv._d(r['plan_due']))}"
+                for r in out['sent']))
+        if out.get('due'):
+            parts.append('*촉구를 보내야 해요* (자동 보내기 꺼짐)\n' + '\n'.join(
+                f"• {c['name']} — 안 쓴 연차 {lv.fmt_days(c['left'])}, {lv.kdate(lv._d(c['notice_to']))}까지 보내야 해요"
+                for c in out['due']))
+        if out.get('need_designate'):
+            parts.append('*사용일을 지정해야 해요*\n' + '\n'.join(_promo_line(v) for v in out['need_designate']))
+        if out.get('late'):
+            parts.append('*지정 기한이 지났어요* — 노무 확인이 필요해요\n' + '\n'.join(_promo_line(v) for v in out['late']))
+        if not parts:
+            return
+        text = '📮 *연차 사용 촉진*\n' + '\n\n'.join(parts) + '\n그룹웨어 [휴가 전사 현황 → 연차 촉진]에서 처리해요.'
+        for u in lv.manager_ids():
+            _notify(client, u, text)
+
+
+def run_promotion(today: Optional[date] = None) -> dict:
+    """매일 아침 — 연차 사용 촉진(leave_promo.daily) + 슬랙 알림."""
+    from dashboard.services import leave_promo as lp
+    out = lp.daily(today, notify=promo_notify)
+    if out['sent'] or out['due'] or out['need_designate'] or out['late']:
+        logger.info(f"{_LOG} 연차 촉진: 보냄 {len(out['sent'])} · 보낼 것 {len(out['due'])} · "
+                    f"지정 필요 {len(out['need_designate'])} · 기한 지남 {len(out['late'])}")
+    return out
 
 
 def run_accrual(today: Optional[date] = None) -> int:

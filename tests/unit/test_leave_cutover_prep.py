@@ -24,6 +24,7 @@ def db(tmp_path, monkeypatch):
     monkeypatch.setattr(lv, '_table_ready', False)
     monkeypatch.delenv('LEAVE_APPROVER_IDS', raising=False)
     monkeypatch.setattr(imp, 'SNAPSHOT', [('김태현', KTH, '2022-05-23', 7)])
+    monkeypatch.setattr(imp, 'FLEX_DIR', tmp_path)          # 진짜 플렉스 폴더(촉진 기록 JSON)를 읽지 않게
     with d._get_connection() as conn:
         conn.execute('''CREATE TABLE IF NOT EXISTS gw_leave_history (flex_event_id TEXT PRIMARY KEY, person_id INTEGER,
             name TEXT NOT NULL, type_label TEXT, start TEXT NOT NULL, "end" TEXT, days REAL, unit TEXT, status TEXT,
@@ -131,6 +132,24 @@ def test_cancelled_in_flex_after_move_is_flagged(db, capsys):
     capsys.readouterr()
     assert _run() == 0
     assert '플렉스에선 지금 취소 승인' in capsys.readouterr().out
+
+
+
+def test_apply_imports_flex_promotions(db, tmp_path, capsys):
+    import json
+    (tmp_path / '원본').mkdir()
+    (tmp_path / '원본' / 'flex_promotion_20261202.json').write_text(json.dumps({'users': {'U1': '김태현'}, 'docs': [
+        {'u': 'U1', 'task': 'tk', 'to': '2027-05-22', 'boostedAt': '2026-11-22T23:00:00', 'days': 7,
+         'status': 'SHOULD_USER_WRITE', 'userBy': '2026-12-03', 'mgrBy': '2027-03-23', 'planned': [], 'canceled': False}]},
+        ensure_ascii=False), encoding='utf-8')
+    assert _run('--apply') == 0
+    out = capsys.readouterr().out
+    assert '④ 연차 촉진 기록 ← flex_promotion_20261202.json' in out and '김태현 ~2027-05-22 촉구 2026-11-23' in out
+    from dashboard.services import leave_promo as lp
+    recs = lp.records('김태현')
+    assert len(recs) == 1 and recs[0]['source'] == 'flex:tk' and recs[0]['noticed_at'].startswith('2026-11-23 08:00')
+    assert recs[0]['status'] == lp.NOTICED                                          # 모르는 플렉스 상태 = 진행 중
+    assert all(c['name'] != '김태현' for c in lp.candidates(lv._d('2026-12-02')))   # 같은 촉구를 또 안 보냄
 
 
 if __name__ == '__main__':
