@@ -63,7 +63,7 @@ def test_license_group_is_and_inside_or_between():
 
 @pytest.mark.parametrize('kw,reason', [
     ({'arsltCmptYn': 'Y'}, '실적제한'),
-    ({'pqEvalYn': 'Y'}, 'PQ(사전심사)'),
+    ({'pqEvalYn': 'Y'}, '사전심사(PQ)'),
     ({'cntrctCnclsMthdNm': '지명경쟁'}, '지명경쟁'),
     ({'sucsfbidMthdNm': '적격심사제-추정가격이 10억원 미만 4억원 이상', 'presmptPrce': '450000000'}, '4억 이상 적격심사'),
     ({'sucsfbidMthdNm': '적격심사제-추정가격이 4억원 미만 2억원 이상', 'presmptPrce': '340000000'}, ''),
@@ -327,3 +327,14 @@ def test_bootstrap_reclassifies_existing_rows(db, monkeypatch):
     monkeypatch.setattr(g, 'collect', lambda **k: pytest.fail('표가 차 있으면 다시 모으지 않음'))
     g.maybe_bootstrap()
     assert g.list_bids(g.BLOCKED)['items'][0]['reason'] == '냉매회수업 면허 없음'
+
+
+def test_reclassify_updates_old_pq_wording(db, monkeypatch):
+    _fake_api(monkeypatch, [_item('P1', pqEvalYn='Y')], {'P1': (['경기도'], [[MECH]])})
+    g.collect()
+    with g._conn() as conn:   # 11-18 앞선 표기로 저장된 줄
+        conn.execute("UPDATE g2b_bids SET hard_reason='PQ(사전심사)', reason='PQ(사전심사) 있음' WHERE bid_no='P1'")
+    g.reclassify()
+    with g._conn() as conn:
+        r = conn.execute("SELECT hard_reason, reason FROM g2b_bids WHERE bid_no='P1'").fetchone()
+    assert r[0] == '사전심사(PQ)' and '사전심사(PQ) 있음' in r[1]

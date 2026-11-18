@@ -13,7 +13,7 @@
 - 면허: 나라장터 면허제한은 같은 묶음(lmtGrpNo) 안 면허를 모두 가져야 하고, 묶음끼리는 하나만 맞으면 된다.
   보유 면허 = G2B_LICENSES(기본 기계설비ㆍ가스공사업). 냉매회수업은 준비 중(G2B_LICENSES_PLANNED) —
   그것만 없어서 못 들어가는 공고는 '면허만 없음'으로 따로 보여 준다.
-- 신규 면허라 까다로운 조건 제외: 실적제한·PQ·지명경쟁, 추정가격 4억 이상 적격심사.
+- 신규 면허라 까다로운 조건 제외: 실적제한·사전심사(PQ)·지명경쟁, 추정가격 4억 이상 적격심사.
 
 API 메모: 조회기간 최대 7일(26-11-10 축소), 개발계정 오퍼레이션당 하루 1,000건.
 참가가능지역·면허제한 조회는 inqryDiv=2 + bidNtceNo + bidNtceOrd 셋 다 있어야 한다(ord 빠지면 08 에러).
@@ -183,7 +183,7 @@ def hard_reason(item: dict) -> str:
     if (item.get('arsltCmptYn') or '') == 'Y':
         return '실적제한'
     if (item.get('pqEvalYn') or '') == 'Y':
-        return 'PQ(사전심사)'
+        return '사전심사(PQ)'   # 11-18 부장님: PQ 만으론 뜻을 몰라 우리말 먼저
     if (item.get('dsgntCmptYn') or '') == 'Y' or '지명' in (item.get('cntrctCnclsMthdNm') or ''):
         return '지명경쟁'
     method = item.get('sucsfbidMthdNm') or ''
@@ -202,7 +202,7 @@ def classify(item: dict, regions: List[str], groups: List[List[str]],
     if regions and not region_ok(regions):      # 지역 제한 없는 전국 공고는 들어갈 수 있다(11-18)
         reasons.append('김포 업체 참가 불가(지역 제한)')
     if hard:
-        reasons.append(f'{hard} 있음' if hard in ('실적제한', 'PQ(사전심사)') else hard)
+        reasons.append(f'{hard} 있음' if hard in ('실적제한', '사전심사(PQ)') else hard)
     title = item.get('bidNtceNm') or ''
     if not groups:   # 면허 제한이 없다고 아무나 되는 게 아님 — 전기·통신·소방 공사는 그 업 등록이 있어야
         need = next((lic for word, lic in ELEC_WORDS if word in title), '')
@@ -452,14 +452,15 @@ def reclassify() -> int:
         rows = [dict(r) for r in conn.execute('SELECT * FROM g2b_bids').fetchall()]
         for r in rows:
             item = {'arsltCmptYn': 'Y' if r['hard_reason'] == '실적제한' else 'N',
-                    'pqEvalYn': 'Y' if r['hard_reason'].startswith('PQ') else 'N',
+                    'pqEvalYn': 'Y' if 'PQ' in r['hard_reason'] else 'N',   # 옛 'PQ(사전심사)'도
                     'dsgntCmptYn': 'Y' if r['hard_reason'] == '지명경쟁' else 'N',
                     'cntrctCnclsMthdNm': r['contract_method'], 'sucsfbidMthdNm': r['award_method'],
                     'presmptPrce': r['price'], 'bidNtceNm': r['title']}
             c = classify(item, json.loads(r['regions']), json.loads(r['license_groups']), held, planned)
-            if c['category'] != r['category'] or c['reason'] != r['reason']:
-                conn.execute('UPDATE g2b_bids SET category=?, reason=?, missing_licenses=? WHERE bid_no=?',
-                             (c['category'], c['reason'], ', '.join(c['missing']), r['bid_no']))
+            hr = hard_reason(item)
+            if c['category'] != r['category'] or c['reason'] != r['reason'] or hr != r['hard_reason']:
+                conn.execute('UPDATE g2b_bids SET category=?, reason=?, missing_licenses=?, hard_reason=? WHERE bid_no=?',
+                             (c['category'], c['reason'], ', '.join(c['missing']), hr, r['bid_no']))
                 n += 1
     return n
 

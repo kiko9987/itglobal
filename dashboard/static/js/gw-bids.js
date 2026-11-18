@@ -123,7 +123,7 @@
       : chk(false, '면허', '<b>' + esc(it.missing || '우리 면허로 안 됨') + (it.missing ? ' 없음' : '') + '</b> — ' + esc(lic) +
           (lic.indexOf('+') > -1 ? ' 모두 있어야 해요' : ''));
     checks += it.hard_reason ? chk(false, '참가 조건', esc(it.hard_reason))
-      : chk(true, '참가 조건', '실적제한·PQ 없음 · ' + esc(it.award_method || it.contract_method));
+      : chk(true, '참가 조건', '실적제한·사전심사(PQ) 없음 · ' + esc(it.award_method || it.contract_method));
     if (d.briefing_at) {
       checks += chk(past(d.briefing_at) ? false : null, '현장설명회',
         '<b>' + full(d.briefing_at) + '</b>' + (d.briefing_place ? ' · ' + esc(d.briefing_place) : '') +
@@ -204,7 +204,7 @@
       $('bdCntEligible').textContent = j.counts.eligible;
       $('bdCntBlocked').textContent = j.counts.blocked;
       $('bdRule').textContent = '나라장터 냉난방 관련 공사 공고를 모았어요. 입찰 가능 기준: 참가가능지역 제한 없음(전국) 또는 경기도·김포시 포함, ' +
-        '지금 면허(' + (j.held || []).join(', ') + ')로 참가 가능, 실적제한·PQ·지명경쟁·4억 이상 적격심사 없음.' +
+        '지금 면허(' + (j.held || []).join(', ') + ')로 참가 가능, 실적제한·사전심사(PQ)·지명경쟁·4억 이상 적격심사 없음.' +
         (j.planned && j.planned.length ? ' 준비 중인 면허: ' + j.planned.join(', ') + '.' : '');
       state.held = j.held || [];
       var rows = j.items || [];
