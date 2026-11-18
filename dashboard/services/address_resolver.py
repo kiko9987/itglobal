@@ -1946,8 +1946,10 @@ def _enrich_verified_address(
         from dashboard.services.lead_helpers import _mask_stop_exempt
         _ptoks = _phrase.split()
         for _pi, _pt in enumerate(_ptoks):
+            # '예정'은 홀로 쓴 낱말('설치 예정')만 절단 — '예정지'·'○○예정'은 장소 표시라
+            #   _mark_planned 가 '(예정)'으로 바꿈 (2026-11-19 L-04599 '용인스크린 예정지'의 '예정지'가 잘림)
             if any(_sw in _mask_stop_exempt(_pt) for _sw in _TAIL_STOP_WORDS
-                   if _sw != '사무실' and not (_sw == '예정' and not _pt.startswith('예정'))):
+                   if _sw != '사무실' and not (_sw == '예정' and _pt != '예정')):
                 _ptoks = _ptoks[:_pi]
                 break
         _phrase = ' '.join(_ptoks)
