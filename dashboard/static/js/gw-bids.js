@@ -66,7 +66,7 @@
       (it.mark ? '<div class="gw-bd-by">' + esc(it.mark_by) + ' · ' + esc(when(it.mark_at)) + '</div>' : '');
     var close = '<span class="' + (it.closed ? 'gw-bd-closed-t' : (soon(it.close_at) ? 'gw-bd-soon' : '')) + '">' +
       esc(when(it.close_at)) + '</span>' + (it.closed ? '<div class="gw-bd-sub">마감</div>' : '');
-    var title = '<div class="gw-bd-title">' + (it.is_new ? '<span class="gw-badge gw-badge-new">새</span> ' : '') +
+    var title = '<div class="gw-bd-title">' + (it.is_new ? '<span class="gw-badge gw-badge-new">New</span> ' : '') +
       esc(it.title) + '</div><div class="gw-bd-sub">' + esc(it.demand_org || it.org) +
       (it.contact ? ' · 담당 ' + esc(it.contact) : '') + '</div>';
     var bAt = (it.detail || {}).briefing_at;   // 현장설명회 — 놓치면 못 들어가는 공고가 있어 줄에서 바로 보이게
