@@ -235,6 +235,27 @@ def test_digest_only_when_new_eligible_and_once(db, monkeypatch):
     assert len(sent) == 1
 
 
+def test_briefing_in_detail_and_digest(db, monkeypatch):
+    sent = []
+    monkeypatch.setattr(g, '_post_slack', lambda ch, text: sent.append(text) or True)
+    soon_ = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d 14:00:00')
+    _fake_api(monkeypatch, [_item('A1', dcmtgOprtnDt=soon_, dcmtgOprtnPlce='본관 2층 대회의실'),
+                            _item('A2', title='설명회 없음')],
+              {'A1': (['경기도'], [[MECH]]), 'A2': (['경기도'], [[MECH]])})
+    g.collect()
+    d = {x['bid_no']: x['detail'] for x in g.list_bids()['items']}
+    assert d['A1']['briefing_at'] == soon_[:16] and d['A1']['briefing_place'] == '본관 2층 대회의실'
+    assert d['A2']['briefing_at'] == ''
+    g.send_morning_digest(force=True)
+    assert sent[0].count('현장설명회') == 1 and '본관 2층 대회의실' in sent[0] and '이미 지났어요' not in sent[0]
+
+
+def test_briefing_line_says_when_passed():
+    past = (datetime.now() - timedelta(hours=2)).strftime('%Y-%m-%d %H:%M:%S')
+    line = g._briefing_line({'raw': json.dumps({'dcmtgOprtnDt': past})})
+    assert '이미 지났어요' in line
+
+
 def test_digest_skips_weekend(db):
     from datetime import date
     assert g.send_morning_digest(today=date(2026, 11, 21)) == {'skipped': '영업일 아님'}   # 토요일

@@ -69,6 +69,12 @@
     var title = '<div class="gw-bd-title">' + (it.is_new ? '<span class="gw-badge gw-badge-new">새</span> ' : '') +
       esc(it.title) + '</div><div class="gw-bd-sub">' + esc(it.demand_org || it.org) +
       (it.contact ? ' · 담당 ' + esc(it.contact) : '') + '</div>';
+    var bAt = (it.detail || {}).briefing_at;   // 현장설명회 — 놓치면 못 들어가는 공고가 있어 줄에서 바로 보이게
+    if (bAt) {
+      title += '<div class="gw-bd-brief ' + (past(bAt) ? 'gone' : (soon(bAt) ? 'soon' : '')) + '">' +
+        '<i class="fas fa-person-chalkboard me-1" aria-hidden="true"></i>현장설명회 ' + esc(when(bAt)) +
+        (past(bAt) ? ' (지남)' : '') + '</div>';
+    }
     var cond = '<div>' + esc((it.regions || []).join(', ')) + '</div><div class="gw-bd-sub">' +
       esc((it.licenses || []).join(' 또는 ') || '면허 제한 없음') + '</div>' +
       (it.missing ? '<div class="gw-bd-miss">' + esc(it.missing) + ' 필요</div>' : '');
@@ -113,6 +119,11 @@
       : chk(false, '면허', '<b>' + esc(it.missing || '면허') + ' 없음</b> — ' + esc(lic) + (lic.indexOf('+') > -1 ? ' 모두 있어야 해요' : ''));
     checks += it.hard_reason ? chk(false, '참가 조건', esc(it.hard_reason))
       : chk(true, '참가 조건', '실적제한·PQ 없음 · ' + esc(it.award_method || it.contract_method));
+    if (d.briefing_at) {
+      checks += chk(past(d.briefing_at) ? false : null, '현장설명회',
+        '<b>' + full(d.briefing_at) + '</b>' + (d.briefing_place ? ' · ' + esc(d.briefing_place) : '') +
+        (past(d.briefing_at) ? ' — 지났어요.' : '') + ' <span class="gw-bd-sub">참석이 필수인지 공고문에서 확인하세요</span>');
+    }
     if (d.qual_at) {
       checks += chk(past(d.qual_at) ? false : (soon(d.qual_at) ? null : true), '참가 등록 마감',
         '<b>' + full(d.qual_at) + '</b>' + (past(d.qual_at) ? ' — 지났어요' : '') + ' <span class="gw-bd-sub">(나라장터 입찰참가자격 등록)</span>');
@@ -132,6 +143,7 @@
       sect('일정',
         tr2('입찰 시작', full(d.begin_at), '입찰 마감', '<b>' + full(it.close_at) + '</b>') +
         tr2('참가 등록 마감', full(d.qual_at), '개찰', full(it.open_at)) +
+        tr2('현장설명회', full(d.briefing_at), '설명회 장소', esc(d.briefing_place)) +
         tr2('공고 게시', full(it.posted_at), '개찰 장소', esc(d.open_place))) +
       sect('금액·낙찰',
         tr2('추정가격', '<b>' + esc(won(it.price)) + '</b>', '배정예산', d.budget ? esc(won(d.budget)) : '') +

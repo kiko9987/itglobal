@@ -394,6 +394,8 @@ def _detail(raw: str) -> dict:
         'contact_name': t('ntceInsttOfclNm') or t('exctvNm'), 'contact_tel': t('ntceInsttOfclTelNo'),
         'contact_email': t('ntceInsttOfclEmailAdrs'),
         'std_doc_url': t('stdNtceDocUrl'),
+        # 현장설명회(11-18 용인예술과학대 — 당일에야 알았음). 참석 필수 여부는 API 에 없어 공고문 확인
+        'briefing_at': t('dcmtgOprtnDt')[:16], 'briefing_place': t('dcmtgOprtnPlce'),
     }
 
 
@@ -574,11 +576,23 @@ def format_digest(rows: List[dict], license_only: int, page_url: str) -> str:
             f"   {r['demand_org'] or r['org']} · {(r['award_method'] or r['contract_method']).split('-')[0]} · "
             f"추정가격 {_won(r['price'])}\n"
             f"   마감 {_when(r['close_at'])} · 참가가능지역: {', '.join(json.loads(r['regions']))}\n"
+            + _briefing_line(r) +
             f"   {' · '.join(links)}")
     if license_only:
         lines.append(f"\n냉매회수업 등 면허만 없어서 못 들어가는 새 공고도 {license_only}건 있어요.")
     lines.append(f"\n<{page_url}|그룹웨어에서 전체 보기>")
     return '\n'.join(lines)
+
+
+def _briefing_line(r: dict) -> str:
+    d = _detail(r.get('raw') or '')
+    at = d.get('briefing_at') or ''
+    if not at:
+        return ''
+    gone = at < datetime.now().strftime('%Y-%m-%d %H:%M')
+    place = f" · {d['briefing_place']}" if d.get('briefing_place') else ''
+    warn = ' — 이미 지났어요(참석 필수인지 공고문 확인)' if gone else ''
+    return f"   :warning: 현장설명회 {_when(at)}{place}{warn}\n"
 
 
 def _post_slack(channel: str, text: str) -> bool:
