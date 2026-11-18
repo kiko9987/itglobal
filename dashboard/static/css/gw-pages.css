@@ -2469,6 +2469,16 @@ body.gw-drawer-open {
 
 .gw-bd-acc {
   padding: 14px 18px 16px;
+  /* 펼친 칸 내용이 표 열 너비 계산에 끼지 않게(11-18 부장님 — 열면 열 위치가 바뀌던 것):
+     폭 0 으로 셈에서 빠지고, 그려질 땐 칸 폭만큼 */
+  box-sizing: border-box;
+  width: 0;
+  min-width: 100%;
+}
+
+/* 펼쳐서 페이지가 길어지면 세로 스크롤바가 생기며 표 폭이 줄던 것 — 스크롤바 자리를 늘 비워 둠 */
+html:has(#bdPage) {
+  scrollbar-gutter: stable;
 }
 
 .gw-bd-slide {
