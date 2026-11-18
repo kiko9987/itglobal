@@ -648,7 +648,7 @@
     (L.entries || []).forEach(function (e) { if (e.source === 'slack') admEntries[e.id] = e; });
     var h = '<div class="gw-lv-adm"><div class="gw-sec-head"><div class="gw-sec-title m-0">경영지원</div>' +
       '<div class="gw-lv-adm-btns"><button type="button" class="btn btn-sm btn-outline-secondary" data-adm="adjust">연차 조정</button>' +
-      '<button type="button" class="btn btn-sm btn-outline-secondary" data-adm="register">휴가 등록</button></div></div>' +
+      '<button type="button" class="btn btn-sm btn-outline-secondary" data-adm="register">대신 등록</button></div></div>' +
       '<div id="lvAdmForm"></div><div class="gw-lv-err" id="lvAdmMsg" role="alert"></div>';
     var ids = (adm.editable || []).filter(function (id) { return admEntries[id]; });
     if (ids.length) {
@@ -688,16 +688,17 @@
         admField('lvAdmReason', '사유', '<input type="text" class="form-control" id="lvAdmReason" name="reason" maxlength="200" required placeholder="예: 보상 연차, 결근 차감">');
     } else {
       var v = id ? (adm.rows || {})[String(id)] || {} : {};
-      var types = kind === 'register' ? adm.admin_types : adm.types;
+      var types = adm.types;   // 대신 등록도 모든 종류(11-18 부장님 — 본인이 급히 자리를 비운 사이 반영)
       var cur = id && admEntries[id];
       h += cur ? '<p class="gw-lv-left mb-2">고치는 휴가: <strong>' + esc(period(cur) + ' · ' + cur.type + ' · ' + days(cur.days)) + '</strong></p>'
-        : (kind === 'register' ? '<p class="gw-lv-left mb-2">배우자 출산·보상·보건처럼 경영지원이 주는 휴가를 등록해요. 연차에서 빠지지 않아요.</p>' : '');
+        : (kind === 'register' ? '<p class="gw-lv-left mb-2">본인 대신 휴가를 등록해요. 승인 없이 바로 확정되고, 연차·반차는 지금 남은 연차(<strong>' +
+          days(adm.balance || 0) + '</strong>)에서 빠져요. 지난 날짜도 등록할 수 있어요.</p>' : '');
       h += admField('lvAdmType', '휴가 종류', '<select class="form-select" id="lvAdmType" name="type">' + optList(types, v.type) + '</select>') +
         '<div id="lvAdmSubWrap" hidden>' + admField('lvAdmSub', '경조사 종류', '<select class="form-select" id="lvAdmSub" name="sub"><option value="">고르기</option>' + optList(adm.event_subs, v.sub) + '</select>') + '</div>' +
         admField('lvAdmStart', '시작일', '<input type="date" class="form-control" id="lvAdmStart" name="start" required value="' + esc(v.start || '') + '">') +
         '<div id="lvAdmEndWrap">' + admField('lvAdmEnd', '마지막 날', '<input type="date" class="form-control" id="lvAdmEnd" name="end" value="' + esc(v.end && v.end !== v.start ? v.end : '') + '">', '하루면 비워 두세요.') + '</div>' +
         admField('lvAdmReason', '사유', '<input type="text" class="form-control" id="lvAdmReason" name="reason" maxlength="200" value="' + esc(v.reason || '') + '">',
-          kind === 'register' ? '등록하면 바로 확정되고 본인에게 알림, 회사 휴가 일정에 올라가요.' : '상태는 그대로 두고 고쳐요. 본인에게 알림이 가요.');
+          kind === 'register' ? '본인·승인하는 분께 알림이 가고, 회사 휴가 일정에 올라가요.' : '상태는 그대로 두고 고쳐요. 본인에게 알림이 가요.');
     }
     h += '<div class="gw-lv-adm-actions"><button type="button" class="btn btn-sm btn-link" data-adm="close">닫기</button>' +
       '<button type="submit" class="btn btn-sm btn-primary">' + ({ adjust: '조정', register: '등록', edit: '고치기' }[kind]) + '</button></div></form>';

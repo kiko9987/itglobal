@@ -306,11 +306,19 @@ def after_adjust(name: str, grant: dict, uid: str) -> None:
 def after_admin_register(row: dict, uid: str) -> None:
     client = _client()
     actor = _eap()._name(uid)
+    what = f"{lv.period_text(row)} ({lv.type_label(row['ltype'], row.get('sub') or '')}, {lv.fmt_days(row['days'])})"
+    told = {uid}
     for u in _requester_ids(row):
-        if u != uid:
+        if u not in told:
             _send_card(client, row, u, 'requester')
-            _notify(client, u, f"🗂 경영지원({actor})이 휴가를 등록했어요: {lv.period_text(row)} "
-                               f"({lv.type_label(row['ltype'])})")
+            left = f" 남은 연차: {lv.fmt_days(lv.balance(row['name']))}" if lv.deducts(row['ltype']) else ''
+            _notify(client, u, f"🗂 경영지원({actor})이 휴가를 대신 등록했어요: {what}.{left}")
+            told.add(u)
+    # 승인 단계를 건너뛴 확정이라 승인자(JW·YG)도 알게(11-18 부장님 — 급히 자리를 비운 사이 경영지원이 반영)
+    for u in lv.approver_ids():
+        if u not in told:
+            _notify(client, u, f"🗂 경영지원({actor})이 {row['name']} 님 휴가를 등록했어요: {what}")
+            told.add(u)
     _announce(client, row)
 
 

@@ -135,7 +135,7 @@ def test_admin_register_is_approved_and_does_not_deduct(db):
     assert errs == {} and row['status'] == lv.APPROVED and row['days'] == 5
     assert lv.balance('박민우', TODAY) == 5
     assert '경영지원 등록' in lv.card_text(row, lv.steps(row['id']), 'info')
-    _, errs = lv.admin_register('박민우', lv.ANNUAL, '', date(2026, 12, 21), None, '', SB, '황샛별')
+    _, errs = lv.admin_register('박민우', 'nope', '', date(2026, 12, 21), None, '', SB, '황샛별')
     assert 'type' in errs
     _, errs = lv.admin_register('박민우', 'reward', '', date(2026, 12, 16), None, '', SB, '황샛별')
     assert '겹쳐요' in errs['start']
@@ -150,3 +150,21 @@ def test_requester_card_has_edit_button(db):
     acts = [b['action_id'] for blk in lv.card_blocks(r, lv.steps(r['id']), 'requester') if blk['type'] == 'actions'
             for b in blk['elements']]
     assert acts == [lv.A_EDIT, lv.A_CANCEL]
+
+
+def test_admin_register_annual_on_behalf_deducts(db):
+    """본인이 급히 자리를 비운 사이 경영지원이 연차·반차를 대신 등록(11-18 부장님) — 바로 확정, 그 자리에서 차감."""
+    row, errs = lv.admin_register('박민우', lv.ANNUAL, '', date(2026, 12, 2), date(2026, 12, 3), '급한 일로 조퇴 후 결근',
+                                  SB, '황샛별')                          # 지난 날짜도
+    assert errs == {} and row['status'] == lv.APPROVED and row['days'] == 2
+    assert lv.balance('박민우', TODAY) == 3
+    half, errs = lv.admin_register('박민우', lv.HALF_PM, '', date(2026, 12, 4), date(2026, 12, 9), '오후 반차', SB, '황샛별')
+    assert errs == {} and half['end'] == '2026-12-04' and half['days'] == 0.5      # 반차는 하루
+    assert lv.balance('박민우', TODAY) == 2.5
+    ev, errs = lv.admin_register('박민우', lv.EVENT, 'mourn2', date(2026, 12, 14), date(2026, 12, 16), '조부상', SB, '황샛별')
+    assert errs == {} and ev['sub'] == 'mourn2' and lv.balance('박민우', TODAY) == 2.5   # 경조사는 연차 안 빠짐
+    # 모자라면 [연차 조정]으로 먼저 — '경영지원에 문의' 같은 직원용 문구는 안 보임
+    _, errs = lv.admin_register('박민우', lv.ANNUAL, '', date(2026, 12, 21), date(2026, 12, 24), '', SB, '황샛별')
+    assert '[연차 조정]' in errs['start'] and '경영지원에 문의' not in errs['start']
+    # 대신 등록한 연차는 본인이 취소할 수 있다(관리자 부여 휴가와 다름)
+    assert lv.own_cancel_mode(row, MW, date(2026, 12, 1)) == 'all'

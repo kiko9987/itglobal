@@ -824,7 +824,7 @@ def edit_request(rid: int, ltype: str, sub: str, start: Optional[date], end: Opt
     end = start if ltype in HALF_TYPES else (end or start)
     errs = validate(row['name'], ltype, sub, start, end, exclude_id=rid, allow_admin=as_admin)
     if errs:
-        return None, errs
+        return None, (_admin_errs(errs) if as_admin else errs)
     sub = sub if ltype == EVENT else ''
     days = count_days(ltype, start, end)
     before = _what(row)
@@ -927,29 +927,45 @@ def adjustments(name: str) -> List[dict]:
                                               'ORDER BY created_at DESC, id DESC', (name,)).fetchall()]
 
 
+_ASK_MANAGER = ' 연차가 더 있어야 한다면 경영지원에 문의해 주세요.'
+
+
+def _admin_errs(errs: Dict[str, str]) -> Dict[str, str]:
+    """경영지원이 보는 오류 — '경영지원에 문의' 대신 할 일([연차 조정])로."""
+    return {k: (v.replace(_ASK_MANAGER, ' 먼저 [연차 조정]으로 늘린 뒤 다시 해 주세요.')
+                .replace(' 더 필요하면 경영지원에 문의해 주세요.', '')) for k, v in errs.items()}
+
+
 def admin_register(name: str, ltype: str, sub: str, start: Optional[date], end: Optional[date], reason: str,
                    uid: str, actor_name: str) -> Tuple[Optional[dict], Dict[str, str]]:
-    """경영지원이 관리자 부여 휴가(배우자 출산·보상·보건 등)를 바로 확정으로 등록 → (줄, {})."""
+    """경영지원이 휴가를 대신 등록 → 승인 없이 바로 확정(줄, {}).
+    - 관리자 부여 휴가(배우자 출산·보상·보건 등, 11-18 첫 판)
+    - 연차·반차·병가·경조사·군소집도(11-18 부장님: 본인이 급히 자리를 비운 사이 경영지원이 반영) — 연차·반차는
+      그 자리에서 연차를 뗀다. 지난 날짜도 된다(이미 쉰 날을 나중에 반영). 모자라면 [연차 조정]으로 먼저 늘린다."""
     if uid not in manager_ids():
         return None, {'_': '경영지원만 등록할 수 있어요.'}
     st = staff_by_name(name)
     if not st:
         return None, {'_': '휴가 명단에 없는 직원이에요.'}
-    if ltype not in dict(admin_type_options()):
+    if ltype not in dict(type_options() + admin_type_options()):
         return None, {'type': '등록할 휴가 종류를 골라 주세요.'}
-    end = end or start
-    errs = validate(name, ltype, '', start, end, allow_admin=True)
+    end = start if ltype in HALF_TYPES else (end or start)
+    sub = sub if ltype == EVENT else ''
+    errs = validate(name, ltype, sub, start, end, allow_admin=True)
     if errs:
-        return None, errs
+        return None, _admin_errs(errs)
     days = count_days(ltype, start, end)
     now = _now()
     with _conn() as conn:
         cur = conn.execute(
             'INSERT INTO leave_requests (name, slack_id, submitter_id, submitter_name, ltype, sub, start, "end", '
             'days, reason, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-            (name, st.get('slack_id') or None, uid, actor_name, ltype, None, start.isoformat(), end.isoformat(),
+            (name, st.get('slack_id') or None, uid, actor_name, ltype, sub or None, start.isoformat(), end.isoformat(),
              days, (reason or '').strip() or None, APPROVED, now, now))
         rid = cur.lastrowid
+        if deducts(ltype) and not _allocate(conn, rid, name, start, days, _alloc_until(end)):
+            conn.rollback()
+            return None, {'start': '그 사이 남은 연차가 바뀌었어요. 다시 확인해 주세요.'}
         for step, result, why in (('request', 'registered', '경영지원 등록'), ('approve_1', 'auto', '경영지원 등록'),
                                   ('approve_2', 'auto', '경영지원 등록')):
             conn.execute('INSERT INTO leave_steps (request_id, step, actor_id, actor_name, result, reason, at) '

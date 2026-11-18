@@ -257,7 +257,7 @@ def admin_register(user: dict, name: str, data: dict) -> Tuple[Optional[dict], D
     if len(vals['reason']) > 200:
         return None, {'reason': '사유는 200자까지 적을 수 있어요.'}
     actor = _actor(user, sid)
-    row, errs = lv.admin_register(name, vals['type'], '', start, end, vals['reason'], sid, actor)
+    row, errs = lv.admin_register(name, vals['type'], vals['sub'], start, end, vals['reason'], sid, actor)
     if errs:
         return None, errs
 
@@ -287,6 +287,7 @@ def admin_info(user: dict, person: dict) -> Dict:
         'can': True, 'name': name,
         'types': [{'value': k, 'label': v} for k, v in lv.type_options() + lv.admin_type_options()],
         'admin_types': [{'value': k, 'label': v} for k, v in lv.admin_type_options()],
+        'balance': lv.balance(name),
         'event': lv.EVENT, 'half_types': list(lv.HALF_TYPES),
         'event_subs': [{'value': k, 'label': f'{v[0]} ({v[1]}일)'} for k, v in lv.EVENT_SUBS.items()],
         'editable': editable,
