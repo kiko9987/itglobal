@@ -478,7 +478,7 @@ def find_unlinked_match(grn: str, amount: int, partner: str, code: str = '') -> 
 
     딱 한 건일 때만 돌려준다(여러 건이면 사람이 고른다). 단 후보가 여럿이면 계산서 글에 적힌 공사 코드로
     좁힌다 — 크레인 양중 33만 원처럼 흔한 금액은 90일 안에 쉽게 겹쳐, 짝을 못 찾으면 제출 창 경고도
-    [📍 현장 지정]의 자동 연결도 둘 다 안 됐다 (2026-11-17 #45 서울크레인)."""
+    [📍 프로젝트 지정]의 자동 연결도 둘 다 안 됐다 (2026-11-17 #45 서울크레인)."""
     key = partner_key(partner)
     if not key or not amount:
         return None
@@ -1330,7 +1330,7 @@ def fund_warning_lines(row: dict) -> List[str]:
             and grn_from_code(row.get('project_code') or '')
             and row.get('cost_category') != COST_MOVE and not x.get('files')):
         out.append('⚠️ 계산서 글을 고르지 않았어요 — 선입금이면 그대로 두고, 계산서가 있으면 '
-                   '#영업_관리 그 글에서 [📍 현장 지정]을 눌러 주세요')
+                   '#영업_관리 그 글에서 [📍 프로젝트 지정]을 눌러 주세요')
     return out
 
 
@@ -1616,7 +1616,7 @@ def menu_blocks() -> List[dict]:
             '• 계약서·보증보험·카드결제·폐기물 처리·법인서류·개인경비·법인카드 지출결의 → 📋 다른 결재 요청\n'
             '• 재직·경력증명서 → 📜 증명서 신청 (본인과 경영지원만 봐요)\n'
             '• 내가 올린 요청이 어디까지 갔는지 → 📂 내 요청\n'
-            '현장 계산서는 #영업_관리 계산서 글의 [📍 현장 지정]에서 바로 올릴 수 있어요.'}},
+            '현장 계산서는 #영업_관리 계산서 글의 [📍 프로젝트 지정]에서 바로 올릴 수 있어요.'}},
         {'type': 'actions', 'elements': [
             {'type': 'button', 'action_id': A_NEW,   # 초록(primary) 없이 다른 버튼과 같게(11-05)
              'text': {'type': 'plain_text', 'text': '💸 자금집행 요청', 'emoji': True}},
@@ -1683,7 +1683,7 @@ def hub_blocks() -> List[dict]:
         {'type': 'section', 'text': {'type': 'mrkdwn', 'text': '*결재 현황*'}},
         {'type': 'actions', 'elements': [_menu_btn(A_MY_REQUESTS, '📂 내 요청')]},
         {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
-            '현장 계산서는 #영업_관리 계산서 글의 [📍 현장 지정]에서 바로 올릴 수 있어요.'}]},
+            '현장 계산서는 #영업_관리 계산서 글의 [📍 프로젝트 지정]에서 바로 올릴 수 있어요.'}]},
     ]
 
 
@@ -2004,7 +2004,7 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
                                                    '계산서가 없으면 비워 두세요(선입금).'}}]
     if inv and edit:
         blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
-                       '📄 거래처·금액은 계산서 글 그대로예요. 현장을 바꾸면 계산서 글의 현장 지정도 같이 바뀌어요. '
+                       '📄 거래처·금액은 계산서 글 그대로예요. 현장을 바꾸면 계산서 글의 프로젝트 지정도 같이 바뀌어요. '
                        '계산서 파일은 처음 올릴 때 카드 스레드에 붙었어요.'}]})
     elif inv:
         files = meta.get('inv_files') or []
@@ -2014,7 +2014,7 @@ def new_request_view(meta: dict, fixed_project: Optional[str] = None, fixed_labe
         else:
             photo = f'📎 계산서 글에 붙은 파일이 없어요. 계산서 파일이 있으면 아래 「첨부 파일」에 올려 주세요.{link}'
         blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
-                       '📄 거래처·금액은 계산서 글 그대로 올라가고, 그 글의 현장 지정도 함께 끝납니다.\n' + photo}]})
+                       '📄 거래처·금액은 계산서 글 그대로 올라가고, 그 글의 프로젝트 지정도 함께 끝납니다.\n' + photo}]})
     if fixed_project:
         blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': f'*{fixed_label or fixed_project}*'}})
     else:
@@ -2295,7 +2295,7 @@ def site_view(row: dict, project_label: str = '') -> dict:
     blocks = [
         {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
          f"{title(row)} · {int(row.get('amount') or 0):,}원 → {row.get('partner') or '-'}\n"
-         '금액·계좌·승인은 그대로 두고 현장과 원가 분류만 바꿔요. 계산서 글로 올린 결재면 그 글의 현장 지정도 같이 바뀌어요.'}]},
+         '금액·계좌·승인은 그대로 두고 현장과 원가 분류만 바꿔요. 계산서 글로 올린 결재면 그 글의 프로젝트 지정도 같이 바뀌어요.'}]},
         {'type': 'input', 'block_id': 'project', 'label': {'type': 'plain_text', 'text': '현장'},
          'element': {'type': 'external_select', 'action_id': A_PROJECT, 'min_query_length': 0,
                      'placeholder': {'type': 'plain_text', 'text': '코드·상호·주소로 검색'}}},

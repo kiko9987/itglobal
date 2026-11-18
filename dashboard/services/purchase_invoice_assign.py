@@ -339,16 +339,16 @@ def _thread_blocks(text: str, elements: Optional[List[dict]] = None) -> List[dic
 def prompt_blocks(channel: str, msg_ts: str, parsed: Dict) -> List[dict]:
     """계산서 글 스레드에 다는 버튼 메시지."""
     value = button_value(channel, msg_ts, parsed)
-    return _thread_blocks('어느 현장 건인지 골라 주세요. 고르면 이 글의 고정이 풀립니다.', [{
+    return _thread_blocks('어느 프로젝트 건인지 골라 주세요. 고르면 이 글의 고정이 풀립니다.', [{
         'type': 'button', 'action_id': ACTION_OPEN, 'style': 'primary', 'value': value,
-        'text': {'type': 'plain_text', 'text': '📍 현장 지정', 'emoji': True},
+        'text': {'type': 'plain_text', 'text': '📍 프로젝트 지정', 'emoji': True},
     }])
 
 
 def prompt_done_blocks() -> List[dict]:
     """지정 뒤 버튼 메시지 — 버튼을 빼고 한 줄만 남긴다(결과는 아래 답글)."""
     return [{'type': 'context', 'elements': [
-        {'type': 'mrkdwn', 'text': '📍 현장 지정 완료 — 결과는 아래 답글에 있어요.'}]}]
+        {'type': 'mrkdwn', 'text': '📍 프로젝트 지정 완료 — 결과는 아래 답글에 있어요.'}]}]
 
 
 def _initial(name) -> str:
@@ -428,16 +428,16 @@ def modal_view(parsed: Dict, meta: Dict, current: Optional[Dict] = None,
     return {
         'type': 'modal',
         'callback_id': CALLBACK_SUBMIT,
-        'title': {'type': 'plain_text', 'text': '현장 지정'},
+        'title': {'type': 'plain_text', 'text': '프로젝트 지정'},
         'submit': {'type': 'plain_text', 'text': '지정'},
         'close': {'type': 'plain_text', 'text': '취소'},
         'private_metadata': json.dumps(meta),
         'blocks': [
             {'type': 'section', 'text': {'type': 'mrkdwn', 'text': f'*{post_summary(parsed)}*'}},
             *([{'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
-                f"📝 계산서 글에 적힌 현장: *{parsed['code']}* — 다른 현장을 고르면 한 번 더 확인해요."}]}]
+                f"📝 계산서 글에 적힌 프로젝트: *{parsed['code']}* — 다른 프로젝트를 고르면 한 번 더 확인해요."}]}]
               if parsed.get('code') else []),
-            {'type': 'input', 'block_id': 'project', 'label': {'type': 'plain_text', 'text': '현장'},
+            {'type': 'input', 'block_id': 'project', 'label': {'type': 'plain_text', 'text': '프로젝트'},
              'element': proj_el},
             {'type': 'input', 'block_id': 'cost', 'label': {'type': 'plain_text', 'text': '원가 분류'},
              'element': cost_el},
