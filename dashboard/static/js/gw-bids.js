@@ -62,7 +62,7 @@
     return kind + (ext ? ' ' + ext.toUpperCase() : '');
   }
 
-  var state = { tab: 'eligible', q: '', closed: false, seq: 0 };
+  var state = { tab: 'eligible', q: '', closed: false, seq: 0, items: {}, open: '', anim: false };
 
   function row(it) {
     var links = [];
@@ -85,7 +85,10 @@
     var cond = '<div>' + esc((it.regions || []).join(', ')) + '</div><div class="gw-bd-sub">' +
       esc((it.licenses || []).join(' 또는 ') || '면허 제한 없음') + '</div>' +
       (it.missing ? '<div class="gw-bd-miss">' + esc(it.missing) + ' 필요</div>' : '');
-    return '<tr' + (it.mark === 'skip' ? ' class="gw-bd-skip"' : '') + '>' +
+    var open = state.open === it.bid_no;
+    return '<tr class="gw-bd-row' + (it.mark === 'skip' ? ' gw-bd-skip' : '') + (open ? ' gw-bd-open' : '') +
+      '" data-no="' + esc(it.bid_no) + '" tabindex="0" aria-expanded="' + (open ? 'true' : 'false') +
+      '" title="눌러서 자세히 보기">' +
       '<td class="gw-bd-close">' + close + '</td>' +
       '<td>' + title + '</td>' +
       '<td class="gw-bd-nw">' + esc(it.award_method || it.contract_method) + '</td>' +
@@ -93,6 +96,95 @@
       '<td>' + cond + '</td>' +
       '<td class="gw-bd-links">' + (links.join('<br>') || '-') + '</td>' +
       '<td>' + sel + '</td></tr>';
+  }
+
+  // ── 펼친 상세(PM 프로젝트 줄 아코디언과 같은 방식: 줄을 누르면 바로 아래에 한 개만) ──
+  function item(label, html) {
+    return '<div class="gw-bd-item"><small>' + esc(label) + '</small><div>' + (html || '-') + '</div></div>';
+  }
+  function card(icon, tone, title, body) {
+    return '<section class="gw-bd-card"><h3 class="gw-bd-card-t ' + tone + '"><i class="' + icon + ' me-1" aria-hidden="true"></i>' +
+      esc(title) + '</h3><div class="gw-bd-grid">' + body + '</div></section>';
+  }
+  function full(s) { return s ? esc(when(s)) : ''; }
+  function detail(it) {
+    var d = it.detail || {};
+    var has = Object.keys(d).length > 0;
+    var verdict = it.category === 'eligible'
+      ? '<span class="gw-badge gw-badge-active">지금 면허로 참가 가능</span>'
+      : '<span class="gw-badge gw-badge-leave">' + esc(it.missing || '면허') + ' 있어야 참가 가능</span>';
+    var files = (it.files || []).map(function (f) {
+      var u = safeUrl(f.url);
+      return u ? '<li><a href="' + esc(u) + '" target="_blank" rel="noopener">' + esc(f.name) + '</a></li>' : '';
+    }).join('');
+    var tel = d.contact_tel ? '<a href="tel:' + esc(d.contact_tel.replace(/[^0-9+]/g, '')) + '">' + esc(d.contact_tel) + '</a>' : '';
+    var mail = d.contact_email && /^[^\s@<>"']+@[^\s@<>"']+$/.test(d.contact_email)
+      ? '<a href="mailto:' + esc(d.contact_email) + '">' + esc(d.contact_email) + '</a>' : '';
+    var du = safeUrl(it.detail_url);
+    var head =
+      '<div class="gw-bd-acc-head">' +
+        '<div class="gw-bd-acc-no"><i class="fas fa-tag me-1" aria-hidden="true"></i>' + esc(it.bid_no + '-' + it.bid_ord) +
+          (d.ref_no ? ' · ' + esc(d.ref_no) : '') + (d.kind ? ' · ' + esc(d.kind) : '') +
+          (d.re_notice === '예' ? ' · 재공고' : '') + '</div>' +
+        '<div class="gw-bd-acc-title">' + esc(it.title) + '</div>' +
+        '<div class="gw-bd-sub"><i class="fas fa-building me-1" aria-hidden="true"></i>' + esc(it.org) +
+          (it.demand_org && it.demand_org !== it.org ? ' · 수요기관 ' + esc(it.demand_org) : '') +
+          ((d.site_region || it.site_region) ? ' · <i class="fas fa-map-marker-alt mx-1" aria-hidden="true"></i>' + esc(d.site_region || it.site_region) : '') +
+        '</div>' +
+        (du ? '<a class="btn btn-sm btn-outline-primary gw-bd-acc-go" href="' + esc(du) + '" target="_blank" rel="noopener">' +
+          '<i class="fas fa-up-right-from-square me-1" aria-hidden="true"></i>나라장터에서 보기</a>' : '') +
+      '</div>';
+    var cards =
+      card('fas fa-calendar-alt', 't-blue', '일정',
+        item('공고 게시', full(it.posted_at)) +
+        item('입찰 시작', full(d.begin_at)) +
+        item('참가 등록 마감', full(d.qual_at)) +
+        item('입찰 마감', '<b class="' + (soon(it.close_at) ? 'gw-bd-soon' : '') + '">' + full(it.close_at) + '</b>') +
+        item('개찰', full(it.open_at) + (d.open_place ? '<div class="gw-bd-sub">' + esc(d.open_place) + '</div>' : ''))) +
+      card('fas fa-won-sign', 't-green', '금액·방식',
+        item('추정가격', esc(won(it.price))) +
+        item('배정예산', d.budget ? esc(won(d.budget)) : '') +
+        item('부가세', d.vat ? esc(won(d.vat)) : '') +
+        item('계약 방법', esc(it.contract_method) + (d.bid_method ? ' <span class="gw-bd-sub">' + esc(d.bid_method) + '</span>' : '')) +
+        item('낙찰 방법', esc(d.award_full || it.award_method)) +
+        item('낙찰하한율', esc(d.lower_rate)) +
+        item('예정가격', esc([d.price_method, d.price_count].filter(Boolean).join(' · ')))) +
+      card('fas fa-clipboard-check', 't-orange', '참가 조건',
+        item('우리 판정', verdict) +
+        item('참가가능지역', esc((it.regions || []).join(', '))) +
+        item('면허', esc((it.licenses || []).join(' 또는 ') || '제한 없음')) +
+        item('주공종', esc(d.main_license) + (d.main_price ? ' <span class="gw-bd-sub">' + esc(won(d.main_price)) + '</span>' : '')) +
+        item('공동수급', esc(d.joint)) +
+        item('지역 공동도급', esc(d.joint_region))) +
+      card('fas fa-user', 't-purple', '담당자·첨부',
+        item('담당자', esc(d.contact_name || it.contact)) +
+        item('전화', tel) +
+        item('메일', mail) +
+        '<div class="gw-bd-item gw-bd-item-wide"><small>첨부파일</small>' +
+          (files ? '<ul class="gw-bd-files">' + files + '</ul>' : '<div>-</div>') + '</div>');
+    var foot = '<div class="gw-bd-acc-foot">처음 본 때 ' + esc(when(it.first_seen)) +
+      (it.mark ? ' · ' + esc(it.mark_label) + ' 표시: ' + esc(it.mark_by) + ' ' + esc(when(it.mark_at)) : '') +
+      (has ? '' : ' · 일정·낙찰하한율 같은 세부 항목은 다음 모으기 때 채워져요.') + '</div>';
+    return '<tr class="gw-bd-detail"><td colspan="7"><div class="gw-bd-acc' + (state.anim ? ' gw-bd-slide' : '') + '">' +
+      head + '<div class="gw-bd-cards">' + cards + '</div>' + foot + '</div></td></tr>';
+  }
+  function closeDetail() {
+    var rows = $('bdRows');
+    Array.prototype.forEach.call(rows.querySelectorAll('tr.gw-bd-detail'), function (x) { x.remove(); });
+    Array.prototype.forEach.call(rows.querySelectorAll('tr.gw-bd-open'), function (x) {
+      x.classList.remove('gw-bd-open');
+      x.setAttribute('aria-expanded', 'false');
+    });
+  }
+  function openDetail(tr, animate) {
+    var it = state.items[tr.getAttribute('data-no')];
+    if (!it) return;
+    closeDetail();
+    state.open = it.bid_no;
+    state.anim = animate;
+    tr.classList.add('gw-bd-open');
+    tr.setAttribute('aria-expanded', 'true');
+    tr.insertAdjacentHTML('afterend', detail(it));
   }
 
   function load() {
@@ -107,11 +199,18 @@
         '지금 면허: ' + (j.held || []).join(', ') + (j.planned && j.planned.length ? ' · 준비 중: ' + j.planned.join(', ') : '') +
         '. 실적제한·PQ·지명경쟁·4억 이상 적격심사는 뺐어요.';
       var rows = j.items || [];
+      state.items = {};
+      rows.forEach(function (it) { state.items[it.bid_no] = it; });
+      if (state.open && !state.items[state.open]) state.open = '';
       $('bdCount').textContent = rows.length + '건';
       $('bdRows').innerHTML = rows.length ? rows.map(row).join('') :
         '<tr><td colspan="7" class="gw-empty">' + (j.enabled ? (state.tab === 'eligible'
           ? '지금 들어갈 수 있는 마감 전 공고가 없어요.' : '면허만 없어서 못 들어가는 마감 전 공고가 없어요.')
           : '나라장터 연결 키가 서버에 없어요.') + '</td></tr>';
+      if (state.open) {   // 표시를 바꿔 다시 그려도 펼친 줄은 그대로(애니메이션 없이)
+        var tr = $('bdRows').querySelector('tr.gw-bd-row[data-no="' + CSS.escape(state.open) + '"]');
+        if (tr) openDetail(tr, false);
+      }
       $('bdFoot').textContent = j.last_collect ? '마지막으로 모은 때: ' + j.last_collect + ' (하루 세 번 07:20·12:20·16:20)' : '';
     }).catch(function (e) {
       if (my !== state.seq) return;
@@ -138,6 +237,29 @@
     qt = setTimeout(function () { state.q = v; load(); }, 250);
   });
   $('bdClosed').addEventListener('change', function () { state.closed = this.checked; load(); });
+  $('bdRows').addEventListener('click', function (ev) {
+    if (ev.target.closest('a, button, select, input, label, .gw-bd-detail')) return;   // 링크·표시 칸은 펼치기 제외
+    var tr = ev.target.closest('tr.gw-bd-row');
+    if (!tr) return;
+    if (state.open === tr.getAttribute('data-no')) {
+      state.open = '';
+      closeDetail();
+    } else {
+      openDetail(tr, true);
+    }
+  });
+  $('bdRows').addEventListener('keydown', function (ev) {   // 줄에 커서가 있을 때 Enter·Space 로 펼치기
+    if ((ev.key !== 'Enter' && ev.key !== ' ') || !ev.target.classList || !ev.target.classList.contains('gw-bd-row')) return;
+    ev.preventDefault();
+    ev.target.click();
+  });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Escape' || !state.open) return;
+    var tr = $('bdRows').querySelector('tr.gw-bd-open');
+    state.open = '';
+    closeDetail();
+    if (tr) tr.focus();
+  });
   $('bdRows').addEventListener('change', function (ev) {
     var s = ev.target.closest('select.gw-bd-mark');
     if (!s) return;

@@ -2447,3 +2447,153 @@ body.gw-drawer-open {
   .gw-ap-tabs { display: flex; flex-wrap: wrap; border-radius: 14px; }
   .gw-bd-table { min-width: 760px; }
 }
+
+/* 입찰 공고 — 줄 펼치기(PM 프로젝트 아코디언과 같은 짜임: 제목 띠 + 정보 카드 4장) */
+.gw-bd-row {
+  cursor: pointer;
+}
+
+.gw-bd-row:hover td {
+  background: #f9fafb;
+}
+
+.gw-bd-row:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}
+
+.gw-bd-row.gw-bd-open td {
+  background: #eff6ff;
+}
+
+.gw-bd-detail > td {
+  padding: 0 !important;
+  background: #f7f8fa;
+}
+
+.gw-bd-acc {
+  padding: 16px;
+}
+
+.gw-bd-slide {
+  animation: gwBdSlide 0.25s ease-out;
+}
+
+@keyframes gwBdSlide {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gw-bd-slide { animation: none; }
+}
+
+.gw-bd-acc-head {
+  position: relative;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  padding-right: 170px;
+  border: 1px solid #e5e7eb;
+  border-left: 4px solid #2563eb;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.gw-bd-acc-no {
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.gw-bd-acc-title {
+  margin: 2px 0;
+  color: #1a1c20;
+  font-size: 15px;
+  font-weight: 700;
+  word-break: keep-all;
+}
+
+.gw-bd-acc-go {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+}
+
+.gw-bd-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.gw-bd-card {
+  padding: 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.gw-bd-card-t {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.gw-bd-card-t.t-blue { color: #1d4ed8; }
+.gw-bd-card-t.t-green { color: #15803d; }
+.gw-bd-card-t.t-orange { color: #c2410c; }
+.gw-bd-card-t.t-purple { color: #7e22ce; }
+
+.gw-bd-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.gw-bd-item {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.gw-bd-item small {
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.gw-bd-item > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #1f2937;
+}
+
+.gw-bd-item-wide {
+  grid-template-columns: 1fr;
+  gap: 4px;
+}
+
+.gw-bd-files {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 12px;
+}
+
+.gw-bd-files li + li {
+  margin-top: 2px;
+}
+
+.gw-bd-acc-foot {
+  margin-top: 10px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+@media (max-width: 1280px) {
+  .gw-bd-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 720px) {
+  .gw-bd-cards { grid-template-columns: 1fr; }
+  .gw-bd-acc-head { padding-right: 14px; }
+  .gw-bd-acc-go { position: static; margin-top: 8px; }
+}

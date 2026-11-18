@@ -163,6 +163,45 @@ def test_mark_validation(db, monkeypatch):
     assert g.set_mark('A1', '', '고광일')['mark_by'] == ''
 
 
+def test_detail_from_raw(db, monkeypatch):
+    _fake_api(monkeypatch, [_item('A1', bidBeginDt='2026-11-16 10:00:00', bidQlfctRgstDt='2026-11-17 18:00',
+                                  sucsfbidLwltRate='89.745', prearngPrceDcsnMthdNm='복수예가', totPrdprcNum='15',
+                                  drwtPrdprcNum='4', VAT='34049272', cmmnSpldmdMethdNm='(없음)공동수급불허',
+                                  ntceInsttOfclNm='신수견', ntceInsttOfclTelNo='031-980-1137',
+                                  ntceInsttOfclEmailAdrs='a@korea.kr', rgnDutyJntcontrctYn='N')],
+              {'A1': (['경기도'], [[MECH]])})
+    g.collect()
+    d = g.list_bids()['items'][0]['detail']
+    assert d['begin_at'] == '2026-11-16 10:00' and d['qual_at'] == '2026-11-17 18:00'
+    assert d['lower_rate'] == '89.745%' and d['price_count'] == '15개 중 4개 추첨' and d['vat'] == 34049272
+    assert d['contact_name'] == '신수견' and d['contact_email'] == 'a@korea.kr' and d['joint_region'] == '아니오'
+
+
+def test_old_rows_get_detail_on_next_collect_without_limit_calls(db, monkeypatch):
+    calls = _fake_api(monkeypatch, [_item('A1')], {'A1': (['경기도'], [[MECH]])})
+    g.collect()
+    with g._conn() as conn:   # 처음 버전(상세 칸 없음)으로 저장된 줄 흉내
+        conn.execute("UPDATE g2b_bids SET raw='' WHERE bid_no='A1'")
+    assert g.list_bids()['items'][0]['detail'] == {}
+    _fake_api(monkeypatch, [_item('A1', sucsfbidLwltRate='87.745')], {'A1': (['경기도'], [[MECH]])})
+    g.collect()
+    assert g.list_bids()['items'][0]['detail']['lower_rate'] == '87.745%'
+
+
+def test_raw_column_added_to_old_table(tmp_path, monkeypatch):
+    import sqlite3
+    from dashboard.utils.user_database import UserDatabase
+    d = UserDatabase(db_path=str(tmp_path / 'u.db'))
+    with d._get_connection() as conn:   # 11-18 첫 버전 표(raw 없음)
+        conn.execute(g._DDL[0])
+        conn.commit()
+    monkeypatch.setattr(g, '_db', lambda: d)
+    monkeypatch.setattr(g, '_table_ready', False)
+    with g._conn() as conn:
+        cols = {r[1] for r in conn.execute('PRAGMA table_info(g2b_bids)')}
+    assert 'raw' in cols
+
+
 # ── 아침 DM ───────────────────────────────────────────────────────────
 def test_digest_only_when_new_eligible_and_once(db, monkeypatch):
     sent = []
@@ -203,6 +242,14 @@ def test_home_summary_excludes_skip(db, monkeypatch):
     g.set_mark('A2', 'skip', 'x')
     n, sig = g.home_summary()
     assert n == 1 and sig == 'A1'
+
+
+def test_error_text_hides_service_key(db, monkeypatch):
+    monkeypatch.setenv('G2B_SERVICE_KEY', 'abc+/=123secret')
+    e = RuntimeError('Max retries exceeded with url: /x?serviceKey=abc%2B%2F%3D123secret&type=json (timed out)')
+    s = g._safe_err(e)
+    assert 'secret' not in s and 'serviceKey=***' in s
+    assert 'secret' not in g._safe_err(RuntimeError('key abc+/=123secret'))
 
 
 def test_disabled_without_key(db, monkeypatch):

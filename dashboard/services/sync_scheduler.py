@@ -1244,30 +1244,31 @@ def _safe_partner_status_refresh():
         logger.error(f'[SCHED] 거래처 상태 갱신 실패: {exc}', exc_info=True)
 
 
+# 나라장터 오류 글은 _safe_err 로 — requests 오류가 인증키 든 주소를 통째로 담는다(11-18)
 def _safe_g2b_collect():
+    from dashboard.services import g2b_bids
     try:
-        from dashboard.services import g2b_bids
         g2b_bids.collect(days=2)
     except Exception as e:
-        logger.error(f'[SCHED] 나라장터 공고 모으기 실패: {e}', exc_info=True)
+        logger.error(f'[SCHED] 나라장터 공고 모으기 실패: {g2b_bids._safe_err(e)}')
 
 
 def _safe_g2b_digest():
+    from dashboard.services import g2b_bids
     try:
-        from dashboard.services import g2b_bids
         g2b_bids.collect(days=2)          # 07:20 이후 올라온 것까지 담아서
         r = g2b_bids.send_morning_digest()
         logger.info(f'[SCHED] 나라장터 아침 알림 — {r}')
     except Exception as e:
-        logger.error(f'[SCHED] 나라장터 아침 알림 실패: {e}', exc_info=True)
+        logger.error(f'[SCHED] 나라장터 아침 알림 실패: {g2b_bids._safe_err(e)}')
 
 
 def _safe_g2b_bootstrap():
+    from dashboard.services import g2b_bids
     try:
-        from dashboard.services import g2b_bids
         g2b_bids.maybe_bootstrap()
     except Exception as e:
-        logger.warning(f'[SCHED] 나라장터 첫 채우기 실패: {e}')
+        logger.warning(f'[SCHED] 나라장터 첫 채우기 실패: {g2b_bids._safe_err(e)}')
 
 
 def _safe_partner_status_fill_new():

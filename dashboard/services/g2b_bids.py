@@ -100,6 +100,10 @@ def _conn():
         if not _table_ready:
             for ddl in _DDL:
                 conn.execute(ddl)
+            # 11-18 펼친 상세용 — 나라장터가 준 공고 항목 전체(JSON). 처음 버전 줄은 비어 있다가 다음 모으기에서 채움
+            cols = {r[1] for r in conn.execute('PRAGMA table_info(g2b_bids)').fetchall()}
+            if 'raw' not in cols:
+                conn.execute("ALTER TABLE g2b_bids ADD COLUMN raw TEXT NOT NULL DEFAULT ''")
             conn.commit()
             _table_ready = True
         yield conn
@@ -208,9 +212,21 @@ def _int(v) -> int:
 
 
 # ── 나라장터 부르기 ───────────────────────────────────────────────────
+def _safe_err(e) -> str:
+    """오류 글에 인증키가 주소째 찍히지 않게(requests 오류는 URL 전체를 담는다)."""
+    s, k = str(e), _key()
+    if k:
+        from urllib.parse import quote
+        s = s.replace(k, '***').replace(quote(k, safe=''), '***')
+    return re.sub(r'(serviceKey=)[^&\s\'")]+', r'\1***', s)[:300]
+
+
 def _get(op: str, params: dict) -> dict:
     p = {'serviceKey': _key(), 'type': 'json', **params}
-    r = requests.get(BASE + op, params=p, timeout=30)
+    try:
+        r = requests.get(BASE + op, params=p, timeout=(10, 30))
+    except (requests.ConnectionError, requests.Timeout):   # 공공데이터포털이 가끔 연결을 놓침 — 한 번만 다시
+        r = requests.get(BASE + op, params=p, timeout=(10, 30))
     r.raise_for_status()
     data = r.json()
     if 'response' not in data:   # 나라장터 오류 형식 {"nkoneps.com.response.ResponseError": {...}}
@@ -296,20 +312,27 @@ def collect(days: int = 2, now: Optional[datetime] = None) -> dict:
                         found[no] = it
             except Exception as e:
                 errors += 1
-                logger.warning(f'[G2B] 검색 실패 ({kw}): {e}')
+                logger.warning(f'[G2B] 검색 실패 ({kw}): {_safe_err(e)}')
         with _conn() as conn:
-            known = {r[0]: r[1] for r in conn.execute('SELECT bid_no, bid_ord FROM g2b_bids')}
+            known, no_raw = {}, set()
+            for r in conn.execute('SELECT bid_no, bid_ord, raw FROM g2b_bids'):
+                known[r[0]] = r[1]
+                if not r[2]:
+                    no_raw.add(r[0])
         held, planned = held_licenses(), planned_licenses()
         new = changed = 0
         for no, it in found.items():
             ord_ = it.get('bidNtceOrd') or '000'
             if no in known and known[no] >= ord_:
+                if no in no_raw and known[no] == ord_:   # 상세 칸만 채움(지역·면허는 다시 안 부름)
+                    with _conn() as conn:
+                        conn.execute('UPDATE g2b_bids SET raw=? WHERE bid_no=?', (_raw(it), no))
                 continue
             try:
                 regions, groups = fetch_limits(no, ord_)
             except Exception as e:
                 errors += 1
-                logger.warning(f'[G2B] 지역·면허 조회 실패 {no}: {e}')
+                logger.warning(f'[G2B] 지역·면허 조회 실패 {no}: {_safe_err(e)}')
                 continue
             _save(it, regions, groups, held, planned, is_new=no not in known)
             if no in known:
@@ -323,6 +346,44 @@ def collect(days: int = 2, now: Optional[datetime] = None) -> dict:
         return result
     finally:
         _collect_lock.release()
+
+
+def _raw(it: dict) -> str:
+    return json.dumps({k: v for k, v in it.items() if not k.startswith('_') and v not in ('', None)},
+                      ensure_ascii=False)
+
+
+def _yn(v) -> str:
+    return {'Y': '예', 'N': '아니오'}.get(str(v or '').strip(), '')
+
+
+def _detail(raw: str) -> dict:
+    """펼친 상세 — 나라장터 항목 중 입찰 판단에 쓰는 것만 골라 사람이 읽는 말로."""
+    try:
+        it = json.loads(raw) if raw else {}
+    except ValueError:
+        it = {}
+    if not it:
+        return {}
+    t = lambda k: str(it.get(k) or '').strip()   # noqa: E731
+    rate = t('sucsfbidLwltRate')
+    vat = _int(it.get('VAT'))
+    return {
+        'ref_no': t('refNo'), 'kind': t('ntceKindNm'), 're_notice': _yn(it.get('reNtceYn')),
+        'bid_method': t('bidMethdNm'),
+        'begin_at': t('bidBeginDt')[:16], 'qual_at': t('bidQlfctRgstDt')[:16],
+        'rebid_open_at': t('rbidOpengDt')[:16], 'open_place': t('opengPlce'),
+        'budget': _int(it.get('bdgtAmt')), 'vat': vat,
+        'main_license': t('mainCnsttyNm'), 'main_price': _int(it.get('mainCnsttyPresmptPrce')),
+        'award_full': t('sucsfbidMthdNm'), 'lower_rate': f'{rate}%' if rate else '',
+        'price_method': t('prearngPrceDcsnMthdNm'),
+        'price_count': f"{t('totPrdprcNum')}개 중 {t('drwtPrdprcNum')}개 추첨" if t('totPrdprcNum') else '',
+        'joint': t('cmmnSpldmdMethdNm'), 'joint_region': _yn(it.get('rgnDutyJntcontrctYn')),
+        'site_region': t('cnstrtsiteRgnNm'),
+        'contact_name': t('ntceInsttOfclNm') or t('exctvNm'), 'contact_tel': t('ntceInsttOfclTelNo'),
+        'contact_email': t('ntceInsttOfclEmailAdrs'),
+        'std_doc_url': t('stdNtceDocUrl'),
+    }
 
 
 def _save(it: dict, regions, groups, held, planned, is_new: bool) -> None:
@@ -341,6 +402,7 @@ def _save(it: dict, regions, groups, held, planned, is_new: bool) -> None:
         'files': json.dumps(_files(it), ensure_ascii=False), 'detail_url': it.get('bidNtceDtlUrl') or '',
         'contact': _contact(it), 'hard_reason': hard_reason(it), 'category': c['category'], 'reason': c['reason'],
         'missing_licenses': ', '.join(c['missing']), 'keyword': it.get('_kw', ''), 'updated_at': _now(),
+        'raw': _raw(it),
     }
     cols = list(row)
     with _conn() as conn:
@@ -384,7 +446,7 @@ def maybe_bootstrap() -> None:
         if empty:
             collect(days=7)
     except Exception as e:
-        logger.warning(f'[G2B] 첫 채우기 실패: {e}')
+        logger.warning(f'[G2B] 첫 채우기 실패: {_safe_err(e)}')
 
 
 # ── 화면용 ────────────────────────────────────────────────────────────
@@ -403,6 +465,8 @@ def _view(r: dict, now_s: str) -> dict:
         'missing': r['missing_licenses'], 'mark': r['mark'], 'mark_label': MARKS.get(r['mark'], ''),
         'mark_by': r['mark_by'], 'mark_at': r['mark_at'], 'first_seen': r['first_seen'],
         'is_new': r['first_seen'] >= (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S'),
+        'hard_reason': r.get('hard_reason', ''),
+        'detail': _detail(r.get('raw') or ''),
     }
 
 
