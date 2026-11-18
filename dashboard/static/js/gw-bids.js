@@ -98,75 +98,80 @@
       '<td>' + sel + '</td></tr>';
   }
 
-  // ── 펼친 상세(PM 프로젝트 줄 아코디언과 같은 방식: 줄을 누르면 바로 아래에 한 개만) ──
-  function item(label, html) {
-    return '<div class="gw-bd-item"><small>' + esc(label) + '</small><div>' + (html || '-') + '</div></div>';
-  }
-  function card(icon, tone, title, body) {
-    return '<section class="gw-bd-card"><h3 class="gw-bd-card-t ' + tone + '"><i class="' + icon + ' me-1" aria-hidden="true"></i>' +
-      esc(title) + '</h3><div class="gw-bd-grid">' + body + '</div></section>';
-  }
+  // ── 펼친 상세 — 나라장터 공고 상세처럼 표로, 맨 위엔 우리가 판단할 것만 먼저 ──
   function full(s) { return s ? esc(when(s)) : ''; }
+  function past(s) { var d = new Date(String(s || '').replace(' ', 'T')); return !isNaN(d) && d < new Date(); }
+  function chk(ok, label, text) {   // ok: true=됨, false=안 됨, null=주의
+    var cls = ok === true ? 'ok' : ok === false ? 'no' : 'warn';
+    var ic = ok === true ? 'fa-circle-check' : ok === false ? 'fa-circle-xmark' : 'fa-circle-exclamation';
+    return '<li class="gw-bd-chk ' + cls + '"><i class="fas ' + ic + '" aria-hidden="true"></i>' +
+      '<span class="gw-bd-chk-l">' + esc(label) + '</span><span class="gw-bd-chk-t">' + text + '</span></li>';
+  }
+  function tr2(l1, v1, l2, v2) {   // 나라장터처럼 [항목|값|항목|값], 두 번째가 없으면 값이 끝까지
+    return '<tr><th scope="row">' + esc(l1) + '</th><td' + (l2 ? '' : ' colspan="3"') + '>' + (v1 || '-') + '</td>' +
+      (l2 ? '<th scope="row">' + esc(l2) + '</th><td>' + (v2 || '-') + '</td>' : '') + '</tr>';
+  }
+  function sect(title, rows) {
+    return '<h3 class="gw-bd-sec">' + esc(title) + '</h3><table class="gw-bd-kv">' +
+      '<colgroup><col class="k"><col><col class="k"><col></colgroup>' + rows + '</table>';
+  }
   function detail(it) {
     var d = it.detail || {};
     var has = Object.keys(d).length > 0;
-    var verdict = it.category === 'eligible'
-      ? '<span class="gw-badge gw-badge-active">지금 면허로 참가 가능</span>'
-      : '<span class="gw-badge gw-badge-leave">' + esc(it.missing || '면허') + ' 있어야 참가 가능</span>';
+    var lic = (it.licenses || []).join(' 또는 ');
+    var held = (state.held || []).join(', ');
+    // 1) 확인할 것
+    var checks = chk(true, '참가 지역', esc((it.regions || []).join(', ')) + ' — 김포 업체 참가 가능');
+    checks += it.category === 'eligible'
+      ? chk(true, '면허', esc(lic || '제한 없음') + (lic ? ' — 보유' : ''))
+      : chk(false, '면허', '<b>' + esc(it.missing || '면허') + ' 없음</b> — ' + esc(lic) + (lic.indexOf('+') > -1 ? ' 모두 있어야 해요' : ''));
+    checks += it.hard_reason ? chk(false, '참가 조건', esc(it.hard_reason))
+      : chk(true, '참가 조건', '실적제한·PQ 없음 · ' + esc(it.award_method || it.contract_method));
+    if (d.qual_at) {
+      checks += chk(past(d.qual_at) ? false : (soon(d.qual_at) ? null : true), '참가 등록 마감',
+        '<b>' + full(d.qual_at) + '</b>' + (past(d.qual_at) ? ' — 지났어요' : '') + ' <span class="gw-bd-sub">(나라장터 입찰참가자격 등록)</span>');
+    }
+    checks += chk(it.closed ? false : (soon(it.close_at) ? null : true), '입찰 마감',
+      '<b>' + full(it.close_at) + '</b>' + (it.closed ? ' — 지났어요' : ''));
+    // 2) 표
+    var tel = d.contact_tel ? '<a href="tel:' + esc(d.contact_tel.replace(/[^0-9+]/g, '')) + '">' + esc(d.contact_tel) + '</a>' : '';
+    var mail = d.contact_email && /^[^\s@<>"']+@[^\s@<>"']+$/.test(d.contact_email)
+      ? '<a href="mailto:' + esc(d.contact_email) + '">' + esc(d.contact_email) + '</a>' : '';
     var files = (it.files || []).map(function (f) {
       var u = safeUrl(f.url);
       return u ? '<li><a href="' + esc(u) + '" target="_blank" rel="noopener">' + esc(f.name) + '</a></li>' : '';
     }).join('');
-    var tel = d.contact_tel ? '<a href="tel:' + esc(d.contact_tel.replace(/[^0-9+]/g, '')) + '">' + esc(d.contact_tel) + '</a>' : '';
-    var mail = d.contact_email && /^[^\s@<>"']+@[^\s@<>"']+$/.test(d.contact_email)
-      ? '<a href="mailto:' + esc(d.contact_email) + '">' + esc(d.contact_email) + '</a>' : '';
     var du = safeUrl(it.detail_url);
-    var head =
-      '<div class="gw-bd-acc-head">' +
-        '<div class="gw-bd-acc-no"><i class="fas fa-tag me-1" aria-hidden="true"></i>' + esc(it.bid_no + '-' + it.bid_ord) +
-          (d.ref_no ? ' · ' + esc(d.ref_no) : '') + (d.kind ? ' · ' + esc(d.kind) : '') +
-          (d.re_notice === '예' ? ' · 재공고' : '') + '</div>' +
-        '<div class="gw-bd-acc-title">' + esc(it.title) + '</div>' +
-        '<div class="gw-bd-sub"><i class="fas fa-building me-1" aria-hidden="true"></i>' + esc(it.org) +
-          (it.demand_org && it.demand_org !== it.org ? ' · 수요기관 ' + esc(it.demand_org) : '') +
-          ((d.site_region || it.site_region) ? ' · <i class="fas fa-map-marker-alt mx-1" aria-hidden="true"></i>' + esc(d.site_region || it.site_region) : '') +
-        '</div>' +
-        (du ? '<a class="btn btn-sm btn-outline-primary gw-bd-acc-go" href="' + esc(du) + '" target="_blank" rel="noopener">' +
-          '<i class="fas fa-up-right-from-square me-1" aria-hidden="true"></i>나라장터에서 보기</a>' : '') +
-      '</div>';
-    var cards =
-      card('fas fa-calendar-alt', 't-blue', '일정',
-        item('공고 게시', full(it.posted_at)) +
-        item('입찰 시작', full(d.begin_at)) +
-        item('참가 등록 마감', full(d.qual_at)) +
-        item('입찰 마감', '<b class="' + (soon(it.close_at) ? 'gw-bd-soon' : '') + '">' + full(it.close_at) + '</b>') +
-        item('개찰', full(it.open_at) + (d.open_place ? '<div class="gw-bd-sub">' + esc(d.open_place) + '</div>' : ''))) +
-      card('fas fa-won-sign', 't-green', '금액·방식',
-        item('추정가격', esc(won(it.price))) +
-        item('배정예산', d.budget ? esc(won(d.budget)) : '') +
-        item('부가세', d.vat ? esc(won(d.vat)) : '') +
-        item('계약 방법', esc(it.contract_method) + (d.bid_method ? ' <span class="gw-bd-sub">' + esc(d.bid_method) + '</span>' : '')) +
-        item('낙찰 방법', esc(d.award_full || it.award_method)) +
-        item('낙찰하한율', esc(d.lower_rate)) +
-        item('예정가격', esc([d.price_method, d.price_count].filter(Boolean).join(' · ')))) +
-      card('fas fa-clipboard-check', 't-orange', '참가 조건',
-        item('우리 판정', verdict) +
-        item('참가가능지역', esc((it.regions || []).join(', '))) +
-        item('면허', esc((it.licenses || []).join(' 또는 ') || '제한 없음')) +
-        item('주공종', esc(d.main_license) + (d.main_price ? ' <span class="gw-bd-sub">' + esc(won(d.main_price)) + '</span>' : '')) +
-        item('공동수급', esc(d.joint)) +
-        item('지역 공동도급', esc(d.joint_region))) +
-      card('fas fa-user', 't-purple', '담당자·첨부',
-        item('담당자', esc(d.contact_name || it.contact)) +
-        item('전화', tel) +
-        item('메일', mail) +
-        '<div class="gw-bd-item gw-bd-item-wide"><small>첨부파일</small>' +
-          (files ? '<ul class="gw-bd-files">' + files + '</ul>' : '<div>-</div>') + '</div>');
+    var body =
+      sect('일정',
+        tr2('입찰 시작', full(d.begin_at), '입찰 마감', '<b>' + full(it.close_at) + '</b>') +
+        tr2('참가 등록 마감', full(d.qual_at), '개찰', full(it.open_at)) +
+        tr2('공고 게시', full(it.posted_at), '개찰 장소', esc(d.open_place))) +
+      sect('금액·낙찰',
+        tr2('추정가격', '<b>' + esc(won(it.price)) + '</b>', '배정예산', d.budget ? esc(won(d.budget)) : '') +
+        tr2('부가세', d.vat ? esc(won(d.vat)) : '', '낙찰하한율', esc(d.lower_rate)) +
+        tr2('계약 방법', esc([it.contract_method, d.bid_method].filter(Boolean).join(' · ')),
+            '예정가격', esc([d.price_method, d.price_count].filter(Boolean).join(' · '))) +
+        tr2('낙찰 방법', esc(d.award_full || it.award_method))) +
+      sect('참가 조건',
+        tr2('참가가능지역', esc((it.regions || []).join(', '))) +
+        tr2('면허', esc(lic || '제한 없음') + (held ? ' <span class="gw-bd-sub">(우리 면허: ' + esc(held) + ')</span>' : '')) +
+        tr2('주공종', esc(d.main_license), '공사현장', esc(d.site_region || it.site_region)) +
+        tr2('공동수급', esc(d.joint), '지역 공동도급', esc(d.joint_region))) +
+      sect('공고·문의',
+        tr2('공고번호', esc(it.bid_no + '-' + it.bid_ord) + (d.re_notice === '예' ? ' (재공고)' : ''), '참조번호', esc(d.ref_no)) +
+        tr2('발주기관', esc(it.org), '수요기관', esc(it.demand_org)) +
+        tr2('담당자', esc(d.contact_name || it.contact), '연락처', [tel, mail].filter(Boolean).join(' · '))) +
+      '<h3 class="gw-bd-sec">첨부파일</h3>' +
+      (files ? '<ul class="gw-bd-files">' + files + '</ul>' : '<p class="gw-bd-sub">첨부파일이 없어요.</p>');
     var foot = '<div class="gw-bd-acc-foot">처음 본 때 ' + esc(when(it.first_seen)) +
       (it.mark ? ' · ' + esc(it.mark_label) + ' 표시: ' + esc(it.mark_by) + ' ' + esc(when(it.mark_at)) : '') +
       (has ? '' : ' · 일정·낙찰하한율 같은 세부 항목은 다음 모으기 때 채워져요.') + '</div>';
     return '<tr class="gw-bd-detail"><td colspan="7"><div class="gw-bd-acc' + (state.anim ? ' gw-bd-slide' : '') + '">' +
-      head + '<div class="gw-bd-cards">' + cards + '</div>' + foot + '</div></td></tr>';
+      '<div class="gw-bd-acc-top"><ul class="gw-bd-chks" aria-label="확인할 것">' + checks + '</ul>' +
+      (du ? '<a class="btn btn-sm btn-primary gw-bd-acc-go" href="' + esc(du) + '" target="_blank" rel="noopener">' +
+        '<i class="fas fa-up-right-from-square me-1" aria-hidden="true"></i>나라장터에서 보기</a>' : '') + '</div>' +
+      body + foot + '</div></td></tr>';
   }
   function closeDetail() {
     var rows = $('bdRows');
@@ -198,6 +203,7 @@
       $('bdRule').textContent = '나라장터 냉난방 관련 공사 공고 중 경기도·김포시 업체가 참가할 수 있는 것만 모았어요. ' +
         '지금 면허: ' + (j.held || []).join(', ') + (j.planned && j.planned.length ? ' · 준비 중: ' + j.planned.join(', ') : '') +
         '. 실적제한·PQ·지명경쟁·4억 이상 적격심사는 뺐어요.';
+      state.held = j.held || [];
       var rows = j.items || [];
       state.items = {};
       rows.forEach(function (it) { state.items[it.bid_no] = it; });

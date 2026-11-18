@@ -377,7 +377,9 @@ def _detail(raw: str) -> dict:
         'main_license': t('mainCnsttyNm'), 'main_price': _int(it.get('mainCnsttyPresmptPrce')),
         'award_full': t('sucsfbidMthdNm'), 'lower_rate': f'{rate}%' if rate else '',
         'price_method': t('prearngPrceDcsnMthdNm'),
-        'price_count': f"{t('totPrdprcNum')}개 중 {t('drwtPrdprcNum')}개 추첨" if t('totPrdprcNum') else '',
+        # 복수예가일 때만(단일예가는 '1개 중 0개'로 와서 뺌)
+        'price_count': (f"{t('totPrdprcNum')}개 중 {t('drwtPrdprcNum')}개 추첨"
+                        if _int(it.get('drwtPrdprcNum')) > 0 else ''),
         'joint': t('cmmnSpldmdMethdNm'), 'joint_region': _yn(it.get('rgnDutyJntcontrctYn')),
         'site_region': t('cnstrtsiteRgnNm'),
         'contact_name': t('ntceInsttOfclNm') or t('exctvNm'), 'contact_tel': t('ntceInsttOfclTelNo'),

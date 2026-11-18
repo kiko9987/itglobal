@@ -2448,7 +2448,7 @@ body.gw-drawer-open {
   .gw-bd-table { min-width: 760px; }
 }
 
-/* 입찰 공고 — 줄 펼치기(PM 프로젝트 아코디언과 같은 짜임: 제목 띠 + 정보 카드 4장) */
+/* 입찰 공고 — 줄 펼치기(나라장터 공고 상세처럼 표, 맨 위엔 확인할 것) */
 .gw-bd-row {
   cursor: pointer;
 }
@@ -2468,15 +2468,17 @@ body.gw-drawer-open {
 
 .gw-bd-detail > td {
   padding: 0 !important;
-  background: #f7f8fa;
+  background: #ffffff;
+  border-bottom: 2px solid #cbd5e1;
 }
 
 .gw-bd-acc {
-  padding: 16px;
+  max-width: 1100px;
+  padding: 14px 18px 16px;
 }
 
 .gw-bd-slide {
-  animation: gwBdSlide 0.25s ease-out;
+  animation: gwBdSlide 0.2s ease-out;
 }
 
 @keyframes gwBdSlide {
@@ -2488,98 +2490,105 @@ body.gw-drawer-open {
   .gw-bd-slide { animation: none; }
 }
 
-.gw-bd-acc-head {
-  position: relative;
-  margin-bottom: 12px;
-  padding: 10px 14px;
-  padding-right: 170px;
-  border: 1px solid #e5e7eb;
-  border-left: 4px solid #2563eb;
+.gw-bd-acc-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid #dbe3ef;
   border-radius: 8px;
-  background: #ffffff;
+  background: #f8fafc;
 }
 
-.gw-bd-acc-no {
-  color: #2563eb;
-  font-size: 13px;
-  font-weight: 700;
+.gw-bd-chks {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.gw-bd-acc-title {
-  margin: 2px 0;
-  color: #1a1c20;
-  font-size: 15px;
-  font-weight: 700;
-  word-break: keep-all;
+.gw-bd-chk {
+  display: grid;
+  grid-template-columns: 18px 104px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.gw-bd-chk i { font-size: 14px; }
+.gw-bd-chk.ok i { color: #16a34a; }
+.gw-bd-chk.no i { color: #dc2626; }
+.gw-bd-chk.warn i { color: #d97706; }
+.gw-bd-chk.no .gw-bd-chk-t b { color: #b91c1c; }
+.gw-bd-chk.warn .gw-bd-chk-t b { color: #b45309; }
+
+.gw-bd-chk-l {
+  color: #4b5563;
+  font-weight: 600;
+}
+
+.gw-bd-chk-t {
+  min-width: 0;
+  color: #111827;
+  overflow-wrap: anywhere;
 }
 
 .gw-bd-acc-go {
-  position: absolute;
-  top: 12px;
-  right: 14px;
+  flex-shrink: 0;
 }
 
-.gw-bd-cards {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.gw-bd-card {
-  padding: 14px;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  background: #ffffff;
-}
-
-.gw-bd-card-t {
-  margin: 0 0 10px;
+.gw-bd-sec {
+  margin: 16px 0 6px;
+  padding-left: 8px;
+  border-left: 3px solid #1f2937;
+  color: #111827;
   font-size: 14px;
   font-weight: 700;
 }
 
-.gw-bd-card-t.t-blue { color: #1d4ed8; }
-.gw-bd-card-t.t-green { color: #15803d; }
-.gw-bd-card-t.t-orange { color: #c2410c; }
-.gw-bd-card-t.t-purple { color: #7e22ce; }
-
-.gw-bd-grid {
-  display: grid;
-  gap: 8px;
-}
-
-.gw-bd-item {
-  display: grid;
-  grid-template-columns: 92px minmax(0, 1fr);
-  gap: 8px;
+.gw-bd-kv {
+  width: 100%;
+  border-collapse: collapse;
+  border-top: 2px solid #374151;
+  table-layout: fixed;
   font-size: 13px;
-  line-height: 1.45;
 }
 
-.gw-bd-item small {
-  color: #6b7280;
-  font-size: 12px;
-}
-
-.gw-bd-item > div {
-  min-width: 0;
+.gw-bd-kv th,
+.gw-bd-kv td {
+  padding: 7px 10px;
+  border-bottom: 1px solid #e5e7eb;
+  vertical-align: top;
+  text-align: left;
   overflow-wrap: anywhere;
-  color: #1f2937;
 }
 
-.gw-bd-item-wide {
-  grid-template-columns: 1fr;
-  gap: 4px;
+.gw-bd-kv col.k {
+  width: 130px;
+}
+
+.gw-bd-kv th {
+  background: #f3f4f6;
+  color: #374151;
+  font-weight: 600;
+}
+
+.gw-bd-kv td {
+  color: #111827;
 }
 
 .gw-bd-files {
   margin: 0;
-  padding-left: 16px;
-  font-size: 12px;
+  padding: 8px 10px 8px 28px;
+  border-top: 2px solid #374151;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 13px;
 }
 
 .gw-bd-files li + li {
-  margin-top: 2px;
+  margin-top: 3px;
 }
 
 .gw-bd-acc-foot {
@@ -2588,12 +2597,10 @@ body.gw-drawer-open {
   font-size: 12px;
 }
 
-@media (max-width: 1280px) {
-  .gw-bd-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-
 @media (max-width: 720px) {
-  .gw-bd-cards { grid-template-columns: 1fr; }
-  .gw-bd-acc-head { padding-right: 14px; }
-  .gw-bd-acc-go { position: static; margin-top: 8px; }
+  .gw-bd-acc-top { flex-direction: column; }
+  .gw-bd-chk { grid-template-columns: 18px 1fr; }
+  .gw-bd-chk-t { grid-column: 2; }
+  .gw-bd-kv, .gw-bd-kv tbody, .gw-bd-kv tr, .gw-bd-kv th, .gw-bd-kv td { display: block; width: auto; }
+  .gw-bd-kv th { border-bottom: 0; padding-bottom: 2px; }
 }

@@ -177,6 +177,11 @@ def test_detail_from_raw(db, monkeypatch):
     assert d['contact_name'] == '신수견' and d['contact_email'] == 'a@korea.kr' and d['joint_region'] == '아니오'
 
 
+def test_single_price_has_no_draw_count():
+    d = g._detail(json.dumps({'prearngPrceDcsnMthdNm': '단일예가', 'totPrdprcNum': '1', 'drwtPrdprcNum': '0'}))
+    assert d['price_method'] == '단일예가' and d['price_count'] == ''
+
+
 def test_old_rows_get_detail_on_next_collect_without_limit_calls(db, monkeypatch):
     calls = _fake_api(monkeypatch, [_item('A1')], {'A1': (['경기도'], [[MECH]])})
     g.collect()
