@@ -1733,6 +1733,25 @@ def test_folder_docs_block_carry_and_post(se):
     assert '<itgfolder://FOLDER123|탐색기에서 열기>' in msg['text'] and '• 도면.pdf' in msg['text']
 
 
+def test_same_file_from_folder_and_attach_posted_once(se, monkeypatch):
+    """11-18 #58 — 같은 견적서·고유번호증을 「공사 폴더 서류」와 「첨부 파일」 두 칸에서 골라 두 번씩 붙었다."""
+    from dashboard.services import business_license_handler as bl
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    monkeypatch.setattr(bl, '_project_folder_id_for', lambda code, fresh=False: 'F1')
+    monkeypatch.setattr(se, '_folder_doc_file', lambda code, d: {'content': b'P', 'filename': d['name'], 'title': d['name']})
+    monkeypatch.setattr(se, '_download', lambda url: b'X')
+    runs = []
+    monkeypatch.setattr(se.threading, 'Thread', lambda target, daemon=True: type('T', (), {'start': lambda s: runs.append(target())})())
+    n = len(se._fake.of('files_upload_v2'))
+    se._post_docs_and_files_bg(row, [{'id': 'P2', 'name': '내역서 26.11.11.pdf'}],
+                               [{'name': '내역서 26.11.11.pdf', 'url': 'u1'}, {'name': '고유번호증.pdf', 'url': 'u2'}], '박정우')
+    ups = se._fake.of('files_upload_v2')[n:]
+    assert [[f['filename'] for f in u['file_uploads']] for u in ups] == [['내역서 26.11.11.pdf'], ['고유번호증.pdf']]
+    se._post_docs_and_files_bg(row, [{'id': 'P9', 'name': '내역서 26.11.11.pdf'}],      # 다시 올려도(다른 ID·같은 이름)
+                               [{'name': '고유번호증.pdf', 'url': 'u3'}], '박정우')
+    assert len(se._fake.of('files_upload_v2')) == n + 2
+
+
 def test_folder_doc_file_reads_drive(monkeypatch):
     from dashboard.blueprints import slack_eapproval as se2
     from dashboard.services import business_license_handler as bl
