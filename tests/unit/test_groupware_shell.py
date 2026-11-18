@@ -65,7 +65,7 @@ def test_build_nav_active_and_admin_only():
     assert [a['label'] for a in nav['areas']] == ['홈', '결재', '영업', '경영지원', '휴가', '인사']      # 관리는 관리자만
     assert nav['areas'][2]['active'] and not nav['areas'][3]['active']
     labels = [i['label'] for i in nav['items']]
-    assert labels == ['프로젝트', '고객 리드', '매출통계', '입찰 공고']            # 시공사례는 관리자만
+    assert labels == ['프로젝트', '고객 리드', '입찰 공고', '매출 통계']            # 시공사례는 관리자만
     assert [i['label'] for i in nav['items'] if i['active']] == ['고객 리드']
 
     nav = gw.build_nav('/settlement/collected', 'super_admin')
@@ -85,7 +85,7 @@ def test_build_nav_active_and_admin_only():
     hr_area = next(a for a in gw.build_nav('/leave/team', 'editor', leave_all=True)['areas'] if a['key'] == 'leave')
     assert [(c['label'], c['active']) for c in hr_area['children']] == [('내 휴가', False), ('전사 현황', True)]
     sales = next(a for a in gw.build_nav('/home', 'editor')['areas'] if a['key'] == 'sales')
-    assert [c['label'] for c in sales['children']] == ['프로젝트', '고객 리드', '매출통계', '입찰 공고'] and not sales['active']
+    assert [c['label'] for c in sales['children']] == ['프로젝트', '고객 리드', '입찰 공고', '매출 통계'] and not sales['active']
     assert not any(c['active'] for c in sales['children'])
 
     nav = gw.build_nav('/admin/cache-monitor', 'admin')        # 메뉴에 없는 화면
@@ -109,7 +109,7 @@ def test_context_processor_picks_layout(db):
         assert render_template_string(tpl) == 'False|False|'
     with app.test_request_context('/projects'):
         session['user'] = {'email': 'kiko@itg-aircon.com', 'permission_level': 'super_admin'}
-        assert render_template_string(tpl) == 'True|False|프로젝트,고객 리드,매출통계,입찰 공고,시공사례'
+        assert render_template_string(tpl) == 'True|False|프로젝트,고객 리드,입찰 공고,시공사례,매출 통계'
     with app.test_request_context('/projects'):
         session['user'] = {'email': 'kiko@itg-aircon.com', 'permission_level': 'super_admin'}
         session['gw_off'] = True
