@@ -417,6 +417,7 @@ def post_files(row: dict, files: list, who: str, label: str = '') -> int:
         try:
             eap_client().files_upload_v2(channel=row['card_channel'], thread_ts=row['card_ts'],
                                          file_uploads=uploads, initial_comment=label or f'📎 {ea.initial(who)} 첨부')
+            _remember_doc_names(row, [u['filename'] for u in uploads])
         except Exception as exc:
             logger.warning(f'{_LOG} 첨부 올리기 실패 ({ea.title(row)}): {exc}')
             failed += [u['filename'] for u in uploads]
@@ -463,6 +464,25 @@ def save_handwritten(row: dict) -> List[str]:
 def _post_files_bg(row: dict, files: list, who: str) -> None:
     if files:
         threading.Thread(target=post_files, args=(row, files, who), daemon=True).start()
+
+
+def _post_docs_and_files_bg(row: dict, docs: list, files: list, who: str) -> None:
+    """공사 폴더 서류 → 창 첨부 순서로 한 스레드에서(11-18 #58 — 같은 견적서·고유번호증을 두 칸에서 골라
+    두 번씩 붙었다). 폴더 서류로 붙인 이름과 같은 첨부, 이 결재에 이미 붙인 이름은 건너뛴다."""
+    if not (docs or files):
+        return
+
+    def _run():
+        if docs:
+            post_folder_docs(row, docs)
+        if files:
+            seen = posted_doc_names(row)
+            fresh = [f for f in files if _name_key(f.get('name')) not in seen]
+            if len(fresh) < len(files):
+                logger.info(f'{_LOG} {ea.title(row)} 이미 붙은 첨부 {len(files) - len(fresh)}개 건너뜀')
+            if fresh:
+                post_files(row, fresh, who)
+    threading.Thread(target=_run, daemon=True).start()
 
 
 def _invoice_post(ch: str, ts: str) -> Optional[dict]:
@@ -619,8 +639,9 @@ def edit_view(row: dict) -> dict:
         # 보완 요청으로 돌아온 수정 창에도 공사 폴더 서류·등록증 안내를 처음 창처럼(11-17 KiKO).
         # 처음 올릴 때 붙인 서류는 카드 스레드에 이미 있으니 미리 고르지 않는다(같은 파일 두 번 붙음 방지).
         if form in ea.forms.FOLDER_DOC_FORMS:
-            posted = posted_doc_ids(row)
-            vals['_docs'] = [dict(d, note='이미 붙어 있음 — 골라도 다시 안 붙어요') if d['id'] in posted else d
+            posted, names = posted_doc_ids(row), posted_doc_names(row)
+            vals['_docs'] = [dict(d, note='이미 붙어 있음 — 골라도 다시 안 붙어요')
+                             if d['id'] in posted or _name_key(d.get('name')) in names else d
                              for d in folder_docs(code)]
         note = _form_notes(form, code)
         if note:
@@ -641,8 +662,7 @@ def process_edit(uid: str, aid: int, fields: dict, files: list, docs: Optional[l
     row, changed = res
     client = eap_client()
     if not changed and prev != ea.REVISE:   # 바뀐 칸 없음 — 승인 단계 그대로(첨부만 붙인다)
-        _post_folder_docs_bg(row, docs or [])
-        _post_files_bg(row, files, name)
+        _post_docs_and_files_bg(row, docs or [], files, name)
         if not files and not docs:
             _notify(client, uid, f'{ea.title(row)} — 바뀐 내용이 없어 그대로 두었어요.')
         return row
@@ -661,8 +681,7 @@ def process_edit(uid: str, aid: int, fields: dict, files: list, docs: Optional[l
         else:
             _send_dm(client, aid, u, role)
     _audit(row, 'resubmit', name, _changes_text(row['form'], changed))
-    _post_folder_docs_bg(row, docs or [])   # 수정 창에서 고른 공사 폴더 서류도(11-05 점검)
-    _post_files_bg(row, files, name)
+    _post_docs_and_files_bg(row, docs or [], files, name)   # 수정 창에서 고른 공사 폴더 서류도(11-05 점검)
     logger.info(f'{_LOG} {ea.title(row)} 수정 후 다시 올림 ({name}): {changed}')
     return row
 
@@ -1362,7 +1381,9 @@ def post_folder_docs(row: dict, docs: list) -> None:
         logger.warning(f'{_LOG} 공사 폴더 찾기 실패 ({code}): {exc}')
     head = f'📁 공사 폴더 서류 · <itgfolder://{folder}|탐색기에서 열기>' if folder else '📁 공사 폴더 서류'
     posted = posted_doc_ids(row)
-    docs = [d for d in docs if d['id'] not in posted]   # 이 결재 카드에 이미 붙인 파일은 다시 안 붙인다(11-17 #48)
+    names = posted_doc_names(row)
+    docs = [d for d in docs if d['id'] not in posted   # 이 결재 카드에 이미 붙인 파일은 다시 안 붙인다(11-17 #48)
+            and (d['id'] == ea.forms.LICENSE_DOC or _name_key(d.get('name')) not in names)]   # 같은 이름 첨부도(11-18)
     if not docs:
         return
     uploads, failed, up_ids = [], [], []
@@ -1385,6 +1406,7 @@ def post_folder_docs(row: dict, docs: list) -> None:
                                          file_uploads=uploads, initial_comment=head + note)
             try:
                 ea.kv_set(_DOCS_POSTED + str(row['id']), json.dumps(sorted(posted | set(up_ids))))
+                _remember_doc_names(row, [u['filename'] for u in uploads])
             except Exception as exc:
                 logger.warning(f'{_LOG} 붙인 서류 기록 실패 ({ea.title(row)}): {exc}')
             return
@@ -1396,6 +1418,27 @@ def post_folder_docs(row: dict, docs: list) -> None:
 
 
 _DOCS_POSTED = 'docs_posted:'
+_DOCS_NAMES = 'docs_names:'
+
+
+def _name_key(name) -> str:
+    return re.sub(r'\s+', '', str(name or '')).lower()
+
+
+def posted_doc_names(row: dict) -> set:
+    """이 결재 카드 스레드에 붙인 파일 이름(공사 폴더 서류·창 첨부 모두, 공백·대소문자 무시)."""
+    try:
+        return set(json.loads(ea.kv_get(_DOCS_NAMES + str(row.get('id'))) or '[]'))
+    except Exception:
+        return set()
+
+
+def _remember_doc_names(row: dict, names: list) -> None:
+    try:
+        ea.kv_set(_DOCS_NAMES + str(row['id']),
+                  json.dumps(sorted(posted_doc_names(row) | {_name_key(n) for n in names if n}), ensure_ascii=False))
+    except Exception as exc:
+        logger.warning(f'{_LOG} 붙인 파일 이름 기록 실패 ({ea.title(row)}): {exc}')
 
 
 def posted_doc_ids(row: dict) -> set:
@@ -1662,8 +1705,7 @@ def process_form_submit(uid: str, form_key: str, vals: dict) -> dict:
     row = start(row)
     if form_key == ea.forms.FORM_INSURANCE:
         post_contract_link(row)
-    _post_folder_docs_bg(row, docs)
-    _post_files_bg(row, files, name)
+    _post_docs_and_files_bg(row, docs, files, name)
     return row
 
 
