@@ -1,8 +1,16 @@
 """플렉스 요약 엑셀 다시 만들기(2026-11-10) — 가장 최근 원본(flex_refresh_YYYYMMDD.json) 기준.
 11/6 전체 내보내기의 휴가 상세(결재선·댓글)·결재 문서·첨부 목록은 이어 붙인다. 파일 옮기기·첨부 풀기는 안 함.
-받기: scripts/flex/flex_refresh_browser.js → 이 스크립트 → scripts/hr_import_flex.py. 날짜는 아래 REFRESH 를 바꾼다."""
+받기: scripts/flex/flex_refresh_browser.js → 이 스크립트 → scripts/hr_import_flex.py.
+
+사용:  python scripts/flex/flex_summary_refresh.py [YYYYMMDD]
+  날짜를 안 주면 원본 폴더의 가장 최근 flex_refresh_YYYYMMDD.json 을 쓴다(11-17 검토 R9 — 예전엔 20261110·'2026-11' 고정).
+  '연차 잔여(YY-MM)' 칸 = 받은 날이 든 달의 월말 잔여. 플렉스는 신청이 잡힌 순간(승인 대기 포함) 그 휴가 날짜의 달 몫에서
+  빼므로, 12월에 받으면 그해 휴가가 모두 빠진 값 = 플렉스 「휴가 보유 현황」 숫자(11-18 김태현·권태숙으로 확인)."""
+import glob
 import json
 import os
+import re
+import sys
 from datetime import datetime, timezone, timedelta
 
 import openpyxl
@@ -12,7 +20,20 @@ OUT = r'C:\Users\SECOM\Desktop\ITG-Project\flex_export_20261106'
 RAW = os.path.join(OUT, '원본')
 KST = timezone(timedelta(hours=9))
 old = json.load(open(os.path.join(RAW, 'flex_data_20261106.json'), encoding='utf-8'))
-REFRESH = '20261110'   # 다시 받은 날
+
+
+def _latest_refresh() -> str:
+    days = sorted(re.findall(r'flex_refresh_(\d{8})\.json$', os.path.basename(p))[0]
+                  for p in glob.glob(os.path.join(RAW, 'flex_refresh_*.json')))
+    if not days:
+        sys.exit('원본 폴더에 flex_refresh_YYYYMMDD.json 이 없습니다 — flex_refresh_browser.js 로 먼저 받으세요.')
+    return days[-1]
+
+
+REFRESH = sys.argv[1] if len(sys.argv) > 1 and re.fullmatch(r'\d{8}', sys.argv[1]) else _latest_refresh()   # 다시 받은 날
+MONTH = f'{REFRESH[:4]}-{REFRESH[4:6]}'          # 잔여를 읽을 달(받은 날이 든 달)
+LEFT_COL = f'연차 잔여({REFRESH[2:4]}-{REFRESH[4:6]})'
+print('받은 날', REFRESH, '· 잔여 기준 달', MONTH)
 d = json.load(open(os.path.join(RAW, f'flex_refresh_{REFRESH}.json'), encoding='utf-8'))
 d['timeOffDetail'] = old.get('timeOffDetail') or {}
 _docs = {x['document']['documentKey']: x for x in old['approvalDocs']}
@@ -94,9 +115,9 @@ for u, o in sorted(users.items(), key=lambda x: (('RESIGNATION' in x[1]['search'
     res = (o.get('resignations') or [{}])
     res = res[0] if res else {}
     left = ''
-    st26 = ((o.get('annualStatusByYear') or {}).get('2026') or {}).get('userAnnualTimeOffDetailStatus') or {}
-    for m in st26.get('yearMonthlyStatus', []):
-        if m['yearMonth'] == '2026-11':
+    st_y = ((o.get('annualStatusByYear') or {}).get(MONTH[:4]) or {}).get('userAnnualTimeOffDetailStatus') or {}
+    for m in st_y.get('yearMonthlyStatus', []):
+        if m['yearMonth'] == MONTH:
             left = m['remainingTime']['timeOffDays']
     rows.append([b['name'], '/'.join(STATUS_KO.get(x, x) for x in s['tagInfo']['userStatuses']),
                  b.get('companyJoinDate', ''), b.get('companyGroupJoinDate', ''),
@@ -108,7 +129,7 @@ for u, o in sorted(users.items(), key=lambda x: (('RESIGNATION' in x[1]['search'
                  first(((s.get('contractInfo') or {}).get('employmentContracts')), 'contractType'),
                  left, u])
 sheet('구성원', ['이름', '상태', '입사일', '그룹 입사일', '퇴사일', '마지막 근무일', '퇴사 사유', '부서', '직무', '직급', '직책',
-               '회사 메일', '개인 메일', '전화', '성별', '생년월일', '계약 형태', '연차 잔여(26-11)', '플렉스 ID'], rows,
+               '회사 메일', '개인 메일', '전화', '성별', '생년월일', '계약 형태', LEFT_COL, '플렉스 ID'], rows,
       [9, 10, 11, 11, 11, 11, 18, 10, 10, 10, 8, 26, 26, 14, 5, 11, 10, 9, 12])
 
 # 인사 발령
