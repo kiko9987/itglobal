@@ -119,6 +119,7 @@
     if (L.pending && L.balance != null) {
       h += '<div class="gw-lv-note">남은 연차는 승인 대기 중인 휴가까지 미리 뺀 날수예요.</div>';
     }
+    if (opts.afterStats) h += opts.afterStats;   // 직원별 창: 경영지원 관리 단추(11-19 — 현황 다음에)
 
     if (L.grants && L.grants.length) {
       h += '<div class="gw-sec-title">언제까지 써야 하나요</div><ul class="gw-plain-list">';
@@ -185,9 +186,10 @@
           return '<option value="' + y + '"' + (y === pickYear ? ' selected' : '') + '>' + y + '년</option>';
         }).join('') +
         '</select>' : '') + '</div>';
-    var cols = opts.mine ? 6 : 5;
-    h += '<div class="gw-table-wrap"><table class="gw-table gw-leave-table' + (opts.mine ? ' gw-lv-mine-table' : '') + '"><thead><tr><th>기간</th><th>종류</th><th class="n">일수</th><th>상태</th><th>사유</th>' +
-      (opts.mine ? '<th><span class="visually-hidden">취소</span></th>' : '') + '</tr></thead><tbody>';
+    var act = opts.mine ? cancelBtn : opts.rowAct;   // 줄 끝 단추 — 내 휴가: 본인 고치기·취소, 직원별 창: 경영지원 고치기·취소
+    var cols = act ? 6 : 5;
+    h += '<div class="gw-table-wrap"><table class="gw-table gw-leave-table' + (act ? ' gw-lv-mine-table' : '') + '"><thead><tr><th>기간</th><th>종류</th><th class="n">일수</th><th>상태</th><th>사유</th>' +
+      (act ? '<th><span class="visually-hidden">처리</span></th>' : '') + '</tr></thead><tbody>';
     if (!L.entries || !L.entries.length) {
       h += '<tr><td colspan="' + cols + '" class="gw-empty">기록이 없어요.</td></tr>';
     } else {
@@ -196,7 +198,7 @@
           (pickYear && e.start.slice(0, 4) !== pickYear ? ' hidden' : '') + '>' +
           '<td class="gw-lv-when">' + esc(period(e, true)) + '</td><td>' + esc(e.type) + '</td><td class="n">' + days(e.days) + '</td>' +
           '<td>' + statusBadge(e.status) + '</td><td class="gw-reason">' + esc(e.reason) + '</td>' +
-          (opts.mine ? '<td class="gw-lv-act">' + cancelBtn(e) + '</td>' : '') + '</tr>';
+          (act ? '<td class="gw-lv-act">' + act(e) + '</td>' : '') + '</tr>';
       });
     }
     h += '</tbody></table></div>';
@@ -915,7 +917,8 @@
       tbody.innerHTML = rows.map(function (p) {
         var nxt = p.next ? esc(period(p.next)) + (p.next.status === '대기' ? ' <span class="gw-badge gw-badge-leave">승인 대기</span>' : '') : '<span class="text-muted">-</span>';
         // 줄 전체가 누르는 자리 — 화면 읽기엔 '단추'로(Enter·Space 로 열림, 아래 keydown)
-        return '<tr tabindex="0" role="button" aria-label="' + esc(p.name + ' 휴가 열기') + '" data-id="' + esc(p.person_id) + '" data-name="' + esc(p.name) + '">' +
+        var sub = [p.department, p.hire_date ? '입사 ' + p.hire_date : ''].filter(Boolean).join(' · ');
+        return '<tr tabindex="0" role="button" aria-label="' + esc(p.name + ' 휴가 열기') + '" data-id="' + esc(p.person_id) + '" data-name="' + esc(p.name) + '" data-sub="' + esc(sub) + '">' +
           '<td><strong>' + esc(p.name) + '</strong>' + (p.access === 'field' ? ' <span class="gw-badge gw-badge-field">' + esc(p.job_role || '현장') + '</span>' : '') + '</td>' +
           '<td>' + esc(p.department) + '</td><td>' + esc(p.hire_date) + '</td>' +
           '<td class="n">' + (p.linked ? days(p.balance) : '<span class="text-muted" title="휴가 장부에 없음">-</span>') + '</td>' +
@@ -1014,29 +1017,16 @@
     if (!adm || !adm.can) return adm && adm.why ? '<div class="gw-note">' + esc(adm.why) + '</div>' : '';
     admEntries = {};
     (L.entries || []).forEach(function (e) { if (e.source === 'slack') admEntries[e.id] = e; });
-    var h = '<div class="gw-lv-adm"><div class="gw-sec-head"><div class="gw-sec-title m-0">휴가 관리</div>' +
-      '<div class="gw-lv-adm-btns"><button type="button" class="btn btn-sm btn-outline-secondary" data-adm="adjust">연차 조정</button>' +
-      '<button type="button" class="btn btn-sm btn-outline-secondary" data-adm="register">휴가 등록</button>' +
+    // 11-19 부장님 'UI/UX 손봐야' — 현황 다음 한 줄 단추, 고치기·취소는 휴가 기록 표의 그 줄에, 기록은 접어 둠
+    var h = '<div class="gw-lv-adm" id="lvAdmBox"><div class="gw-lv-adm-bar"><span class="gw-lv-adm-t">경영지원 관리</span>' +
+      '<div class="gw-lv-adm-btns"><button type="button" class="btn btn-sm btn-outline-secondary" data-adm="register">휴가 등록</button>' +
+      '<button type="button" class="btn btn-sm btn-outline-secondary" data-adm="adjust">연차 조정</button>' +
       '<button type="button" class="btn btn-sm btn-outline-secondary" data-adm="custom">맞춤 휴가 부여</button>' +
-      '<button type="button" class="btn btn-sm btn-outline-secondary" data-adm="settle">퇴직 정산</button></div></div>' +
+      '<button type="button" class="btn btn-sm btn-link gw-lv-adm-more" data-adm="settle">퇴직 정산</button></div></div>' +
       '<div id="lvAdmForm"></div><div class="gw-lv-err" id="lvAdmMsg" role="alert"></div>';
-    var ids = (adm.editable || []).filter(function (id) { return admEntries[id]; });
-    if (ids.length) {
-      h += '<ul class="gw-lv-upcoming">';
-      ids.sort(function (a, b) { return admEntries[a].start < admEntries[b].start ? -1 : 1; });
-      ids.forEach(function (id) {
-        var e = admEntries[id];
-        h += '<li><div class="gw-lv-up-main"><div class="gw-lv-up-when">' + esc(period(e)) + '</div>' +
-          '<div class="gw-lv-up-sub">' + esc(e.type) + ' · ' + days(e.days) + ' ' + statusBadge(e.status) + '</div></div>' +
-          '<button type="button" class="btn btn-outline-secondary btn-sm gw-lv-cancel" data-adm="edit" data-id="' + esc(id) + '">고치기</button>' +
-          '<button type="button" class="btn btn-outline-danger btn-sm gw-lv-cancel" data-adm="cancel" data-id="' + esc(id) + '">취소</button></li>';
-      });
-      h += '</ul>';
-    } else {
-      h += '<div class="gw-note">고치거나 취소할 승인 대기·승인 휴가가 없어요.</div>';
-    }
+    var rec = '';
     if (adm.custom_grants && adm.custom_grants.length) {
-      h += '<div class="gw-sec-title">맞춤 휴가 부여 기록</div><ul class="gw-plain-list">' + adm.custom_grants.map(function (g) {
+      rec += '<div class="gw-lv-adm-rec-t">맞춤 휴가 부여</div><ul class="gw-plain-list">' + adm.custom_grants.map(function (g) {
         var span = (g.valid_to ? esc(g.valid_from) + ' ~ ' + esc(g.valid_to) : esc(g.valid_from) + '부터 언제든');
         return '<li' + (g.cancelled ? ' class="text-muted"' : '') + '>' + esc(g.at) + ' · <strong>' + esc(g.label) + ' ' + days(g.days) + '</strong>' +
           (g.cancelled ? ' (취소)' : ' — 쓴 ' + days(g.used) + ' · 남은 ' + days(g.left)) +
@@ -1046,12 +1036,14 @@
       }).join('') + '</ul>';
     }
     if (adm.adjustments && adm.adjustments.length) {
-      h += '<div class="gw-sec-title">연차 조정 기록</div><ul class="gw-plain-list">' + adm.adjustments.map(function (a) {
+      rec += '<div class="gw-lv-adm-rec-t">연차 조정</div><ul class="gw-plain-list">' + adm.adjustments.map(function (a) {
         var span = (a.valid_from && a.valid_from !== a.at.slice(0, 10) ? esc(a.valid_from) + '부터 ' : '') + esc(a.valid_to) + '까지';
         return '<li' + (a.cancelled ? ' class="text-muted"' : '') + '>' + esc(a.at.slice(0, 10)) + ' · ' + esc(a.note) +
           (a.cancelled ? '' : ' <span class="text-muted">(' + span + ')</span> <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-adm="adjcancel" data-id="' + esc(a.id) + '">조정 취소</button>') + '</li>';
       }).join('') + '</ul>';
     }
+    var n = (adm.custom_grants || []).length + (adm.adjustments || []).length;
+    if (n) h += '<details class="gw-lv-adm-rec"><summary>조정·부여 기록 ' + n + '건</summary>' + rec + '</details>';
     return h + '</div>';
   }
 
@@ -1077,6 +1069,13 @@
     h += '<div class="gw-note">근거: 고용노동부 근기 68207-620·근로개선정책과-5352(퇴직 때 입사일 기준에 모자란 일수 정산), ' +
       '대법원 2021다227100(1년 근로 다음 날 연차 발생 — 그 전에 그만두면 그 해 몫 없음).</div>';
     return h + '</div>';
+  }
+
+  // 휴가 기록 표 줄 끝 — 경영지원이 고칠 수 있는 줄(승인 대기·승인)만
+  function admRowAct(e) {
+    if (!adm || !adm.can || e.source !== 'slack' || (adm.editable || []).indexOf(e.id) === -1) return '';
+    return '<button type="button" class="btn btn-outline-secondary btn-sm gw-lv-cancel" data-adm="edit" data-id="' + esc(e.id) + '">고치기</button>' +
+      '<button type="button" class="btn btn-outline-danger btn-sm gw-lv-cancel" data-adm="cancel" data-id="' + esc(e.id) + '">취소</button>';
   }
 
   function admField(id, label, input, hint) {
@@ -1133,7 +1132,8 @@
     if (f.type) f.type.addEventListener('change', sync);
     sync();
     var first = f.querySelector('select, input');
-    if (first) first.focus();
+    try { box.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { /* 무시 */ }
+    if (first) first.focus({ preventScroll: true });
   }
 
   function admSubmit(f) {
@@ -1220,16 +1220,20 @@
     loadTeam();
   }
 
-  function openPerson(id, name, note) {
+  var curSub = '';
+  function openPerson(id, name, note, sub) {
     admPid = id;
     curName = name;
-    document.getElementById('lvPersonTitle').textContent = name + ' 휴가';
+    if (sub !== undefined) curSub = sub;
+    var t = document.getElementById('lvPersonTitle');
+    t.textContent = name + ' 휴가';
+    if (curSub) t.insertAdjacentHTML('beforeend', ' <small class="gw-lv-person-sub">' + esc(curSub) + '</small>');
     if (!note) bodyEl.innerHTML = '<div class="gw-empty">불러오는 중…</div>';
     if (window.bootstrap && !note) { returnFocusOnHide(modalEl); window.bootstrap.Modal.getOrCreateInstance(modalEl).show(); }
     api('/api/leave/person/' + id).then(function (j) {
       adm = j.admin || { can: false };
       bodyEl.innerHTML = (note ? '<div class="gw-lv-flash ok" role="status">' + esc(note) + '</div>' : '') +
-        renderAdmin(j.leave) + renderSummary(j.leave, { hideApplyNote: true });
+        renderSummary(j.leave, { hideApplyNote: true, afterStats: renderAdmin(j.leave), rowAct: adm && adm.can ? admRowAct : null });
       bindYearFilter(bodyEl);
     }).catch(function (e) {
       bodyEl.innerHTML = '<div class="gw-empty">' + esc(e.message) + '</div>';
@@ -1238,13 +1242,23 @@
 
   tbody.addEventListener('click', function (e) {
     var tr = e.target.closest('tr[data-id]');
-    if (tr) openPerson(tr.getAttribute('data-id'), tr.getAttribute('data-name'));
+    if (tr) openPerson(tr.getAttribute('data-id'), tr.getAttribute('data-name'), '', tr.getAttribute('data-sub') || '');
   });
   tbody.addEventListener('keydown', function (e) {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     var tr = e.target.closest('tr[data-id]');
-    if (tr) { e.preventDefault(); openPerson(tr.getAttribute('data-id'), tr.getAttribute('data-name')); }
+    if (tr) { e.preventDefault(); openPerson(tr.getAttribute('data-id'), tr.getAttribute('data-name'), '', tr.getAttribute('data-sub') || ''); }
   });
+
+  // 이름(11-19 부장님): 전사 현황 → 전사 휴가 관리, 연차 부여·차감 → 연차 일괄 조정. 템플릿·메뉴도 같게(재시작 뒤)
+  (function () {
+    var h1 = document.querySelector('.gw-page-title');
+    if (h1 && h1.textContent.trim() === '휴가 전사 현황') h1.textContent = '전사 휴가 관리';
+    var bb = document.getElementById('lvBulkBtn');
+    if (bb) bb.textContent = '연차 일괄 조정';
+    var bt = document.getElementById('lvBulkTitle');
+    if (bt) bt.textContent = '연차 일괄 조정';
+  })();
 
   var xl = document.getElementById('lvExport');
   if (xl) {

@@ -181,7 +181,7 @@ AREAS = [
         'key': 'leave', 'label': '휴가', 'icon': 'fas fa-umbrella-beach',
         'items': [
             {'href': '/leave', 'label': '내 휴가', 'icon': 'fas fa-calendar-check', 'field': True},
-            {'href': '/leave/team', 'label': '전사 현황', 'icon': 'fas fa-calendar-alt', 'leave_all': True},
+            {'href': '/leave/team', 'label': '전사 휴가 관리', 'icon': 'fas fa-calendar-alt', 'leave_all': True},
         ],
     },
     {

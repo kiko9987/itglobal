@@ -829,9 +829,22 @@
 }
 
 .gw-page select.gw-year-select,
-.modal select.gw-year-select {
+.modal select.gw-year-select,
+#lvPersonModal select.gw-year-select {
   width: 110px;
   flex-shrink: 0;
+}
+
+/* 제목 + 오른쪽 단추·연도 줄 — 제목 위 구분선이 제목 길이만큼 짧게 떠 있던 것·좁으면 글자가 세로로 꺾이던 것(11-19) */
+.gw-sec-head .gw-sec-title {
+  margin: 0;
+  padding-top: 0;
+  border-top: 0;
+  white-space: nowrap;
+}
+.gw-sec-head {
+  padding-top: 14px;
+  border-top: 1px solid #eeeff1;
 }
 
 .gw-table-wrap {
@@ -2308,7 +2321,18 @@ body.gw-drawer-open {
   margin-bottom: 16px;
   background: #fafbfc;
 }
-.gw-lv-adm-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.gw-lv-adm-btns { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+/* 직원별 창 경영지원 칸(11-19) — 현황 다음 한 줄, 기록은 접어 둠 */
+#lvPersonModal .gw-lv-adm { margin: 12px 0 4px; padding: 10px 12px; }
+.gw-lv-adm-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.gw-lv-adm-t { font-size: 13px; font-weight: 700; color: #475569; }
+.gw-lv-adm-more { color: #475569; }
+.gw-lv-adm-rec { margin-top: 8px; font-size: 13px; }
+.gw-lv-adm-rec summary { cursor: pointer; color: #475569; }
+.gw-lv-adm-rec-t { margin: 8px 0 4px; font-weight: 600; color: #334155; }
+.gw-lv-person-sub { font-size: 13px; font-weight: 400; color: #64748b; margin-left: 6px; }
+.gw-lv-act { white-space: nowrap; }
+.gw-lv-act .gw-lv-cancel + .gw-lv-cancel { margin-left: 6px; }
 .gw-lv-adm-form {
   border: 1px solid #e2e8f0;
   border-radius: 10px;

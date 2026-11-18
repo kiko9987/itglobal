@@ -886,7 +886,7 @@ def promo_notify(kind: str, payload) -> None:
             parts.append('*지정 기한이 지났어요* — 노무 확인이 필요해요\n' + '\n'.join(_promo_line(v) for v in out['late']))
         if not parts:
             return
-        text = '📮 *연차 사용 촉진*\n' + '\n\n'.join(parts) + '\n그룹웨어 [휴가 전사 현황 → 연차 촉진]에서 처리해요.'
+        text = '📮 *연차 사용 촉진*\n' + '\n\n'.join(parts) + '\n그룹웨어 [전사 휴가 관리 → 연차 촉진]에서 처리해요.'
         for u in lv.manager_ids():
             _notify(client, u, text)
 
