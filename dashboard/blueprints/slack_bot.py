@@ -5173,7 +5173,7 @@ def _maybe_post_pinv_prompt(client, channel: str, ts: str, text: str) -> None:
     try:
         r = client.chat_postMessage(
             channel=channel, thread_ts=ts,
-            text='어느 프로젝트 건인지 골라 주세요.',
+            text='어느 프로젝트 건인지 선택해 주세요.',
             blocks=pinv.prompt_blocks(channel, ts, parsed))
         logger.info(f'[SLACK/현장지정] 버튼 게시: ts={ts} | {pinv.post_summary(parsed)}')
         try:   # 자금집행 창에서 이 계산서를 골라 지정하면 이 버튼 메시지도 정리하려고 위치를 기억

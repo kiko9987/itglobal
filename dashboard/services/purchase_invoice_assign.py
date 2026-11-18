@@ -339,7 +339,7 @@ def _thread_blocks(text: str, elements: Optional[List[dict]] = None) -> List[dic
 def prompt_blocks(channel: str, msg_ts: str, parsed: Dict) -> List[dict]:
     """계산서 글 스레드에 다는 버튼 메시지."""
     value = button_value(channel, msg_ts, parsed)
-    return _thread_blocks('어느 프로젝트 건인지 골라 주세요. 고르면 이 글의 고정이 풀립니다.', [{
+    return _thread_blocks('어느 프로젝트 건인지 선택해 주세요. 선택 시 바로 자금집행 요청을 할 수 있습니다.', [{
         'type': 'button', 'action_id': ACTION_OPEN, 'style': 'primary', 'value': value,
         'text': {'type': 'plain_text', 'text': '📍 프로젝트 지정', 'emoji': True},
     }])
