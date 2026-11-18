@@ -1495,7 +1495,9 @@ def license_note(code: str) -> str:
     rec = _project_rec(code) or {}
     biz = str(rec.get('사업자명') or '').strip()
     if biz in ('', '-', 'None'):
-        return ('ℹ️ 프로젝트에 사업자명이 없어요. 사업자 고객이면 사업자등록증을 첨부해 주세요. '
+        # 등록증은 공사 카드 스레드 한 곳으로(11-17) — 결재 창에 첨부하면 공사 폴더에 저장되지 않는다(11-18 #58)
+        return (f'ℹ️ 프로젝트에 사업자명이 없어요. 사업자 고객이면 {_project_card_link(code)}에 '
+                '사업자등록증(고유번호증)을 올려 주세요. 상호가 사업자명에 자동으로 들어가요. '
                 '개인 고객은 이름 · 주소 · 연락처 · 주민번호가 필요합니다.')
     try:
         from dashboard.services.business_license_handler import get_license_state
@@ -1550,14 +1552,32 @@ def license_missing(code: str) -> str:
     return f'{biz}의 사업자등록증이 없어요. {code} 공사 카드 스레드에 먼저 올리고 다시 제출해 주세요.'
 
 
+def folder_problem(code: str) -> str:
+    """공사 폴더가 비었거나 휴지통·삭제면 안내 문구(⚠️ 없이), 괜찮거나 조회 실패면 ''."""
+    if not code or code in ('프로젝트0', '공통비'):
+        return ''
+    try:
+        from dashboard.services.business_license_handler import FOLDER_STATUS_TEXT, project_folder_status
+        return FOLDER_STATUS_TEXT.get(project_folder_status(code)[0], '')
+    except Exception as exc:
+        logger.warning(f'{_LOG} 공사 폴더 상태 확인 실패 — 막지 않음 ({code}): {exc}')
+        return ''
+
+
 def _form_notes(form_key: str, code: str) -> str:
     if not code:
         return ''
+    notes = []
+    if form_key in ea.forms.FOLDER_DOC_FORMS:   # 공사 폴더 서류를 불러오는 양식 — 폴더가 없으면 칸이 조용히 비었다(11-18)
+        prob = folder_problem(code)
+        if prob:
+            notes.append('⚠️ ' + prob + (' 폴더가 정리돼야 계약서 요청을 올릴 수 있어요.'
+                                         if form_key == ea.forms.FORM_CONTRACT else ''))
     if form_key == ea.forms.FORM_INSURANCE:
-        return contract_note(code)
+        notes.append(contract_note(code))
     if form_key == ea.forms.FORM_CONTRACT:
-        return license_note(code)
-    return ''
+        notes.append(license_note(code))
+    return '\n'.join(n for n in notes if n)
 
 
 def open_form_modal(client, trigger_id: str, uid: str, form_key: str, project_code: str = '',
@@ -1597,7 +1617,8 @@ def validate_form_submit(view: dict):
     form_key, vals = ea.forms.read_form(view)
     errs = ea.forms.validate(form_key, vals)
     if form_key == ea.forms.FORM_CONTRACT and not errs.get('project'):
-        lic = license_missing(vals.get('project') or '')
+        # 계약서는 경영지원이 공사 폴더의 견적서를 보고 쓴다 — 폴더가 없으면 어차피 보완 요청으로 돌아온다(11-18 KiKO)
+        lic = folder_problem(vals.get('project') or '') or license_missing(vals.get('project') or '')
         if lic:
             errs['project'] = lic
     if not errs and not is_configured():

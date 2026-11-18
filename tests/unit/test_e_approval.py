@@ -1375,6 +1375,46 @@ def test_edit_view_loads_folder_docs_and_license_note(se, monkeypatch):
     assert '이미 붙어 있음' in json.dumps(se.edit_view(row), ensure_ascii=False)
 
 
+def test_contract_needs_project_folder(se, monkeypatch):
+    """11-18 G4279-JW — 공사 폴더가 휴지통이라 서류 칸이 조용히 비었다. 계약서는 막고, 다른 양식은 안내만."""
+    import dashboard.services.business_license_handler as blh
+    st = {'v': ('trashed', 'F1')}
+    monkeypatch.setattr(blh, 'project_folder_status', lambda code: st['v'])
+    monkeypatch.setattr(se, 'license_missing', lambda code: '')
+    monkeypatch.setattr(se, 'license_note', lambda code: '')
+    monkeypatch.setattr(se, 'contract_note', lambda code: '')
+    vals = dict(CONTRACT, project='G4049-JW')
+    view = {'state': {'values': {}}, 'private_metadata': '{}'}
+    monkeypatch.setattr(forms, 'read_form', lambda v: (forms.FORM_CONTRACT, dict(vals)))
+    monkeypatch.setattr(se, 'is_configured', lambda: True)
+    monkeypatch.setattr(ea, 'field_block_id', lambda values, k: k)
+    assert '휴지통' in se.validate_form_submit(view)[2]['project']
+    note = se._form_notes(forms.FORM_CONTRACT, 'G4049-JW')
+    assert '휴지통' in note and '폴더가 정리돼야 계약서 요청을 올릴 수 있어요' in note
+    assert '휴지통' in se._form_notes(forms.FORM_INSURANCE, 'G4049-JW')       # 보증보험은 안내만
+    st['v'] = ('none', None)
+    assert '지정돼 있지 않아요' in se.validate_form_submit(view)[2]['project']
+    st['v'] = ('unknown', 'F1')                                           # 드라이브 조회 실패 — 막지 않음
+    assert se.validate_form_submit(view)[2] == {}
+    st['v'] = ('ok', 'F1')
+    assert se.validate_form_submit(view)[2] == {} and se._form_notes(forms.FORM_CONTRACT, 'G4049-JW') == ''
+    assert se.folder_problem('프로젝트0') == ''
+
+
+def test_invariant_project_folders(monkeypatch):
+    from datetime import date
+    from dashboard.services import invariant_checks as ic
+    recs = [{'프로젝트 코드': 'G4279-JW', '공사 시작': '2026-11-20', '미수금': '0'},
+            {'프로젝트 코드': 'G0323-YG', '공사 시작': '2023-01-01', '미수금': '500000'},     # 오래된 미수금 — 제외
+            {'프로젝트 코드': 'R4200-TH', '공사 시작': '2026-03-01', '미수금': '100000'},     # 1년 안 미수금
+            {'프로젝트 코드': 'G4100-JW', '공사 시작': '2026-11-01', '수금 관련 특이사항': '공사 취소'},
+            {'프로젝트 코드': '프로젝트0', '공사 시작': '2026-11-01'}]
+    assert ic.folder_targets(recs, today=date(2026, 11, 18)) == ['G4279-JW', 'R4200-TH']
+    vios = ic.check_project_folders({'folder_problems': [('G4279-JW', 'trashed'), ('R4200-TH', 'none')]})
+    assert [(v['title'], v['check']) for v in vios] == [('G4279-JW', 'project_folder'), ('R4200-TH', 'project_folder')]
+    assert '휴지통' in vios[0]['detail']
+
+
 def test_contract_blocked_without_license(se, monkeypatch):
     """계약서 요청 — 사업자명 있는데 등록증 없으면 제출을 막고 공사 카드 스레드로 돌려보낸다(11-17 KiKO).
     거래처 탭만 있음·사업자명 없음(개인일 수 있음)·조회 실패는 통과."""
@@ -1382,6 +1422,7 @@ def test_contract_blocked_without_license(se, monkeypatch):
     import dashboard.services.project_slack_notifier as psn
     recs = {'G4049-JW': {'사업자명': '주식회사 엠제이디앤엠'}, 'P-': {'사업자명': '-'}}
     monkeypatch.setattr(se, '_project_rec', lambda code: recs.get(code))
+    monkeypatch.setattr(se, 'folder_problem', lambda code: '')          # 공사 폴더는 정상(폴더 검사는 따로)
     monkeypatch.setattr(psn, '_project_card_permalink', lambda code: 'https://s/card')
     state = {'v': {'exists': False, 'source': None, 'view_url': None}}
     monkeypatch.setattr(blh, 'get_license_state', lambda code, **k: state['v'])

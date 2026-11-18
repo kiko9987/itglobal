@@ -102,6 +102,33 @@ def _project_folder_id_for(code: str, fresh: bool = False) -> Optional[str]:
         return None
 
 
+def project_folder_status(code: str) -> tuple:
+    """공사 폴더 상태 → (상태, 폴더 ID). 상태: 'ok' | 'none'(칸이 비었거나 경로가 잘못됨) | 'trashed'(휴지통)
+    | 'missing'(영구 삭제·권한 없음) | 'unknown'(드라이브 조회 실패 — 막지 않는다).
+
+    11-18 G4279-JW: 폴더 칸이 휴지통 폴더를 가리켜 결재 창 「공사 폴더 서류」가 조용히 비었다."""
+    fid = _project_folder_id_for(code) if code else None
+    if not fid:
+        return 'none', None
+    try:
+        meta = _get_drive().files().get(fileId=fid, fields='id,trashed', supportsAllDrives=True).execute()
+        return ('trashed' if meta.get('trashed') else 'ok'), fid
+    except Exception as exc:
+        status = getattr(getattr(exc, 'resp', None), 'status', None)
+        if status in (403, 404):
+            return 'missing', fid
+        logger.warning(f'[LICENSE] 공사 폴더 상태 조회 실패 ({code}): {exc}')
+        return 'unknown', fid
+
+
+FOLDER_FIELD_LABEL = '견적서 및 계약서 폴더 경로'
+FOLDER_STATUS_TEXT = {
+    'none': f'공사 폴더가 지정돼 있지 않아요. PM에서 「{FOLDER_FIELD_LABEL}」를 넣어 주세요.',
+    'trashed': f'지정된 공사 폴더가 휴지통에 있어요. PM에서 「{FOLDER_FIELD_LABEL}」를 실제 폴더로 고쳐 주세요.',
+    'missing': f'지정된 공사 폴더를 열 수 없어요(삭제됐거나 권한 없음). PM에서 「{FOLDER_FIELD_LABEL}」를 확인해 주세요.',
+}
+
+
 def _find_license_subfolder(drive, parent_id: str) -> Optional[str]:
     """부모 폴더 안 '사업자등록증' 하위 폴더 ID (없으면 None)."""
     q = (

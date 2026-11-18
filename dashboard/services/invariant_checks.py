@@ -407,8 +407,66 @@ def check_split_payers(ctx):
 #   카드 키는 90일 TTL이라 카드를 보냈어도 만료돼 '없음'으로 잡힘. 즉 "카드 키 없음 ≠ 미발송"
 #   이라 정밀화 불가(수금날짜든 메모날짜든 노이즈). 진짜 미발송은 payment_sync 폴러가 이미
 #   복구하므로 가치 중복. 재추가 금지.
+_FOLDER_ACTIVE_DAYS = 90
+_FOLDER_MAX_LOOKUPS = 300             # 드라이브 조회 상한(하루 2회)
+_FOLDER_OK_PREFIX = 'invariant_folder_ok:'
+_FOLDER_OK_TTL = 6 * 3600
+
+
+def folder_targets(records, today=None):
+    """폴더를 볼 진행 중 공사 — 취소 아님 + (공사 시작이 90일 안 또는 1년 안 시작에 미수금 남음). 최근 코드부터.
+    오래된 미수금 공사(폴더를 안 쓰던 시절)까지 넣으면 첫 점검이 대량 알림이 된다(11-18 실측 26건 중 다수)."""
+    from datetime import timedelta
+    from dashboard.services.project_state import is_cancelled
+    today = today or datetime.now().date()
+    since = (today - timedelta(days=_FOLDER_ACTIVE_DAYS)).isoformat()
+    year = (today - timedelta(days=365)).isoformat()
+    out = []
+    for r in records:
+        code = (r.get('프로젝트 코드') or '').strip()
+        if not code or not re.match(r'^[GR]\d', code) or is_cancelled(r):
+            continue
+        owed = _parse_amount(r.get('미수금'))
+        start = str(r.get('공사 시작') or '').strip()[:10].replace('/', '-').replace('.', '-')
+        if start and (start >= since or (start >= year and isinstance(owed, float) and owed > 0)):
+            out.append(code)
+    return sorted(set(out), key=lambda c: int(re.sub(r'\D', '', c.split('-')[0]) or 0), reverse=True)
+
+
+def check_project_folders(ctx):
+    """진행 중 공사의 공사 폴더가 비었거나 휴지통·삭제 (11-18 G4279-JW — 결재 창 서류 칸이 조용히 빔)."""
+    from dashboard.services.business_license_handler import FOLDER_STATUS_TEXT
+    return [Violation('project_folder', f'folder:{code}:{st}', code, FOLDER_STATUS_TEXT[st])
+            for code, st in ctx.get('folder_problems') or [] if st in FOLDER_STATUS_TEXT]
+
+
+def _scan_project_folders(records, rc):
+    """진행 중 공사 폴더 상태 → [(코드, 상태)] 문제 있는 것만. 정상은 6시간 기억(드라이브 조회 줄임)."""
+    from dashboard.services.business_license_handler import project_folder_status
+    out, looked = [], 0
+    for code in folder_targets(records):
+        try:
+            if rc.get(_FOLDER_OK_PREFIX + code):
+                continue
+        except Exception:
+            pass
+        if looked >= _FOLDER_MAX_LOOKUPS:
+            break
+        looked += 1
+        st, _ = project_folder_status(code)
+        if st == 'ok':
+            try:
+                rc.setex(_FOLDER_OK_PREFIX + code, _FOLDER_OK_TTL, '1')
+            except Exception:
+                pass
+        elif st != 'unknown':
+            out.append((code, st))
+    return out
+
+
 INVARIANTS = [
     check_phantom_codes,
+    check_project_folders,
     check_amount_anomaly,
     check_split_payers,
     check_sheet_cells,
@@ -431,6 +489,7 @@ _CHECK_LABEL = {
     'backup_stale': '일일 백업 멈춤',
     'sheet_write_failed': '시트에 안 써진 편집(쓰기 실패)',
     'note_sum': '수금 칸 금액 ≠ 메모 입금 합',
+    'project_folder': '공사 폴더 없음·휴지통(결재 서류 칸이 빔)',
 }
 
 
@@ -515,8 +574,15 @@ def build_context():
     except Exception as exc:
         logger.warning(f'[INVARIANT] 시트 쓰기 실패 목록 조회 실패(건너뜀): {exc}')
 
+    folder_problems = []
+    try:
+        folder_problems = _scan_project_folders(records, rc)
+    except Exception as exc:
+        logger.warning(f'[INVARIANT] 공사 폴더 점검 준비 실패(건너뜀): {exc}')
+
     return {
         'records': records,
+        'folder_problems': folder_problems,
         'queue_failed': queue_failed,
         'valid_codes': valid_codes,
         'card_codes': card_codes,
