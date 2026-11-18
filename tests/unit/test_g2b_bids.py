@@ -98,7 +98,7 @@ def _fake_api(monkeypatch, items, limits):
 
     def search(kw, start, end):
         assert (end - start) < timedelta(days=7)   # 7일 넘으면 나라장터 07 오류
-        return [dict(i) for i in items] if kw == '냉난방' else []
+        return [dict(i) for i in items] if kw == g.KEYWORDS[0] else []
 
     def fetch_limits(no, ord_):
         calls['limits'] += 1
@@ -338,3 +338,11 @@ def test_reclassify_updates_old_pq_wording(db, monkeypatch):
     with g._conn() as conn:
         r = conn.execute("SELECT hard_reason, reason FROM g2b_bids WHERE bid_no='P1'").fetchone()
     assert r[0] == '사전심사(PQ)' and '사전심사(PQ) 있음' in r[1]
+
+
+def test_keywords_catch_dotted_titles():
+    # '냉·난방', '냉.난방' 은 '냉난방'으로는 안 잡힘 → 검색어에 '난방'이 있어야
+    assert '난방' in g.KEYWORDS and '냉난방' not in g.KEYWORDS
+    for t in ('냉·난방기 교체', '냉.난방기 교체 공사', '냉난방 개선', '냉 난방'):
+        assert any(k in t for k in g.KEYWORDS)
+    assert {'공기조화', '냉각탑'} <= set(g.KEYWORDS)
