@@ -810,10 +810,7 @@ export default class ProjectRowAccordion {
             <div class="editable-value" data-field="거래처명">${this.partnerValueHtml(rowData['거래처명'])}</div>
           </div>
           ${this.bizNameItemHtml(rowData)}
-          <div class="compact-item">
-            <small title="이 공사를 맡은 우리 쪽 사업자 (시트 '사업자' 칸) — 고객 상호는 사업자명">내부 사업자</small>
-            <div class="editable-value" data-field="사업자">${escHtml(rowData['사업자'] || '-')}</div>
-          </div>
+          ${this.companyItemHtml(rowData)}
           <div class="compact-item">
             <small>발주처 담당자</small>
             <div class="editable-value" data-field="발주처 담당자">${escHtml(rowData['발주처 담당자'] || '-')}</div>
@@ -854,6 +851,24 @@ export default class ProjectRowAccordion {
    * 기본정보 '사업자명' 칸. 나눠 내는 공사는 부담자 두 사람을 보여 주고 이 칸에서는 안 고침 —
    * 수정 칸으로 두면 화면 글자(두 사람)가 그대로 시트 사업자명에 저장됨. 사람별 상호는 [부담자 설정]에서 (2026-10-28).
    */
+  /**
+   * 내부 사업자 칸 — 관리자만 편집 (2026-11-18 KiKO, R4130-JSH 계기).
+   * 사업자는 계산서 발행 법인·입금 통장을 정하고 바꾸면 코드 앞글자(G/R)도 바뀐다.
+   * 관리자가 아니면 편집되지 않는 일반 칸으로 그려 저장 때 아예 보내지 않는다(서버도 같은 기준으로 막음).
+   */
+  companyItemHtml(rowData) {
+    const label = `<small title="이 공사를 맡은 우리 쪽 사업자 (시트 '사업자' 칸) — 고객 상호는 사업자명">내부 사업자</small>`;
+    const value = escHtml(rowData['사업자'] || '-');
+    if (this.isAdminUser()) {
+      return `<div class="compact-item">${label}
+            <div class="editable-value" data-field="사업자">${value}</div>
+          </div>`;
+    }
+    return `<div class="compact-item">${label}
+            <div title="사업자는 관리자만 바꿀 수 있어요 — 계산서 발행 법인과 입금 통장이 함께 바뀌어서, 바꿔야 하면 경영지원에 요청해 주세요">${value}</div>
+          </div>`;
+  }
+
   bizNameItemHtml(rowData) {
     if (!isSplit(rowData)) {
       return `<div class="compact-item">
