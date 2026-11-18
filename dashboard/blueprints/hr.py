@@ -414,6 +414,64 @@ def api_leave_adjust(pid):
     return jsonify({'success': True, 'days': g['days']})
 
 
+@hr_bp.route('/api/leave/adjust-bulk', methods=['POST'])
+@gw_page
+def api_leave_adjust_bulk():
+    """전 직원 연차 부여·차감(플렉스 같은 표) — 모두 맞을 때만 한꺼번에 넣는다."""
+    from dashboard.services import leave_web
+    try:
+        made, errs = leave_web.adjust_bulk(session.get('user') or {}, request.get_json(silent=True) or {})
+    except Exception as e:
+        return _fail(e)
+    if errs:
+        msg = errs.pop('_', '') or '고칠 칸이 있어요. 빨간 글을 확인해 주세요.'
+        return jsonify({'success': False, 'message': msg, 'errors': errs}), 400
+    return jsonify({'success': True, 'count': len(made)})
+
+
+@hr_bp.route('/api/leave/person/<int:pid>/custom-grant', methods=['POST'])
+@gw_page
+def api_leave_custom_grant(pid):
+    """맞춤 휴가 부여(보건·난임 등 일수를 먼저 주면 직원이 신청) — 11-18."""
+    from dashboard.services import leave_web
+    p, name = _leave_person_name(pid)
+    if not name:
+        return jsonify({'success': False, 'message': '휴가 장부에 연결되지 않은 직원이에요.'}), 404
+    try:
+        g, err = leave_web.custom_grant(session.get('user') or {}, name, request.get_json(silent=True) or {})
+    except Exception as e:
+        return _fail(e)
+    if err:
+        return jsonify({'success': False, 'message': err}), 400
+    return jsonify({'success': True, 'id': g['id']})
+
+
+@hr_bp.route('/api/leave/custom-grant/<int:gid>/cancel', methods=['POST'])
+@gw_page
+def api_leave_custom_grant_cancel(gid):
+    from dashboard.services import leave_web
+    try:
+        msg = leave_web.cancel_custom_grant(session.get('user') or {}, gid)
+    except Exception as e:
+        return _fail(e)
+    if msg:
+        return jsonify({'success': False, 'message': msg}), 400
+    return jsonify({'success': True})
+
+
+@hr_bp.route('/api/leave/adjust/<int:gid>/cancel', methods=['POST'])
+@gw_page
+def api_leave_adjust_cancel(gid):
+    from dashboard.services import leave_web
+    try:
+        g, err = leave_web.cancel_adjust(session.get('user') or {}, gid)
+    except Exception as e:
+        return _fail(e)
+    if err:
+        return jsonify({'success': False, 'message': err}), 400
+    return jsonify({'success': True})
+
+
 @hr_bp.route('/api/leave/person/<int:pid>/register', methods=['POST'])
 @gw_page
 def api_leave_register(pid):
@@ -456,7 +514,62 @@ def api_leave_team():
     from dashboard.services import leave_view
     if not _leave_all():
         return jsonify({'success': False, 'message': '전 직원 휴가 현황은 볼 수 없는 계정입니다.'}), 403
-    return jsonify({'success': True, 'people': leave_view.team()})
+    from dashboard.services import leave_web
+    return jsonify({'success': True, 'people': leave_view.team(),
+                    'can_manage': bool(leave_web.manager_sid(session.get('user') or {}))})
+
+
+@hr_bp.route('/api/leave/export', methods=['GET'])
+@gw_page
+def api_leave_export():
+    """엑셀 — kind=balance(보유 현황)|usage(사용 내역)|monthly(월별 연차 사용), year. 전 직원 휴가 열람자만(11-18)."""
+    from datetime import date as _date
+    from flask import send_file
+    from dashboard.services import leave_export
+    if not _leave_all():
+        return jsonify({'success': False, 'message': '전 직원 휴가는 내려받을 수 없는 계정입니다.'}), 403
+    kind = request.args.get('kind') or 'balance'
+    try:
+        year = int(request.args.get('year') or _date.today().year)
+        if not 2020 <= year <= 2100 or kind not in leave_export.KINDS:
+            raise ValueError
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'message': '내려받을 종류·연도를 다시 골라 주세요.'}), 400
+    try:
+        data, fname = leave_export.build(kind, year)
+    except Exception as e:
+        return _fail(e)
+    logger.info(f'[GW휴가] 엑셀 내려받기 {kind} {year} ({_me()})')
+    resp = send_file(io.BytesIO(data), as_attachment=True, download_name=fname, max_age=0,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@hr_bp.route('/api/leave/monthly', methods=['GET'])
+@gw_page
+def api_leave_monthly():
+    """직원별 월별 연차 상세 — pid(없으면 본인), year. 본인 또는 전 직원 열람자."""
+    from datetime import date as _date
+    from dashboard.services import leave as lv
+    from dashboard.services import leave_view
+    mine = _my_person()
+    try:
+        pid = int(request.args.get('pid') or (mine or {}).get('id') or 0)
+        year = int(request.args.get('year') or _date.today().year)
+        if not 2020 <= year <= 2100:
+            raise ValueError
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'message': '연도를 다시 골라 주세요.'}), 400
+    if not _leave_all() and not (mine and mine['id'] == pid):
+        return jsonify({'success': False, 'message': '본인 휴가만 볼 수 있습니다.'}), 403
+    p = hr.get_person(pid)
+    if not p:
+        return jsonify({'success': False, 'message': '없는 구성원입니다.'}), 404
+    name = leave_view.leave_name(p)
+    if not name:
+        return jsonify({'success': True, 'monthly': {'year': year, 'months': [], 'opening': 0}})
+    return jsonify({'success': True, 'monthly': lv.monthly_detail(name, year)})
 
 
 @hr_bp.route('/api/leave/calendar', methods=['GET'])

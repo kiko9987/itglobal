@@ -2318,3 +2318,19 @@ body.gw-drawer-open {
 }
 .gw-lv-adm-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
 .gw-lv-adm .gw-lv-upcoming { margin-top: 10px; }
+
+/* ── 휴가 관리 플렉스 맞추기(11-18): 일괄 조정·월별 상세·맞춤 휴가·촉진 ───────────── */
+.gw-lv-team-tools { display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+.gw-lv-bulk-head { display: grid; grid-template-columns: 180px 1fr; gap: 10px; margin-bottom: 8px; }
+.gw-lv-bulk-table td { vertical-align: middle; }
+.gw-lv-bulk-table input { min-width: 80px; }
+@media (max-width: 575.98px) {
+  .gw-lv-bulk-head { grid-template-columns: 1fr; }
+}
+.gw-lv-export { margin-left: auto; margin-right: 8px; }
+.gw-lv-export .dropdown-menu { min-width: 220px; }
+.gw-lv-monthly { margin: 12px 0 16px; }
+.gw-lv-monthly-body:not(:empty) { margin-top: 10px; }
+.gw-lv-monthly-year { width: auto; }
+.gw-lv-monthly-table td, .gw-lv-monthly-table th { white-space: nowrap; }
+.gw-lv-monthly-table tr.gw-lv-proj td { color: #64748b; }

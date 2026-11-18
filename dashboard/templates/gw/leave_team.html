@@ -10,6 +10,19 @@
 <div class="gw-page">
   <div class="gw-page-head">
     <h1 class="gw-page-title">휴가 전사 현황</h1>
+    {# 엑셀 내려받기(11-18, 플렉스 보유 현황·사용 내역·월별 연차 사용) #}
+    <div class="gw-lv-export dropdown" id="lvExport">
+      <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+        <i class="fas fa-file-excel me-1" aria-hidden="true"></i>엑셀
+      </button>
+      <div class="dropdown-menu dropdown-menu-end p-2">
+        <label class="form-label small mb-1" for="lvExportYear">연도(사용 내역·월별)</label>
+        <select class="form-select form-select-sm mb-2" id="lvExportYear"></select>
+        <a class="dropdown-item" data-xl="balance" href="/api/leave/export?kind=balance">보유 현황(오늘 기준)</a>
+        <a class="dropdown-item" data-xl="usage" href="/api/leave/export?kind=usage">휴가 사용 내역</a>
+        <a class="dropdown-item" data-xl="monthly" href="/api/leave/export?kind=monthly">월별 연차 사용</a>
+      </div>
+    </div>
     <div class="gw-seg" role="tablist" aria-label="보기">
       <button type="button" role="tab" class="gw-seg-btn" id="lvTabCal" aria-selected="true" aria-controls="lvCalPane">달력</button>
       <button type="button" role="tab" class="gw-seg-btn" id="lvTabList" aria-selected="false" aria-controls="lvListPane">직원별</button>
@@ -29,6 +42,11 @@
   </section>
 
   <section id="lvListPane" role="tabpanel" aria-labelledby="lvTabList" hidden>
+    {# 경영지원만(서버 can_manage) — 전 직원 연차 부여·차감 표(11-18, 플렉스 [연차 조정]) #}
+    <div class="gw-lv-team-tools" id="lvTeamTools" hidden>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="lvBulkBtn">연차 부여·차감</button>
+    </div>
+    <div class="gw-lv-flash ok" id="lvTeamFlash" role="status" hidden></div>
     <div class="gw-panel gw-table-wrap">
       <table class="gw-table gw-table-click" id="lvTeamTable">
         <thead><tr><th>이름</th><th>부서</th><th>입사일</th><th class="n">남은 연차</th><th class="n">올해 쓴 연차</th><th class="n">병가</th><th class="n">대기</th><th>다음 휴가</th></tr></thead>
@@ -60,6 +78,38 @@
       </div>
       <div class="modal-body" id="lvPersonBody"></div>
     </div>
+  </div>
+</div>
+
+<div class="modal fade" id="lvBulkModal" tabindex="-1" aria-labelledby="lvBulkTitle" aria-hidden="true" data-bs-backdrop="static">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <form class="modal-content" id="lvBulkForm" novalidate>
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="lvBulkTitle">연차 부여·차감</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
+      </div>
+      <div class="modal-body">
+        <p class="gw-lv-left mb-2">조정할 사람만 일수를 적어요(늘리면 2, 빼면 -1, 0.5일 단위). 모두 맞을 때만 한꺼번에 들어가고, 본인에게 알림이 가요.
+          날짜가 있는 휴가는 직원별 창의 <strong>휴가 등록</strong>으로 넣어 주세요.</p>
+        <div class="gw-lv-bulk-head">
+          <div class="gw-lv-field"><label class="form-label" for="lvBulkOn">적용일</label>
+            <input type="date" class="form-control form-control-sm" id="lvBulkOn" name="applies_on"></div>
+          <div class="gw-lv-field"><label class="form-label" for="lvBulkReason">공통 사유</label>
+            <input type="text" class="form-control form-control-sm" id="lvBulkReason" name="reason" maxlength="200" placeholder="예: 회사 지정 휴일 대체"></div>
+        </div>
+        <div class="gw-table-wrap">
+          <table class="gw-table gw-lv-bulk-table">
+            <thead><tr><th>이름</th><th class="n">남은 연차</th><th>조정 일수</th><th>사유</th></tr></thead>
+            <tbody id="lvBulkRows"></tbody>
+          </table>
+        </div>
+        <div class="gw-lv-err" id="lvBulkMsg" role="alert"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-link" data-bs-dismiss="modal">닫기</button>
+        <button type="submit" class="btn btn-primary">적용하기</button>
+      </div>
+    </form>
   </div>
 </div>
 {% endblock %}

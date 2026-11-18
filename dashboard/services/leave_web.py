@@ -85,11 +85,11 @@ def form_info(user: dict, today: Optional[date] = None) -> Dict:
     out.update({
         'name': w['name'],
         'balance': lv.balance(w['name'], today or date.today()),
-        'types': [{'value': k, 'label': t} for k, t in lv.type_options()],
+        'types': [{'value': k, 'label': t} for k, t in lv.type_options_for(w['name'])],   # 맞춤 휴가 포함(11-18)
         'half_types': list(lv.HALF_TYPES),
         'event': lv.EVENT,
         'event_subs': [{'value': k, 'label': f'{v[0]} ({v[1]}일)'} for k, v in lv.EVENT_SUBS.items()],
-        'needs_proof': [k for k, _ in lv.type_options() if lv.needs_proof(k)],
+        'needs_proof': [k for k, _ in lv.type_options_for(w['name']) if lv.needs_proof(k)],
     })
     return out
 
@@ -229,12 +229,23 @@ def admin_cancel(user: dict, rid: int) -> Optional[str]:
     return slack_leave.apply_action('cancel', int(rid), sid)
 
 
+def _applies_on(data: dict) -> Tuple[Optional[date], str]:
+    raw = str((data or {}).get('applies_on') or '').strip()
+    if not raw:
+        return None, ''
+    d = lv._d(raw)
+    return (d, '') if d else (None, '적용일을 다시 골라 주세요.')
+
+
 def adjust(user: dict, name: str, data: dict) -> Tuple[Optional[dict], str]:
     sid = manager_sid(user)
     if not sid:
         return None, '경영지원만 조정할 수 있어요.'
+    on, err = _applies_on(data)
+    if err:
+        return None, err
     actor = _actor(user, sid)
-    g, err = lv.adjust(name, (data or {}).get('days'), str((data or {}).get('reason') or ''), sid, actor)
+    g, err = lv.adjust(name, (data or {}).get('days'), str((data or {}).get('reason') or ''), sid, actor, applies_on=on)
     if err:
         return None, err
 
@@ -245,7 +256,66 @@ def adjust(user: dict, name: str, data: dict) -> Tuple[Optional[dict], str]:
         except Exception as exc:
             logger.error(f'{_LOG} 연차 조정 알림 실패 ({name}): {exc}', exc_info=True)
     _run_bg(_bg)
-    logger.info(f'{_LOG} 연차 조정 {name} {g["days"]:+g}일 ({actor})')
+    logger.info(f'{_LOG} 연차 조정 {name} {g["days"]:+g}일 적용일 {g["valid_from"]} ({actor})')
+    return g, ''
+
+
+def adjust_bulk(user: dict, data: dict) -> Tuple[list, Dict[str, str]]:
+    """전 직원 연차 부여·차감 — items=[{person_id, days, reason}] (+ 공통 reason·applies_on). 오류 키는 person_id."""
+    sid = manager_sid(user)
+    if not sid:
+        return [], {'_': '경영지원만 조정할 수 있어요.'}
+    on, err = _applies_on(data)
+    if err:
+        return [], {'_': err}
+    from dashboard.services import leave_view
+    items, pid_of = [], {}
+    for it in (data or {}).get('items') or []:
+        try:
+            pid = int(it.get('person_id'))
+        except (TypeError, ValueError):
+            continue
+        name = leave_view.leave_name(hr.get_person(pid) or {})
+        if not name:
+            if str(it.get('days') or '').strip() not in ('', '0'):
+                return [], {str(pid): '휴가 장부에 연결되지 않은 직원이에요.'}
+            continue
+        pid_of[name] = str(pid)
+        items.append({'name': name, 'days': it.get('days'), 'reason': it.get('reason')})
+    actor = _actor(user, sid)
+    made, errs = lv.adjust_bulk(items, str((data or {}).get('reason') or ''), sid, actor, applies_on=on)
+    if errs:
+        return [], {pid_of.get(k, k): v for k, v in errs.items()}
+
+    def _bg():
+        from dashboard.blueprints import slack_leave
+        for g in made:
+            try:
+                slack_leave.after_adjust(g['name'], g, sid)
+            except Exception as exc:
+                logger.error(f'{_LOG} 연차 조정 알림 실패 ({g["name"]}): {exc}', exc_info=True)
+    _run_bg(_bg)
+    logger.info(f'{_LOG} 연차 일괄 조정 {len(made)}명 ({actor}): ' + ', '.join(f"{g['name']} {g['days']:+g}" for g in made))
+    return made, {}
+
+
+def cancel_adjust(user: dict, gid: int) -> Tuple[Optional[dict], str]:
+    sid = manager_sid(user)
+    if not sid:
+        return None, '경영지원만 취소할 수 있어요.'
+    actor = _actor(user, sid)
+    g, err = lv.cancel_adjust(int(gid), sid, actor)
+    if err:
+        return None, err
+
+    def _bg():
+        try:
+            from dashboard.blueprints import slack_leave
+            slack_leave.after_adjust_cancel(g, sid)
+        except Exception as exc:
+            logger.error(f'{_LOG} 조정 취소 알림 실패 ({g["name"]}): {exc}', exc_info=True)
+    _run_bg(_bg)
+    logger.info(f'{_LOG} 연차 조정 취소 #{gid} {g["name"]} ({actor})')
     return g, ''
 
 
@@ -272,6 +342,45 @@ def admin_register(user: dict, name: str, data: dict) -> Tuple[Optional[dict], D
     return row, {}
 
 
+def custom_grant(user: dict, name: str, data: dict) -> Tuple[Optional[dict], str]:
+    """맞춤 휴가 부여 — {type, days, valid_from?, valid_to?(비우면 언제든), note}."""
+    sid = manager_sid(user)
+    if not sid:
+        return None, '경영지원만 부여할 수 있어요.'
+    data = data or {}
+    vf_raw, vt_raw = str(data.get('valid_from') or '').strip(), str(data.get('valid_to') or '').strip()
+    vf, vt = lv._d(vf_raw) if vf_raw else None, lv._d(vt_raw) if vt_raw else None
+    if (vf_raw and not vf) or (vt_raw and not vt):
+        return None, '쓸 수 있는 기간을 다시 골라 주세요.'
+    actor = _actor(user, sid)
+    g, err = lv.custom_grant(name, str(data.get('type') or ''), data.get('days'), vf, vt,
+                             str(data.get('note') or ''), sid, actor)
+    if err:
+        return None, err
+
+    def _bg():
+        try:
+            from dashboard.blueprints import slack_leave
+            slack_leave.after_custom_grant(g, sid)
+        except Exception as exc:
+            logger.error(f'{_LOG} 맞춤 휴가 알림 실패 ({name}): {exc}', exc_info=True)
+    _run_bg(_bg)
+    logger.info(f'{_LOG} 맞춤 휴가 부여 {name} {g["ltype"]} {g["days"]:g}일 ~{g["valid_to"]} ({actor})')
+    return g, ''
+
+
+def cancel_custom_grant(user: dict, gid: int) -> Optional[str]:
+    sid = manager_sid(user)
+    if not sid:
+        return '경영지원만 취소할 수 있어요.'
+    actor = _actor(user, sid)
+    g, err = lv.cancel_custom_grant(int(gid), sid, actor)
+    if err:
+        return err
+    logger.info(f'{_LOG} 맞춤 휴가 부여 취소 #{gid} {g["name"]} ({actor})')
+    return None
+
+
 def admin_info(user: dict, person: dict) -> Dict:
     """직원별 휴가 창의 경영지원 칸 — 쓸 수 있는지·종류·조정 기록·신청 줄(고치기·취소용)."""
     sid = manager_sid(user)
@@ -293,8 +402,14 @@ def admin_info(user: dict, person: dict) -> Dict:
         'editable': editable,
         'rows': {str(rid): {'type': r['ltype'], 'sub': r.get('sub') or '', 'start': r['start'], 'end': r['end'],
                             'reason': r.get('reason') or ''} for rid, r in rows.items() if rid in editable},
-        'adjustments': [{'days': a['days'], 'note': a.get('note') or '', 'at': (a.get('created_at') or '')[:16],
-                         'valid_to': a['valid_to']} for a in lv.adjustments(name)],
+        'adjustments': [{'id': a['id'], 'days': a['days'], 'note': a.get('note') or '',
+                         'at': (a.get('created_at') or '')[:16], 'valid_from': a['valid_from'], 'valid_to': a['valid_to'],
+                         'cancelled': a['cancelled']} for a in lv.adjustments(name)],
+        'custom_grants': [{'id': g['id'], 'label': g['label'], 'days': g['days'], 'used': g['used'], 'left': g['left'],
+                           'valid_from': g['valid_from'], 'valid_to': '' if g['anytime'] else g['valid_to'],
+                           'note': g.get('note') or '', 'by': g.get('created_by_name') or '',
+                           'at': (g.get('created_at') or '')[:10], 'cancelled': bool(g.get('cancelled_at'))}
+                          for g in lv.custom_grants(name)],
     }
 
 

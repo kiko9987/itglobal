@@ -173,6 +173,7 @@ def summary(person: dict, today: Optional[date] = None) -> dict:
     return {
         'person_id': person['id'], 'name': person['name'], 'linked': bool(name),
         'balance': left, 'grants': live,
+        'custom': lv.custom_balances(name, today) if name else [],
         'annual_used': _year_sum(entries, today.year, 'annual'),
         'sick_used': _year_sum(entries, today.year, 'sick'), 'sick_limit': lv.SICK_DAYS_PER_YEAR,
         'pending': sum(1 for e in entries if e['status'] == ST_WAIT),

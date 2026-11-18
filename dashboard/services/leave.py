@@ -224,6 +224,23 @@ _DDL = [
         days REAL NOT NULL
     )''',
     'CREATE INDEX IF NOT EXISTS idx_leave_uses_req ON leave_uses(request_id)',
+    # 맞춤 휴가 부여(11-18, 플렉스 '맞춤 휴가 부여') — 관리자 부여 휴가(보건·난임 등)를 일수로 먼저 주면 직원이 신청.
+    #   쓴 날은 따로 떼어 두지 않고 그 종류 신청(승인 대기 포함)을 기간 안에서 더해 본다(취소·반려가 바로 돌아오게)
+    '''CREATE TABLE IF NOT EXISTS leave_custom_grants (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        ltype TEXT NOT NULL,
+        days REAL NOT NULL,
+        valid_from TEXT NOT NULL,
+        valid_to TEXT NOT NULL,
+        note TEXT,
+        created_by TEXT,
+        created_by_name TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        cancelled_at TEXT,
+        cancelled_by_name TEXT
+    )''',
+    'CREATE INDEX IF NOT EXISTS idx_leave_custom_name ON leave_custom_grants(name)',
     '''CREATE TABLE IF NOT EXISTS leave_steps (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         request_id INTEGER NOT NULL,
@@ -536,6 +553,144 @@ def admin_type_options() -> List[Tuple[str, str]]:
     return [(k, v[0]) for k, v in TYPES.items() if v[3]]
 
 
+def is_admin_type(ltype: str) -> bool:
+    return bool(TYPES.get(ltype, ('', False, False, False))[3])
+
+
+def manager_registered(row: dict) -> bool:
+    """경영지원이 대신 넣은 줄인가 — 신청한 사람이 휴가 주인이 아님."""
+    return bool(row.get('submitter_id')) and row.get('submitter_id') != row.get('slack_id')
+
+
+# ── 맞춤 휴가 부여 ─────────────────────────────────────────────────────
+ANYTIME = '9999-12-31'   # 쓸 수 있는 기간 '언제든'
+CUSTOM_MAX_DAYS = 120    # 산전후 90일(다태아 120일)
+
+
+def _custom_alive(name: str, ltype: str, on: date) -> List[dict]:
+    with _conn() as conn:
+        return [dict(r) for r in conn.execute(
+            'SELECT * FROM leave_custom_grants WHERE name=? AND ltype=? AND cancelled_at IS NULL '
+            'AND valid_from<=? AND valid_to>=? ORDER BY valid_to, id', (name, ltype, on.isoformat(), on.isoformat()))]
+
+
+def _custom_used(name: str, ltype: str, frm: str, to: str, exclude_id: int = 0) -> float:
+    """그 기간 안에서 시작한 그 종류 신청(승인 대기 포함) 일수."""
+    with _conn() as conn:
+        r = conn.execute(
+            f'SELECT COALESCE(SUM(days), 0) FROM leave_requests WHERE name=? AND ltype=? AND id<>? '
+            f'AND status IN ({",".join("?" * len(HOLDING))}) AND start>=? AND start<=?',
+            (name, ltype, exclude_id, *HOLDING, frm, to)).fetchone()
+    return float(r[0] or 0)
+
+
+def custom_left(name: str, ltype: str, on: Optional[date] = None, exclude_id: int = 0) -> float:
+    """그날 쓸 수 있는 맞춤 휴가 일수 = 살아 있는 부여 합 − 그 기간에 신청한 일수."""
+    if not name or not is_admin_type(ltype):
+        return 0.0
+    alive = _custom_alive(name, ltype, on or date.today())
+    if not alive:
+        return 0.0
+    frm = min(g['valid_from'] for g in alive)
+    to = max(g['valid_to'] for g in alive)
+    return round(sum(g['days'] for g in alive) - _custom_used(name, ltype, frm, to, exclude_id), 2)
+
+
+def _custom_covers(name: str, ltype: str, start: date, end: date) -> bool:
+    """휴가 마지막 날까지 쓸 수 있는 기간 안인가."""
+    return any(g['valid_to'] >= end.isoformat() for g in _custom_alive(name, ltype, start))
+
+
+def custom_grants(name: str, include_cancelled: bool = True) -> List[dict]:
+    """한 사람의 맞춤 휴가 부여 — 줄마다 쓴 일수(used)·남은 일수(left)."""
+    with _conn() as conn:
+        rows = [dict(r) for r in conn.execute(
+            'SELECT * FROM leave_custom_grants WHERE name=?' + ('' if include_cancelled else ' AND cancelled_at IS NULL')
+            + ' ORDER BY created_at DESC, id DESC', (name,))]
+    for g in rows:
+        g['label'] = type_label(g['ltype'])
+        g['used'] = 0.0 if g['cancelled_at'] else _custom_used(name, g['ltype'], g['valid_from'], g['valid_to'])
+        g['left'] = 0.0 if g['cancelled_at'] else round(max(0.0, g['days'] - g['used']), 2)
+        g['anytime'] = g['valid_to'] == ANYTIME
+    return rows
+
+
+def custom_balances(name: str, today: Optional[date] = None) -> List[dict]:
+    """지금 쓸 수 있는 맞춤 휴가(종류마다 한 줄) — [{ltype, label, left, valid_to}]."""
+    today = today or date.today()
+    out = []
+    for k, label in admin_type_options():
+        alive = _custom_alive(name, k, today)
+        if alive:
+            out.append({'ltype': k, 'label': label, 'left': custom_left(name, k, today),
+                        'valid_to': max(g['valid_to'] for g in alive)})
+    return out
+
+
+def type_options_for(name: str, today: Optional[date] = None) -> List[Tuple[str, str]]:
+    """그 사람 신청 창 종류 — 보통 종류 + 남은 맞춤 휴가(이름에 남은 일수)."""
+    extra = [(c['ltype'], f"{c['label']} (남은 {fmt_days(c['left'])})")
+             for c in custom_balances(name, today) if c['left'] > 0] if name else []
+    return type_options() + extra
+
+
+def custom_grant(name: str, ltype: str, days, valid_from: Optional[date], valid_to: Optional[date], note: str,
+                 uid: str, actor_name: str, today: Optional[date] = None) -> Tuple[Optional[dict], str]:
+    """맞춤 휴가 부여 → (줄, '') 또는 (None, 오류). valid_to 가 없으면 언제든."""
+    today = today or date.today()
+    if uid not in manager_ids():
+        return None, '경영지원만 부여할 수 있어요.'
+    if not staff_by_name(name):
+        return None, '휴가 명단에 없는 직원이에요.'
+    if not is_admin_type(ltype):
+        return None, '부여할 휴가 종류를 골라 주세요.'
+    try:
+        days = float(days)
+    except (TypeError, ValueError):
+        return None, '일수를 숫자로 적어 주세요.'
+    if days <= 0 or abs(days * 2 - round(days * 2)) > 1e-9 or days > CUSTOM_MAX_DAYS:
+        return None, f'일수는 0.5일 단위로, {CUSTOM_MAX_DAYS}일까지 적어 주세요.'
+    valid_from = valid_from or today
+    if valid_to and valid_to < valid_from:
+        return None, '쓸 수 있는 마지막 날이 시작일보다 빨라요.'
+    if valid_to and valid_to < today:
+        return None, '이미 지난 기간이에요.'
+    note = (note or '').strip()
+    if len(note) > 200:
+        return None, '메모는 200자까지 적을 수 있어요.'
+    with _conn() as conn:
+        cur = conn.execute(
+            'INSERT INTO leave_custom_grants (name, ltype, days, valid_from, valid_to, note, created_by, created_by_name, '
+            'created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+            (name, ltype, days, valid_from.isoformat(), (valid_to.isoformat() if valid_to else ANYTIME),
+             note or None, uid, actor_name, _now()))
+        g = dict(conn.execute('SELECT * FROM leave_custom_grants WHERE id=?', (cur.lastrowid,)).fetchone())
+    g['label'] = type_label(ltype)
+    return g, ''
+
+
+def cancel_custom_grant(gid: int, uid: str, actor_name: str) -> Tuple[Optional[dict], str]:
+    """맞춤 휴가 부여 취소 — 그 기간에 이미 신청한 것이 다른 부여로 다 덮이지 않으면 안 된다(먼저 그 휴가를 취소)."""
+    if uid not in manager_ids():
+        return None, '경영지원만 취소할 수 있어요.'
+    with _conn() as conn:
+        g = conn.execute('SELECT * FROM leave_custom_grants WHERE id=?', (int(gid),)).fetchone()
+    if not g or g['cancelled_at']:
+        return None, '취소할 수 있는 부여가 아니에요.'
+    g = dict(g)
+    others = [x for x in _custom_alive(g['name'], g['ltype'], date.today()) if x['id'] != g['id']]
+    used = _custom_used(g['name'], g['ltype'], g['valid_from'], g['valid_to'])
+    if used > sum(x['days'] for x in others) + 1e-9:
+        return None, f"이 부여로 {fmt_days(used)}을 이미 신청했어요. 그 휴가를 먼저 취소해 주세요."
+    with _conn() as conn:
+        cur = conn.execute('UPDATE leave_custom_grants SET cancelled_at=?, cancelled_by_name=? WHERE id=? '
+                           'AND cancelled_at IS NULL', (_now(), actor_name, g['id']))
+        if cur.rowcount != 1:
+            return None, '그 사이 바뀌었어요. 다시 열어 주세요.'
+    g['label'] = type_label(g['ltype'])
+    return g, ''
+
+
 def validate(name: str, ltype: str, sub: str, start: Optional[date], end: Optional[date],
              exclude_id: int = 0, allow_admin: bool = False) -> Dict[str, str]:
     """창 칸 이름 → 오류 문구.
@@ -545,6 +700,8 @@ def validate(name: str, ltype: str, sub: str, start: Optional[date], end: Option
     allowed = dict(type_options())
     if allow_admin:
         allowed.update(dict(admin_type_options()))
+    elif is_admin_type(ltype) and custom_left(name, ltype, start or date.today(), exclude_id) > 0:
+        allowed[ltype] = type_label(ltype)     # 경영지원이 일수를 먼저 준 맞춤 휴가(11-18)
     if ltype not in allowed:
         errs['type'] = '휴가 종류를 골라 주세요.'
         return errs
@@ -582,6 +739,13 @@ def validate(name: str, ltype: str, sub: str, start: Optional[date], end: Option
                    f'{kdate(last)} 전에 소멸해서 이 기간엔 {fmt_days(left)}만 쓸 수 있어요. '
                    if whole > left + 1e-9 else f'{kdate(start)} 기준 남은 연차가 {fmt_days(left)}이라 ')
             errs['start'] = why + f'{fmt_days(days)}를 쓸 수 없어요. 연차가 더 있어야 한다면 경영지원에 문의해 주세요.'
+    elif is_admin_type(ltype) and not allow_admin:
+        left = custom_left(name, ltype, start, exclude_id)
+        if days > left + 1e-9:
+            errs['start'] = (f'{type_label(ltype)}는 {kdate(start)} 기준 {fmt_days(left)}만 쓸 수 있어요. '
+                             '더 필요하면 경영지원에 문의해 주세요.')
+        elif not _custom_covers(name, ltype, start, end):
+            errs['end'] = f'{type_label(ltype)}를 쓸 수 있는 기간을 넘어요. 기간 안 날짜로 골라 주세요.'
     elif ltype in (EVENT, SICK):
         # 한도는 신청 건마다가 아니라 그 해 누적(11-05 KiKO) — 나눠 신청해도, 해를 넘겨도 해마다 합으로
         if ltype == EVENT and sub not in EVENT_SUBS:
@@ -673,8 +837,8 @@ def can_act(action: str, row: dict, uid: str, today: Optional[date] = None) -> b
     if action in ('approve', 'reject'):
         return bool(uid) and uid == current_approver(row)
     if action == 'cancel':
-        if TYPES.get(row['ltype'], ('', False, False, False))[3]:
-            # 경영지원이 등록한 휴가(배우자 출산 등)는 경영지원만 취소(11-18)
+        if is_admin_type(row['ltype']) and manager_registered(row):
+            # 경영지원이 등록한 휴가(배우자 출산 등)는 경영지원만 취소(11-18). 맞춤 휴가를 본인이 신청한 것은 보통 규칙
             return uid in manager_ids() and row['status'] in HOLDING
         mine = uid in (row.get('slack_id'), row.get('submitter_id'))
         if mine and row['status'] == APPROVED and _d(row['end']) >= today:
@@ -797,7 +961,7 @@ def own_edit_mode(row: dict, uid: str = '', today: Optional[date] = None) -> str
     if row['status'] in OPEN:
         return 'edit'
     if row['status'] == APPROVED and _d(row['start']) > today and not pending_change(row['id']) \
-            and not TYPES.get(row['ltype'], ('', False, False, False))[3]:
+            and not (is_admin_type(row['ltype']) and manager_registered(row)):
         return 'change'      # 시작 전 휴가만(쓰는 중이면 [남은 날 취소] 뒤 다시 신청). 관리자 등록 휴가는 경영지원이
     return ''
 
@@ -889,42 +1053,179 @@ def _period_end(name: str, today: date) -> date:
     return add_years(hire, n) - timedelta(days=1)
 
 
-def adjust(name: str, days: float, reason: str, uid: str, actor_name: str,
-           today: Optional[date] = None) -> Tuple[Optional[dict], str]:
-    """경영지원 연차 조정(+/−) → (부여 줄, '') 또는 (None, 오류). 지금 쓸 수 있는 연차와 같은 날 소멸."""
-    today = today or date.today()
-    if uid not in manager_ids():
-        return None, '경영지원만 조정할 수 있어요.'
+ADJUST_WINDOW_DAYS = 366   # 적용일은 오늘 앞뒤 1년 안(잘못 친 연도 막기)
+
+
+def _check_adjust(name: str, days, reason: str, applies_on: date, today: date) -> Tuple[float, str]:
+    """연차 조정 한 줄 검사 → (일수, '') 또는 (0, 오류). 저장은 안 한다(일괄 조정이 모두 맞을 때만 넣게)."""
     if not staff_by_name(name):
-        return None, '휴가 명단에 없는 직원이에요.'
+        return 0.0, '휴가 명단에 없는 직원이에요.'
     try:
         days = float(days)
     except (TypeError, ValueError):
-        return None, '일수를 숫자로 적어 주세요.'
+        return 0.0, '일수를 숫자로 적어 주세요.'
     if not days or abs(days * 2 - round(days * 2)) > 1e-9 or abs(days) > 30:
-        return None, '일수는 0.5일 단위로, 30일까지 적어 주세요(빼려면 −).'
+        return 0.0, '일수는 0.5일 단위로, 30일까지 적어 주세요(빼려면 −).'
     reason = (reason or '').strip()
     if not reason:
-        return None, '사유를 적어 주세요.'
+        return 0.0, '사유를 적어 주세요.'
     if len(reason) > 200:
-        return None, '사유는 200자까지 적을 수 있어요.'
-    left = balance(name, today)
+        return 0.0, '사유는 200자까지 적을 수 있어요.'
+    if abs((applies_on - today).days) > ADJUST_WINDOW_DAYS:
+        return 0.0, '적용일은 오늘 앞뒤 1년 안으로 골라 주세요.'
+    left = balance(name, applies_on)
     if days < 0 and left + days < -1e-9:
-        return None, f'남은 연차({fmt_days(left)})보다 많이 뺄 수 없어요.'
-    until = _period_end(name, today)
+        return 0.0, f'{kdate(applies_on)} 기준 남은 연차({fmt_days(left)})보다 많이 뺄 수 없어요.'
+    return days, ''
+
+
+def _add_adjust(name: str, days: float, reason: str, actor_name: str, applies_on: date) -> Optional[dict]:
+    until = _period_end(name, applies_on)
     src = f"adjust:{name}:{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
     sign = '+' if days > 0 else '−'
-    note = f'{sign}{fmt_days(abs(days))} 조정: {reason} ({actor_name})'
-    if not add_grant(name, days, today, until, src, note):
-        return None, '조정을 저장하지 못했어요. 다시 해 주세요.'
+    note = f'{sign}{fmt_days(abs(days))} 조정: {reason.strip()} ({actor_name})'
+    if not add_grant(name, days, applies_on, until, src, note):
+        return None
     with _conn() as conn:
-        return dict(conn.execute('SELECT * FROM leave_grants WHERE source=?', (src,)).fetchone()), ''
+        return dict(conn.execute('SELECT * FROM leave_grants WHERE source=?', (src,)).fetchone())
+
+
+def adjust(name: str, days: float, reason: str, uid: str, actor_name: str,
+           today: Optional[date] = None, applies_on: Optional[date] = None) -> Tuple[Optional[dict], str]:
+    """경영지원 연차 조정(+/−) → (부여 줄, '') 또는 (None, 오류).
+    적용일(applies_on, 플렉스 '적용일')부터 그날 살아 있는 연차와 같은 날 소멸. 비우면 오늘.
+    날짜가 있는 휴가(병원·반차 등)는 조정이 아니라 [휴가 등록]으로 — 그래야 휴가 기록·일정에 남는다."""
+    today = today or date.today()
+    applies_on = applies_on or today
+    if uid not in manager_ids():
+        return None, '경영지원만 조정할 수 있어요.'
+    days, err = _check_adjust(name, days, reason, applies_on, today)
+    if err:
+        return None, err
+    g = _add_adjust(name, days, reason, actor_name, applies_on)
+    return (g, '') if g else (None, '조정을 저장하지 못했어요. 다시 해 주세요.')
+
+
+def adjust_bulk(items: List[dict], reason: str, uid: str, actor_name: str, today: Optional[date] = None,
+                applies_on: Optional[date] = None) -> Tuple[List[dict], Dict[str, str]]:
+    """전 직원 연차 부여·차감 표(플렉스 같은 화면) — items=[{name, days, reason?}] 를 모두 검사해 하나라도 틀리면
+    아무것도 넣지 않고 {이름: 오류}. 모두 맞으면 넣은 부여 줄 목록. 사람별 사유가 비면 공통 사유."""
+    today = today or date.today()
+    applies_on = applies_on or today
+    if uid not in manager_ids():
+        return [], {'_': '경영지원만 조정할 수 있어요.'}
+    todo, errs, seen = [], {}, set()
+    for it in items or []:
+        name = str(it.get('name') or '').strip()
+        if not name or str(it.get('days') or '').strip() in ('', '0'):
+            continue
+        if name in seen:
+            errs[name] = '같은 직원이 두 번 들어 있어요.'
+            continue
+        seen.add(name)
+        why = str(it.get('reason') or '').strip() or (reason or '')
+        days, err = _check_adjust(name, it.get('days'), why, applies_on, today)
+        if err:
+            errs[name] = err
+        else:
+            todo.append((name, days, why))
+    if errs:
+        return [], errs
+    if not todo:
+        return [], {'_': '조정할 일수를 한 명 이상 적어 주세요.'}
+    made = []
+    for name, days, why in todo:
+        g = _add_adjust(name, days, why, actor_name, applies_on)
+        if g:
+            made.append(g)
+    return made, {}
+
+
+def cancel_adjust(gid: int, uid: str, actor_name: str) -> Tuple[Optional[dict], str]:
+    """연차 조정 취소(플렉스 [조정 취소하기]) — 줄은 지우지 않고 0일로 바꾸고 '취소' 기록을 남긴다.
+    늘린 조정에서 이미 떼어 쓴 휴가가 있으면 취소하지 않는다(그 휴가가 쓸 연차가 사라지므로 빼기 조정으로 맞춤)."""
+    if uid not in manager_ids():
+        return None, '경영지원만 취소할 수 있어요.'
+    with _conn() as conn:
+        g = conn.execute('SELECT g.*, COALESCE((SELECT SUM(u.days) FROM leave_uses u WHERE u.grant_id=g.id), 0) AS used '
+                         'FROM leave_grants g WHERE g.id=?', (int(gid),)).fetchone()
+        if not g or not str(g['source'] or '').startswith('adjust:'):
+            return None, '취소할 수 있는 연차 조정이 아니에요.'
+        if g['used'] > 1e-9:
+            return None, (f"이 조정으로 늘린 연차 중 {fmt_days(g['used'])}을 이미 휴가에 썼어요. "
+                          '취소하지 말고 빼기 조정으로 맞춰 주세요.')
+        g = dict(g)
+    if g['days'] > 0:
+        on = max(date.today(), _d(g['valid_from']))
+        if on <= _d(g['valid_to']) and balance(g['name'], on) - g['days'] < -1e-9:
+            return None, '취소하면 남은 연차가 0보다 적어져요. 빼기 조정을 먼저 취소해 주세요.'
+    with _conn() as conn:
+        note = f"{g.get('note') or ''} → 취소({actor_name} {datetime.now().strftime('%Y-%m-%d %H:%M')})"
+        cur = conn.execute("UPDATE leave_grants SET days=0, source='cancelled:'||source, note=? "
+                           "WHERE id=? AND source LIKE 'adjust:%'", (note, g['id']))
+        if cur.rowcount != 1:
+            conn.rollback()
+            return None, '그 사이 바뀌었어요. 다시 열어 주세요.'
+        conn.commit()
+        return dict(conn.execute('SELECT * FROM leave_grants WHERE id=?', (g['id'],)).fetchone(), orig_days=g['days']), ''
 
 
 def adjustments(name: str) -> List[dict]:
+    """연차 조정 기록 — 취소한 것도(cancelled=True, days=0, 원래 일수는 메모에)."""
     with _conn() as conn:
-        return [dict(r) for r in conn.execute("SELECT * FROM leave_grants WHERE name=? AND source LIKE 'adjust:%' "
-                                              'ORDER BY created_at DESC, id DESC', (name,)).fetchall()]
+        rows = [dict(r) for r in conn.execute(
+            "SELECT * FROM leave_grants WHERE name=? AND (source LIKE 'adjust:%' OR source LIKE 'cancelled:adjust:%') "
+            'ORDER BY created_at DESC, id DESC', (name,)).fetchall()]
+    for r in rows:
+        r['cancelled'] = str(r.get('source') or '').startswith('cancelled:')
+    return rows
+
+
+def monthly_detail(name: str, year: int, today: Optional[date] = None) -> dict:
+    """직원별 월별 연차 상세(플렉스 '연차 상세') — 달마다 부여·조정·사용·소멸·잔여.
+
+    잔여 = 다음 달 1일에 살아 있는 연차 − 그 전에 시작한 휴가로 뗀 것. 그래서 늘 '앞 달 잔여 + 부여 + 조정 − 사용 − 소멸'.
+    사용은 휴가 첫날이 든 달(승인 대기 포함 — 신청하면 바로 빠지는 플렉스와 같음). 소멸은 쓸 수 있는 마지막 날이 든 달.
+    오늘 뒤 달은 지금 잡힌 휴가만 반영한 예상(projected)."""
+    today = today or date.today()
+    with _conn() as conn:
+        gs = [dict(r) for r in conn.execute('SELECT * FROM leave_grants WHERE name=? AND days<>0', (name,)).fetchall()]
+        uses = [dict(r) for r in conn.execute(
+            f'SELECT u.grant_id, u.days, r.start FROM leave_uses u JOIN leave_requests r ON r.id=u.request_id '
+            f'WHERE r.name=? AND r.status IN ({",".join("?" * len(HOLDING))})', (name, *HOLDING)).fetchall()]
+    if not gs:
+        return {'year': year, 'months': [], 'opening': 0.0}
+    by_g: Dict[int, list] = {}
+    for u in uses:
+        by_g.setdefault(u['grant_id'], []).append(u)
+
+    def used(gid, before: str = '9999-12-31') -> float:
+        return sum(u['days'] for u in by_g.get(gid, []) if u['start'] < before)
+
+    def left_on(d: str) -> float:
+        """d 날 0시 — d 전에 생겨 d 에도 살아 있는 부여(그날 생기는 것은 그달 '부여'로 센다)."""
+        return round(sum(g['days'] - used(g['id'], d) for g in gs if g['valid_from'] < d <= g['valid_to']), 2)
+
+    first_month = min(_d(g['valid_from']) for g in gs)
+    months = []
+    for m in range(1, 13):
+        a = date(year, m, 1)
+        b = date(year + (m == 12), m % 12 + 1, 1)
+        if b <= date(first_month.year, first_month.month, 1):
+            continue
+        A, B = a.isoformat(), b.isoformat()
+        is_adj = lambda g: str(g.get('source') or '').startswith('adjust:')   # noqa: E731
+        months.append({
+            'month': m,
+            'grant': round(sum(g['days'] for g in gs if A <= g['valid_from'] < B and not is_adj(g)), 2),
+            'adjust': round(sum(g['days'] for g in gs if A <= g['valid_from'] < B and is_adj(g)), 2),
+            'used': round(sum(u['days'] for u in uses if A <= u['start'] < B), 2),
+            'expired': round(sum(g['days'] - used(g['id']) for g in gs if A <= g['valid_to'] < B), 2),
+            'left': left_on(B),
+            'projected': a > today,
+        })
+    opening = left_on(date(year, months[0]['month'], 1).isoformat()) if months else 0.0
+    return {'year': year, 'months': months, 'opening': opening}
 
 
 _ASK_MANAGER = ' 연차가 더 있어야 한다면 경영지원에 문의해 주세요.'

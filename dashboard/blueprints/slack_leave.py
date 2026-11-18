@@ -82,7 +82,7 @@ def leave_view(meta: dict, vals: Optional[dict] = None) -> dict:
     blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
                    f'*{name}* 님 오늘 기준 남은 연차: *{lv.fmt_days(left)}*'}]})
     # 칸 id 는 lv_ 를 붙인다 — 다른 봇 양식 칸 이름과 헷갈리지 않게
-    blocks.append(_select('lv_type', '휴가 종류', lv.type_options(), initial=ltype, dispatch=True))
+    blocks.append(_select('lv_type', '휴가 종류', lv.type_options_for(name), initial=ltype, dispatch=True))
     if ltype == lv.EVENT:
         blocks.append(_select('lv_sub', '경조사 종류', [(k, f'{v[0]} ({v[1]}일)') for k, v in lv.EVENT_SUBS.items()],
                               initial=vals.get('sub', '')))
@@ -299,8 +299,31 @@ def after_adjust(name: str, grant: dict, uid: str) -> None:
     sid = st.get('slack_id')
     if not sid:
         return
-    _notify(_client(), sid, f"🌴 {name} 님 연차가 조정됐어요 — {grant.get('note') or ''}\n"
+    on = lv._d(grant.get('valid_from'))
+    when = f" ({lv.kdate(on)}부터 반영)" if on and on != date.today() else ''
+    _notify(_client(), sid, f"🌴 {name} 님 연차가 조정됐어요 — {grant.get('note') or ''}{when}\n"
                             f"지금 남은 연차: {lv.fmt_days(lv.balance(name))}")
+
+
+def after_custom_grant(g: dict, uid: str) -> None:
+    """맞춤 휴가 부여 — 본인에게 '이제 신청 창에서 고를 수 있어요'."""
+    st = lv.staff_by_name(g['name']) or {}
+    sid = st.get('slack_id')
+    if not sid:
+        return
+    until = '기간 제한 없이' if g['valid_to'] == lv.ANYTIME else f"{lv.kdate(lv._d(g['valid_to']))}까지"
+    _notify(_client(), sid, f"🎁 {g['name']} 님께 {g['label']} {lv.fmt_days(g['days'])}이 부여됐어요. "
+                            f"{until} 휴가 신청에서 「{g['label']}」을 골라 쓸 수 있어요."
+                            + (f"\n메모: {g['note']}" if g.get('note') else ''))
+
+
+def after_adjust_cancel(grant: dict, uid: str) -> None:
+    st = lv.staff_by_name(grant['name']) or {}
+    sid = st.get('slack_id')
+    if not sid:
+        return
+    _notify(_client(), sid, f"🌴 {grant['name']} 님 연차 조정이 취소됐어요 — {grant.get('note') or ''}\n"
+                            f"지금 남은 연차: {lv.fmt_days(lv.balance(grant['name']))}")
 
 
 def after_admin_register(row: dict, uid: str) -> None:
