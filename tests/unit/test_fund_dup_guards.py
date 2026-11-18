@@ -166,6 +166,34 @@ def test_partner_list_shows_each_branch(tmp_db, monkeypatch):
     assert ea.branch_from_value('하이마트') is None and ea.branch_from_value('acct:깨짐') is None
 
 
+def test_invoice_post_assign_modal_picks_branch_not_last_account(se, monkeypatch):
+    """11-18 계산서 글 [📍 현장 지정]→「이체 필요」 — 하이엠솔루텍 수원 계산서에 지난번(인천) 계좌가 채워졌다.
+    지점 계좌 칸을 보여 주고 지난번 계좌는 채우지 않으며, 고른 지점 계좌로 칸을 다시 채운다."""
+    from dashboard.blueprints import slack_bot as sb
+    from dashboard.services import purchase_invoice_assign as pinv
+    _hiem(monkeypatch)
+    monkeypatch.setattr(pinv, 'get_assignment', lambda ch, ts: None)
+    monkeypatch.setattr(ea, 'find_unlinked_match', lambda *a, **k: None)
+    meta = {'ch': 'CINV', 'ts': '1.1', 'v': pinv.button_value('CINV', '1.1', {
+        'date_md': '11/18', 'grn': 'R', 'amount': 28000, 'partner': '하이엠솔루텍'})}
+    meta.update(json.loads(meta.pop('v')))
+    v = sb._pinv_modal_for(meta, transfer=True)
+    txt = json.dumps(v, ensure_ascii=False)
+    assert '지점 계좌' in txt and ea.PAYEE_SAVED_NOTE not in txt
+    acct = next(b for b in v['blocks'] if (b.get('block_id') or '').startswith('account'))
+    assert 'initial_value' not in acct['element']                      # 지난번(강남) 계좌 안 채움
+    meta['br'], meta['bpv'] = '1005301085723', 1                       # 인천 고름
+    v = sb._pinv_modal_for(meta, transfer=True)
+    acct = next(b for b in v['blocks'] if (b.get('block_id') or '').startswith('account'))
+    assert acct['block_id'] == 'account_b1' and acct['element']['initial_value'] == '1005301085723'
+    br = next(b for b in v['blocks'] if b.get('block_id') == 'pinv_branch')
+    assert br['element']['initial_option']['text']['text'] == '하이엠솔루텍 · 인천 (우리 …5723)'
+    ea.add_known_accounts('없는거래처', [])
+    meta2 = dict(meta, br=None, bpv=0)
+    meta2.update(json.loads(pinv.button_value('CINV', '1.2', {'date_md': '', 'grn': 'R', 'amount': 1, 'partner': '대성크레인'})))
+    assert 'pinv_branch' not in json.dumps(sb._pinv_modal_for(meta2, transfer=True))   # 지점 없는 거래처는 그대로
+
+
 def test_branch_pick_fills_that_branch_not_last_one(se, monkeypatch):
     _hiem(monkeypatch)
     meta = {}
