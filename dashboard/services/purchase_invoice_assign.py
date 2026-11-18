@@ -384,6 +384,7 @@ def result_blocks(row: Dict, project_line: str, channel: str, msg_ts: str, extra
 
 
 ACTION_TRANSFER_TOGGLE = 'pinv_transfer_toggle'   # 「이체 필요」 체크 → 이체 칸 펼침
+ACTION_BRANCH = 'pinv_branch'                     # 지점마다 계좌가 다른 거래처 — 「지점 계좌」 고르기(11-18)
 
 
 def transfer_requested(view_state_values: Dict) -> bool:
@@ -394,7 +395,7 @@ def transfer_requested(view_state_values: Dict) -> bool:
 def modal_view(parsed: Dict, meta: Dict, current: Optional[Dict] = None,
                initial_project_option: Optional[dict] = None, transfer: bool = False,
                payee: Optional[Dict] = None, approval: Optional[Dict] = None,
-               candidate: Optional[Dict] = None) -> dict:
+               candidate: Optional[Dict] = None, branches: Optional[List[Dict]] = None) -> dict:
     """현장 지정 모달.
 
     current   = 이미 지정된 행(다시 지정 시 기본값)
@@ -445,13 +446,35 @@ def modal_view(parsed: Dict, meta: Dict, current: Optional[Dict] = None,
              'element': memo_el,
              **({'hint': {'type': 'plain_text', 'text': '자금집행 결재에 그대로 올라가요.'}}
                 if transfer else {})},
-            *_transfer_blocks(transfer, payee, approval, candidate),
+            *_transfer_blocks(transfer, payee, approval, candidate, branches, meta, parsed.get('partner') or ''),
         ],
     }
 
 
+def _branch_blocks(branches: List[Dict], meta: Dict, partner: str) -> List[dict]:
+    """지점마다 계좌가 다른 거래처(하이엠솔루텍) — 「지점 계좌」 고르기. 지난번 계좌는 채우지 않는다
+    (11-18 수원 계산서에 인천 계좌가 채워졌다). 고르면 그 지점 계좌가 아래 칸에 채워진다."""
+    from dashboard.services import e_approval as ea
+    opts = ([ea.branch_option(partner, r) for r in branches] + [ea.branch_option(partner, None)])[:100]
+    el = {'type': 'static_select', 'action_id': ACTION_BRANCH, 'options': opts,
+          'placeholder': {'type': 'plain_text', 'text': '지점 고르기'}}
+    br = meta.get('br')
+    if br is not None:
+        cur = next((o for o in opts if (ea.branch_from_value(o['value']) or ('', ''))[1] == br), None)
+        if cur:
+            el['initial_option'] = cur
+    note = ('📍 지점마다 계좌가 달라요. 계산서 비고(또는 사진)에 적힌 계좌와 같은 지점을 고르세요.'
+            if br is None else
+            '✅ 고른 지점 계좌로 채웠어요. 계산서에 적힌 계좌와 같은지 한 번 더 봐 주세요.' if br else
+            '✏️ 목록에 없는 계좌예요. 아래에 직접 넣어 주세요(카드에 ⚠️ 표시돼요).')
+    return [{'type': 'input', 'block_id': 'pinv_branch', 'dispatch_action': True, 'optional': True,
+             'label': {'type': 'plain_text', 'text': '지점 계좌'}, 'element': el},
+            {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': note}]}]
+
+
 def _transfer_blocks(transfer: bool, payee: Optional[Dict], approval: Optional[Dict],
-                     candidate: Optional[Dict]) -> List[dict]:
+                     candidate: Optional[Dict], branches: Optional[List[Dict]] = None,
+                     meta: Optional[Dict] = None, partner: str = '') -> List[dict]:
     from dashboard.services import e_approval as ea
     if approval:
         label = ea.STATUS_LABELS.get(approval.get('status'), ('', ''))
@@ -471,6 +494,11 @@ def _transfer_blocks(transfer: bool, payee: Optional[Dict], approval: Optional[D
         blocks.append({'type': 'input', 'block_id': 'evidence', 'label': {'type': 'plain_text', 'text': '증빙'},
                        'element': {'type': 'static_select', 'action_id': 'evidence', 'options': ev,
                                    'initial_option': ev[0]}})
+        if branches:
+            blocks += _branch_blocks(branches, meta or {}, partner)
+            # 지점을 바꿀 때마다 칸 block_id 를 바꿔야 새 계좌가 보인다(같으면 슬랙이 예전 입력을 유지)
+            return blocks + ea.transfer_input_blocks(payee, sfx=f"_b{int((meta or {}).get('bpv') or 0)}"
+                                                     if (meta or {}).get('bpv') else '')
         if payee:   # 예전에 보낸 계좌로 채웠으면 확인 안내(11-01)
             blocks.append(ea.payee_saved_note())
         blocks += ea.transfer_input_blocks(payee)

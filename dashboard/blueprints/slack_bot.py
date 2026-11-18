@@ -5278,6 +5278,7 @@ def _pinv_modal_for(meta: dict, transfer: bool) -> dict:
     from dashboard.services import e_approval as ea
     parsed = pinv.parsed_from_value(meta)
     current = approval = candidate = payee = None
+    branches: list = []
     try:
         current = pinv.get_assignment(meta['ch'], meta['ts'])
         approval = ea.find_by_origin(meta['ch'], meta['ts'])
@@ -5287,7 +5288,16 @@ def _pinv_modal_for(meta: dict, transfer: bool) -> dict:
             candidate = ea.find_unlinked_match(parsed['grn'], parsed['amount'], parsed['partner'],
                                                parsed.get('code') or '')
         if transfer:
-            payee = ea.lookup_payee(parsed['partner'])
+            branches = ea.known_accounts(parsed['partner'])
+            saved = ea.lookup_payee(parsed['partner'])
+            if branches:
+                # 지점마다 계좌가 다른 거래처 — 지난번 계좌(다른 지점일 수 있음)는 채우지 않고, 고른 지점 계좌만(11-18)
+                br = meta.get('br')
+                hit = next((r for r in branches if r['account'] == br), None) if br else None
+                payee = ({'payee_name': (saved or {}).get('payee_name') or parsed['partner'],
+                          'bank': hit.get('bank') or '', 'account': hit['account']} if hit else None)
+            else:
+                payee = saved
     except Exception as exc:
         logger.warning(f'[SLACK/현장지정] 기존 기록 조회 실패: {exc}')
     meta.pop('link_aid', None)
@@ -5302,7 +5312,7 @@ def _pinv_modal_for(meta: dict, transfer: bool) -> dict:
         code = parsed['code']   # 계산서 글에 적힌 공사 코드로 미리 고름(11-09 #6)
     init_opt = _pinv_project_option(code)
     return pinv.modal_view(parsed, meta, base, init_opt, transfer=transfer, payee=payee,
-                           approval=approval, candidate=candidate)
+                           approval=approval, candidate=candidate, branches=branches)
 
 
 def _pinv_code_mismatch_once(view, code: str) -> str:
@@ -5728,6 +5738,22 @@ def _register_invoice_handlers(app):
             client.views_update(view_id=view['id'], view=_pinv_modal_for(meta, transfer=on))
         except Exception as exc:
             logger.warning(f'[SLACK/현장지정] 이체 칸 펼치기 실패: {exc}')
+
+    @app.action("pinv_branch")
+    def handle_pinv_branch_pick(ack, body, client):
+        """「지점 계좌」 고르기 → 그 지점 계좌로 예금주·은행·계좌 칸을 다시 채움(11-18 하이엠솔루텍)."""
+        ack()
+        try:
+            from dashboard.services import e_approval as ea
+            view = body['view']
+            meta = json.loads(view.get('private_metadata') or '{}')
+            br = ea.branch_from_value(((body.get('actions') or [{}])[0].get('selected_option') or {}).get('value') or '')
+            meta['br'] = br[1] if br else None
+            meta['bpv'] = int(meta.get('bpv') or 0) + 1   # 이체 칸 block_id 를 바꿔 새 값이 보이게
+            client.views_update(view_id=view['id'], hash=view.get('hash'),
+                                view=_pinv_modal_for(meta, transfer=True))
+        except Exception as exc:
+            logger.warning(f'[SLACK/현장지정] 지점 계좌 채우기 실패: {exc}')
 
     @app.view("submit_pinv_assign")
     def handle_pinv_assign_submit(ack, body, view, client):
