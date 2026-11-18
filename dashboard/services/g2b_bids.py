@@ -194,6 +194,17 @@ def hard_reason(item: dict) -> str:
     return ''
 
 
+# 검색어 '난방'이 딸려 오는 다른 공사 — 이 말을 지운 뒤에도 검색어가 남아야 냉난방 공사로 본다(11-18 '지역난방설비동 채광창 교체')
+NOT_HVAC_WORDS = ('지역난방', '재난방송', '재난방지', '피난방', '난방비')
+
+
+def is_relevant(title: str) -> bool:
+    t = title or ''
+    for w in NOT_HVAC_WORDS:
+        t = t.replace(w, '')
+    return any(k in t for k in KEYWORDS)
+
+
 def classify(item: dict, regions: List[str], groups: List[List[str]],
              held: Iterable[str], planned: Iterable[str]) -> dict:
     """입찰 불가능 사유는 걸리는 것 모두 적는다(11-18 부장님: 탭은 가능/불가능, 사유는 내용에).
@@ -201,6 +212,8 @@ def classify(item: dict, regions: List[str], groups: List[List[str]],
     hard = hard_reason(item)
     lic_ok, missing = license_status(groups, held, planned)
     reasons = []
+    if not is_relevant(item.get('bidNtceNm') or ''):
+        reasons.append('냉난방 공사 아님(제목)')
     if regions and not region_ok(regions):      # 지역 제한 없는 전국 공고는 들어갈 수 있다(11-18)
         reasons.append('김포 업체 참가 불가(지역 제한)')
     if hard:

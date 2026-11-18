@@ -109,7 +109,7 @@ def _fake_api(monkeypatch, items, limits):
 
 
 def test_collect_saves_and_skips_known(db, monkeypatch):
-    items = [_item('A1'), _item('B2', title='수원 냉난방', ), _item('C3', title='김포 철거')]
+    items = [_item('A1'), _item('B2', title='수원 냉난방', ), _item('C3', title='김포 냉난방 철거')]
     limits = {'A1': (['경기도'], [[MECH]]), 'B2': (['경기도 수원시'], [[MECH]]),
               'C3': (['경기도 김포시'], [[MECH, REFRIG]])}
     calls = _fake_api(monkeypatch, items, limits)
@@ -251,7 +251,7 @@ def test_briefing_in_detail_and_digest(db, monkeypatch):
     monkeypatch.setattr(g, '_post_slack', lambda ch, text: sent.append(text) or True)
     soon_ = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d 14:00:00')
     _fake_api(monkeypatch, [_item('A1', dcmtgOprtnDt=soon_, dcmtgOprtnPlce='본관 2층 대회의실'),
-                            _item('A2', title='설명회 없음')],
+                            _item('A2', title='냉난방 설명회 없음')],
               {'A1': (['경기도'], [[MECH]]), 'A2': (['경기도'], [[MECH]])})
     g.collect()
     d = {x['bid_no']: x['detail'] for x in g.list_bids()['items']}
@@ -346,3 +346,12 @@ def test_keywords_catch_dotted_titles():
     for t in ('냉·난방기 교체', '냉.난방기 교체 공사', '냉난방 개선', '냉 난방'):
         assert any(k in t for k in g.KEYWORDS)
     assert {'공기조화', '냉각탑'} <= set(g.KEYWORDS)
+
+
+def test_unrelated_heating_titles_are_not_eligible():
+    held, planned = [MECH], [REFRIG]
+    c = g.classify(_item(title='파주지사 지역난방설비동 채광창 교체공사'), ['경기도'], [[MECH]], held, planned)
+    assert c['category'] == g.OTHER and c['reason'] == '냉난방 공사 아님(제목)'
+    assert g.is_relevant('한국지역난방공사 사옥 냉난방기 교체')      # 지역난방 말고 냉난방도 있으면 관련
+    assert g.is_relevant('냉.난방기 교체') and g.is_relevant('의정관 냉각탑 교체')
+    assert not g.is_relevant('2027년 재난방송온라인시스템 유지관리')
