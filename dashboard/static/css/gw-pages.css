@@ -2683,3 +2683,25 @@ html:has(#bdPage) {
 
 .gw-bd-brief.soon { color: #b91c1c; }
 .gw-bd-brief.gone { color: #b91c1c; }
+
+/* 휴가 화면 표 — 머리 줄(#f8fafc)이 페이지 바탕과 같아 구분이 안 되던 것(11-19 부장님):
+   표를 흰 카드(테두리)로 감싸고 머리 줄을 한 단계 진하게 */
+.gw-table-wrap:has(> .gw-leave-table),
+.gw-table-wrap:has(> .gw-lv-monthly-table),
+.gw-table-wrap:has(> .gw-lv-promo-table) {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+}
+.gw-leave-table th,
+.gw-lv-monthly-table th,
+.gw-lv-promo-table th {
+  background: #eef2f6;
+  color: #475569;
+  border-bottom: 1px solid #e2e8f0;
+}
+.gw-leave-table tbody tr:last-child td,
+.gw-lv-monthly-table tbody tr:last-child td,
+.gw-lv-promo-table tbody tr:last-child td {
+  border-bottom: 0;
+}
