@@ -660,7 +660,7 @@ def format_digest(rows: List[dict], license_only: int, page_url: str) -> str:
             ext = name.rsplit('.', 1)[-1].upper() if '.' in name else ''
             links.append(f"<{f['url']}|{kind}{' ' + ext if ext else ''}>")
         lines.append(
-            f"\n• *{'[물품] ' if r.get('kind') == '물품' else ''}{r['title']}*\n"
+            f"\n• *{r['title']}*\n"
             f"   {r['demand_org'] or r['org']} · {(r['award_method'] or r['contract_method']).split('-')[0]} · "
             f"추정가격 {_won(r['price'])}\n"
             f"   마감 {_when(r['close_at'])} · 참가가능지역: {', '.join(json.loads(r['regions']))}\n"

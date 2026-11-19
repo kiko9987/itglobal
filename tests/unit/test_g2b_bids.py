@@ -393,13 +393,13 @@ def test_thng_maker_only_is_blocked():
                       ['경기도'], [[MECH]], held, planned)['reason'] == '4억 이상 적격심사'
 
 
-def test_digest_marks_thng(db, monkeypatch):
+def test_digest_lists_thng_without_kind_tag(db, monkeypatch):
     sent = []
     monkeypatch.setattr(g, '_post_slack', lambda ch, text: sent.append(text) or True)
     _fake_api(monkeypatch, [_thng('T1')], {'T1': ([], [[MECH]])})
     g.collect()
     g.send_morning_digest(force=True)
-    assert '*[물품] [긴급] 추산초 냉난방 구매 및 설치*' in sent[0]
+    assert '*[긴급] 추산초 냉난방 구매 및 설치*' in sent[0] and '[물품]' not in sent[0]   # 딱지 없이(11-19 부장님)
 
 
 def test_old_rows_default_to_construction(tmp_path, monkeypatch):
