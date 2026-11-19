@@ -93,18 +93,18 @@ def rekey_project_redis(old_code: str, new_code: str, rc=None) -> List[Tuple[str
                 logger.warning(f'[REKEY] 새 키가 이미 있어 건너뜀: {k} → {nk}')
         except Exception as exc:
             logger.warning(f'[REKEY] 이름 바꾸기 실패 {k}: {exc}')
-    # 역방향 카드 매핑 값(project_thread:{ch}|{ts} = code)도 새 코드로
+    # 역방향 카드 매핑 값(project_thread:{ch}|{ts} = code)도 새 코드로 — 카드 하나만 보던 것을 값이 옛 코드인
+    #   연결 전부로(2026-11-20: 11-16 번호 당기기 뒤 8개가 옛 번호로 남아 R4297-YG 사업자등록증이 세 번 실패)
     try:
-        m = rc.get(f'project_card_msg:{new_code}')
-        if m:
-            m = m.decode() if isinstance(m, bytes) else m
-            cur = rc.get(f'project_thread:{m}')
+        for tk in rc.scan_iter(match='project_thread:*', count=2000):
+            tk = tk.decode() if isinstance(tk, bytes) else tk
+            cur = rc.get(tk)
             cur = cur.decode() if isinstance(cur, bytes) else cur
             if cur == old_code:
-                ttl = rc.ttl(f'project_thread:{m}')
-                rc.set(f'project_thread:{m}', new_code, ex=ttl if ttl and ttl > 0 else None)
+                ttl = rc.ttl(tk)
+                rc.set(tk, new_code, ex=ttl if ttl and ttl > 0 else None)
     except Exception as exc:
-        logger.debug(f'[REKEY] 역방향 카드 매핑 갱신 실패: {exc}')
+        logger.warning(f'[REKEY] 역방향 카드 매핑 갱신 실패: {exc}')
     if moved:
         logger.info(f'[REKEY] {old_code} → {new_code}: Redis 키 {len(moved)}개 옮김 '
                     f'({", ".join(k for k, _ in moved[:8])}{" …" if len(moved) > 8 else ""})')
