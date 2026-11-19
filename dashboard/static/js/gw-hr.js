@@ -264,7 +264,7 @@
     });
   }
 
-  // ── 경력·학력·가족·서류(본인·인사카드 관리자만 서버가 보내 줌) ─────────────
+  // ── 경력·학력·비상연락망·서류(본인·인사카드 관리자만 서버가 보내 줌) ─────────────
   function period2(a, b) {
     if (!a && !b) return '';
     return esc(a || '') + ' ~ ' + esc(b || '');
@@ -298,14 +298,17 @@
             '</td><td>' + esc(e.graduate_type) + '</td><td>' + period2(e.begin_date, e.end_date) + '</td></tr>';
         }));
     }
+    // 가족 = 비상연락망(11-19 부장님: 플렉스에 연락용으로 올린 것 — 공제 대상 아님). 공제는 연말정산 화면에서 따로 받는다.
+    // 주민번호는 플렉스에 넣어 둔 사람이 있을 때만 칸을 보인다.
     if (p.families && p.families.length) {
-      h += '<div class="gw-sec-title">가족 · 공제 대상</div>' + table(['이름', '관계', '연락처', '주민등록번호', '공제 관계', '기본공제', '자녀공제', '건보 피부양'],
+      var famSsn = p.families.some(function (f) { return f.has_ssn; });
+      h += '<div class="gw-sec-title">비상연락망</div>' +
+        '<p class="text-muted small mb-2">급할 때 연락할 가족이에요. 연말정산 부양가족 공제는 1월 연말정산 화면에서 따로 받아요.</p>' +
+        table(['이름', '관계', '연락처'].concat(famSsn ? ['주민등록번호'] : []),
         p.families.map(function (f) {
           var ssn = f.has_ssn ? '<span class="gw-ssn-val">' + esc(f.ssn_masked) + '</span>' + (p.can_reveal_ssn ? ' <button type="button" class="btn btn-sm btn-outline-secondary gw-ssn-btn" data-ssn-url="/api/hr/families/' + f.id + '/ssn" data-what="' + esc(f.name) + ' 주민등록번호" aria-label="' + esc(f.name) + ' 주민등록번호 전체 보기">전체 보기</button>' : '') : '';
-          var yn = function (b) { return b ? '<span class="gw-badge gw-badge-active">예</span>' : '<span class="text-muted">-</span>'; };
-          return '<tr><td>' + esc(f.name) + '</td><td>' + esc(f.relation) + '</td><td>' + esc(phone(f.phone)) +
-            '</td><td data-fam-cell="' + f.id + '">' + ssn + '</td><td>' + esc(f.deduction_relation) + '</td><td>' + yn(f.default_deduction) +
-            '</td><td>' + yn(f.child_deduction) + '</td><td>' + yn(f.health_dependent) + '</td></tr>';
+          return '<tr><td>' + esc(f.name) + '</td><td>' + esc(f.relation) + '</td><td>' + esc(phone(f.phone)) + '</td>' +
+            (famSsn ? '<td data-fam-cell="' + f.id + '">' + ssn + '</td>' : '') + '</tr>';
         }));
     }
     var docs = p.documents || [];

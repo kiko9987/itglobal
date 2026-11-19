@@ -134,22 +134,15 @@
         }
         h += '</div>';
 
-        // 2. 부양가족
-        var fams = v.families || [];
-        h += '<div class="gw-panel"><h2 class="gw-panel-title">2. 부양가족 확인</h2>';
-        if (fams.length) {
-          h += '<div class="gw-table-wrap"><table class="gw-table gw-appt-table"><thead><tr><th>이름</th><th>관계</th><th>기본공제</th><th>건보 피부양</th></tr></thead><tbody>' +
-            fams.map(function (f) {
-              return '<tr><td>' + esc(f.name) + '</td><td>' + esc(f.relation) + '</td><td>' + (f.default_deduction ? '예' : '-') + '</td><td>' + (f.health_dependent ? '예' : '-') + '</td></tr>';
-            }).join('') + '</tbody></table></div>';
-        } else {
-          h += '<p class="gw-panel-desc">등록된 부양가족이 없어요.</p>';
-        }
+        // 2. 부양가족 — 인사카드 가족은 비상연락망이라 여기 보이지 않는다(11-19). 공제 대상은 본인이 적는다.
+        h += '<div class="gw-panel"><h2 class="gw-panel-title">2. 부양가족 공제</h2>' +
+          '<p class="gw-panel-desc">공제받을 부양가족이 작년과 같은지 골라 주세요. 처음 받거나 바뀌었으면 이름·관계를 적어 주세요. ' +
+          '인사카드의 비상연락망은 공제에 쓰이지 않아요.</p>';
         h += '<div class="gw-ye-methods">' +
           '<label class="gw-ye-method sm' + (s.family_status === 'none' ? ' on' : '') + '"><input type="radio" name="yeFam" value="none"' + (s.family_status === 'none' ? ' checked' : '') + (editable ? '' : ' disabled') + '> 작년과 같아요(변경 없음)</label>' +
-          '<label class="gw-ye-method sm' + (s.family_status === 'changed' ? ' on' : '') + '"><input type="radio" name="yeFam" value="changed"' + (s.family_status === 'changed' ? ' checked' : '') + (editable ? '' : ' disabled') + '> 바뀐 게 있어요</label></div>';
+          '<label class="gw-ye-method sm' + (s.family_status === 'changed' ? ' on' : '') + '"><input type="radio" name="yeFam" value="changed"' + (s.family_status === 'changed' ? ' checked' : '') + (editable ? '' : ' disabled') + '> 바뀌었거나 처음이에요</label></div>';
         if (s.family_status === 'changed') {
-          h += '<textarea class="form-control form-control-sm mt-2" id="yeFamNote" rows="2" maxlength="1000" aria-label="바뀐 부양가족 내용" placeholder="예: 2026년 6월 자녀 출생, 어머니 기본공제 추가"' + (editable ? '' : ' disabled') + '>' + esc(s.family_note || '') + '</textarea>';
+          h += '<textarea class="form-control form-control-sm mt-2" id="yeFamNote" rows="2" maxlength="1000" aria-label="바뀐 부양가족 내용" placeholder="예: 배우자, 자녀(2026년 6월 출생) 새로 추가, 어머니 기본공제 추가"' + (editable ? '' : ' disabled') + '>' + esc(s.family_note || '') + '</textarea>';
         }
         h += '</div>';
 
