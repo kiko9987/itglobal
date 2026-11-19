@@ -9,6 +9,7 @@ import os
 
 _DEFAULT = (
     'https://pm.itg-aircon.com',
+    'https://gw.itg-aircon.com',     # 그룹웨어 주소(2026-11-19) — pm 은 슬랙·웹훅용으로 계속 둠
     'http://localhost:5000',
     'http://127.0.0.1:5000',
 )
