@@ -1760,6 +1760,17 @@ body.gw-shell .gw-stats .gw-stat {
   background: #fff;
 }
 body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7ed; }
+/* 휴가 카드는 4개 — 공용 틀이 프로젝트 상태 칸(5칸) 기준이라 오른쪽 한 칸이 비던 것(11-19) */
+body.gw-shell .gw-stats.gw-lv-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 767.98px) {
+  body.gw-shell .gw-stats.gw-lv-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.gw-lv-apply-note { margin: 10px 0 4px; }
+.gw-lv-soon { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px;
+  background: #fff1e6; color: #c2410c; font-size: 12px; font-weight: 600; }
+.gw-lv-rec-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+.gw-lv-off-sw { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #475569; padding-left: 0; }
+.gw-lv-off-sw .form-check-input { float: none; margin: 0; }
 
 /* 신청·취소 창 — 공용 스타일(작은 화면에서 창 여백·버튼 세로 쌓기)을 이 두 창만 되돌림 */
 #lvApplyModal .modal-footer,

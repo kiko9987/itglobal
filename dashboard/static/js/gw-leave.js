@@ -109,7 +109,7 @@
     if (!L.linked) {
       h += '<div class="gw-note mb-2">휴가 장부에 아직 연결되지 않아 남은 연차를 계산하지 못했어요. 지난 기록만 보여요.</div>';
     }
-    h += '<div class="gw-stats">' +
+    h += '<div class="gw-stats gw-lv-stats">' +
       '<div class="gw-stat gw-stat-main"><div class="k">남은 연차</div><div class="v">' + (L.balance == null ? '-' : days(L.balance)) + '</div></div>' +
       '<div class="gw-stat"><div class="k">' + L.year + '년 쓴 연차</div><div class="v">' + days(L.annual_used) + '</div></div>' +
       '<div class="gw-stat"><div class="k">' + L.year + '년 병가</div><div class="v">' + days(L.sick_used) + ' <small>/ ' + L.sick_limit + '일</small></div></div>' +
@@ -119,12 +119,18 @@
     if (L.pending && L.balance != null) {
       h += '<div class="gw-lv-note">남은 연차는 승인 대기 중인 휴가까지 미리 뺀 날수예요.</div>';
     }
+    if (opts.applyNote) {   // 신청 안내 — 통계 바로 아래(11-19 부장님: 소멸 정보와 기록 사이에 끼어 있던 것)
+      h += '<div class="gw-callout gw-lv-apply-note">' + opts.applyNote + '</div>';
+    }
     if (opts.afterStats) h += opts.afterStats;   // 직원별 창: 경영지원 관리 단추(11-19 — 현황 다음에)
 
     if (L.grants && L.grants.length) {
       h += '<div class="gw-sec-title">언제까지 써야 하나요</div><ul class="gw-plain-list">';
       L.grants.forEach(function (g) {
-        h += '<li><strong>' + days(g.days) + '</strong> — ' + esc(g.valid_to.slice(0, 4)) + '년 ' + esc(md(g.valid_to)) + '까지</li>';
+        // 소멸이 60일 안이면 주황 'N일 남음'(11-19 — 연말에 몰려 사라지는 연차를 본인이 바로 알게)
+        var left = Math.round((new Date(g.valid_to + 'T00:00:00') - new Date(todayIso() + 'T00:00:00')) / 86400000) + 1;
+        h += '<li><strong>' + days(g.days) + '</strong> — ' + esc(g.valid_to.slice(0, 4)) + '년 ' + esc(md(g.valid_to)) + '까지' +
+          (left >= 0 && left <= 60 ? ' <span class="gw-lv-soon">' + left + '일 남음</span>' : '') + '</li>';
       });
       h += '</ul>';
     }
@@ -169,9 +175,7 @@
       }
     }
 
-    if (opts.applyNote) {
-      h += '<div class="gw-callout">' + opts.applyNote + '</div>';
-    } else if (!opts.hideApplyNote) {
+    if (!opts.applyNote && !opts.hideApplyNote) {
       h += '<div class="gw-callout"><i class="fab fa-slack me-1" aria-hidden="true"></i>휴가 신청·취소는 슬랙 <strong>휴가</strong> 앱에서 해요.</div>';
     }
 
@@ -180,12 +184,15 @@
     // 기록은 처음에 올해만 — 3년치 45줄이 휴대폰에 다 펼쳐지던 것(11-15 점검). 올해 기록이 없으면 전체
     var thisYear = String(L.year || '');
     var pickYear = years.length > 1 && years.indexOf(thisYear) !== -1 ? thisYear : '';
-    h += '<div class="gw-sec-head"><div class="gw-sec-title m-0">휴가 기록</div>' +
+    var offN = (L.entries || []).filter(function (e) { return e.status === '취소' || e.status === '반려'; }).length;
+    h += '<div class="gw-sec-head"><div class="gw-sec-title m-0">휴가 기록</div><div class="gw-lv-rec-tools">' +
+      (offN ? '<label class="form-check form-switch m-0 gw-lv-off-sw"><input type="checkbox" class="form-check-input gw-lv-show-off">' +
+        '<span class="form-check-label">취소·반려도 보기 (' + offN + '건)</span></label>' : '') +
       (years.length > 1 ? '<select class="form-select form-select-sm gw-year-select" aria-label="연도">' +
         '<option value="">전체</option>' + years.map(function (y) {
           return '<option value="' + y + '"' + (y === pickYear ? ' selected' : '') + '>' + y + '년</option>';
         }).join('') +
-        '</select>' : '') + '</div>';
+        '</select>' : '') + '</div></div>';
     var act = opts.mine ? cancelBtn : opts.rowAct;   // 줄 끝 단추 — 내 휴가: 본인 고치기·취소, 직원별 창: 경영지원 고치기·취소
     var cols = act ? 6 : 5;
     h += '<div class="gw-table-wrap"><table class="gw-table gw-leave-table' + (act ? ' gw-lv-mine-table' : '') + '"><thead><tr><th>기간</th><th>종류</th><th class="n">일수</th><th>상태</th><th>사유</th>' +
@@ -194,13 +201,15 @@
       h += '<tr><td colspan="' + cols + '" class="gw-empty">기록이 없어요.</td></tr>';
     } else {
       L.entries.forEach(function (e) {
-        h += '<tr data-year="' + esc(e.start.slice(0, 4)) + '"' + (e.status === '취소' || e.status === '반려' ? ' class="muted"' : '') +
-          (pickYear && e.start.slice(0, 4) !== pickYear ? ' hidden' : '') + '>' +
+        var off = e.status === '취소' || e.status === '반려';   // 취소·반려는 처음엔 숨김(11-19)
+        h += '<tr data-year="' + esc(e.start.slice(0, 4)) + '"' + (off ? ' class="muted" data-off="1"' : '') +
+          ((pickYear && e.start.slice(0, 4) !== pickYear) || off ? ' hidden' : '') + '>' +
           '<td class="gw-lv-when">' + esc(period(e, true)) + '</td><td>' + esc(e.type) + '</td><td class="n">' + days(e.days) + '</td>' +
           '<td>' + statusBadge(e.status) + '</td><td class="gw-reason">' + esc(e.reason) + '</td>' +
           (act ? '<td class="gw-lv-act">' + act(e) + '</td>' : '') + '</tr>';
       });
     }
+    h += '<tr class="gw-lv-rec-none" hidden><td colspan="' + cols + '" class="gw-empty">보여 줄 기록이 없어요.</td></tr>';
     h += '</tbody></table></div>';
     h += '<div class="gw-note">2026년 11월 이전 기록은 예전 휴가 프로그램(플렉스)에서 옮겨 온 것이에요.</div>';
     return h;
@@ -346,13 +355,19 @@
 
   function bindYearFilter(root) {
     var sel = root.querySelector('.gw-year-select');
-    if (!sel) return;
-    sel.addEventListener('change', function () {
-      var y = sel.value;
+    var sw = root.querySelector('.gw-lv-show-off');
+    function apply() {
+      var y = sel ? sel.value : '', showOff = !!(sw && sw.checked), shown = 0;
       root.querySelectorAll('.gw-leave-table tbody tr[data-year]').forEach(function (tr) {
-        tr.hidden = !!y && tr.getAttribute('data-year') !== y;
+        tr.hidden = (!!y && tr.getAttribute('data-year') !== y) || (!showOff && tr.getAttribute('data-off') === '1');
+        if (!tr.hidden) shown++;
       });
-    });
+      var none = root.querySelector('.gw-lv-rec-none');
+      if (none) none.hidden = shown > 0 || !root.querySelector('.gw-leave-table tbody tr[data-year]');
+    }
+    if (sel) sel.addEventListener('change', apply);
+    if (sw) sw.addEventListener('change', apply);
+    apply();
   }
 
   // ── 내 휴가 ────────────────────────────────────────────────
