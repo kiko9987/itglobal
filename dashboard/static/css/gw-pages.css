@@ -2725,3 +2725,5 @@ html:has(#bdPage) {
 @media (max-width: 767.98px) {
   .gw-lv-body { padding: 2px 12px 12px; }
 }
+
+.gw-badge-thng { background: #e0f2fe; color: #075985; }   /* 물품(구매·설치) 공고 */

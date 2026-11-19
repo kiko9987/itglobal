@@ -68,6 +68,7 @@
     var close = '<span class="' + (it.closed ? 'gw-bd-closed-t' : (soon(it.close_at) ? 'gw-bd-soon' : '')) + '">' +
       esc(when(it.close_at)) + '</span>' + (it.closed ? '<div class="gw-bd-sub">마감</div>' : '');
     var title = '<div class="gw-bd-title">' + (it.is_new ? '<span class="gw-badge gw-badge-new">New</span> ' : '') +
+      (it.bid_kind === '물품' ? '<span class="gw-badge gw-badge-thng" title="물품 구매·설치 공고">물품</span> ' : '') +
       esc(it.title) + '</div><div class="gw-bd-sub">' + esc(it.demand_org || it.org) +
       (it.contact ? ' · 담당 ' + esc(it.contact) : '') + '</div>';
     var bAt = (it.detail || {}).briefing_at;   // 현장설명회 — 놓치면 못 들어가는 공고가 있어 줄에서 바로 보이게
@@ -130,6 +131,10 @@
         '<b>' + full(d.briefing_at) + '</b>' + (d.briefing_place ? ' · ' + esc(d.briefing_place) : '') +
         (past(d.briefing_at) ? ' — 지났어요.' : '') + ' <span class="gw-bd-sub">참석이 필수인지 공고문에서 확인하세요</span>');
     }
+    if (it.bid_kind === '물품') {   // 물품은 나라장터 물품 분류 등록이 있어야 투찰 — 등록 여부는 우리가 확인
+      checks += chk(null, '물품 등록', '<b>' + esc((d.products || []).join(', ') || '공고문의 물품 분류') + '</b>' +
+        ' <span class="gw-bd-sub">나라장터에 이 물품으로 등록돼 있어야 입찰할 수 있어요</span>');
+    }
     if (d.qual_at) {
       checks += chk(past(d.qual_at) ? false : (soon(d.qual_at) ? null : true), '참가 등록 마감',
         '<b>' + full(d.qual_at) + '</b>' + (past(d.qual_at) ? ' — 지났어요' : '') + ' <span class="gw-bd-sub">(나라장터 입찰참가자격 등록)</span>');
@@ -156,7 +161,12 @@
         tr2('부가세', d.vat ? esc(won(d.vat)) : '', '낙찰하한율', esc(d.lower_rate)) +
         tr2('계약 방법', esc([it.contract_method, d.bid_method].filter(Boolean).join(' · ')),
             '예정가격', esc([d.price_method, d.price_count].filter(Boolean).join(' · '))) +
-        tr2('낙찰 방법', esc(d.award_full || it.award_method))) +
+        tr2('낙찰 방법', esc(d.award_full || it.award_method)) +
+        (it.bid_kind === '물품'
+          ? tr2('구매 물품', esc((d.products || []).join(', '))) +
+            tr2('납품 기한', d.deliver_days ? '계약일부터 ' + esc(d.deliver_days) + '일' : '', '납품 조건', esc(d.deliver_cond)) +
+            tr2('제조업체만', esc(d.maker_only), '물품 분류 제한', esc(d.product_limit))
+          : '')) +
       sect('참가 조건',
         tr2('참가가능지역', esc((it.regions || []).join(', '))) +
         tr2('면허', esc(lic || '제한 없음') + (held ? ' <span class="gw-bd-sub">(우리 면허: ' + esc(held) + ')</span>' : '')) +
@@ -204,7 +214,7 @@
       if (my !== state.seq) return;
       $('bdCntEligible').textContent = j.counts.eligible;
       $('bdCntBlocked').textContent = j.counts.blocked;
-      $('bdRule').textContent = '나라장터 냉난방 관련 공사 공고를 모았어요. 입찰 가능 기준: 참가가능지역 제한 없음(전국) 또는 경기도·김포시 포함, ' +
+      $('bdRule').textContent = '나라장터 냉난방 관련 공사 공고와 물품(구매·설치) 공고를 모았어요. 입찰 가능 기준: 참가가능지역 제한 없음(전국) 또는 경기도·김포시 포함, ' +
         '지금 면허(' + (j.held || []).join(', ') + ')로 참가 가능, 실적제한·사전심사(PQ)·지명경쟁·4억 이상 적격심사 없음.' +
         (j.planned && j.planned.length ? ' 준비 중인 면허: ' + j.planned.join(', ') + '.' : '');
       state.held = j.held || [];

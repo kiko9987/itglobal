@@ -36,6 +36,8 @@ logger = get_logger(__name__)
 
 BASE = 'https://apis.data.go.kr/1230000/ad/BidPublicInfoService02/'
 OP_LIST = 'getBidPblancListInfoCnstwkPPSSrch02'        # 나라장터 검색조건 공사 공고
+OP_LIST_THNG = 'getBidPblancListInfoThngPPSSrch02'     # 물품 공고 — '구매 및 설치'만 씀(11-19 추산초 계기)
+KINDS = (('공사', OP_LIST), ('물품', OP_LIST_THNG))
 OP_REGION = 'getBidPblancListInfoPrtcptPsblRgn02'      # 참가가능지역
 OP_LICENSE = 'getBidPblancListInfoLicenseLimit02'      # 면허제한
 
@@ -113,6 +115,8 @@ def _conn():
             cols = {r[1] for r in conn.execute('PRAGMA table_info(g2b_bids)').fetchall()}
             if 'raw' not in cols:
                 conn.execute("ALTER TABLE g2b_bids ADD COLUMN raw TEXT NOT NULL DEFAULT ''")
+            if 'kind' not in cols:   # 11-19 물품(구매·설치) 추가 — 그 전 줄은 모두 공사
+                conn.execute("ALTER TABLE g2b_bids ADD COLUMN kind TEXT NOT NULL DEFAULT '공사'")
             conn.commit()
             _table_ready = True
         yield conn
@@ -188,8 +192,11 @@ def hard_reason(item: dict) -> str:
         return '사전심사(PQ)'   # 11-18 부장님: PQ 만으론 뜻을 몰라 우리말 먼저
     if (item.get('dsgntCmptYn') or '') == 'Y' or '지명' in (item.get('cntrctCnclsMthdNm') or ''):
         return '지명경쟁'
+    if (item.get('mnfctYn') or '') == 'Y':
+        return '제조업체만 참가'
     method = item.get('sucsfbidMthdNm') or ''
-    if '적격심사' in method and _int(item.get('presmptPrce')) >= HARD_PRICE:
+    # 4억 이상 적격심사 제외는 시공경험 점수 때문 — 물품(구매·설치) 적격심사엔 안 씀(11-19 추산초 8억 물품)
+    if item.get('_kind') != '물품' and '적격심사' in method and _int(item.get('presmptPrce')) >= HARD_PRICE:
         return '4억 이상 적격심사'
     return ''
 
@@ -198,8 +205,11 @@ def hard_reason(item: dict) -> str:
 NOT_HVAC_WORDS = ('지역난방', '재난방송', '재난방지', '피난방', '난방비')
 
 
-def is_relevant(title: str) -> bool:
+def is_relevant(title: str, kind: str = '공사') -> bool:
+    """물품은 '구매 및 설치'만(단순 구매는 제조·공급업체 몫)."""
     t = title or ''
+    if kind == '물품' and '설치' not in t:
+        return False
     for w in NOT_HVAC_WORDS:
         t = t.replace(w, '')
     return any(k in t for k in KEYWORDS)
@@ -212,12 +222,12 @@ def classify(item: dict, regions: List[str], groups: List[List[str]],
     hard = hard_reason(item)
     lic_ok, missing = license_status(groups, held, planned)
     reasons = []
-    if not is_relevant(item.get('bidNtceNm') or ''):
-        reasons.append('냉난방 공사 아님(제목)')
+    if not is_relevant(item.get('bidNtceNm') or '', item.get('_kind') or '공사'):
+        reasons.append('설치 없는 물품 구매' if item.get('_kind') == '물품' else '냉난방 공사 아님(제목)')
     if regions and not region_ok(regions):      # 지역 제한 없는 전국 공고는 들어갈 수 있다(11-18)
         reasons.append('김포 업체 참가 불가(지역 제한)')
     if hard:
-        reasons.append(f'{hard} 있음' if hard in ('실적제한', '사전심사(PQ)') else hard)
+        reasons.append(f'{hard} 있음' if hard in ('실적제한', '사전심사(PQ)') else hard)   # 제조업체만 참가 포함
     title = item.get('bidNtceNm') or ''
     if not groups:   # 면허 제한이 없다고 아무나 되는 게 아님 — 전기·통신·소방 공사는 그 업 등록이 있어야
         need = next((lic for word, lic in ELEC_WORDS if word in title), '')
@@ -276,10 +286,10 @@ def _items(body: dict) -> List[dict]:
     return list(items)
 
 
-def search(keyword: str, start: datetime, end: datetime) -> List[dict]:
+def search(keyword: str, start: datetime, end: datetime, op: str = OP_LIST) -> List[dict]:
     out, page = [], 1
     while True:
-        body = _get(OP_LIST, {'inqryDiv': 1, 'inqryBgnDt': start.strftime('%Y%m%d%H%M'),
+        body = _get(op, {'inqryDiv': 1, 'inqryBgnDt': start.strftime('%Y%m%d%H%M'),
                               'inqryEndDt': end.strftime('%Y%m%d%H%M'), 'bidNtceNm': keyword,
                               'numOfRows': 100, 'pageNo': page})
         items = _items(body)
@@ -339,19 +349,23 @@ def collect(days: int = 2, now: Optional[datetime] = None) -> dict:
         start = datetime.combine(now.date() - timedelta(days=min(max(days, 1), 7) - 1), datetime.min.time())
         found: Dict[str, dict] = {}
         errors = 0
-        for kw in KEYWORDS:
-            try:
-                for it in search(kw, start, now):
-                    no = it.get('bidNtceNo')
-                    if not no:
-                        continue
-                    prev = found.get(no)
-                    if prev is None or (it.get('bidNtceOrd') or '') > (prev.get('bidNtceOrd') or ''):
-                        it['_kw'] = kw
-                        found[no] = it
-            except Exception as e:
-                errors += 1
-                logger.warning(f'[G2B] 검색 실패 ({kw}): {_safe_err(e)}')
+        for kind, op in KINDS:
+            for kw in KEYWORDS:
+                try:
+                    for it in search(kw, start, now, op):
+                        no = it.get('bidNtceNo')
+                        if not no:
+                            continue
+                        if kind == '물품' and '설치' not in (it.get('bidNtceNm') or ''):
+                            continue   # 단순 구매는 저장도 안 함(이번 주 '난방' 물품 87건 대부분)
+                        prev = found.get(no)
+                        if prev is None or (it.get('bidNtceOrd') or '') > (prev.get('bidNtceOrd') or ''):
+                            it['_kw'] = kw
+                            it['_kind'] = kind
+                            found[no] = it
+                except Exception as e:
+                    errors += 1
+                    logger.warning(f'[G2B] 검색 실패 ({kind} {kw}): {_safe_err(e)}')
         with _conn() as conn:
             known, no_raw = {}, set()
             for r in conn.execute('SELECT bid_no, bid_ord, raw FROM g2b_bids'):
@@ -378,7 +392,7 @@ def collect(days: int = 2, now: Optional[datetime] = None) -> dict:
                 changed += 1
             else:
                 new += 1
-        if errors < len(KEYWORDS):   # 검색이 하나라도 됐으면 '마지막으로 모은 때' 갱신
+        if errors < len(KEYWORDS) * len(KINDS):   # 검색이 하나라도 됐으면 '마지막으로 모은 때' 갱신
             mark_collected()
         result = {'found': len(found), 'new': new, 'changed': changed, 'errors': errors}
         logger.info(f'[G2B] 공고 모으기 — {result}')
@@ -412,7 +426,7 @@ def _detail(raw: str) -> dict:
         'bid_method': t('bidMethdNm'),
         'begin_at': t('bidBeginDt')[:16], 'qual_at': t('bidQlfctRgstDt')[:16],
         'rebid_open_at': t('rbidOpengDt')[:16], 'open_place': t('opengPlce'),
-        'budget': _int(it.get('bdgtAmt')), 'vat': vat,
+        'budget': _int(it.get('bdgtAmt') or it.get('asignBdgtAmt')), 'vat': vat,
         'main_license': t('mainCnsttyNm'), 'main_price': _int(it.get('mainCnsttyPresmptPrce')),
         'award_full': t('sucsfbidMthdNm'), 'lower_rate': f'{rate}%' if rate else '',
         'price_method': t('prearngPrceDcsnMthdNm'),
@@ -426,7 +440,22 @@ def _detail(raw: str) -> dict:
         'std_doc_url': t('stdNtceDocUrl'),
         # 현장설명회(11-18 용인예술과학대 — 당일에야 알았음). 참석 필수 여부는 API 에 없어 공고문 확인
         'briefing_at': t('dcmtgOprtnDt')[:16], 'briefing_place': t('dcmtgOprtnPlce'),
+        # 물품(구매·설치) — 나라장터 물품 분류 등록이 있어야 투찰됨. 등록 여부는 API 로 알 수 없어 안내만
+        'products': _products(t('purchsObjPrdctList')) or (
+            [f"{t('dtilPrdctClsfcNoNm')}({t('dtilPrdctClsfcNo')})"] if t('dtilPrdctClsfcNo') else []),
+        'product_limit': _yn(it.get('prdctClsfcLmtYn')), 'maker_only': _yn(it.get('mnfctYn')),
+        'deliver_days': t('dlvrDaynum'), 'deliver_cond': t('dlvryCndtnNm'),
     }
+
+
+def _products(raw: str) -> List[str]:
+    """'[1^4010178702^냉난방기],[1^4010180601^전기히트펌프]' → ['냉난방기(4010178702)', ...]"""
+    out = []
+    for m in re.finditer(r'\[([^\]]*)\]', raw or ''):
+        parts = m.group(1).split('^')
+        if len(parts) >= 3 and parts[2]:
+            out.append(f'{parts[2]}({parts[1]})')
+    return out
 
 
 def _save(it: dict, regions, groups, held, planned, is_new: bool) -> None:
@@ -436,7 +465,8 @@ def _save(it: dict, regions, groups, held, planned, is_new: bool) -> None:
         'title': (it.get('bidNtceNm') or '').strip(), 'org': (it.get('ntceInsttNm') or '').strip(),
         'demand_org': (it.get('dminsttNm') or '').strip(),
         'contract_method': it.get('cntrctCnclsMthdNm') or '', 'award_method': it.get('sucsfbidMthdNm') or '',
-        'price': _int(it.get('presmptPrce')), 'budget': _int(it.get('bdgtAmt')),
+        'price': _int(it.get('presmptPrce')), 'budget': _int(it.get('bdgtAmt') or it.get('asignBdgtAmt')),
+        'kind': it.get('_kind') or '공사',
         # 마감이 비어 있는 공고(일부 수의)는 개찰 일시로 — 비면 '마감 전' 목록에서 빠지므로
         'posted_at': (it.get('bidNtceDt') or '')[:16],
         'close_at': (it.get('bidClseDt') or it.get('opengDt') or '')[:16],
@@ -466,11 +496,18 @@ def reclassify() -> int:
     with _conn() as conn:
         rows = [dict(r) for r in conn.execute('SELECT * FROM g2b_bids').fetchall()]
         for r in rows:
+            try:
+                full = json.loads(r.get('raw') or '{}')
+            except ValueError:
+                full = {}
             item = {'arsltCmptYn': 'Y' if r['hard_reason'] == '실적제한' else 'N',
                     'pqEvalYn': 'Y' if 'PQ' in r['hard_reason'] else 'N',   # 옛 'PQ(사전심사)'도
                     'dsgntCmptYn': 'Y' if r['hard_reason'] == '지명경쟁' else 'N',
                     'cntrctCnclsMthdNm': r['contract_method'], 'sucsfbidMthdNm': r['award_method'],
                     'presmptPrce': r['price'], 'bidNtceNm': r['title']}
+            if full:   # 원본 항목이 있으면 그걸로(제조업체 한정 등 새 기준도 반영)
+                item = {**full}
+            item['_kind'] = r.get('kind') or '공사'
             c = classify(item, json.loads(r['regions']), json.loads(r['license_groups']), held, planned)
             hr = hard_reason(item)
             if c['category'] != r['category'] or c['reason'] != r['reason'] or hr != r['hard_reason']:
@@ -503,6 +540,7 @@ def _view(r: dict, now_s: str) -> dict:
     groups = json.loads(r.get('license_groups') or '[]')
     regions = json.loads(r.get('regions') or '[]')
     return {
+        'bid_kind': r.get('kind') or '공사',   # 공사 / 물품(구매·설치)
         # 펼친 '확인할 것' 판정용 — 지역·면허 각각 되는지
         'region_ok': region_ok(regions), 'nationwide': not regions,
         'license_ok': license_status(groups, held_licenses())[0],
@@ -622,7 +660,7 @@ def format_digest(rows: List[dict], license_only: int, page_url: str) -> str:
             ext = name.rsplit('.', 1)[-1].upper() if '.' in name else ''
             links.append(f"<{f['url']}|{kind}{' ' + ext if ext else ''}>")
         lines.append(
-            f"\n• *{r['title']}*\n"
+            f"\n• *{'[물품] ' if r.get('kind') == '물품' else ''}{r['title']}*\n"
             f"   {r['demand_org'] or r['org']} · {(r['award_method'] or r['contract_method']).split('-')[0]} · "
             f"추정가격 {_won(r['price'])}\n"
             f"   마감 {_when(r['close_at'])} · 참가가능지역: {', '.join(json.loads(r['regions']))}\n"

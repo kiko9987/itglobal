@@ -96,9 +96,12 @@ def test_classify_categories():
 def _fake_api(monkeypatch, items, limits):
     calls = {'limits': 0}
 
-    def search(kw, start, end):
+    def search(kw, start, end, op=g.OP_LIST):
         assert (end - start) < timedelta(days=7)   # 7일 넘으면 나라장터 07 오류
-        return [dict(i) for i in items] if kw == g.KEYWORDS[0] else []
+        if kw != g.KEYWORDS[0]:
+            return []
+        want = '물품' if op == g.OP_LIST_THNG else '공사'   # 테스트 공고는 'T_kind'로 종류 지정(없으면 공사)
+        return [{k: v for k, v in i.items() if k != 'T_kind'} for i in items if i.get('T_kind', '공사') == want]
 
     def fetch_limits(no, ord_):
         calls['limits'] += 1
@@ -356,3 +359,57 @@ def test_unrelated_heating_titles_are_not_eligible():
     assert g.is_relevant('한국지역난방공사 사옥 냉난방기 교체')      # 지역난방 말고 냉난방도 있으면 관련
     assert g.is_relevant('냉.난방기 교체') and g.is_relevant('의정관 냉각탑 교체')
     assert not g.is_relevant('2027년 재난방송온라인시스템 유지관리')
+
+
+# ── 물품(구매·설치) 11-19 ─────────────────────────────────────────────
+def _thng(no='T1', title='[긴급] 추산초 냉난방 구매 및 설치', **kw):
+    it = _item(no, title=title, cntrctCnclsMthdNm='일반경쟁', presmptPrce='800106363', asignBdgtAmt='880117000',
+               sucsfbidMthdNm='적격심사제-추정가격이 10억원 미만 고시금액 이상인 물품의 평가기준(물품구매)',
+               mnfctYn='N', prdctClsfcLmtYn='Y', dlvrDaynum='80', dlvryCndtnNm='현장설치도',
+               purchsObjPrdctList='[1^4010178702^냉난방기],[1^4010180601^전기히트펌프],[1^4010178701^히트펌프용실내기]',
+               T_kind='물품')
+    it.update(kw)
+    return it
+
+
+def test_thng_install_collected_and_eligible_even_over_400m(db, monkeypatch):
+    _fake_api(monkeypatch, [_thng('T1'), _thng('T2', title='OO중 냉난방기 구매'), _item('A1')],
+              {'T1': ([], [[MECH]]), 'T2': ([], [[MECH]]), 'A1': (['경기도'], [[MECH]])})
+    r = g.collect()
+    assert r['new'] == 2                                   # 설치 없는 단순 구매(T2)는 저장도 안 함
+    items = {x['bid_no']: x for x in g.list_bids()['items']}
+    t = items['T1']
+    assert t['bid_kind'] == '물품' and items['A1']['bid_kind'] == '공사'
+    assert t['category'] == g.ELIGIBLE                     # 8억 물품 적격심사여도 공사용 '4억' 기준은 안 씀
+    assert t['detail']['products'] == ['냉난방기(4010178702)', '전기히트펌프(4010180601)', '히트펌프용실내기(4010178701)']
+    assert t['detail']['budget'] == 880117000 and t['detail']['deliver_days'] == '80'
+
+
+def test_thng_maker_only_is_blocked():
+    held, planned = [MECH], [REFRIG]
+    c = g.classify({**_thng(mnfctYn='Y'), '_kind': '물품'}, [], [[MECH]], held, planned)
+    assert c['category'] == g.OTHER and '제조업체만 참가' in c['reason']
+    assert g.classify({**_item(sucsfbidMthdNm='적격심사제', presmptPrce='450000000'), '_kind': '공사'},
+                      ['경기도'], [[MECH]], held, planned)['reason'] == '4억 이상 적격심사'
+
+
+def test_digest_marks_thng(db, monkeypatch):
+    sent = []
+    monkeypatch.setattr(g, '_post_slack', lambda ch, text: sent.append(text) or True)
+    _fake_api(monkeypatch, [_thng('T1')], {'T1': ([], [[MECH]])})
+    g.collect()
+    g.send_morning_digest(force=True)
+    assert '*[물품] [긴급] 추산초 냉난방 구매 및 설치*' in sent[0]
+
+
+def test_old_rows_default_to_construction(tmp_path, monkeypatch):
+    from dashboard.utils.user_database import UserDatabase
+    d = UserDatabase(db_path=str(tmp_path / 'u.db'))
+    with d._get_connection() as conn:
+        conn.execute(g._DDL[0])
+        conn.execute("INSERT INTO g2b_bids (bid_no, first_seen, updated_at) VALUES ('X1', 'a', 'b')")
+        conn.commit()
+    monkeypatch.setattr(g, '_db', lambda: d)
+    monkeypatch.setattr(g, '_table_ready', False)
+    with g._conn() as conn:
+        assert conn.execute("SELECT kind FROM g2b_bids WHERE bid_no='X1'").fetchone()[0] == '공사'
