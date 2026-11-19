@@ -124,6 +124,9 @@
     }
     if (opts.afterStats) h += opts.afterStats;   // 직원별 창: 경영지원 관리 단추(11-19 — 현황 다음에)
 
+    // 내 휴가: 통계 아래 내용은 흰 카드 하나로(11-19 부장님 — 다른 화면처럼). 통계 카드는 바탕 위에 그대로
+    if (opts.mine) h += '<div class="gw-card-wrap gw-lv-body">';
+
     if (L.grants && L.grants.length) {
       h += '<div class="gw-sec-title">언제까지 써야 하나요</div><ul class="gw-plain-list">';
       L.grants.forEach(function (g) {
@@ -212,6 +215,7 @@
     h += '<tr class="gw-lv-rec-none" hidden><td colspan="' + cols + '" class="gw-empty">보여 줄 기록이 없어요.</td></tr>';
     h += '</tbody></table></div>';
     h += '<div class="gw-note">2026년 11월 이전 기록은 예전 휴가 프로그램(플렉스)에서 옮겨 온 것이에요.</div>';
+    if (opts.mine) h += '</div>';
     return h;
   }
 

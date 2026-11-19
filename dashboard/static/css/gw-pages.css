@@ -2705,3 +2705,23 @@ html:has(#bdPage) {
 .gw-lv-promo-table tbody tr:last-child td {
   border-bottom: 0;
 }
+
+/* 내 휴가 — 통계 아래 내용을 흰 카드로(11-19). 카드 안 첫 제목은 위 구분선 없이, 표는 카드 안이라 테두리 겹치지 않게 */
+.gw-lv-body {
+  margin-top: 14px;
+  padding: 4px 20px 16px;
+}
+.gw-lv-body > .gw-sec-title:first-child,
+.gw-lv-body > .gw-sec-head:first-child {
+  border-top: 0;
+  margin-top: 12px;
+  padding-top: 0;
+}
+.gw-lv-body .gw-table-wrap:has(> .gw-leave-table),
+.gw-lv-body .gw-table-wrap:has(> .gw-lv-monthly-table) {
+  border: 0;
+  border-radius: 0;
+}
+@media (max-width: 767.98px) {
+  .gw-lv-body { padding: 2px 12px 12px; }
+}
