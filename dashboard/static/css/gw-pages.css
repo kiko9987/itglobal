@@ -2344,7 +2344,21 @@ body.gw-drawer-open {
 .gw-lv-adm .gw-lv-upcoming { margin-top: 10px; }
 
 /* ── 휴가 관리 플렉스 맞추기(11-18): 일괄 조정·월별 상세·맞춤 휴가·촉진 ───────────── */
-.gw-lv-team-tools { display: flex; justify-content: flex-end; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+.gw-lv-team-tools { display: flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
+/* 직원별 탭(11-19 부장님 '표가 너무 퍼짐') — 넓은 화면에서도 1400px 까지, 칸은 내용에 맞게 */
+.gw-page:has(#lvListPane) { max-width: 1400px; margin-left: auto; margin-right: auto; }   /* 제목·탭·표가 같은 폭으로 */
+.gw-lv-team-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 31px; margin-bottom: 8px; }
+.gw-lv-team-count { color: #64748b; font-size: 13px; }
+#lvTeamTable th:nth-child(1) { width: 15%; }
+#lvTeamTable th:nth-child(2) { width: 13%; }
+#lvTeamTable th:nth-child(3) { width: 11%; }
+#lvTeamTable th:nth-child(4) { width: 12%; }
+#lvTeamTable th:nth-child(5) { width: 10%; }
+#lvTeamTable th:nth-child(6) { width: 8%; }
+#lvTeamTable th:nth-child(7) { width: 7%; }
+#lvTeamTable th:nth-child(8), #lvTeamTable td:nth-child(8) { padding-left: 24px; }
+#lvTeamTable td:nth-child(4) { white-space: nowrap; }
+.gw-badge-flex { background: #f1f5f9; color: #475569; font-weight: 500; }
 .gw-lv-bulk-head { display: grid; grid-template-columns: 180px 1fr; gap: 10px; margin-bottom: 8px; }
 .gw-lv-bulk-table td { vertical-align: middle; }
 /* 일괄 조정 창은 .gw-page 밖(모달)이라 예전 사이트 글 칸 스타일(큰 패딩)이 붙어 칸 높이가 들쭉날쭉 → 맞춤(11-19) */

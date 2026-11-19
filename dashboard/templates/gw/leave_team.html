@@ -44,8 +44,11 @@
 
   <section id="lvListPane" role="tabpanel" aria-labelledby="lvTabList" hidden>
     {# 경영지원만(서버 can_manage) — 전 직원 연차 부여·차감 표(11-18, 플렉스 [연차 조정]) #}
-    <div class="gw-lv-team-tools" id="lvTeamTools" hidden>
-      <button type="button" class="btn btn-sm btn-outline-secondary" id="lvBulkBtn">연차 일괄 조정</button>
+    <div class="gw-lv-team-head">
+      <span class="gw-lv-team-count" id="lvTeamCount"></span>
+      <div class="gw-lv-team-tools" id="lvTeamTools" hidden>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="lvBulkBtn">연차 일괄 조정</button>
+      </div>
     </div>
     <div class="gw-lv-flash ok" id="lvTeamFlash" role="status" hidden></div>
     <div class="gw-panel gw-table-wrap">

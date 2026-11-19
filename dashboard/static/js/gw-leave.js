@@ -914,6 +914,8 @@
       teamRows = rows;
       var tools = document.getElementById('lvTeamTools');
       if (tools) tools.hidden = !j.can_manage;
+      var cnt = document.getElementById('lvTeamCount');
+      if (cnt) cnt.textContent = '재직 ' + rows.length + '명';
       tbody.innerHTML = rows.map(function (p) {
         var nxt = p.next ? esc(period(p.next)) + (p.next.status === '대기' ? ' <span class="gw-badge gw-badge-leave">승인 대기</span>' : '') : '<span class="text-muted">-</span>';
         // 줄 전체가 누르는 자리 — 화면 읽기엔 '단추'로(Enter·Space 로 열림, 아래 keydown)
@@ -921,7 +923,9 @@
         return '<tr tabindex="0" role="button" aria-label="' + esc(p.name + ' 휴가 열기') + '" data-id="' + esc(p.person_id) + '" data-name="' + esc(p.name) + '" data-sub="' + esc(sub) + '">' +
           '<td><strong>' + esc(p.name) + '</strong>' + (p.access === 'field' ? ' <span class="gw-badge gw-badge-field">' + esc(p.job_role || '현장') + '</span>' : '') + '</td>' +
           '<td>' + esc(p.department) + '</td><td>' + esc(p.hire_date) + '</td>' +
-          '<td class="n">' + (p.linked ? days(p.balance) : '<span class="text-muted" title="휴가 장부에 없음">-</span>') + '</td>' +
+          '<td class="n">' + (p.linked ? days(p.balance) +
+            (p.on_flex ? ' <span class="gw-badge gw-badge-flex" title="12/2 전환 전까지는 플렉스로 신청해요. 플렉스 잔여가 기준이에요.">플렉스</span>' : '')
+            : '<span class="text-muted" title="휴가 장부에 넣지 않은 분이에요">장부 제외</span>') + '</td>' +
           '<td class="n">' + days(p.annual_used) + '</td><td class="n">' + days(p.sick_used) + '</td>' +
           '<td class="n">' + (p.pending ? '<strong>' + p.pending + '</strong>' : '0') + '</td><td>' + nxt + '</td></tr>';
       }).join('') || '<tr><td colspan="8" class="gw-empty">재직자가 없어요.</td></tr>';

@@ -221,3 +221,10 @@ def test_fiscal_accrual_dm_goes_to_managers_only(slack, mgr, monkeypatch):
     assert any(g['source'] == 'fiscal:박민우:2027' for g in lv.grants('박민우'))
     assert not any('2027' in p['text'] and '연차' in p['text'] for p in mgr.to('UMW'))
     assert any('회계연도 연차를 넣었어요' in p['text'] and '박민우' in p['text'] for p in mgr.to('UKIKO'))
+
+
+def test_team_marks_people_still_on_flex(client, mgr):
+    _as(client, ADMIN)
+    people = {p['name']: p for p in client.get('/api/leave/team').get_json()['people']}
+    assert people['박민우']['on_flex'] is False                 # 신청 열림(시범 명단)
+    assert people['이직원']['on_flex'] is True                  # 아직 플렉스로 신청

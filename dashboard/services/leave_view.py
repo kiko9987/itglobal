@@ -189,10 +189,12 @@ def team(today: Optional[date] = None) -> List[dict]:
         full = hr.get_person(p['id'])
         s = summary(full, today)
         nxt = s['upcoming'][0] if s['upcoming'] else None
+        # 아직 플렉스로 신청하는 사람(휴가 신청이 안 열림 — 11-19 시공·미화) — 장부 잔여가 플렉스와 다를 수 있음
+        on_flex = bool(s['linked']) and not lv.is_open((full or {}).get('slack_id') or '')
         rows.append({
             'person_id': p['id'], 'name': p['name'], 'department': p.get('department') or '',
             'hire_date': p.get('hire_date') or '', 'access': p.get('access'), 'job_role': p.get('job_role') or '',
-            'linked': s['linked'], 'balance': s['balance'],
+            'linked': s['linked'], 'balance': s['balance'], 'on_flex': on_flex,
             'annual_used': s['annual_used'], 'sick_used': s['sick_used'], 'pending': s['pending'],
             'next': {'start': nxt['start'], 'end': nxt['end'], 'half': nxt['half'], 'type': nxt['type'],
                      'status': nxt['status']} if nxt else None,
