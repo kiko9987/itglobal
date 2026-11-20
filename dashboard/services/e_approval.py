@@ -23,7 +23,7 @@ from typing import Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 FORM_FUND = 'fund'
-FORM_SUPPLY = 'supply'   # 비품 신청(11-01) — 회사 재고(프로젝트0)로 사는 것. ② 는 이체 대신 구매.
+FORM_SUPPLY = 'supply'   # 비품 신청(11-01) — 회사 운영비(공통비, 11-20 전엔 프로젝트0)로 사는 것. ② 는 이체 대신 구매.
 FORM_LABELS = {FORM_FUND: '자금집행', FORM_SUPPLY: '비품 신청'}
 _STEP2 = {FORM_FUND: '이체', FORM_SUPPLY: '구매'}   # ② 단계 이름(이체 완료 / 구매 완료)
 
@@ -2530,7 +2530,7 @@ def move_request_view(meta: dict, prefill: Optional[dict] = None) -> dict:
 
 # ── 비품 신청 모달 (11-01) ────────────────────────────────────────────
 def supply_request_view(meta: dict, prefill: Optional[dict] = None) -> dict:
-    """비품 신청 — 플렉스 「비품 신청(프로젝트0)」 칸 그대로. 현장은 프로젝트0 고정. prefill = 수정 창 값."""
+    """비품 신청 — 플렉스 「비품 신청(프로젝트0)」 칸 그대로. 프로젝트는 공통비 고정(11-20). prefill = 수정 창 값."""
     def _text(block_id, label, placeholder, optional=False, multiline=False, hint=''):
         # 길이 제한(11-06 검수) — 품명이 길면 [구매 완료] 확인 창(300자)이 깨져 카드가 멈췄다. 상품 주소는 길 수 있어 넉넉히
         mx = 2000 if block_id == 'link' else (1000 if multiline else 200)
@@ -2619,7 +2619,7 @@ def login_only_link(url: Optional[str]) -> bool:
 
 def complete_supply_request(f: Dict) -> Dict[str, str]:
     """비품 신청 값 검사 + 총 금액 채움 + 장부 필드로 정리. 오류 {block_id: 문구}. f 를 고친다."""
-    from dashboard.services.purchase_invoice_assign import STOCK_CODE
+    from dashboard.services.purchase_invoice_assign import COMMON_CODE
     errs = {}
     if not f.get('content'):
         errs['item'] = '품명을 넣어 주세요.'
@@ -2634,7 +2634,9 @@ def complete_supply_request(f: Dict) -> Dict[str, str]:
     errs.update(f.pop('_bad', None) or {})
     if not f.get('amount') and 'qty' not in errs and 'unit_price' not in errs:
         f['amount'] = f['qty'] * f['unit_price']
-    f.update(project_code=STOCK_CODE, urgency='일반',
+    # 공통비 고정(11-20 KiKO) — 다이어리·의자 커버·안전화까지 7건 모두 '회사 재고(프로젝트0)'로 올라갔다.
+    #   비품은 사무·운영 물품이라 공통비. 창고 자재 구매는 자금집행에서 프로젝트0을 고른다.
+    f.update(project_code=COMMON_CODE, urgency='일반',
              extra={'link': f.get('link'), 'qty': f.get('qty'), 'unit_price': f.get('unit_price'),
                     'reason': f.get('reason')})
     return errs

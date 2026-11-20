@@ -586,10 +586,10 @@ def _supply_view(**over):
     return {'state': {'values': state}, 'private_metadata': '{}'}
 
 
-def test_supply_request_fills_amount_and_stock_project(tmp_db):
+def test_supply_request_fills_amount_and_common_project(tmp_db):
     f = ea.read_supply_request(_supply_view())
     assert ea.complete_supply_request(f) == {}
-    assert f['amount'] == 50000 and f['project_code'] == '프로젝트0'
+    assert f['amount'] == 50000 and f['project_code'] == '공통비'   # 11-20 공통비 고정
     assert f['extra'] == {'link': 'https://www.coupang.com/vp/products/1', 'qty': 2, 'unit_price': 25000,
                           'reason': '용지 소진'}
     f2 = ea.read_supply_request(_supply_view(amount='53,000'))      # 배송비 포함 직접 입력
@@ -640,7 +640,7 @@ def test_supply_flow_purchase_done(se):
     f = ea.read_supply_request(_supply_view())
     ea.complete_supply_request(f)
     row = se.process_supply_submit(MGR, f)
-    assert row['status'] == ea.PENDING and row['project_code'] == '프로젝트0'
+    assert row['status'] == ea.PENDING and row['project_code'] == '공통비'
     assert se.apply_action('approve', row['id'], KIKO) is None
     assert se.apply_action('transfer', row['id'], MGR) == '구매 완료는 경영지원 담당만 누를 수 있어요.'
     assert se.apply_action('transfer', row['id'], SB) is None
@@ -1050,7 +1050,8 @@ def test_common_cost_categories_only_for_common_site(tmp_db):
     assert pinv.cost_label('공통비:집기비품') == '공통비 · 사무 집기·비품'
     assert pinv.cost_project_error('공통비:집기비품', '공통비') == ''
     assert pinv.cost_project_error('공통비:집기비품', 'G4049-JW')
-    assert pinv.cost_project_error('기타비:운반비', '공통비') == ''          # 공통비에 다른 분류는 허용
+    assert pinv.cost_project_error('기타비:기타', '공통비')                  # 공통비엔 공통비 분류만(11-20 #66)
+    assert pinv.cost_project_error('', '공통비') == ''
     ok = dict(FIELDS, project_code='공통비', cost_category='공통비:집기비품')
     assert 'cost' not in ea.complete_new_request(ok)
     assert 'cost' in ea.complete_new_request(dict(FIELDS, cost_category='공통비:집기비품'))
