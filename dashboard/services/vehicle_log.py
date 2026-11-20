@@ -1,10 +1,10 @@
 """차량 운행 (2026-11-20 부장님) — U+커넥트 운행일지를 올려 차량별 운행 기록을 모으고,
 같은 날 같은 지역 방문 일정과 맞춰 '그날 이 차를 쓴 사람'을 추정한다.
 
-- U+커넥트는 외부 연동(API)을 공개하지 않는다(11-20 확인, LG U+ 문의 중). 그래서 [운행일지 일괄 다운로드]
+- U+커넥트 Open API(고객지원 › OpenAPI 신청)는 11-20 9건 신청해 승인 대기 — 그전까지(그리고 API 가 멈췄을 때) [운행일지 일괄 다운로드]
   zip(차량마다 국세청 양식 xlsx 1개) 또는 xlsx 하나를 그대로 올린다. 같은 운행(차량·날짜·출발 시각)은 한 번만 들어간다.
 - U+커넥트 운행일지의 운전자(성명) 칸은 비어 있고 차량은 그날그날 바뀐다(부장님) → 리드 시트의
-  방문 예정일·방문 주소·영업 담당자로 추정한다. 방문 주소는 도로명이라 동이 없어 '시·구' 단위로 맞춘다.
+  방문 예정일·방문 주소·영업 담당자로 추정한다. 차량 배정(services/vehicle_assign)이 있으면 그 값이 먼저. 방문 주소는 도로명이라 동이 없어 '시·구' 단위로 맞춘다.
 - 회사(김포 걸포동)로 들어오고 나가는 운행은 대조하지 않는다 — 김포 방문과 늘 겹친다.
 - 위치는 U+커넥트가 준 동 단위 출발지·도착지뿐. 보는 사람은 인사 관리자(경영지원)만(blueprints/gw_vehicles.py).
 """
@@ -429,25 +429,59 @@ def _guess(matched: List[Dict]) -> List[str]:
     return [n for n, _ in c.most_common(3)]
 
 
+def _assignments(start: str, end: str):
+    """차량 배정(services/vehicle_assign) — (날짜, 번호판) → 탄 사람 이름. 고정 차는 배정 없으면 고정 사용자.
+    배정이 있으면 방문 일정 추정보다 우선한다(11-20)."""
+    try:
+        from dashboard.services import vehicle_assign as va
+        who = va._who_map()
+        rows = {k: [va.display(c, who) for c in v] for k, v in va.assigned_people(start, end).items()}
+        fixed = {p: va.display(u, who) for p, u in va.fixed_users().items()}
+        return rows, fixed
+    except Exception:
+        return {}, {}
+
+
+def _drivers_for(day: str, plate: str, assigned, fixed, matched: List[Dict]) -> Tuple[List[str], str]:
+    if (day, plate) in assigned:
+        return assigned[(day, plate)], 'assigned'
+    if plate in fixed:
+        return [fixed[plate]], 'fixed'
+    return _guess(matched), 'guess'
+
+
 def month_summary(ym: str, leads: Iterable[dict]) -> Dict:
-    """월 차량별 합계 + 그날 같은 지역 방문으로 추정한 운전자."""
+    """월 차량별 합계 + 운전자(배정 > 고정 사용자 > 그날 같은 지역 방문으로 추정)."""
     start, end = month_range(ym)
     leads = list(leads)
     visits = visits_by_day(leads, start, end)
+    assigned, fixed = _assignments(start, end)
     models = _models()
     cars: Dict[str, Dict] = {}
     for t in _trips(start, end):
         c = cars.setdefault(t['plate'], {'plate': t['plate'], 'model': models.get(t['plate'], ''), 'km': 0.0,
-                                         'trips': 0, 'days': set(), 'last': '', 'matched': []})
+                                         'trips': 0, 'days': set(), 'last': '', 'matched': [], 'known': Counter(),
+                                         'known_days': set()})
         c['km'] += t['km'] or 0
         c['trips'] += 1
         c['days'].add(t['day'])
         c['last'] = max(c['last'], t['day'])
-        c['matched'] += _match(t, visits.get(t['day'], []))
+        m = _match(t, visits.get(t['day'], []))
+        c['matched'] += m
+        if t['day'] not in c['known_days']:
+            names, src = _drivers_for(t['day'], t['plate'], assigned, fixed, [])
+            if src != 'guess':
+                c['known_days'].add(t['day'])
+                c['known'].update(names[:1])
     rows = []
     for c in cars.values():
+        if c['known']:
+            drivers, src = [n for n, _ in c['known'].most_common(3)], 'assigned'
+        else:
+            drivers, src = _guess(c['matched']), 'guess'
         rows.append({'plate': c['plate'], 'model': c['model'], 'km': round(c['km'], 1), 'trips': c['trips'],
-                     'days': len(c['days']), 'last': c['last'], 'drivers': _guess(c['matched']),
+                     'days': len(c['days']), 'last': c['last'], 'drivers': drivers, 'source': src,
+                     'known_days': len(c['known_days']),
                      'visits': len({v['lead_no'] for v in c['matched']})})
     rows.sort(key=lambda r: -r['km'])
     return {'month': ym, 'start': start, 'end': end, 'vehicles': rows,
@@ -470,8 +504,9 @@ def vehicle_days(ym: str, plate: str, leads: Iterable[dict]) -> Dict:
                            'visits': [{'lead_no': v['lead_no'], 'who': v['who'], 'addr': v['addr']} for v in m]})
         for v in m:
             d['matched'][v['lead_no']] = v
+    assigned, fixed = _assignments(start, end)
     out = []
     for d in sorted(days.values(), key=lambda x: x['day'], reverse=True):
-        out.append({'day': d['day'], 'km': round(d['km'], 1), 'trips': d['trips'],
-                    'drivers': _guess(list(d['matched'].values()))})
+        drivers, src = _drivers_for(d['day'], plate, assigned, fixed, list(d['matched'].values()))
+        out.append({'day': d['day'], 'km': round(d['km'], 1), 'trips': d['trips'], 'drivers': drivers, 'source': src})
     return {'month': ym, 'plate': plate, 'model': _models().get(plate, ''), 'days': out}

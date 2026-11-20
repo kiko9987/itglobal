@@ -1,0 +1,46 @@
+{% extends "modern_base.html" %}
+
+{% block title %}차량 배정 - 아이티글로벌그룹{% endblock %}
+
+{% block additional_css %}
+<link rel="stylesheet" href="{{ gw_asset('css/gw-pages.css') }}">
+{% endblock %}
+
+{% block content %}
+{# 차량 배정(11-20) — 다음 날 어느 차를 누가 가지고 나가는지. 규칙은 services/vehicle_assign.py #}
+<div class="gw-page gw-va" id="vaPage">
+  <div class="gw-page-head">
+    <h1 class="gw-page-title">차량 배정</h1>
+    <div class="gw-page-actions gw-va-daynav">
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="vaPrev" aria-label="전날"><i class="fas fa-chevron-left" aria-hidden="true"></i></button>
+      <input type="date" class="form-control form-control-sm gw-va-date" id="vaDay" aria-label="날짜">
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="vaNext" aria-label="다음 날"><i class="fas fa-chevron-right" aria-hidden="true"></i></button>
+    </div>
+  </div>
+
+  <div class="gw-va-status" id="vaStatus" role="status" aria-live="polite"></div>
+  <div class="gw-vh-msg" id="vaMsg" role="status" aria-live="polite"></div>
+
+  <details class="gw-panel gw-va-paste" id="vaPasteBox" hidden>
+    <summary>카톡 글 붙여 넣기</summary>
+    <p class="gw-va-hint">카톡에 올리던 글(예: <code>YM+LSH 레이</code>, <code>JW+LJW+KMW 8021</code>, <code>SJ 전기트럭</code>)을 그대로 붙여 넣으면 아래를 채워요. 어느 차인지 모호한 줄은 노란색으로 표시해요.</p>
+    <textarea class="form-control" id="vaPaste" rows="5" maxlength="4000" aria-label="카톡 글"></textarea>
+    <div class="gw-va-paste-actions"><button type="button" class="btn btn-sm btn-primary" id="vaParse">채우기</button></div>
+  </details>
+
+  <h2 class="gw-va-sec">공용 차</h2>
+  <div class="gw-va-list" id="vaShared"><p class="gw-empty">불러오는 중…</p></div>
+
+  <h2 class="gw-va-sec">고정 차 <span class="gw-va-sec-sub">평소엔 정해진 사람이 타요. 차가 모자란 날만 빌려 쓰기로 넣어 주세요.</span></h2>
+  <div class="gw-va-list" id="vaFixed"></div>
+
+  <div class="gw-va-bar" id="vaBar" hidden>
+    <button type="button" class="btn btn-outline-secondary" id="vaSave">저장만</button>
+    <button type="button" class="btn btn-primary" id="vaConfirm">확정하고 알리기</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block additional_js %}
+<script src="{{ gw_asset('js/gw-vehicle-assign.js') }}"></script>
+{% endblock %}

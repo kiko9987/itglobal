@@ -175,7 +175,6 @@ AREAS = [
         'key': 'support', 'label': '경영지원', 'icon': 'fas fa-coins',
         'items': [
             {'href': '/settlement/collected', 'label': '월별 수금', 'icon': 'fas fa-file-invoice-dollar'},
-            {'href': '/vehicles', 'label': '차량 운행', 'icon': 'fas fa-car', 'hr_admin': True},   # U+커넥트 운행일지(11-20)
         ],
     },
     {
@@ -192,6 +191,15 @@ AREAS = [
             {'href': '/hr/people', 'label': '구성원', 'icon': 'fas fa-users', 'hr_admin': True},
             {'href': '/yearend', 'label': '연말정산', 'icon': 'fas fa-receipt', 'field': True},
             {'href': '/yearend/admin', 'label': '연말정산 현황', 'icon': 'fas fa-clipboard-check', 'hr_admin': True},
+        ],
+    },
+    {
+        # 차량(11-20) — 배정은 직원 모두 보기(현장 포함)·SJ 가 고침, 운행 기록은 위치라 경영지원만.
+        # 휴가·인사 뒤에 둔다 — 현장 세션은 첫 영역이 로고 자리라 휴가가 먼저여야 한다.
+        'key': 'vehicle', 'label': '차량', 'icon': 'fas fa-car',
+        'items': [
+            {'href': '/vehicles/assign', 'label': '차량 배정', 'icon': 'fas fa-key', 'field': True},
+            {'href': '/vehicles', 'label': '차량 운행', 'icon': 'fas fa-route', 'hr_admin': True},   # U+커넥트 운행일지
         ],
     },
     {

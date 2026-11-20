@@ -17,9 +17,11 @@ ADMIN = 'hr-admin@example.com'
 def db(tmp_path, monkeypatch):
     from dashboard.utils.user_database import UserDatabase
     d = UserDatabase(db_path=str(tmp_path / 'users.db'))
-    for mod in (gw, vl):
+    from dashboard.services import vehicle_assign as va
+    for mod in (gw, vl, va, hr):      # 운전자 표시가 차량 배정(va)·인사(hr)를 읽으므로 같이 격리
         monkeypatch.setattr(mod, '_db', lambda: d)
         monkeypatch.setattr(mod, '_table_ready', False)
+    monkeypatch.setattr(va, 'staff', lambda: [])
     gw._invalidate()
     yield d
     gw._invalidate()
@@ -204,6 +206,6 @@ def test_routes_hr_admin_only(db, monkeypatch):
     assert not field_path_allowed('GET', '/api/vehicles') and not field_path_allowed('POST', '/api/vehicles/upload')
 
 
-def test_menu_only_for_hr_admin():
+def test_menu_only_for_hr_admin():   # 11-20 '차량' 영역으로 옮김(배정과 함께)
     items = [it for a in gw.AREAS for it in a['items'] if it['href'] == '/vehicles']
     assert items and items[0].get('hr_admin')

@@ -3729,6 +3729,12 @@ def _register_visit_handlers(app):
                                     f":clipboard: *일정확정 확인 필요* (실행: <@{_runner}>)\n{_audit_txt}")
                     except Exception as _aexc:
                         logger.warning(f"[일정확정] 누락 점검 실패(발송은 정상): {_aexc}", exc_info=True)
+                    # 2026-11-20 다음 날 차량 배정 요청 — 배정 담당자(SJ)에게 DM(이미 확정·요청했으면 안 보냄)
+                    try:
+                        from dashboard.services.vehicle_assign import request_assignment
+                        request_assignment((result.get('dm') or {}).get('target_date'))
+                    except Exception as _vexc:
+                        logger.warning(f"[일정확정] 차량 배정 요청 DM 실패: {_vexc}", exc_info=True)
                 respond(resp)
             except Exception as exc:
                 logger.error(f"[일정확정] 예외: {exc}", exc_info=True)
