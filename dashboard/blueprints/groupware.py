@@ -21,8 +21,9 @@ groupware_bp = Blueprint('groupware', __name__)
 
 # ── 현장 세션 문지기 ───────────────────────────────────────────────────
 # 슬랙 링크로 들어온 현장·미화 직원(session.user.gw_field)은 아래 경로만. 나머지(기존 PM 화면·API)는 전부 막는다.
-_FIELD_PAGES = ('/home', '/hr/me', '/leave', '/yearend', '/logout', '/login')
+_FIELD_PAGES = ('/home', '/hr/me', '/leave', '/yearend', '/vehicles/assign', '/logout', '/login')
 _FIELD_API = [
+    (('GET',), re.compile(r'^/api/vehicles/assign$')),    # 차량 배정 보기만(고치기는 배정 담당자, 11-20)
     (('GET',), re.compile(r'^/api/home$')),              # 홈(현장은 내 휴가만 담김)
     (('GET',), re.compile(r'^/api/hr/people/\d+$')),     # 본인 카드(본인 여부는 화면 쪽에서 다시 확인)
     (('GET',), re.compile(r'^/api/leave/me$')),          # 내 휴가(+신청 창 정보)

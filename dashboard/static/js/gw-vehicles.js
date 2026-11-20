@@ -41,6 +41,12 @@
       .replace(/^(서울|인천|부산|대구|광주|대전|울산)(특별시|광역시)\s+/, '$1 ');
   }
   function names(list) { return (list || []).length ? (list || []).map(esc).join(', ') : '<span class="text-muted">-</span>'; }
+  // 운전자 출처(11-20) — 배정(차량 배정 화면)·고정(정해진 사람)·추정(방문 일정)
+  var SRC = { assigned: '배정', fixed: '고정', guess: '추정' };
+  function who(list, src) {
+    if (!(list || []).length) return src === 'guess' || !src ? '추정 못 함' : '<span class="text-muted">-</span>';
+    return '<span class="gw-vh-src ' + esc(src || 'guess') + '">' + esc(SRC[src] || '추정') + '</span> ' + names(list);
+  }
 
   var state = { month: '', seq: 0 };
 
@@ -77,7 +83,7 @@
       return '<tr tabindex="0" role="button" data-plate="' + esc(c.plate) + '" aria-label="' + esc(c.plate + ' 운행 보기') + '">' +
         '<td><strong>' + esc(c.plate) + '</strong></td><td>' + esc(c.model) + '</td>' +
         '<td class="num">' + c.days + '일</td><td class="num">' + c.trips + '번</td><td class="num">' + esc(km(c.km)) + '</td>' +
-        '<td>' + names(c.drivers) + '</td><td class="num">' + (c.visits ? c.visits + '건' : '-') + '</td></tr>';
+        '<td>' + who(c.drivers, c.source) + '</td><td class="num">' + (c.visits ? c.visits + '건' : '-') + '</td></tr>';
     }).join('') : '<tr><td colspan="7" class="gw-empty">' + esc(monthLabel(j.month)) + ' 운행 기록이 없어요. 위 [운행일지 올리기]로 U+커넥트 운행일지를 올려 주세요.</td></tr>';
   }
 
@@ -117,7 +123,7 @@
       $('vhCarBody').innerHTML = '<p class="gw-vh-sub">' + esc(monthLabel(j.month)) + ' · 최근 날짜부터. 같은 곳 방문은 그날 이 차가 도착한 동네의 방문 일정이에요.</p>' +
         (days.length ? days.map(function (d) {
           return '<section class="gw-vh-day"><div class="gw-vh-dayhead"><b>' + esc(dayLabel(d.day)) + '</b>' +
-            '<span>' + esc(km(d.km)) + '</span><span class="gw-vh-who">' + ((d.drivers || []).length ? '추정: ' + names(d.drivers) : '추정 못 함') + '</span></div>' +
+            '<span>' + esc(km(d.km)) + '</span><span class="gw-vh-who">' + who(d.drivers, d.source) + '</span></div>' +
             '<table class="gw-table gw-vh-trips"><thead><tr><th>시각</th><th>도착지</th><th class="num">거리</th><th>같은 곳 방문</th></tr></thead><tbody>' +
             d.trips.map(tripRow).join('') + '</tbody></table></section>';
         }).join('') : '<p class="text-muted">이 달 운행이 없어요.</p>');
