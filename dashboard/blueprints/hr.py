@@ -252,10 +252,10 @@ def _after_self_edit(row: dict) -> None:
     logger.info(f"[HR] 본인 수정 #{row['person_id']} {row['name']} {row['kind']}")
 
 
-@hr_bp.route('/api/hr/people/<int:pid>/family', methods=['POST'])
+@hr_bp.route('/api/hr/people/<int:pid>/emergency', methods=['POST'])
 @gw_page
-def api_admin_family(pid):
-    """비상연락망 고치기 — 경영지원·대표(11-20, 인사카드 화면). 본인은 /api/hr/me/family."""
+def api_admin_emergency(pid):
+    """비상연락망 고치기 — 경영지원·대표(11-20, 인사카드 화면). 본인은 /api/hr/me/emergency."""
     from dashboard.services import hr_requests as hq
     if not _hr_admin():
         return jsonify({'success': False, 'message': '경영지원·대표만 고칠 수 있습니다.'}), 403
@@ -263,7 +263,7 @@ def api_admin_family(pid):
     if not p:
         return jsonify({'success': False, 'message': '없는 구성원입니다.'}), 404
     try:
-        hq.update_family(p, (request.get_json(silent=True) or {}).get('rows') or [], _me(), by_admin=True)
+        hq.update_emergency(p, (request.get_json(silent=True) or {}).get('rows') or [], _me(), by_admin=True)
     except ValueError as e:
         return jsonify({'success': False, 'message': str(e)}), 400
     logger.info(f'[HR] 비상연락망 고침 #{pid} by {_me()}')
@@ -281,8 +281,8 @@ def api_self_edit(kind):
     try:
         if kind == 'contact':
             row = hq.update_info(me, request.get_json(silent=True) or {}, _requester_id())
-        elif kind == 'family':
-            row = hq.update_family(me, (request.get_json(silent=True) or {}).get('rows') or [], _requester_id())
+        elif kind == 'emergency':
+            row = hq.update_emergency(me, (request.get_json(silent=True) or {}).get('rows') or [], _requester_id())
         elif kind == 'documents':
             f = request.files.get('file')
             if not f:

@@ -614,8 +614,10 @@ def _ensure_doc_tag() -> None:
 
 def private_sections(person_id: int) -> dict:
     """경력·학력·가족·서류 — 본인·인사카드 관리자에게만 보낸다(권한 확인은 부르는 쪽)."""
+    from dashboard.services import hr_requests     # 비상연락망은 가족 정보와 따로(11-20)
     return {'careers': careers(person_id), 'educations': educations(person_id),
-            'families': families(person_id), 'documents': documents(person_id), 'doc_types': DOC_TYPES}
+            'families': families(person_id), 'emergency': hr_requests.emergency(person_id),
+            'documents': documents(person_id), 'doc_types': DOC_TYPES}
 
 
 def document_file(doc_id: int) -> Optional[dict]:

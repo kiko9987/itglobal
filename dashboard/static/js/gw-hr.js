@@ -267,7 +267,7 @@
       '<button type="button" class="btn btn-sm btn-outline-danger" data-fam-del aria-label="이 줄 빼기">빼기</button></div>';
   }
   function openFamilyForm(p, box, btn) {
-    var rows = (p.families || []).map(function (f) { return { id: f.id, name: f.name, relation: f.relation, phone: f.phone }; });
+    var rows = (p.emergency || []).map(function (f) { return { id: f.id, name: f.name, relation: f.relation, phone: f.phone }; });
     if (!rows.length) rows.push({});
     box.innerHTML = '<form class="gw-req-form" id="hrReqFamForm"><div class="gw-req-fams">' + rows.map(famRow).join('') + '</div>' +
       '<button type="button" class="btn btn-sm btn-outline-secondary" data-fam-add>+ 사람 추가</button>' +
@@ -294,7 +294,7 @@
         return o;
       });
       sb.disabled = true; err.textContent = '';
-      reqPost(CFG.mode === 'me' ? '/api/hr/me/family' : '/api/hr/people/' + p.id + '/family', { rows: out })
+      reqPost(CFG.mode === 'me' ? '/api/hr/me/emergency' : '/api/hr/people/' + p.id + '/emergency', { rows: out })
         .then(function () { return loadCard(p.id); })
         .catch(function (x) { err.textContent = x.message; sb.disabled = false; });
     });
@@ -657,20 +657,23 @@
             '</td><td>' + esc(e.graduate_type) + '</td><td>' + period2(e.begin_date, e.end_date) + '</td></tr>';
         }));
     }
-    // 가족 = 비상연락망(11-19 부장님: 플렉스에 연락용으로 올린 것 — 공제 대상 아님). 공제는 연말정산 화면에서 따로 받는다.
-    // 주민번호는 플렉스에 넣어 둔 사람이 있을 때만 칸을 보인다.
-    // 본인(내 정보) 또는 경영지원(인사카드 화면, 11-20)이 고친다
-    var selfFam = (CFG.mode === 'me' && p.can_self_edit) || (p.can_edit && CFG.mode !== 'me');
-    if (selfFam && !(p.families && p.families.length)) {
-      h += '<div class="gw-sec-head"><div class="gw-sec-title">비상연락망</div>' + reqBtn(p, 'family', '등록하기') + '</div>' +
-        '<div id="hrReq-family"></div><div class="gw-log">등록된 비상연락망이 없어요.' + (CFG.mode === 'me' ? ' 급할 때 연락할 가족을 알려 주세요.' : '') + '</div>';
+    // 비상연락망과 가족 정보는 따로(11-20 부장님). 플렉스는 '가족 정보' 하나뿐이라 연락처 있는 가족을 비상연락망으로 옮겼다.
+    // 비상연락망 = 본인(내 정보)·경영지원(인사카드)이 고침. 가족 정보 = 플렉스에서 옮긴 그대로 보기만(공제는 연말정산에서 따로).
+    var canEm = (CFG.mode === 'me' && p.can_self_edit) || (p.can_edit && CFG.mode !== 'me');
+    var em = p.emergency || [];
+    if (em.length || canEm) {
+      h += (canEm ? '<div class="gw-sec-head"><div class="gw-sec-title">비상연락망</div>' + reqBtn(p, 'family', em.length ? '고치기' : '등록하기') + '</div><div id="hrReq-family"></div>'
+                  : '<div class="gw-sec-title">비상연락망</div>');
+      h += em.length
+        ? '<p class="text-muted small mb-2">급할 때 연락할 사람이에요.</p>' + table(['이름', '관계', '연락처'], em.map(function (f) {
+            return '<tr><td>' + esc(f.name) + '</td><td>' + esc(f.relation) + '</td><td>' + esc(phone(f.phone)) + '</td></tr>';
+          }))
+        : '<div class="gw-log">등록된 비상연락망이 없어요.' + (CFG.mode === 'me' ? ' 급할 때 연락할 사람을 알려 주세요.' : '') + '</div>';
     }
     if (p.families && p.families.length) {
       var famSsn = p.families.some(function (f) { return f.has_ssn; });
-      h += (selfFam ? '<div class="gw-sec-head"><div class="gw-sec-title">비상연락망</div>' + reqBtn(p, 'family', '고치기') + '</div><div id="hrReq-family"></div>'
-                    : '<div class="gw-sec-title">비상연락망</div>') +
-        '<p class="text-muted small mb-2">급할 때 연락할 가족이에요. 연말정산 부양가족 공제는 1월 연말정산 화면에서 따로 받아요.' +
-        (p.families.some(function (f) { return !f.phone; }) ? ' <span class="text-danger">연락처가 없는 사람이 있어요 — 번호를 넣거나 빼 주세요.</span>' : '') + '</p>' +
+      h += '<div class="gw-sec-title">가족 정보</div>' +
+        '<p class="text-muted small mb-2">플렉스에서 옮긴 가족 정보예요. 연말정산 부양가족 공제는 1월 연말정산 화면에서 따로 받아요.</p>' +
         table(['이름', '관계', '연락처'].concat(famSsn ? ['주민등록번호'] : []),
         p.families.map(function (f) {
           var ssn = f.has_ssn ? '<span class="gw-ssn-val">' + esc(f.ssn_masked) + '</span>' + (p.can_reveal_ssn ? ' <button type="button" class="btn btn-sm btn-outline-secondary gw-ssn-btn" data-ssn-url="/api/hr/families/' + f.id + '/ssn" data-what="' + esc(f.name) + ' 주민등록번호" aria-label="' + esc(f.name) + ' 주민등록번호 전체 보기">전체 보기</button>' : '') : '';

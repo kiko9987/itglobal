@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """내 정보 직접 고치기 (2026-11-20) — 연락처·비상연락망·서류는 본인이 바로 고친다.
+비상연락망은 같은 날 가족 정보(플렉스에서 옮긴 hr_families)와 따로 나눴다(hr_emergency, 부장님: 시스템이 나눠야).
 
 처음엔 '변경 요청 → 경영지원 반영'으로 만들었다가 같은 날 부장님: "본인 정보는 본인이 해야 맞다, 다만 전부는 아니고".
 그래서 본인이 바로 고칠 수 있는 것만 정했다:
@@ -35,8 +36,31 @@ _DDL = ['''CREATE TABLE IF NOT EXISTS hr_change_requests (
     handled_at TEXT,
     reason TEXT,
     staged TEXT
-)''']
+)''', '''CREATE TABLE IF NOT EXISTS hr_emergency (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    person_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    relation TEXT,
+    phone TEXT,
+    source TEXT,
+    created_at TEXT
+)''', 'CREATE INDEX IF NOT EXISTS idx_hr_emergency_person ON hr_emergency(person_id)',
+    'CREATE TABLE IF NOT EXISTS hr_emergency_seeded (done_at TEXT)']
 _table_ready = False
+
+
+def _seed_emergency(conn) -> None:
+    """처음 한 번: 플렉스 가족 정보 중 연락처가 있는 사람을 비상연락망으로(11-20). 플렉스는 비상연락처 칸이 따로 없고
+    '가족 정보' 하나에 공제 칸과 같이 있었다 — 연락처를 적어 둔 가족이 비상연락용이었다(경영지원). 가족 정보는 그대로 둔다."""
+    if conn.execute('SELECT 1 FROM hr_emergency_seeded').fetchone():
+        return
+    try:
+        conn.execute("INSERT INTO hr_emergency (person_id, name, relation, phone, source, created_at) "
+                     "SELECT person_id, name, relation, phone, 'flex', ? FROM hr_families "
+                     "WHERE phone IS NOT NULL AND TRIM(phone) != '' ORDER BY id", (_now(),))
+    except Exception:
+        return                          # 가족 표가 아직 없으면(새 DB) 다음에
+    conn.execute('INSERT INTO hr_emergency_seeded (done_at) VALUES (?)', (_now(),))
 
 
 def _db():
@@ -51,6 +75,7 @@ def _conn():
         if not _table_ready:
             for ddl in _DDL:
                 conn.execute(ddl)
+            _seed_emergency(conn)
             conn.commit()
             _table_ready = True
         yield conn
@@ -119,18 +144,26 @@ def update_info(person: dict, values: Dict, by: str) -> dict:
     return _record(person, INFO, {'new': new, 'old': old}, by)
 
 
-def update_family(person: dict, rows: List[Dict], by: str, by_admin: bool = False) -> dict:
-    """비상연락망 바로 고치기 — 원하는 목록 전체(기존 줄은 id 유지, 새 줄은 id 없음, 빠진 줄은 지움)."""
+def emergency(person_id: int) -> List[dict]:
+    """비상연락망 — 이름·관계·연락처(11-20, 가족 정보와 따로)."""
+    with _conn() as conn:
+        return [dict(r) for r in conn.execute('SELECT id, name, relation, phone, source FROM hr_emergency '
+                                              'WHERE person_id = ? ORDER BY id', (person_id,)).fetchall()]
+
+
+def update_emergency(person: dict, rows: List[Dict], by: str, by_admin: bool = False) -> dict:
+    """비상연락망 바로 고치기 — 원하는 목록 전체(기존 줄은 id 유지, 새 줄은 id 없음, 빠진 줄은 지움). 연락처 필수.
+    가족 정보(hr_families, 플렉스에서 옮긴 것)는 건드리지 않는다."""
     from dashboard.services import hr
-    cur = {f['id']: f for f in hr.families(person['id'])}
+    cur = {f['id']: f for f in emergency(person['id'])}
     clean = []
     for r in rows or []:
         name, rel = (r.get('name') or '').strip()[:30], (r.get('relation') or '').strip()[:20]
         phone = _check_phone(r.get('phone'), '연락처')
         if not (name or rel or phone):
             continue
-        if not name or not rel:
-            raise ValueError('이름과 관계를 모두 적어 주세요.')
+        if not name or not rel or not phone:
+            raise ValueError('이름·관계·연락처를 모두 적어 주세요.')
         fid = r.get('id')
         if fid is not None:
             fid = int(fid)
@@ -146,19 +179,19 @@ def update_family(person: dict, rows: List[Dict], by: str, by_admin: bool = Fals
         raise ValueError('바뀐 내용이 없어요.')
     pid = person['id']
     keep = {r['id'] for r in clean if r['id']}
-    with hr._conn() as conn:
+    with _conn() as conn:
         for fid in cur:
             if fid not in keep:
-                conn.execute('DELETE FROM hr_families WHERE id=? AND person_id=?', (fid, pid))
+                conn.execute('DELETE FROM hr_emergency WHERE id=? AND person_id=?', (fid, pid))
         for r in clean:
             if r['id']:
-                conn.execute('UPDATE hr_families SET name=?, relation=?, phone=? WHERE id=? AND person_id=?',
-                             (r['name'], r['relation'], r['phone'] or None, r['id'], pid))
+                conn.execute('UPDATE hr_emergency SET name=?, relation=?, phone=? WHERE id=? AND person_id=?',
+                             (r['name'], r['relation'], r['phone'], r['id'], pid))
             else:
-                conn.execute("INSERT INTO hr_families (person_id, name, relation, phone, source) VALUES (?,?,?,?,'self')",
-                             (pid, r['name'], r['relation'], r['phone'] or None))
-    hr.log_access(pid, by, 'edit' if by_admin else 'self_edit', 'families')
-    if by_admin:                       # 경영지원이 인사카드에서 고친 것(11-20) — 수정 기록만, 본인 수정 기록 표엔 안 남김
+                conn.execute("INSERT INTO hr_emergency (person_id, name, relation, phone, source, created_at) "
+                             "VALUES (?,?,?,?,'self',?)", (pid, r['name'], r['relation'], r['phone'], _now()))
+    hr.log_access(pid, by, 'edit' if by_admin else 'self_edit', 'emergency')
+    if by_admin:                       # 경영지원이 인사카드에서 고친 것 — 수정 기록만, 본인 수정 기록 표엔 안 남김
         return {'person_id': pid, 'name': person['name'], 'kind': FAMILY, 'kind_label': KIND_LABEL[FAMILY],
                 'payload': {'rows': clean, 'old': old}}
     return _record(person, FAMILY, {'rows': clean, 'old': old}, by)

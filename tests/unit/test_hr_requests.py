@@ -52,19 +52,28 @@ def test_contact_updates_right_away_and_logged(db):
     assert hr.get_person(p['id'])['phone'] == '010-5555-6666'
 
 
-def test_family_add_edit_delete(db):
+def test_emergency_seeded_from_family_and_kept_apart(db):
+    """비상연락망은 가족 정보와 따로(11-20) — 처음엔 연락처 있는 가족을 옮겨 오고, 고쳐도 가족 정보는 그대로."""
     p = _me()
-    old = hr.families(p['id'])[0]
-    with pytest.raises(ValueError, match='이름과 관계'):
-        hq.update_family(p, [{'name': '김엄마', 'relation': '', 'phone': ''}], STAFF)
-    hq.update_family(p, [{'id': old['id'], 'name': '이상철', 'relation': '배우자', 'phone': '010-9999-0000'},
-                         {'name': '박아들', 'relation': '자녀', 'phone': '010-1234-5678'}], STAFF)
-    fams = {f['name']: f for f in hr.families(p['id'])}
-    assert fams['이상철']['phone'] == '010-9999-0000' and fams['박아들']['source'] == 'self'
-    hq.update_family(p, [{'id': fams['박아들']['id'], 'name': '박아들', 'relation': '자녀', 'phone': '010-1234-5678'}], STAFF)
-    assert [f['name'] for f in hr.families(p['id'])] == ['박아들']
+    with hr._conn() as conn:                                  # 연락처 없는 자녀(플렉스 가족 정보)
+        conn.execute("INSERT INTO hr_families (person_id, name, relation, source) VALUES (?,?,?,'flex')",
+                     (p['id'], '박아이', '자녀'))
+    em = hq.emergency(p['id'])
+    assert [(e['name'], e['source']) for e in em] == [('이상철', 'flex')]       # 연락처 있는 가족만(첫 호출 때 옮김)
+    with pytest.raises(ValueError, match='연락처'):
+        hq.update_emergency(p, [{'name': '김엄마', 'relation': '모', 'phone': ''}], STAFF)   # 비상연락망은 연락처 필수
+    hq.update_emergency(p, [{'id': em[0]['id'], 'name': '이상철', 'relation': '배우자', 'phone': '010-9999-0000'},
+                            {'name': '김엄마', 'relation': '모', 'phone': '010-1234-5678'}], STAFF)
+    got = {e['name']: e for e in hq.emergency(p['id'])}
+    assert got['이상철']['phone'] == '010-9999-0000' and got['김엄마']['source'] == 'self'
+    hq.update_emergency(p, [{'id': got['김엄마']['id'], 'name': '김엄마', 'relation': '모', 'phone': '010-1234-5678'}], STAFF)
+    assert [e['name'] for e in hq.emergency(p['id'])] == ['김엄마']
+    assert sorted(f['name'] for f in hr.families(p['id'])) == ['박아이', '이상철']   # 가족 정보는 그대로
+    assert hr.families(p['id'])[0]['phone'] == '010-3333-4444'
     with pytest.raises(ValueError, match='없는 줄'):
-        hq.update_family(p, [{'id': 99999, 'name': 'x', 'relation': 'y'}], STAFF)
+        hq.update_emergency(p, [{'id': 99999, 'name': 'x', 'relation': 'y', 'phone': '010-1111-2222'}], STAFF)
+    sec = hr.private_sections(p['id'])
+    assert [e['name'] for e in sec['emergency']] == ['김엄마'] and len(sec['families']) == 2
 
 
 def test_doc_upload_goes_straight_in(db):
@@ -101,14 +110,14 @@ def test_api_and_field_gate(db, monkeypatch):
         assert card['can_self_edit'] and '주민등록등본' in card['self_doc_types']
         assert cl.post('/api/hr/me/contact', json={'phone': '010-2222-3333'}).get_json()['success']
         assert hr.get_person(p['id'])['phone'] == '010-2222-3333' and '연락처' in sent[-1]
-        r = cl.post('/api/hr/me/family', json={'rows': [{'name': '김엄마', 'relation': '모', 'phone': '01022223333'}]})
-        assert r.get_json()['success'] and [f['name'] for f in hr.families(p['id'])] == ['김엄마']
+        r = cl.post('/api/hr/me/emergency', json={'rows': [{'name': '김엄마', 'relation': '모', 'phone': '01022223333'}]})
+        assert r.get_json()['success'] and [f['name'] for f in hq.emergency(p['id'])] == ['김엄마']
         assert cl.post('/api/hr/me/department', json={}).status_code == 404
         assert cl.post('/api/hr/me/contact', json={'phone': '010-2222-3333'}).status_code == 400   # 그대로면 거절
         assert cl.put(f"/api/hr/people/{p['id']}", json={'department': '경영지원'}).status_code != 200
     assert other['id'] == p['id']
     assert field_path_allowed('POST', '/api/hr/me/contact')
-    assert field_path_allowed('POST', '/api/hr/me/documents')
+    assert field_path_allowed('POST', '/api/hr/me/documents') and field_path_allowed('POST', '/api/hr/me/emergency')
     assert not field_path_allowed('POST', '/api/hr/me/department')
 
 
@@ -125,10 +134,10 @@ def test_admin_can_edit_family_on_card(db, monkeypatch):
     with app.test_client() as cl:
         with cl.session_transaction() as s:
             s['user'] = {'email': STAFF, 'permission_level': 'user'}
-        assert cl.post(f"/api/hr/people/{p['id']}/family", json={'rows': []}).status_code == 403
+        assert cl.post(f"/api/hr/people/{p['id']}/emergency", json={'rows': []}).status_code == 403
         with cl.session_transaction() as s:
             s['user'] = {'email': 'hr-admin@example.com', 'permission_level': 'admin'}
-        r = cl.post(f"/api/hr/people/{p['id']}/family", json={'rows': [{'name': '김엄마', 'relation': '모', 'phone': '010-1111-0000'}]})
-        assert r.get_json()['success'] and [f['name'] for f in hr.families(p['id'])] == ['김엄마']
-    assert any(l['action'] == 'edit' and l['detail'] == 'families' for l in hr.access_log(p['id']))
+        r = cl.post(f"/api/hr/people/{p['id']}/emergency", json={'rows': [{'name': '김엄마', 'relation': '모', 'phone': '010-1111-0000'}]})
+        assert r.get_json()['success'] and [f['name'] for f in hq.emergency(p['id'])] == ['김엄마']
+    assert any(l['action'] == 'edit' and l['detail'] == 'emergency' for l in hr.access_log(p['id']))
     assert hq.history(p['id']) == []                                                 # 본인 수정 기록엔 안 남김
