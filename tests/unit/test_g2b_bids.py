@@ -93,7 +93,8 @@ def test_classify_categories():
 
 
 # ── 모으기 ────────────────────────────────────────────────────────────
-def _fake_api(monkeypatch, items, limits):
+def _fake_api(monkeypatch, items, limits, nuri=None):
+    nuri = nuri or {}
     calls = {'limits': 0}
 
     def search(kw, start, end, op=g.OP_LIST):
@@ -103,11 +104,12 @@ def _fake_api(monkeypatch, items, limits):
         want = '물품' if op == g.OP_LIST_THNG else '공사'   # 테스트 공고는 'T_kind'로 종류 지정(없으면 공사)
         return [{k: v for k, v in i.items() if k != 'T_kind'} for i in items if i.get('T_kind', '공사') == want]
 
-    def fetch_limits(no, ord_):
+    def fetch_limits(no, ord_, source='나라장터'):
         calls['limits'] += 1
         return limits[no]
     monkeypatch.setattr(g, 'search', search)
     monkeypatch.setattr(g, 'fetch_limits', fetch_limits)
+    monkeypatch.setattr(g, 'nuri_list', lambda op, start, end: [dict(i) for i in nuri.get(op, [])])
     return calls
 
 
@@ -424,3 +426,39 @@ def test_area_of_for_area_filter():
     assert g.area_of('', '경상남도교육청 경상남도남해교육지원청') == '영남'
     assert g.area_of('', '계명대학교', '계명대학교') == '기타'
     assert g.area_of('경기도 용인시 처인구', '부산광역시교육청') == '수도권'   # 공사현장이 먼저
+
+
+
+# ── 누리장터 민간입찰 11-20 ───────────────────────────────────────────
+def _nuri(no='N1', title='지구촌교회(수지채플)시스템에어컨 교체공사 입찰', **kw):
+    it = {'bidNtceNo': no, 'bidNtceOrd': '000', 'ntceNm': title, 'nticeDt': '2026-11-19 18:08:26',
+          'ntceInsttNm': '지구촌교회', 'cntrctMthdNm': '일반경쟁', 'sucsfbidMthdNm': '최저가낙찰제',
+          'bidQlfctNm': '공고서 참조', 'rgnLmtDivNm': '공고서 참조', 'ofclNm': '이승호', 'ofclTelNo': '031-000-0000',
+          'bidClseDt': _future(), 'opengDt': _future(), 'refAmt': '7150000', 'asignBdgtAmt': '0',
+          'sptDscrptDt': '2026-11-24 10:00:00', 'sptDscrptPlce': '본당 1층',
+          'ntceSpecDocUrl1': 'https://www.g2b.go.kr/x', 'ntceSpecDocNm1': '입찰공고서.hwp',
+          'cnstwkDtlList': '[1^시스템에어컨 교체공사^경기도 용인시 수지구 ...^2026-12-31]'}
+    it.update(kw)
+    return it
+
+
+def test_nuri_collected_normalized_and_filtered(db, monkeypatch):
+    nuri = {g.NURI_KINDS[0][1]: [_nuri('N1'), _nuri('N2', ntceNm='본관 도장공사')],
+            g.NURI_KINDS[1][1]: [_nuri('N3', ntceNm='항온항습기 구매')]}
+    _fake_api(monkeypatch, [], {'N1': ([], [])}, nuri)
+    r = g.collect()
+    assert r['new'] == 1                                   # 도장공사(무관)·항온항습기 구매(설치 없음)는 안 넣음
+    it = g.list_bids()['items'][0]
+    assert it['source'] == '누리장터' and it['title'].startswith('지구촌교회') and it['category'] == g.ELIGIBLE
+    assert it['price'] == 7150000 and it['contact'] == '이승호 031-000-0000' and it['area'] == '수도권'
+    assert it['detail']['briefing_at'] == '2026-11-24 10:00' and it['files'][0]['name'] == '입찰공고서.hwp'
+    assert it['detail_url'] == ''                           # 나라장터 상세 주소가 빈 화면이라 저장 안 함
+
+
+def test_nuri_digest_tag(db, monkeypatch):
+    sent = []
+    monkeypatch.setattr(g, '_post_slack', lambda ch, text: sent.append(text) or True)
+    _fake_api(monkeypatch, [], {'N1': ([], [])}, {g.NURI_KINDS[0][1]: [_nuri('N1')]})
+    g.collect()
+    g.send_morning_digest(force=True)
+    assert '지구촌교회 (누리장터)' in sent[0]

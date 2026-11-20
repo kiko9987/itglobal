@@ -121,6 +121,7 @@
       esc(when(it.close_at)) + '</span>' + (it.closed ? '<div class="gw-bd-sub">마감</div>' : '');
     var title = '<div class="gw-bd-title">' + (it.is_new ? '<span class="gw-badge gw-badge-new">New</span> ' : '') +
       esc(it.title) + '</div><div class="gw-bd-sub">' + esc(it.demand_org || it.org) +
+      (it.source === '누리장터' ? ' · 누리장터' : '') +
       (it.contact ? ' · 담당 ' + esc(it.contact) : '') + '</div>';
     var bAt = (it.detail || {}).briefing_at;   // 현장설명회 — 놓치면 못 들어가는 공고가 있어 줄에서 바로 보이게
     if (bAt) {
@@ -128,9 +129,11 @@
         '<i class="fas fa-person-chalkboard me-1" aria-hidden="true"></i>현장설명회 ' + esc(when(bAt)) +
         (past(bAt) ? ' (지남)' : '') + '</div>';
     }
-    var cond = '<div>' + (it.nationwide ? '<span class="gw-badge gw-badge-nation">전국</span> 지역 제한 없음'
+    var nuri = it.source === '누리장터';   // 자격·지역이 공고서에만 → '전국·면허 제한 없음'으로 보이면 오해
+    var cond = '<div>' + (nuri ? '지역·면허: 공고서 참조'
+      : it.nationwide ? '<span class="gw-badge gw-badge-nation">전국</span> 지역 제한 없음'
       : esc((it.regions || []).join(', '))) + '</div><div class="gw-bd-sub">' +
-      esc((it.licenses || []).join(' 또는 ') || '면허 제한 없음') + '</div>' +
+      (nuri ? '누리장터 민간 공고' : esc((it.licenses || []).join(' 또는 ') || '면허 제한 없음')) + '</div>' +
       (it.category !== 'eligible' && it.reason ? '<div class="gw-bd-miss">' + esc(it.reason) + '</div>' : '');
     var open = state.open === it.bid_no;
     return '<tr class="gw-bd-row' + (it.mark === 'skip' ? ' gw-bd-skip' : '') + (open ? ' gw-bd-open' : '') +
@@ -175,12 +178,17 @@
       ? chk(true, '면허', esc(lic || '제한 없음') + (lic ? ' — 보유' : ''))
       : chk(false, '면허', '<b>' + esc(it.missing || '우리 면허로 안 됨') + (it.missing ? ' 없음' : '') + '</b> — ' + esc(lic) +
           (lic.indexOf('+') > -1 ? ' 모두 있어야 해요' : ''));
+    if (it.source === '누리장터') checks = '';   // 지역·면허는 아래 '참가 자격: 공고서 참조' 한 줄로
     checks += it.hard_reason ? chk(false, '참가 조건', esc(it.hard_reason))
       : chk(true, '참가 조건', '실적제한·사전심사(PQ) 없음 · ' + esc(it.award_method || it.contract_method));
     if (d.briefing_at) {
       checks += chk(past(d.briefing_at) ? false : null, '현장설명회',
         '<b>' + full(d.briefing_at) + '</b>' + (d.briefing_place ? ' · ' + esc(d.briefing_place) : '') +
         (past(d.briefing_at) ? ' — 지났어요.' : '') + ' <span class="gw-bd-sub">참석이 필수인지 공고문에서 확인하세요</span>');
+    }
+    if (it.source === '누리장터') {   // 민간 입찰 — 자격·지역이 공고서에만 있어 자동 판정 못 함(11-20)
+      checks += chk(null, '참가 자격', '<b>공고서 참조</b> <span class="gw-bd-sub">누리장터 민간 공고는 면허·지역 조건이 첨부 공고서에만 있어요. ' +
+        '나라장터 상세 링크가 없어 누리장터에서 공고번호 ' + esc(it.bid_no) + '로 찾아보세요</span>');
     }
     if (it.bid_kind === '물품') {   // 물품은 나라장터 물품 분류 등록이 있어야 투찰 — 등록 여부는 우리가 확인
       checks += chk(null, '물품 등록', '<b>' + esc((d.products || []).join(', ') || '공고문의 물품 분류') + '</b>' +

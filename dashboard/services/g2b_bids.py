@@ -35,6 +35,13 @@ from dashboard.utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 BASE = 'https://apis.data.go.kr/1230000/ad/BidPublicInfoService02/'
+# 누리장터 민간입찰(11-20) — 사립학교법인·병원·교회·호텔 등 '수요기관 외의 자' 공고. 같은 키로 됨.
+#   검색어 조건이 안 먹어서(공고명 칸 이름이 ntceNm) 종류별 목록을 통째로 받아 제목으로 거름(주 ~40건이라 1~2번 호출)
+#   참가자격·지역은 거의 다 '공고서 참조'라 자동 판정이 안 됨 → 입찰 가능에 두고 '확인할 것'에 공고서 확인 주의
+NURI_BASE = 'https://apis.data.go.kr/1230000/ao/PrvtBidNtceService/'
+NURI_KINDS = (('공사', 'getPrvtBidPblancListInfoCnstwk'), ('물품', 'getPrvtBidPblancListInfoThng'))
+NURI_REGION = 'getPrvtBidPblancListInfoPrtcptPsblRgn'
+NURI_LICENSE = 'getPrvtBidPblancListInfoLicenseLimit'
 OP_LIST = 'getBidPblancListInfoCnstwkPPSSrch02'        # 나라장터 검색조건 공사 공고
 OP_LIST_THNG = 'getBidPblancListInfoThngPPSSrch02'     # 물품 공고 — '구매 및 설치'만 씀(11-19 추산초 계기)
 KINDS = (('공사', OP_LIST), ('물품', OP_LIST_THNG))
@@ -115,6 +122,8 @@ def _conn():
             cols = {r[1] for r in conn.execute('PRAGMA table_info(g2b_bids)').fetchall()}
             if 'raw' not in cols:
                 conn.execute("ALTER TABLE g2b_bids ADD COLUMN raw TEXT NOT NULL DEFAULT ''")
+            if 'source' not in cols:   # 11-20 누리장터 추가 — 그 전 줄은 모두 나라장터
+                conn.execute("ALTER TABLE g2b_bids ADD COLUMN source TEXT NOT NULL DEFAULT '나라장터'")
             if 'kind' not in cols:   # 11-19 물품(구매·설치) 추가 — 그 전 줄은 모두 공사
                 conn.execute("ALTER TABLE g2b_bids ADD COLUMN kind TEXT NOT NULL DEFAULT '공사'")
             conn.commit()
@@ -261,12 +270,12 @@ def _safe_err(e) -> str:
     return re.sub(r'(serviceKey=)[^&\s\'")]+', r'\1***', s)[:300]
 
 
-def _get(op: str, params: dict) -> dict:
+def _get(op: str, params: dict, base: str = BASE) -> dict:
     p = {'serviceKey': _key(), 'type': 'json', **params}
     try:
-        r = requests.get(BASE + op, params=p, timeout=(10, 30))
+        r = requests.get(base + op, params=p, timeout=(10, 30))
     except (requests.ConnectionError, requests.Timeout):   # 공공데이터포털이 가끔 연결을 놓침 — 한 번만 다시
-        r = requests.get(BASE + op, params=p, timeout=(10, 30))
+        r = requests.get(base + op, params=p, timeout=(10, 30))
     r.raise_for_status()
     data = r.json()
     if 'response' not in data:   # 나라장터 오류 형식 {"nkoneps.com.response.ResponseError": {...}}
@@ -300,12 +309,14 @@ def search(keyword: str, start: datetime, end: datetime, op: str = OP_LIST) -> L
         page += 1
 
 
-def fetch_limits(bid_no: str, bid_ord: str) -> tuple:
+def fetch_limits(bid_no: str, bid_ord: str, source: str = '나라장터') -> tuple:
     q = {'inqryDiv': 2, 'bidNtceNo': bid_no, 'bidNtceOrd': bid_ord, 'numOfRows': 50, 'pageNo': 1}
+    nuri = source == '누리장터'
+    base, op_r, op_l = (NURI_BASE, NURI_REGION, NURI_LICENSE) if nuri else (BASE, OP_REGION, OP_LICENSE)
     regions = sorted({(x.get('prtcptPsblRgnNm') or '').strip()
-                      for x in _items(_get(OP_REGION, q)) if x.get('prtcptPsblRgnNm')})
+                      for x in _items(_get(op_r, q, base)) if x.get('prtcptPsblRgnNm')})
     grp: Dict[str, List[str]] = {}
-    for x in _items(_get(OP_LICENSE, q)):
+    for x in _items(_get(op_l, q, base)):
         name = (x.get('lcnsLmtNm') or '').strip()
         if name:
             grp.setdefault(str(x.get('lmtGrpNo') or '1'), []).append(name.split('/')[0])
@@ -334,6 +345,43 @@ def sort_files(files: List[dict]) -> List[dict]:
 def _contact(item: dict) -> str:
     name, tel = (item.get('ntceInsttOfclNm') or '').strip(), (item.get('ntceInsttOfclTelNo') or '').strip()
     return ' '.join(x for x in (name, tel) if x)
+
+
+def nuri_list(op: str, start: datetime, end: datetime) -> List[dict]:
+    out, page = [], 1
+    while True:
+        body = _get(op, {'inqryDiv': 1, 'inqryBgnDt': start.strftime('%Y%m%d%H%M'),
+                         'inqryEndDt': end.strftime('%Y%m%d%H%M'), 'numOfRows': 500, 'pageNo': page}, NURI_BASE)
+        items = _items(body)
+        out.extend(items)
+        if not items or page * 500 >= _int(body.get('totalCount')) or page >= 5:
+            return out
+        page += 1
+
+
+def nuri_normalize(it: dict) -> dict:
+    """누리장터 항목 이름을 나라장터 이름으로 맞춤 — 나머지 코드(분류·저장·상세)를 그대로 쓰려고."""
+    n = dict(it)
+    pairs = (('ntceNm', 'bidNtceNm'), ('nticeDt', 'bidNtceDt'), ('ofclNm', 'ntceInsttOfclNm'),
+             ('ofclTelNo', 'ntceInsttOfclTelNo'), ('ofclEmail', 'ntceInsttOfclEmailAdrs'),
+             ('cntrctMthdNm', 'cntrctCnclsMthdNm'), ('ntceDivNm', 'ntceKindNm'),
+             ('sptDscrptDt', 'dcmtgOprtnDt'), ('sptDscrptPlce', 'dcmtgOprtnPlce'))
+    for a, b in pairs:
+        if it.get(a) and not n.get(b):
+            n[b] = it[a]
+    for i in range(1, 11):
+        if it.get(f'ntceSpecDocNm{i}'):
+            n[f'ntceSpecFileNm{i}'] = it[f'ntceSpecDocNm{i}']
+    ref, asign = _int(it.get('refAmt')), _int(it.get('asignBdgtAmt'))
+    n['presmptPrce'] = str(ref or asign)          # 기준금액이 있으면 그것, 없으면 배정예산
+    if asign:
+        n['bdgtAmt'] = str(asign)
+    # 공사 장소: '[1^공사명^제주시 탑동로 66 ...^2026-12-31]' 의 세 번째 칸
+    m = re.match(r'\[[^\^\]]*\^[^\^\]]*\^([^\^\]]*)', it.get('cnstwkDtlList') or '')
+    if m and m.group(1).strip():
+        n['cnstrtsiteRgnNm'] = m.group(1).strip()
+    n['_source'] = '누리장터'
+    return n
 
 
 # ── 모으기 ────────────────────────────────────────────────────────────
@@ -366,6 +414,21 @@ def collect(days: int = 2, now: Optional[datetime] = None) -> dict:
                 except Exception as e:
                     errors += 1
                     logger.warning(f'[G2B] 검색 실패 ({kind} {kw}): {_safe_err(e)}')
+        for kind, op in NURI_KINDS:   # 누리장터 — 목록 통째로 받아 제목으로
+            try:
+                for raw_it in nuri_list(op, start, now):
+                    it = nuri_normalize(raw_it)
+                    no, title = it.get('bidNtceNo'), it.get('bidNtceNm') or ''
+                    if not no or not is_relevant(title, kind):
+                        continue
+                    prev = found.get(no)
+                    if prev is None or (it.get('bidNtceOrd') or '') > (prev.get('bidNtceOrd') or ''):
+                        it['_kw'] = '누리장터'
+                        it['_kind'] = kind
+                        found[no] = it
+            except Exception as e:
+                errors += 1
+                logger.warning(f'[G2B] 누리장터 목록 실패 ({kind}): {_safe_err(e)}')
         with _conn() as conn:
             known, no_raw = {}, set()
             for r in conn.execute('SELECT bid_no, bid_ord, raw FROM g2b_bids'):
@@ -382,7 +445,7 @@ def collect(days: int = 2, now: Optional[datetime] = None) -> dict:
                         conn.execute('UPDATE g2b_bids SET raw=? WHERE bid_no=?', (_raw(it), no))
                 continue
             try:
-                regions, groups = fetch_limits(no, ord_)
+                regions, groups = fetch_limits(no, ord_, it.get('_source') or '나라장터')
             except Exception as e:
                 errors += 1
                 logger.warning(f'[G2B] 지역·면허 조회 실패 {no}: {_safe_err(e)}')
@@ -467,6 +530,7 @@ def _save(it: dict, regions, groups, held, planned, is_new: bool) -> None:
         'contract_method': it.get('cntrctCnclsMthdNm') or '', 'award_method': it.get('sucsfbidMthdNm') or '',
         'price': _int(it.get('presmptPrce')), 'budget': _int(it.get('bdgtAmt') or it.get('asignBdgtAmt')),
         'kind': it.get('_kind') or '공사',
+        'source': it.get('_source') or '나라장터',
         # 마감이 비어 있는 공고(일부 수의)는 개찰 일시로 — 비면 '마감 전' 목록에서 빠지므로
         'posted_at': (it.get('bidNtceDt') or '')[:16],
         'close_at': (it.get('bidClseDt') or it.get('opengDt') or '')[:16],
@@ -508,6 +572,7 @@ def reclassify() -> int:
             if full:   # 원본 항목이 있으면 그걸로(제조업체 한정 등 새 기준도 반영)
                 item = {**full}
             item['_kind'] = r.get('kind') or '공사'
+            item['_source'] = r.get('source') or '나라장터'
             c = classify(item, json.loads(r['regions']), json.loads(r['license_groups']), held, planned)
             hr = hard_reason(item)
             if c['category'] != r['category'] or c['reason'] != r['reason'] or hr != r['hard_reason']:
@@ -562,6 +627,7 @@ def _view(r: dict, now_s: str) -> dict:
     regions = json.loads(r.get('regions') or '[]')
     return {
         'bid_kind': r.get('kind') or '공사',   # 공사 / 물품(구매·설치)
+        'source': r.get('source') or '나라장터',
         'area': area_of(r.get('site_region') or '', r.get('demand_org') or '', r.get('org') or ''),
         # 펼친 '확인할 것' 판정용 — 지역·면허 각각 되는지
         'region_ok': region_ok(regions), 'nationwide': not regions,
@@ -683,7 +749,8 @@ def format_digest(rows: List[dict], license_only: int, page_url: str) -> str:
             links.append(f"<{f['url']}|{kind}{' ' + ext if ext else ''}>")
         lines.append(
             f"\n• *{r['title']}*\n"
-            f"   {r['demand_org'] or r['org']} · {(r['award_method'] or r['contract_method']).split('-')[0]} · "
+            f"   {r['demand_org'] or r['org']}{' (누리장터)' if r.get('source') == '누리장터' else ''} · "
+            f"{(r['award_method'] or r['contract_method']).split('-')[0]} · "
             f"추정가격 {_won(r['price'])}\n"
             f"   마감 {_when(r['close_at'])} · 참가가능지역: {', '.join(json.loads(r['regions']))}\n"
             + _briefing_line(r) +
