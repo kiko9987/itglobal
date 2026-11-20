@@ -270,7 +270,180 @@ def card_blocks(row: dict, role: str) -> List[dict]:
     els = None
     if row['status'] == PENDING:
         if role == 'handler':
-            els = [_btn('📎 발급 완료', A_ISSUE, row['id'], 'primary'), _btn('반려', A_REJECT, row['id'])]
+            # 11-20: [📄 바로 발급] = 인사카드로 직인 PDF 를 만들어 보냄. 서식이 다르거나 영문 등은 [📎 파일 올려 발급]
+            els = [_btn('📄 바로 발급', A_AUTO, row['id'], 'primary'), _btn('📎 파일 올려 발급', A_ISSUE, row['id']),
+                   _btn('반려', A_REJECT, row['id'])]
         else:
             els = [_btn('신청 취소', A_CANCEL, row['id'])]
     return spaced(card_text(row)[:2900], els)
+
+
+# ── 자동 발급 (2026-11-20, 플렉스 「문서·증명서」처럼 직인 찍힌 PDF) ─────────────────────────
+# 칸은 플렉스 발급본과 같게(기본 정보·재직 정보·회사 정보·발급 용도). 플렉스 발급본 40건이 이 회사 정보로 나갔다
+# ((주)아이티글로벌그룹·대표이사 김영숙). 법인·대표가 바뀌면 .env CERT_NAME·CERT_CEO·CERT_BIZ_NO·CERT_ADDRESS·CERT_TEL.
+# 직인은 instance/cert/seal.png(깃 밖, 플렉스 설정에서 받은 그림) — CERT_SEAL_PATH 로 바꿀 수 있음.
+A_AUTO = 'cert_auto'
+_DDL.append('''CREATE TABLE IF NOT EXISTS cert_issues (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    person_id INTEGER NOT NULL,
+    name TEXT,
+    ctype TEXT NOT NULL,
+    purpose TEXT,
+    ssn_included INTEGER NOT NULL DEFAULT 0,
+    group_date INTEGER NOT NULL DEFAULT 0,
+    request_id INTEGER,
+    issued_by TEXT,
+    hr_doc_id INTEGER,
+    created_at TEXT NOT NULL
+)''')
+
+COMPANY_DEFAULT = {'name': '(주)아이티글로벌그룹', 'ceo': '김영숙', 'biz_no': '533-88-02845',
+                   'address': '경기도 김포시 걸포로 134-84(걸포동) 4층', 'tel': '1899-1377'}
+
+
+def company() -> Dict[str, str]:
+    import os
+    return {k: (os.getenv(f'CERT_{k.upper()}') or '').strip() or v for k, v in COMPANY_DEFAULT.items()}
+
+
+def _paths() -> Dict[str, str]:
+    import os
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[2]
+    fonts = (os.getenv('CERT_FONT_DIR') or '').strip() or r'C:\Windows\Fonts'
+    return {'seal': (os.getenv('CERT_SEAL_PATH') or '').strip() or str(root / 'instance' / 'cert' / 'seal.png'),
+            'regular': os.path.join(fonts, 'malgun.ttf'), 'bold': os.path.join(fonts, 'malgunbd.ttf')}
+
+
+def _kdate(s: Optional[str]) -> str:
+    if not s:
+        return ''
+    try:
+        d = date.fromisoformat(str(s)[:10])
+    except ValueError:
+        return str(s)
+    return f'{d.year}년 {d.month}월 {d.day}일'
+
+
+def cert_rows(person: dict, ctype: str, purpose: str, ssn_full: str = '', group_date: bool = False) -> List[tuple]:
+    """[(구역 제목, [(칸, 값)])] — PDF 와 시험이 같이 쓴다."""
+    start = person.get('group_hire_date') if group_date and person.get('group_hire_date') else person.get('hire_date')
+    end = person.get('resign_date') if person.get('status') == '퇴사' else ''
+    period = f"{_kdate(start)} ~ {_kdate(end) if end else '현재'}" if start else ''
+    basic = [('성명', person.get('name') or ''), ('생년월일', _kdate(person.get('birth_date')))]
+    if ssn_full:
+        basic.append(('주민등록번호', ssn_full))
+    basic.append(('주소', person.get('address') or ''))
+    employed = ctype == '재직증명서'
+    work = [('재직 기간' if employed else '근무 기간', period),
+            ('소속', person.get('department') or ''),
+            ('직위', person.get('job_rank') or person.get('job_title') or ''),
+            ('직무', person.get('job_role') or '')]
+    c = company()
+    comp = [('회사명', c['name']), ('사업자등록번호', c['biz_no']), ('소재지', c['address']), ('대표 전화', c['tel'])]
+    return [('기본 정보', basic), ('재직 정보' if employed else '경력 정보', work), ('회사 정보', comp),
+            ('발급 용도', [('용도', purpose or '')])]
+
+
+def render_pdf(person: dict, ctype: str, purpose: str, doc_no: str, ssn_full: str = '', group_date: bool = False,
+               today: Optional[date] = None) -> bytes:
+    from dashboard.services import pdf_mini as pm
+    today = today or date.today()
+    p = _paths()
+    d = pm.Doc(title=f"{ctype} - {person.get('name') or ''}")
+    d.font('R', pm.TTF.load(p['regular']))
+    d.font('B', pm.TTF.load(p['bold']))
+    W = pm.A4[0]
+    L, R, cx = 56, W - 56, W / 2
+    ink, sub, rule, fill = (25, 25, 25), (105, 105, 105), (200, 200, 200), (244, 245, 247)
+    d.text(L, 40, f'발급번호  {doc_no}', 8.5, 'R', sub)
+    d.text(cx, 76, ctype, 24, 'B', ink, align='center', spacing=8)
+    y, label_w, row_h = 138, 112, 25
+    for title, rows in cert_rows(person, ctype, purpose, ssn_full, group_date):
+        d.text(L, y, title, 10.5, 'B', ink)
+        y += 19
+        d.line(L, y, R, y, 1.0, (70, 70, 70))
+        for label, val in rows:
+            d.rect(L, y + 0.4, label_w, row_h - 0.8, fill)
+            d.text(L + 12, y + 7.5, label, 9.5, 'R', sub)
+            val, size = (val or '-'), 9.5
+            while d.text_width(val, size, 'R') > R - L - label_w - 24 and size > 7:
+                size -= 0.5
+            d.text(L + label_w + 12, y + 7.5 + (9.5 - size) / 2, val, size, 'R', ink)
+            y += row_h
+            d.line(L, y, R, y, 0.5, rule)
+        y += 22
+    d.text(cx, max(y + 18, 632), '위와 같이 재직 중임을 증명합니다.' if ctype == '재직증명서' else '위의 경력을 증명합니다.',
+           12, 'R', ink, align='center')
+    d.text(cx, max(y + 48, 664), _kdate(today.isoformat()), 11, 'R', ink, align='center')
+    c = company()
+    sign, mark = f"{c['name']}   대표이사  {c['ceo']}", '      (인)'
+    sy = max(y + 96, 724)
+    x0 = cx - (d.text_width(sign, 14, 'B') + d.text_width(mark, 12, 'R')) / 2
+    x1 = x0 + d.text(x0, sy, sign, 14, 'B', ink)
+    mark_w = d.text(x1, sy + 2, mark, 12, 'R', sub)
+    in_cx = x1 + mark_w - d.text_width('(인)', 12, 'R') / 2
+    d.image(open(p['seal'], 'rb').read(), in_cx - 29, sy - 21, 58, 58)
+    return d.output()
+
+
+def ready() -> str:
+    """자동 발급 준비 — 문제 문구(없으면 '')."""
+    import os
+    p = _paths()
+    for k, label in (('regular', '글꼴(맑은 고딕)'), ('bold', '글꼴(맑은 고딕 굵게)'), ('seal', '직인 그림')):
+        if not os.path.isfile(p[k]):
+            return f'{label} 파일이 없어 바로 발급을 할 수 없어요. [📎 파일 올려 발급]을 써 주세요.'
+    return ''
+
+
+def issue_pdf(person_id: int, ctype: str, purpose: str, issued_by: str, ssn: bool = False,
+              group_date: bool = False, request_id: Optional[int] = None, today: Optional[date] = None) -> dict:
+    """직인 PDF 를 만들고 발급 기록·인사카드 서류(발급 증명서)에 남김 → {'pdf','file_name','doc_no','issue'}.
+    issued_by = 발급한 사람(메일 또는 이름) — 인사카드 수정 기록에 남는다."""
+    from dashboard.services import hr
+    if ctype not in TYPES:
+        raise ValueError('증명서 종류가 올바르지 않습니다.')
+    why = ready()
+    if why:
+        raise RuntimeError(why)
+    person = hr.get_person(person_id)
+    if not person:
+        raise LookupError('없는 구성원입니다.')
+    if ctype == '재직증명서' and person.get('status') == '퇴사':
+        raise ValueError('퇴사한 분은 재직증명서를 발급할 수 없어요. 경력증명서로 발급해 주세요.')
+    ssn_full = ''
+    if ssn:
+        if not person.get('ssn_enc'):
+            raise ValueError('인사카드에 주민등록번호가 없어요. 생년월일만으로 발급하거나 인사카드에 먼저 넣어 주세요.')
+        ssn_full = hr.decrypt_ssn(person['ssn_enc'])
+    today = today or date.today()
+    by = (issued_by or 'system').strip()
+    with _conn() as conn:
+        rid = conn.execute('INSERT INTO cert_issues (person_id, name, ctype, purpose, ssn_included, group_date, '
+                           'request_id, issued_by, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+                           (person_id, person['name'], ctype, purpose or None, int(bool(ssn)), int(bool(group_date)),
+                            request_id, by, _now())).lastrowid
+    doc_no = f'{today.year}-{rid:04d}'
+    pdf = render_pdf(person, ctype, purpose, doc_no, ssn_full, group_date, today)
+    file_name = f"{ctype}_{person['name']}_{today.strftime('%Y%m%d')}.pdf"
+    saved = hr.save_document(person_id, '발급 증명서', file_name, pdf, by, trusted=True)
+    with _conn() as conn:
+        conn.execute('UPDATE cert_issues SET hr_doc_id=? WHERE id=?', (saved.get('id'), rid))
+        row = dict(conn.execute('SELECT * FROM cert_issues WHERE id=?', (rid,)).fetchone())
+    hr.log_access(person_id, by, 'cert_issue', f'{ctype} {doc_no}' + (' · 주민번호 포함' if ssn else ''))
+    return {'pdf': pdf, 'file_name': file_name, 'doc_no': doc_no, 'issue': row}
+
+
+def issues(person_id: int, limit: int = 20) -> List[dict]:
+    with _conn() as conn:
+        return [dict(r) for r in conn.execute('SELECT * FROM cert_issues WHERE person_id=? ORDER BY id DESC LIMIT ?',
+                                              (person_id, limit)).fetchall()]
+
+
+def request_opts(row: dict) -> dict:
+    """슬랙 신청 → 자동 발급 옵션: 용도(제출처 포함)·주민번호 전체 여부."""
+    purpose = row.get('purpose') or ''
+    if row.get('dest'):
+        purpose = f"{purpose} ({row['dest']})" if purpose else row['dest']
+    return {'purpose': purpose, 'ssn': (row.get('ssn') or '').startswith('주민등록번호 전체')}

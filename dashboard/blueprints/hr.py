@@ -159,6 +159,28 @@ def api_doc_upload(pid):
         return _fail(e)
 
 
+@hr_bp.route('/api/hr/people/<int:pid>/certificate', methods=['POST'])
+@gw_page
+def api_certificate(pid):
+    """재직·경력증명서 바로 발급(11-20) — 인사카드 관리자만. 퇴직자·창구 요청용. PDF 를 돌려주고 인사카드 서류에도 남김."""
+    if not _hr_admin():
+        return jsonify({'success': False, 'message': '증명서 발급은 경영지원·대표만 할 수 있습니다.'}), 403
+    from flask import send_file
+    from dashboard.services import certificates as ct
+    body = request.get_json(silent=True) or {}
+    try:
+        res = ct.issue_pdf(pid, body.get('ctype', ''), (body.get('purpose') or '').strip()[:100], _me(),
+                           ssn=bool(body.get('ssn')), group_date=bool(body.get('group_date')))
+    except (ValueError, RuntimeError, LookupError) as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+    logger.info(f"[HR] 증명서 발급 #{pid} {res['doc_no']} by {_me()}")
+    resp = send_file(io.BytesIO(res['pdf']), mimetype='application/pdf', as_attachment=True,
+                     download_name=res['file_name'], max_age=0)
+    resp.headers['Cache-Control'] = 'no-store'
+    resp.headers['X-Doc-No'] = res['doc_no']
+    return resp
+
+
 @hr_bp.route('/api/hr/documents/<int:doc_id>', methods=['DELETE'])
 @gw_page
 def api_doc_delete(doc_id):

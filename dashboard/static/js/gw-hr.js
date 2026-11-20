@@ -96,10 +96,14 @@
       fieldBadge(p) + '</h2>' +
       '<div class="gw-card-org">' + (org(p) || '<span class="text-muted">소속 없음</span>') + '</div></div>';
     if (p.can_edit && CFG.mode !== 'me') {   // 수정은 구성원 화면에서(내 정보엔 수정 창이 없음)
-      h += '<div class="gw-card-actions"><button type="button" class="btn btn-sm btn-outline-secondary" id="hrEditBtn">' +
+      h += '<div class="gw-card-actions">' +
+        '<button type="button" class="btn btn-sm btn-outline-secondary" id="hrCertBtn" aria-expanded="false" aria-controls="hrCertPanel">' +
+        '<i class="fas fa-file-signature me-1" aria-hidden="true"></i>증명서 발급</button>' +
+        '<button type="button" class="btn btn-sm btn-outline-secondary" id="hrEditBtn">' +
         '<i class="fas fa-pen me-1" aria-hidden="true"></i>수정</button></div>';
     }
     h += '</div>';
+    if (p.can_edit && CFG.mode !== 'me') h += '<div class="gw-cert" id="hrCertPanel" hidden></div>';
 
     h += '<div class="gw-sec-title">근무</div><dl class="gw-dl">' +
       dd('입사일', p.hire_date) +
@@ -160,7 +164,7 @@
     }
 
     if (p.access_log && p.access_log.length) {
-      var labels = { edit: '수정', create: '추가', doc_upload: '서류 업로드', doc_delete: '서류 삭제' };
+      var labels = { edit: '수정', create: '추가', doc_upload: '서류 업로드', doc_delete: '서류 삭제', cert_issue: '증명서 발급' };
       h += '<details class="mt-3"><summary class="gw-log">수정 기록 ' + p.access_log.length + '건</summary><ul class="gw-log mt-1">';
       p.access_log.forEach(function (l) {
         h += '<li>' + esc(l.at) + ' · ' + esc(l.viewer_email) + ' · ' + esc(labels[l.action] || l.action) +
@@ -174,9 +178,80 @@
 
     var editBtn = document.getElementById('hrEditBtn');
     if (editBtn) editBtn.addEventListener('click', function () { openEdit(p); });
+    var certBtn = document.getElementById('hrCertBtn');
+    if (certBtn) certBtn.addEventListener('click', function () { toggleCert(p, certBtn); });
     bindSsnToggles();
     bindPrivate(p);
     if (document.getElementById('hrDevices')) loadDevices(p);
+  }
+
+  // ── 증명서 바로 발급(11-20) — 인사카드 관리자. 퇴직자·창구 요청용(직원 신청은 슬랙 전자결재 [📜 증명서 신청]) ──
+  var CERT_PURPOSES = ['금융기관 제출', '관공서 제출', '회사·학교 제출', '기타'];
+  function toggleCert(p, btn) {
+    var panel = document.getElementById('hrCertPanel');
+    if (!panel) return;
+    if (!panel.hidden) { panel.hidden = true; btn.setAttribute('aria-expanded', 'false'); return; }
+    var resigned = p.status === '퇴사';
+    var groupDiff = p.group_hire_date && p.group_hire_date !== p.hire_date;
+    panel.innerHTML =
+      '<div class="gw-cert-title">증명서 발급 <span class="text-muted">직인이 찍힌 PDF를 만들고 아래 서류에도 남겨요</span></div>' +
+      '<div class="gw-cert-grid">' +
+      '<label>종류<select class="form-select form-select-sm" id="hrCertType">' +
+      (resigned ? '' : '<option>재직증명서</option>') + '<option>경력증명서</option></select></label>' +
+      '<label>용도<select class="form-select form-select-sm" id="hrCertPurpose">' +
+      CERT_PURPOSES.map(function (x) { return '<option>' + x + '</option>'; }).join('') + '</select></label>' +
+      '<label class="gw-cert-wide">제출처 <span class="text-muted">(선택)</span><input type="text" class="form-control form-control-sm" id="hrCertDest" maxlength="60" placeholder="예: ○○은행 대출, ○○구청"></label>' +
+      '</div>' +
+      '<label class="gw-cert-check"><input type="checkbox" id="hrCertSsn"' + (p.has_ssn ? '' : ' disabled') + '> 주민등록번호 전체 넣기' +
+      (p.has_ssn ? '' : ' <span class="text-muted">(인사카드에 없음)</span>') + '</label>' +
+      (groupDiff ? '<label class="gw-cert-check"><input type="checkbox" id="hrCertGroup"> 재직 기간을 그룹 입사일(' + esc(p.group_hire_date) + ')부터</label>' : '') +
+      '<div class="gw-cert-actions"><button type="button" class="btn btn-sm btn-primary" id="hrCertGo">PDF 만들기</button>' +
+      '<button type="button" class="btn btn-sm btn-outline-secondary" id="hrCertClose">닫기</button></div>' +
+      '<div class="gw-cert-msg" id="hrCertMsg" role="status"></div>';
+    panel.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    document.getElementById('hrCertType').focus();
+    document.getElementById('hrCertClose').addEventListener('click', function () {
+      panel.hidden = true; btn.setAttribute('aria-expanded', 'false'); btn.focus();
+    });
+    document.getElementById('hrCertGo').addEventListener('click', function () {
+      var go = this, msg = document.getElementById('hrCertMsg');
+      var dest = document.getElementById('hrCertDest').value.trim();
+      var purpose = document.getElementById('hrCertPurpose').value + (dest ? ' (' + dest + ')' : '');
+      var g = document.getElementById('hrCertGroup');
+      go.disabled = true;
+      msg.className = 'gw-cert-msg';
+      msg.textContent = '만드는 중…';
+      fetch('/api/hr/people/' + p.id + '/certificate', {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ctype: document.getElementById('hrCertType').value, purpose: purpose,
+                               ssn: document.getElementById('hrCertSsn').checked, group_date: !!(g && g.checked) })
+      }).then(function (r) {
+        if (!r.ok) return r.json().catch(function () { return {}; }).then(function (j) { throw new Error(j.message || ('발급하지 못했어요 (' + r.status + ')')); });
+        var no = r.headers.get('X-Doc-No') || '';
+        var cd = r.headers.get('Content-Disposition') || '';
+        var m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+        var name = m ? decodeURIComponent(m[1]) : '증명서.pdf';
+        return r.blob().then(function (b) {
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(b); a.download = name;
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(function () { URL.revokeObjectURL(a.href); }, 10000);
+          return no;
+        });
+      }).then(function (no) {
+        return loadCard(p.id).then(function () {
+          var again = document.getElementById('hrCertBtn');
+          if (again) again.focus();
+          var sr = document.getElementById('hrCardSr');
+          if (sr) sr.textContent = '증명서를 발급했어요. 발급번호 ' + no + ', 아래 서류에 남겼어요.';
+        });
+      }).catch(function (e) {
+        go.disabled = false;
+        msg.className = 'gw-cert-msg text-danger';
+        msg.textContent = e.message;
+      });
+    });
   }
 
   // 창을 JS 로 열면 닫힌 뒤 포커스가 여는 단추로 돌아가지 않음(부트스트랩은 data-bs 로 열 때만) → 직접 되돌림

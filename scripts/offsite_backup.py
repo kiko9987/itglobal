@@ -205,7 +205,8 @@ VOLUME_BYTES = 300 * 1024 * 1024  # 큰 폴더 한 번 올리기 — 한 조각 
 def docs_sources(project_root) -> list:
     root = Path(project_root)
     hr = (os.getenv('GW_HR_DOCS_DIR') or '').strip() or str(root / 'instance' / 'hr_docs')
-    return [(Path(hr), 'hr_docs'), (root / 'instance' / 'flex_export', 'flex_export')]
+    return [(Path(hr), 'hr_docs'), (root / 'instance' / 'flex_export', 'flex_export'),
+            (root / 'instance' / 'cert', 'cert')]      # 증명서 직인 그림(11-20)
 
 
 def walk(src, arc: str) -> list:
