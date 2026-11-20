@@ -193,6 +193,133 @@ def upload(backup_root, stamp: str = None, svc=None, today: date = None) -> str:
     return f'OK: {name} ({len(blob) // 1024} KB → {DRIVE_NAME}/{FOLDER_NAME}), 정리 {len(old)}건'
 
 
+# ── 서류 백업(2026-11-20, 플렉스 해지 전 점검) ─────────────────────────────────────────────
+# 인사 서류(instance/hr_docs — 등본·계약서 등, 플렉스에서 옮긴 것 포함)와 플렉스 결재 보관 내보내기(instance/flex_export)는
+# users.db 밖 파일이라 매일 묶음에 없었다. 매일 같은 시각에 보되 바뀐 날만 올린다(파일 이름·크기·고친 시각 지문).
+DOCS_KEEP = 30                   # 서류 묶음은 최근 30벌(바뀐 날만 생기므로 날짜가 아니라 개수로)
+DOCS_STATUS = 'offsite_docs_last.json'
+_DOCS_RE = re.compile(r'^itg-docs-(\d{8})\.itgbak$')
+VOLUME_BYTES = 300 * 1024 * 1024  # 큰 폴더 한 번 올리기 — 한 조각 300MB(메모리에 잠근 사본까지 두 벌)
+
+
+def docs_sources(project_root) -> list:
+    root = Path(project_root)
+    hr = (os.getenv('GW_HR_DOCS_DIR') or '').strip() or str(root / 'instance' / 'hr_docs')
+    return [(Path(hr), 'hr_docs'), (root / 'instance' / 'flex_export', 'flex_export')]
+
+
+def walk(src, arc: str) -> list:
+    """폴더 안 파일 [(경로, 묶음 안 이름)] — 이름 순. 폴더가 없으면 빈 목록."""
+    src = Path(src)
+    if not src.is_dir():
+        return []
+    return [(p, f"{arc}/{p.relative_to(src).as_posix()}") for p in sorted(src.rglob('*')) if p.is_file()]
+
+
+def fingerprint(files) -> str:
+    import hashlib
+    h = hashlib.sha256()
+    for p, arc in files:
+        st = p.stat()
+        h.update(f'{arc}\0{st.st_size}\0{int(st.st_mtime)}\n'.encode('utf-8'))
+    return h.hexdigest()
+
+
+def pack_files(files, gz: bool = True) -> bytes:
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode='w:gz' if gz else 'w') as tar:
+        for p, arc in files:
+            tar.add(str(p), arcname=arc)
+    return buf.getvalue()
+
+
+def _put(svc, folder_id: str, name: str, blob: bytes) -> str:
+    from googleapiclient.http import MediaIoBaseUpload
+    media = MediaIoBaseUpload(io.BytesIO(blob), mimetype='application/octet-stream', resumable=True,
+                              chunksize=32 * 1024 * 1024)
+    new = _call(svc.files().create(body={'name': name, 'parents': [folder_id]}, media_body=media,
+                                   fields='id, size', supportsAllDrives=True))
+    if int(new.get('size') or 0) != len(blob):
+        raise RuntimeError(f"올라간 크기가 다름 ({name}: {new.get('size')} ≠ {len(blob)})")
+    return new['id']
+
+
+def upload_docs(project_root, backup_root, svc=None, today: date = None) -> str:
+    """인사 서류·플렉스 보관 내보내기를 잠가 올림 — 지난번과 같으면 건너뜀. 결과 문구, 실패는 예외."""
+    pw = password()
+    if not pw:
+        return 'skip: BACKUP_ENCRYPT_PASSWORD 없음'
+    files = [f for src, arc in docs_sources(project_root) for f in walk(src, arc)]
+    if not files:
+        return 'skip: 서류 없음'
+    fp = fingerprint(files)
+    status = Path(backup_root, DOCS_STATUS)
+    try:
+        if json.loads(status.read_text(encoding='utf-8')).get('fp') == fp:
+            return f'skip: 바뀐 서류 없음 ({len(files)}개)'
+    except Exception:
+        pass
+    today = today or date.today()
+    name = f"itg-docs-{today.strftime('%Y%m%d')}.itgbak"
+    blob = encrypt(pack_files(files), pw)
+    svc = svc or _service()
+    fid = _folder_id(svc)
+    before = _list(svc, fid)
+    new_id = _put(svc, fid, name, blob)
+    for f in before:
+        if f.get('name') == name:
+            _trash(svc, f['id'])
+    ours = sorted([f for f in before if _DOCS_RE.match(f.get('name') or '') and f.get('name') != name],
+                  key=lambda f: f['name'], reverse=True)
+    old = ours[DOCS_KEEP - 1:]                              # 새 것 + 앞선 29벌만 남김
+    for f in old:
+        _trash(svc, f['id'])
+    Path(backup_root).mkdir(parents=True, exist_ok=True)
+    status.write_text(json.dumps({'at': time.time(), 'name': name, 'id': new_id, 'bytes': len(blob),
+                                  'files': len(files), 'fp': fp}), encoding='utf-8')
+    return f'OK: {name} (서류 {len(files)}개, {len(blob) // 1024} KB), 정리 {len(old)}건'
+
+
+def volumes(files, limit: int = VOLUME_BYTES) -> list:
+    """파일을 순서대로 limit 안쪽 조각으로 나눔. limit 보다 큰 파일은 혼자 한 조각."""
+    out, cur, size = [], [], 0
+    for p, arc in files:
+        s = p.stat().st_size
+        if cur and size + s > limit:
+            out.append(cur)
+            cur, size = [], 0
+        cur.append((p, arc))
+        size += s
+    if cur:
+        out.append(cur)
+    return out
+
+
+def upload_archive(src_dir, label: str, svc=None, limit: int = VOLUME_BYTES, log=print) -> list:
+    """큰 폴더를 한 번 잠가 올림(플렉스 해지 전 자료 등) — {label}-NNofMM.itgbak 조각들.
+    같은 이름·같은 크기 조각이 이미 있으면 건너뜀(끊겼다 다시 돌려도 이어서). 조각마다 tar(압축 없음, 대부분 pdf·zip)."""
+    pw = password()
+    if not pw:
+        raise RuntimeError('BACKUP_ENCRYPT_PASSWORD 없음')
+    src = Path(src_dir)
+    vols = volumes(walk(src, src.name), limit)
+    svc = svc or _service()
+    fid = _folder_id(svc)
+    have = {f.get('name'): int(f.get('size') or 0) for f in _list(svc, fid)}
+    done = []
+    for i, vol in enumerate(vols, 1):
+        name = f'{label}-{i:02d}of{len(vols):02d}.itgbak'
+        blob = encrypt(pack_files(vol, gz=False), pw)
+        if have.get(name) == len(blob):
+            log(f'  {name} 이미 있음 — 건너뜀')
+            done.append((name, len(blob), len(vol), 'skip'))
+            continue
+        _put(svc, fid, name, blob)
+        log(f'  {name} 올림 ({len(vol)}개, {len(blob) // (1024 * 1024)} MB)')
+        done.append((name, len(blob), len(vol), 'ok'))
+    return done
+
+
 def last_success_age_hours(backup_root, now: float = None):
     """마지막 외부 백업 성공 후 지난 시간(시간). 기록 없으면 None."""
     try:
@@ -203,11 +330,12 @@ def last_success_age_hours(backup_root, now: float = None):
 
 
 def restore(src: str, out_dir: str, pw: str) -> list:
-    """받은 .itgbak 을 풀어 out_dir 에 users.db·dump.rdb·secrets/ 를 꺼냄. 운영 파일은 건드리지 않음."""
+    """받은 .itgbak 을 풀어 out_dir 에 꺼냄 — 매일분은 users.db·dump.rdb·secrets/, 서류는 hr_docs/·flex_export/,
+    큰 폴더 조각은 그 폴더 이름 아래(조각을 모두 같은 곳에 풀면 원래 폴더). 운영 파일은 건드리지 않음."""
     data = decrypt(Path(src).read_bytes(), pw)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(fileobj=io.BytesIO(data), mode='r:gz') as tar:
+    with tarfile.open(fileobj=io.BytesIO(data), mode='r:*') as tar:   # 매일분·서류=gz, 큰 폴더 조각=tar
         tar.extractall(out, filter='data')
         return tar.getnames()
 
@@ -232,6 +360,11 @@ if __name__ == '__main__':
     args = sys.argv[1:]
     if args[:1] == ['upload']:              # 수동 올리기: upload [YYYYMMDD]
         print(upload(root / 'backup', args[1] if len(args) > 1 else None))
+    elif args[:1] == ['upload-docs']:       # 인사 서류·플렉스 보관 내보내기(바뀐 날만)
+        print(upload_docs(root, root / 'backup'))
+    elif args[:1] == ['upload-archive'] and len(args) >= 3:   # 큰 폴더 한 번: upload-archive <폴더> <이름표>
+        res = upload_archive(args[1], args[2])
+        print(f"끝: 조각 {len(res)}개, {sum(r[1] for r in res) // (1024 * 1024)} MB, 파일 {sum(r[2] for r in res)}개")
     elif args[:1] == ['restore'] and len(args) >= 2:
         pw = password() or getpass.getpass('백업 암호: ')
         dest = args[2] if len(args) > 2 else str(Path(args[1]).with_suffix(''))
@@ -240,5 +373,7 @@ if __name__ == '__main__':
         print(f'풀린 곳: {dest}\n{_RESTORE_HELP}')
     else:
         print('사용법: python scripts/offsite_backup.py upload [YYYYMMDD]\n'
+              '        python scripts/offsite_backup.py upload-docs\n'
+              '        python scripts/offsite_backup.py upload-archive <폴더> <이름표>\n'
               '        python scripts/offsite_backup.py restore <파일.itgbak> [풀 폴더]')
         sys.exit(2)
