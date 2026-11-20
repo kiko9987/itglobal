@@ -92,7 +92,9 @@ def _register(c):
 # ── 숫자 만들기 ─────────────────────────────────────────────────────────
 def test_issue_code_only_for_field_with_slack(db):
     c = gw_device.issue_code(_field_id(), ADMIN)
-    assert len(c['code']) == 6 and c['code'].isdigit() and c['minutes'] == 10
+    assert len(c['code']) == 8 and c['code'].isdigit() and c['days'] == 7          # 11-20: 7일·8자리
+    assert gw_device.pending_code(_field_id())['expires_at'] == c['expires_at']
+    assert gw_device.is_pending(_field_id(), c['code']) and not gw_device.is_pending(_field_id(), '00000000')
     with pytest.raises(ValueError):
         gw_device.issue_code(hr.find_by_email(STAFF)['id'], ADMIN)    # 사무실 직원(구글 로그인)은 안 됨
     with db._get_connection() as conn:
@@ -184,7 +186,7 @@ def test_idle_days(client):
 def test_wrong_codes_are_rate_limited(db):
     now = datetime.now()
     good = gw_device.issue_code(_field_id(), ADMIN, now)['code']
-    bad = '000000' if good != '000000' else '111111'
+    bad = '00000000' if good != '00000000' else '11111111'
     for _ in range(gw_device.FAIL_PER_IP):
         assert gw_device.redeem(bad, '1.2.3.4', now=now)[2].startswith('번호가 맞지')
     p, tok, why = gw_device.redeem(good, '1.2.3.4', now=now)          # 맞는 숫자도 잠깐 막힘
@@ -197,7 +199,10 @@ def test_wrong_codes_are_rate_limited(db):
 def test_expired_code(db):
     now = datetime.now()
     c = gw_device.issue_code(_field_id(), ADMIN, now)['code']
-    assert gw_device.redeem(c, now=now + timedelta(minutes=11))[2]
+    assert gw_device.redeem(c, now=now + timedelta(days=7, minutes=1))[2]           # 7일 지나면 끝
+    c2 = gw_device.issue_code(_field_id(), ADMIN, now)['code']
+    p, tok, why = gw_device.redeem(c2, now=now + timedelta(days=6))                # 6일 뒤에도 됨(11-20)
+    assert p and tok and not why
 
 
 def test_card_slack_id_swapped_to_someone_else_cannot_touch_their_leave(client):
@@ -224,3 +229,26 @@ def test_security_middleware_lets_redeem_through_only_same_origin():
     src = open(SecurityMiddleware.process_request.__code__.co_filename, encoding='utf-8').read()
     i = src.index("request.path == '/gw/device/redeem'")
     assert '_same_origin_request()' in src[i:i + 500] and src.index('# 2. CSRF/인증 검사') > i
+
+
+def test_code_dm_only_for_pending_code(client, monkeypatch):
+    """로그인 번호 슬랙 DM(11-20) — 그 사람의 안 쓴 번호일 때만, 휴가 봇으로 본인에게."""
+    from dashboard.blueprints import slack_leave
+    sent = []
+
+    class C:
+        def conversations_open(self, users):
+            return {'channel': {'id': 'D' + users}}
+
+        def chat_postMessage(self, **kw):
+            sent.append((kw['channel'], kw['text']))
+
+    monkeypatch.setattr(slack_leave, '_client', lambda: C())
+    pid = _field_id()
+    _as(client, ADMIN)
+    c = client.post(f'/api/hr/people/{pid}/device-code').get_json()
+    assert client.post(f'/api/hr/people/{pid}/device-code/dm', json={'code': '00000000'}).status_code == 400
+    r = client.post(f'/api/hr/people/{pid}/device-code/dm', json={'code': c['code']}).get_json()
+    assert r['success'] and len(sent) == 1 and f"{c['code'][:4]} {c['code'][4:]}" in sent[0][1]
+    d = client.get(f'/api/hr/people/{pid}/devices').get_json()
+    assert d['pending']['expires_at'] == c['expires_at'] and d['has_slack']

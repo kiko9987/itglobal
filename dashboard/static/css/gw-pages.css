@@ -231,6 +231,9 @@
 .gw-req-form .gw-req-wide, .gw-req-form .gw-req-btns, .gw-req-form .gw-req-fams, .gw-req-form [data-fam-add] { grid-column: 1 / -1; }
 #hrReqFamForm { grid-template-columns: 1fr; }
 .gw-cert-req { grid-template-columns: repeat(2, minmax(0, 1fr)); }   /* 내 정보 증명서 신청(11-20) */
+/* 로그인 번호(7일, 11-20) — 슬랙 DM·복사 */
+.gw-dev-code-act { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 8px 0 4px; }
+.gw-dev-code-msg { font-size: 0.85rem; color: #166534; }
 /* 서류 올리기 창(11-20) — 종류 + 끌어 놓기 칸 */
 .gw-doc-up { grid-template-columns: 220px 1fr; align-items: stretch; }
 .gw-drop { position: relative; flex-direction: row !important; align-items: center; gap: 10px !important; flex-wrap: wrap;

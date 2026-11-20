@@ -451,7 +451,8 @@ def api_devices(pid):
         return jsonify({'success': False, 'message': '없는 구성원입니다.'}), 404
     can = p.get('status') != hr.STATUS_RESIGNED and p.get('access') == hr.ACCESS_FIELD
     return jsonify({'success': True, 'can_register': can, 'devices': gw_device.list_for(pid) if can else [],
-                    'idle_days': gw_device.IDLE_DAYS})
+                    'idle_days': gw_device.IDLE_DAYS, 'pending': gw_device.pending_code(pid) if can else None,
+                    'has_slack': bool((p.get('slack_id') or '').strip())})
 
 
 @hr_bp.route('/api/hr/people/<int:pid>/device-code', methods=['POST'])
@@ -464,6 +465,38 @@ def api_device_code(pid):
         return jsonify({'success': True, **gw_device.issue_code(pid, _me())})
     except Exception as e:
         return _fail(e)
+
+
+@hr_bp.route('/api/hr/people/<int:pid>/device-code/dm', methods=['POST'])
+@gw_page
+def api_device_code_dm(pid):
+    """방금 만든 로그인 번호를 그 직원 슬랙 DM 으로(11-20) — 단톡방 대신. 번호가 그 사람의 안 쓴 번호일 때만."""
+    from dashboard.services import gw_device
+    if not _hr_admin():
+        return jsonify({'success': False, 'message': '인사카드 관리자만 보낼 수 있습니다.'}), 403
+    p = hr.get_person(pid)
+    code = ''.join(ch for ch in str((request.get_json(silent=True) or {}).get('code') or '') if ch.isdigit())
+    if not p or not gw_device.is_pending(pid, code):
+        return jsonify({'success': False, 'message': '이미 쓴 번호이거나 기한이 지났어요. 새 번호를 만들어 주세요.'}), 400
+    sid = (p.get('slack_id') or '').strip()
+    if not sid:
+        return jsonify({'success': False, 'message': '인사카드에 슬랙 ID 가 없어요.'}), 400
+    pend = gw_device.pending_code(pid) or {}
+    until = (pend.get('expires_at') or '')[5:10].replace('-', '/')
+    text = (f"📱 *그룹웨어 휴대폰 로그인 번호*: `{code[:4]} {code[4:]}`\n"
+            f"{_base_url()} 를 휴대폰에서 열고 「번호로 로그인」에 넣어 주세요. "
+            f"{until}까지, 한 번만 쓸 수 있어요. 한 번 로그인하면 그 휴대폰에서는 계속 열려요.\n"
+            "홈 화면에 추가해 두면 앱처럼 열 수 있어요. 이 번호는 다른 사람에게 보여 주지 마세요.")
+    try:
+        from dashboard.blueprints.slack_leave import _client
+        c = _client()
+        ch = c.conversations_open(users=sid)['channel']['id']
+        c.chat_postMessage(channel=ch, text=text)
+    except Exception as e:
+        logger.warning(f'[HR] 로그인 번호 DM 실패 #{pid}: {e}')
+        return jsonify({'success': False, 'message': '슬랙으로 보내지 못했어요. 번호를 직접 1:1 로 전해 주세요.'}), 502
+    logger.info(f'[HR] 로그인 번호 DM #{pid} by {_me()}')
+    return jsonify({'success': True})
 
 
 @hr_bp.route('/api/hr/people/<int:pid>/devices/<int:did>/revoke', methods=['POST'])

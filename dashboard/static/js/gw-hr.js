@@ -549,10 +549,19 @@
     var h = '<div class="gw-dev-head"><strong>로그인된 휴대폰</strong>' +
       '<button type="button" class="btn btn-sm btn-primary" id="hrDevCodeBtn"><i class="fas fa-mobile-alt me-1" aria-hidden="true"></i>로그인 번호 만들기</button></div>';
     if (code) {
+      // 11-20: 7일·한 번만 — 미리 만들어 슬랙 DM 이나 1:1 로 전달(단톡방 X: 번호를 알면 그 직원으로 로그인)
+      var until = (code.expires_at || '').slice(5, 10).replace('-', '/');
       h += '<div class="visually-hidden" role="status" id="hrDevSr">로그인 번호 ' + esc(code.code.split('').join(' ')) + ' 을 만들었어요.</div>' +
-        '<div class="gw-dev-code"><div class="gw-dev-code-num" id="hrDevNum">' + esc(code.code.replace(/(\d{3})(\d{3})/, '$1 $2')) + '</div>' +
-        '<div class="gw-dev-code-help" id="hrDevHelp">' + esc(p.name) + ' 님 휴대폰 로그인 화면의 <strong>「번호로 로그인」</strong>에 이 번호를 넣어 주세요. ' +
-        '<span id="hrDevLeft">' + code.minutes + '분</span> 동안 한 번만 쓸 수 있어요.</div></div>';
+        '<div class="gw-dev-code"><div class="gw-dev-code-num" id="hrDevNum">' + esc(code.code.replace(/(\d{4})(\d{4})/, '$1 $2')) + '</div>' +
+        '<div class="gw-dev-code-help" id="hrDevHelp">' + esc(p.name) + ' 님 휴대폰 로그인 화면의 <strong>「번호로 로그인」</strong>에 넣는 번호예요. ' +
+        '<strong>' + esc(until) + '까지</strong> 한 번만 쓸 수 있어요. 이 화면을 닫으면 번호를 다시 볼 수 없어요.' +
+        '<div class="gw-dev-code-act">' + (j.has_slack ? '<button type="button" class="btn btn-sm btn-primary" id="hrDevDm">슬랙 DM으로 보내기</button>' : '') +
+        '<button type="button" class="btn btn-sm btn-outline-secondary" id="hrDevCopy">번호 복사</button>' +
+        '<span class="gw-dev-code-msg" id="hrDevMsg" role="status"></span></div>' +
+        '<div class="gw-log">단톡방에는 올리지 마세요. 번호를 아는 사람은 그 직원으로 로그인할 수 있어요.</div></div></div>';
+    } else if (j.pending) {
+      h += '<div class="gw-log mb-1">아직 안 쓴 번호가 있어요 (' + esc((j.pending.expires_at || '').slice(5, 10).replace('-', '/')) +
+        '까지). 번호를 잃어버렸으면 새로 만들면 예전 번호는 없어져요.</div>';
     }
     var list = j.devices || [];
     if (list.length) {
@@ -572,7 +581,7 @@
       b.disabled = true;
       api('/api/hr/people/' + p.id + '/device-code', { method: 'POST' }).then(function (c) {
         renderDevices(p, j, c);
-        startCountdown(c.expires_at);
+        bindCodeActions(p, c);
       }).catch(function (e) { b.disabled = false; window.alert(e.message); });
     });
     box.querySelectorAll('[data-dev-revoke]').forEach(function (b) {
@@ -586,24 +595,22 @@
     });
   }
 
-  function startCountdown(expiresAt) {
-    clearInterval(codeTimer);
-    var end = new Date(expiresAt.replace(' ', 'T')).getTime();
-    codeTimer = setInterval(function () {
-      var el = document.getElementById('hrDevLeft');
-      if (!el) { clearInterval(codeTimer); return; }
-      var s = Math.max(0, Math.round((end - Date.now()) / 1000));
-      if (s) { el.textContent = Math.floor(s / 60) + '분 ' + (s % 60) + '초'; return; }
-      clearInterval(codeTimer);
-      // 만료: 안내 문장을 통째로 바꿔 ' 동안 한 번만 쓸 수 있어요.'가 뒤에 붙지 않게, 지난 번호는 흐리게
-      var msg = '시간이 지나 이 번호는 쓸 수 없어요. 「로그인 번호 만들기」로 새 번호를 만들어 주세요.';
-      var help = document.getElementById('hrDevHelp');
-      if (help) help.textContent = msg; else el.textContent = msg;
-      var num = document.getElementById('hrDevNum');
-      if (num) { num.style.opacity = '0.4'; num.style.textDecoration = 'line-through'; }
-      var sr = document.getElementById('hrDevSr');
-      if (sr) sr.textContent = msg;
-    }, 1000);
+  function bindCodeActions(p, c) {
+    var msg = document.getElementById('hrDevMsg');
+    var dm = document.getElementById('hrDevDm');
+    if (dm) dm.addEventListener('click', function () {
+      dm.disabled = true;
+      api('/api/hr/people/' + p.id + '/device-code/dm', { method: 'POST', body: { code: c.code } })
+        .then(function () { msg.textContent = p.name + ' 님 슬랙 DM으로 보냈어요.'; })
+        .catch(function (e) { dm.disabled = false; msg.textContent = e.message; });
+    });
+    var cp = document.getElementById('hrDevCopy');
+    if (cp) cp.addEventListener('click', function () {
+      var t = c.code.replace(/(\d{4})(\d{4})/, '$1 $2');
+      (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject())
+        .then(function () { msg.textContent = '번호를 복사했어요.'; })
+        .catch(function () { msg.textContent = '복사가 안 돼요. 번호를 직접 적어 주세요.'; });
+    });
   }
 
   function loadDevices(p) {

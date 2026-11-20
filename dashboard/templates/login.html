@@ -419,15 +419,15 @@
                 </a>
                 {% endif %}
 
-                {# 현장·미화 직원 휴대폰 등록(11-15) — 구글 계정이 없는 직원. 경영지원이 인사카드에서 만든 6자리 숫자를
+                {# 현장·미화 직원 휴대폰 등록(11-15) — 구글 계정이 없는 직원. 경영지원이 인사카드에서 만든 8자리 숫자(7일, 11-20)를
                    한 번 넣으면 이 휴대폰은 계속 로그인돼 있다(플렉스 앱처럼).
                    11-15 점검: 휴대폰 첫 화면에서 보이게 구글 단추 바로 아래로 올림 #}
                 <form class="gw-device-form" id="gwDeviceForm" novalidate>
                     <label for="gwDeviceCode" class="gw-device-title">번호로 로그인</label>
-                    <p class="gw-device-help" id="gwDeviceHelp">구글 계정이 없으면 경영지원에서 받은 번호 6자리를 넣어 주세요. 번호는 받은 뒤 10분 안에 넣어야 해요. 한 번 로그인하면 이 휴대폰에서는 계속 열려요.</p>
+                    <p class="gw-device-help" id="gwDeviceHelp">구글 계정이 없으면 경영지원에서 받은 번호 8자리를 넣어 주세요. 한 번 로그인하면 이 휴대폰에서는 계속 열려요.</p>
                     <div class="gw-device-row">
                         <input type="text" id="gwDeviceCode" name="code" inputmode="numeric" pattern="[0-9 ]*"
-                               autocomplete="one-time-code" maxlength="7" placeholder="000000" aria-describedby="gwDeviceHelp gwDeviceErr">
+                               autocomplete="one-time-code" maxlength="9" placeholder="0000 0000" aria-describedby="gwDeviceHelp gwDeviceErr">
                         <button type="submit" class="btn btn-dark" id="gwDeviceBtn">로그인</button>
                     </div>
                     <div class="gw-device-err" id="gwDeviceErr" role="alert"></div>
@@ -506,7 +506,7 @@
             }
         }
         
-        // 번호로 로그인(현장 직원 휴대폰) — 번호 6자리 → /gw/device/redeem → 내 휴가로(11-15)
+        // 번호로 로그인(현장 직원 휴대폰) — 번호 8자리(11-20, 그 전 6자리) → /gw/device/redeem → 내 휴가로(11-15)
         (function () {
             var f = document.getElementById('gwDeviceForm');
             if (!f) return;
@@ -516,7 +516,7 @@
             f.addEventListener('submit', function (e) {
                 e.preventDefault();
                 var code = (input.value || '').replace(/\D/g, '');
-                if (code.length !== 6) { err.textContent = '번호 6자리를 넣어 주세요.'; input.focus(); return; }
+                if (code.length !== 8 && code.length !== 6) { err.textContent = '번호 8자리를 넣어 주세요.'; input.focus(); return; }
                 btn.disabled = true;
                 err.textContent = '';
                 fetch('/gw/device/redeem', {

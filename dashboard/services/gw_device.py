@@ -1,14 +1,16 @@
 """현장·미화 직원 휴대폰 등록 (2026-11-15, KiKO: 플렉스 앱처럼 한 번 로그인하면 계속).
 
 메일·슬랙을 잘 안 보는 직원(미화 여사님)용. 흐름:
-  1) 인사카드 관리자가 PC 인사카드에서 [로그인 번호 만들기] → 6자리 숫자(10분·한 번만).
+  1) 인사카드 관리자가 PC 인사카드에서 [로그인 번호 만들기] → 8자리 숫자(7일·한 번만) → [슬랙 DM으로 보내기] 또는 1:1 로 전달.
+     (11-20 부장님: 현장은 바빠서 10분 안에 넣기 어렵다 → 미리 만들어 두고 시간 날 때. 기간이 길어진 만큼 6→8자리)
   2) 직원 휴대폰의 홈 화면 앱(또는 브라우저) 로그인 화면 「번호로 로그인」 칸에 그 번호.
   3) 그 휴대폰에 '기기 열쇠' 쿠키(gw_device, 원문은 DB 에 sha256 만)를 심고 현장 세션을 연다.
      그 뒤로는 세션이 끝나도 열쇠로 다시 연다 — 마지막 사용 뒤 IDLE_DAYS 일 안 쓰면 끝.
 
 끊기는 경우: 인사카드에서 [끊기] · 그 휴대폰에서 로그아웃 · 퇴사나 로그인 방식 변경(현장 아님) ·
 인사카드 슬랙 ID 가 등록 때와 달라짐 · IDLE_DAYS 동안 안 씀.
-숫자 맞히기 막기: 같은 주소에서 15분에 5번, 전체 15분에 30번 틀리면 잠시 막는다(숫자는 100만 가지, 10분만 유효).
+숫자 맞히기 막기: 같은 주소에서 15분에 5번, 전체 15분에 30번 틀리면 잠시 막는다(숫자는 1억 가지, 7일 유효 —
+하루 최대 2,880번 시도해도 살아 있는 번호 하나를 맞힐 확률은 7일에 0.02% 안팎). 단톡방에 올리지 말 것(번호=그 사람 로그인).
 """
 from __future__ import annotations
 
@@ -23,7 +25,8 @@ from dashboard.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-CODE_TTL_MINUTES = 10
+CODE_TTL_DAYS = 7             # 미리 만들어 두고 시간 날 때 넣게(11-20)
+CODE_LEN = 8
 IDLE_DAYS = 90                 # 마지막 사용 뒤 이만큼 안 쓰면 다시 등록
 TOUCH_EVERY = timedelta(hours=1)   # 마지막 사용 시각·쿠키 기한은 한 시간에 한 번만 고친다
 COOKIE = 'gw_device'
@@ -140,19 +143,37 @@ def issue_code(person_id: int, by: str, now: Optional[datetime] = None) -> Dict:
         conn.execute('DELETE FROM gw_device_codes WHERE (person_id = ? AND used_at IS NULL) OR expires_at < ?',
                      (p['id'], _fmt(now - timedelta(days=1))))
         for _ in range(20):   # 지금 살아 있는 다른 숫자와 겹치지 않게
-            code = f'{secrets.randbelow(1_000_000):06d}'
+            code = f'{secrets.randbelow(10 ** CODE_LEN):0{CODE_LEN}d}'
             try:
                 conn.execute('INSERT INTO gw_device_codes (code_hash, person_id, created_by, created_at, expires_at) '
                              'VALUES (?,?,?,?,?)', (_hash(code), p['id'], by, _fmt(now),
-                                                    _fmt(now + timedelta(minutes=CODE_TTL_MINUTES))))
+                                                    _fmt(now + timedelta(days=CODE_TTL_DAYS))))
                 break
             except Exception:
                 continue
         else:
             raise RuntimeError('번호를 만들지 못했어요. 다시 눌러 주세요.')
     logger.info(f'[GW-DEVICE] 등록 숫자 발급 #{p["id"]} by {by}')
-    return {'code': code, 'expires_at': _fmt(now + timedelta(minutes=CODE_TTL_MINUTES)),
-            'minutes': CODE_TTL_MINUTES}
+    return {'code': code, 'expires_at': _fmt(now + timedelta(days=CODE_TTL_DAYS)), 'days': CODE_TTL_DAYS}
+
+
+def pending_code(person_id: int, now: Optional[datetime] = None) -> Optional[dict]:
+    """아직 안 쓴 번호(있으면) — {'created_at','expires_at'}. 번호 자체는 남기지 않아 다시 보여 줄 수 없다."""
+    now = now or datetime.now()
+    with _conn() as conn:
+        r = conn.execute('SELECT created_at, expires_at FROM gw_device_codes WHERE person_id = ? AND used_at IS NULL '
+                         'AND expires_at >= ? ORDER BY created_at DESC LIMIT 1', (int(person_id), _fmt(now))).fetchone()
+    return dict(r) if r else None
+
+
+def is_pending(person_id: int, code: str, now: Optional[datetime] = None) -> bool:
+    """이 번호가 그 사람의 아직 안 쓴 번호인가 — 슬랙 DM 보내기 전에 확인."""
+    now = now or datetime.now()
+    code = ''.join(ch for ch in str(code or '') if ch.isdigit())
+    with _conn() as conn:
+        r = conn.execute('SELECT 1 FROM gw_device_codes WHERE code_hash = ? AND person_id = ? AND used_at IS NULL '
+                         'AND expires_at >= ?', (_hash(code), int(person_id), _fmt(now))).fetchone()
+    return bool(r)
 
 
 # ── 숫자 넣기(직원 휴대폰) ────────────────────────────────────────────
@@ -175,7 +196,7 @@ def redeem(code: str, ip: str = '', user_agent: str = '',
             logger.warning(f'[GW-DEVICE] 숫자 시도 잠김 ip={ip}')
             return None, '', '여러 번 틀려서 잠시 막혔어요. 15분 뒤에 다시 해 주세요.'
         row = None
-        if len(code) == 6:
+        if len(code) in (6, CODE_LEN):
             cur = conn.execute('UPDATE gw_device_codes SET used_at = ?, used_ip = ? '
                                'WHERE code_hash = ? AND used_at IS NULL AND expires_at >= ?',
                                (_fmt(now), ip, _hash(code), _fmt(now)))
@@ -184,7 +205,7 @@ def redeem(code: str, ip: str = '', user_agent: str = '',
                                    (_hash(code),)).fetchone()
         if not row:
             conn.execute('INSERT INTO gw_device_fails (ip, at) VALUES (?, ?)', (ip, _fmt(now)))
-            return None, '', '번호가 맞지 않거나 10분이 지났어요. 경영지원에서 새 번호를 받아 주세요.'
+            return None, '', '번호가 맞지 않거나 기한이 지났어요. 경영지원에서 새 번호를 받아 주세요.'
     p = hr.get_person(row[0])
     if not _field_ok(p):
         return None, '', '이 번호로는 로그인할 수 없어요. 경영지원에 문의해 주세요.'
