@@ -1752,6 +1752,48 @@ def test_same_file_from_folder_and_attach_posted_once(se, monkeypatch):
     assert len(se._fake.of('files_upload_v2')) == n + 2
 
 
+def test_invoice_preview_on_card_and_dm(se, monkeypatch):
+    """11-20 KiKO — 자금집행 카드·DM 에 계산서 미리보기(공개 링크 없이 slack_file). PDF 는 안내 한 줄."""
+    monkeypatch.setattr(se, '_PREVIEW_WAIT_SEC', 0)
+    monkeypatch.setattr(se, '_download', lambda url: b'IMG')
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    se._fake.files_upload_v2 = lambda **kw: (se._fake.calls.append(('files_upload_v2', kw)) or
+                                             {'files': [{'id': 'FPDF', 'name': 'a.pdf'}, {'id': 'FIMG', 'name': '계산서.png'}]})
+    se.post_files(row, [{'name': 'a.pdf', 'url': 'u1'}, {'name': '계산서.png', 'url': 'u2'}], '',
+                  label='📄 계산서 (#영업_관리 계산서 글에서)')
+    row = ea.get(row['id'])
+    assert ea.extra(row)['inv_preview'] == {'id': 'FIMG', 'kind': 'image', 'name': '계산서.png', 'label': '계산서'}
+    card = se.render(row, 'all')[1]
+    img = [b for b in card if b.get('type') == 'image']
+    assert img == [{'type': 'image', 'slack_file': {'id': 'FIMG'}, 'alt_text': '계산서 미리보기'}]
+    assert 'image_url' not in json.dumps(card)                          # 공개 링크 안 씀
+    assert any(b.get('type') == 'image' for b in se.render(row, 'approver')[1])   # DM 에도
+    assert not any(b.get('type') == 'image' for b in se.render(row, 'all', preview=False)[1])
+    # 창 첨부는 이미 미리보기가 있으면 안 바꿈
+    se._fake.files_upload_v2 = lambda **kw: {'files': [{'id': 'FX', 'name': 'x.png'}]}
+    se.post_files(row, [{'name': 'x.png', 'url': 'u3'}], '박정우')
+    assert ea.extra(ea.get(row['id']))['inv_preview']['id'] == 'FIMG'
+    assert ea.preview_blocks(dict(row, extra=json.dumps({'inv_preview': {'kind': 'pdf', 'name': 'a.pdf', 'id': 'F'}})))[0]['type'] == 'context'
+    assert ea.preview_blocks(dict(row, status=ea.DONE)) == []           # 끝난 카드엔 없음
+
+
+def test_preview_rejected_redraws_without_image(se, monkeypatch):
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    ea.set_extra(row['id'], inv_preview={'id': 'FBAD', 'kind': 'image', 'name': 'a.png', 'label': '계산서'})
+    row = ea.get(row['id'])
+    sent = []
+
+    def upd(**kw):
+        if any(b.get('type') == 'image' for b in kw['blocks']):
+            raise RuntimeError('invalid_blocks')
+        sent.append(kw)
+        return {'ok': True}
+    monkeypatch.setattr(se, 'eap_client', lambda: type('C', (), {'chat_update': staticmethod(upd),
+                                                                 'pins_remove': staticmethod(lambda **k: None),
+                                                                 'chat_getPermalink': staticmethod(lambda **k: {})})())
+    assert se.refresh(row) is False and sent                            # 미리보기 빼고 그렸고, 나중에 다시 그리게 False
+
+
 def test_folder_doc_file_reads_drive(monkeypatch):
     from dashboard.blueprints import slack_eapproval as se2
     from dashboard.services import business_license_handler as bl

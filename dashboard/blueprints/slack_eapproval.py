@@ -84,14 +84,37 @@ def _project_line_and_quote(code: str):
     return project_display(code, rec), quote
 
 
-def render(row: dict, role: str = 'all'):
+def render(row: dict, role: str = 'all', preview: bool = True):
     """(text, blocks). 채널 카드(all)=내용+버튼 전부. DM=알림 한 줄+요약+카드 링크만(11-01) —
-    승인·반려·이체/구매 완료는 채널 카드 한 곳에서 누른다."""
+    승인·반려·이체/구매 완료는 채널 카드 한 곳에서 누른다. preview=계산서 미리보기(11-20)."""
     head = f'{ea.title(row)} — {ea.status_label(row)[1]}'
     line, quote = _project_line_and_quote(row.get('project_code'))
     if role == 'all':
-        return head, ea.card_blocks(row, ea.steps(row['id']), line, quote, role)
-    return head, ea.dm_blocks(row, role, line, _card_link(row))
+        return head, ea.card_blocks(row, ea.steps(row['id']), line, quote, role, preview=preview)
+    return head, ea.dm_blocks(row, role, line, _card_link(row), preview=preview)
+
+
+def _send_rendered(call, row: dict, role: str, **kw):
+    """render 결과로 chat_postMessage/chat_update. 미리보기 이미지를 슬랙이 거부하면(파일 처리 중 등)
+    미리보기 없이 한 번 더 — 미리보기 때문에 카드·DM 이 안 바뀌면 안 된다. (응답, 미리보기 빠짐 여부)."""
+    text, blocks = render(row, role)
+    try:
+        return call(text=text, blocks=blocks, **kw), False
+    except Exception as exc:
+        if not ea.preview_blocks(row):
+            raise
+        logger.warning(f'{_LOG} 미리보기 빼고 다시 그림 ({ea.title(row)} {role}): {exc}')
+        text, blocks = render(row, role, preview=False)
+        resp = call(text=text, blocks=blocks, **kw)
+        try:   # 계속 거부되면(파일 삭제 등) 미리보기를 접는다 — 정기 점검이 5분마다 다시 그리며 경고만 쌓이지 않게
+            n = int(ea.kv_get('preview_fail:' + str(row['id'])) or 0) + 1
+            ea.kv_set('preview_fail:' + str(row['id']), str(n))
+            if n >= 3:
+                ea.set_extra(row['id'], inv_preview=None)
+                return resp, False
+        except Exception:
+            pass
+        return resp, True
 
 
 def _card_link(row: dict) -> str:
@@ -113,8 +136,7 @@ def _send_dm(client, aid: int, uid: str, role: str) -> None:
     row = ea.get(aid)
     try:
         ch = client.conversations_open(users=uid)['channel']['id']
-        text, blocks = render(row, role)
-        r = client.chat_postMessage(channel=ch, text=text, blocks=blocks, **_NO_UNFURL)
+        r, _ = _send_rendered(client.chat_postMessage, row, role, channel=ch, **_NO_UNFURL)
         ea.add_dm_ref(aid, ch, r['ts'], role, uid)
     except Exception as exc:
         # 승인·이체 담당 DM 이 안 가면 아무도 모른 채 결재가 멈춘다(퇴사 계정 등) — 관리자 알림(11-06 검수)
@@ -198,10 +220,10 @@ def refresh(row: dict) -> bool:
     ok = True
     sig = ea.drawn_sig(row)
     if row.get('card_channel') and row.get('card_ts'):
-        text, blocks = render(row, 'all')
         try:
-            client.chat_update(channel=row['card_channel'], ts=row['card_ts'], text=text, blocks=blocks,
-                               attachments=[])   # 상품 링크 미리보기가 붙어 있으면 걷어낸다(11-11)
+            _, dropped = _send_rendered(client.chat_update, row, 'all', channel=row['card_channel'],
+                                        ts=row['card_ts'], attachments=[])   # 상품 링크 미리보기가 붙어 있으면 걷어낸다(11-11)
+            ok = ok and not dropped   # 미리보기를 뺐으면 정기 점검이 나중에 다시 그린다
         except Exception as exc:
             ok = False
             logger.warning(f'{_LOG} 카드 갱신 실패 ({ea.title(row)}): {exc}')
@@ -212,9 +234,9 @@ def refresh(row: dict) -> bool:
                 if 'no_pin' not in str(exc):
                     logger.debug(f'{_LOG} 카드 고정 해제 실패(무시): {exc}')
     for d in ea.dm_refs(row):
-        text, blocks = render(row, d['role'])
         try:
-            client.chat_update(channel=d['ch'], ts=d['ts'], text=text, blocks=blocks, attachments=[])
+            _, dropped = _send_rendered(client.chat_update, row, d['role'], channel=d['ch'], ts=d['ts'], attachments=[])
+            ok = ok and not dropped
         except Exception as exc:
             ok = False
             logger.warning(f'{_LOG} DM 갱신 실패 ({ea.title(row)} {d}): {exc}')
@@ -415,9 +437,10 @@ def post_files(row: dict, files: list, who: str, label: str = '') -> int:
         logger.warning(f'{_LOG} 첨부 위치 기억 실패 ({ea.title(row)}): {exc}')
     if uploads:
         try:
-            eap_client().files_upload_v2(channel=row['card_channel'], thread_ts=row['card_ts'],
-                                         file_uploads=uploads, initial_comment=label or f'📎 {ea.initial(who)} 첨부')
+            resp = eap_client().files_upload_v2(channel=row['card_channel'], thread_ts=row['card_ts'],
+                                                file_uploads=uploads, initial_comment=label or f'📎 {ea.initial(who)} 첨부')
             _remember_doc_names(row, [u['filename'] for u in uploads])
+            _set_preview(row, resp, uploads, invoice=label.startswith('📄 계산서'))
         except Exception as exc:
             logger.warning(f'{_LOG} 첨부 올리기 실패 ({ea.title(row)}): {exc}')
             failed += [u['filename'] for u in uploads]
@@ -427,6 +450,34 @@ def post_files(row: dict, files: list, who: str, label: str = '') -> int:
         _notify(eap_client(), row.get('requester_id'),
                 f"⚠️ {ea.title(row)} 첨부 {len(failed)}개를 카드에 붙이지 못했어요. 카드 스레드에 직접 올려 주세요.")
     return len(uploads)
+
+
+_PREVIEW_WAIT_SEC = 3   # 막 올린 파일을 슬랙이 처리하기 전에 가리키면 이미지 블록이 거부된다
+
+
+def _set_preview(row: dict, resp, uploads: list, invoice: bool) -> None:
+    """카드 스레드에 올린 파일 중 하나를 카드·DM 미리보기로(11-20 KiKO). 이미지 먼저, 없으면 PDF.
+
+    계산서 글 사진(invoice)은 늘 이것으로. 창 첨부는 자금집행에서 아직 미리보기가 없을 때만(선입금·수기계산서)."""
+    try:
+        if row.get('form') != ea.FORM_FUND:
+            return
+        if not invoice and (ea.extra(ea.get(row['id']) or row).get('inv_preview')):
+            return
+        got = list((resp or {}).get('files') or [])
+        pairs = [(f.get('name') or (uploads[i]['filename'] if i < len(uploads) else ''), f.get('id') or '')
+                 for i, f in enumerate(got)]
+        refs = [ea.preview_ref(n, fid, '계산서' if invoice else '첨부') for n, fid in pairs]
+        refs = [r for r in refs if r]
+        pick = next((r for r in refs if r['kind'] == 'image'), None) or (refs[0] if refs else None)
+        if not pick:
+            return
+        new = ea.set_extra(row['id'], inv_preview=pick)
+        if new and new.get('status') in ea.OPEN_STATUSES:
+            time.sleep(_PREVIEW_WAIT_SEC)
+            refresh(ea.get(row['id']))
+    except Exception as exc:
+        logger.warning(f'{_LOG} 계산서 미리보기 기록 실패 ({ea.title(row)}): {exc}')
 
 
 def save_handwritten(row: dict) -> List[str]:
@@ -1917,9 +1968,8 @@ def _repost_card(client, row: dict):
     """진행 중 결재의 채널 카드가 지워졌으면 다시 올리고 고정, DM 의 카드 링크도 새 카드로(11-16).
     11-12 #23·#24 카드가 채널에서 지워져 최종 승인 버튼이 없어진 채 사흘 멈췄다(DM 엔 버튼이 없다)."""
     old_ts = row['card_ts']
-    text, blocks = render(row, 'all')
     try:
-        r = client.chat_postMessage(channel=row['card_channel'], text=text, blocks=blocks, **_NO_UNFURL)
+        r, _ = _send_rendered(client.chat_postMessage, row, 'all', channel=row['card_channel'], **_NO_UNFURL)
     except Exception as exc:
         logger.error(f'{_LOG} 지워진 카드 다시 올리기 실패 ({ea.title(row)}): {exc}')
         return None
