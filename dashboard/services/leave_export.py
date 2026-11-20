@@ -88,8 +88,8 @@ def usage_xlsx(year: int) -> bytes:
     return _book(f'{year} 사용 내역', head, usage_rows(year), [10, 18, 12, 12, 7, 7, 9, 36, 17, 13], number_cols=(6,))
 
 
-def _split_by_month(e: dict, year: int) -> dict:
-    """한 휴가의 일수를 달마다 — 한 달 안이면 그대로, 달을 넘으면 그 달에 든 근무일만큼."""
+def _split_by_month(e: dict, year: int, name: str = '') -> dict:
+    """한 휴가의 일수를 달마다 — 한 달 안이면 그대로, 달을 넘으면 그 달에 든 근무일만큼(그 사람 토요일 근무 반영)."""
     s, t = lv._d(e['start']), lv._d(e.get('end') or e['start'])
     if not s or not t:
         return {}
@@ -100,7 +100,7 @@ def _split_by_month(e: dict, year: int) -> dict:
         a = max(s, date(year, m, 1))
         b = min(t, date(year + (m == 12), m % 12 + 1, 1) - timedelta(days=1))
         if a <= b:
-            n = lv.count_days(lv.ANNUAL, a, b)
+            n = lv.count_days(lv.ANNUAL, a, b, name, span=(s, t))
             if n:
                 out[m] = n
     return out
@@ -114,7 +114,7 @@ def monthly_rows(year: int) -> List[list]:
         for e in leave_view.entries_for(full):
             if e['status'] != leave_view.ST_OK or not e['annual']:
                 continue
-            for m, d in _split_by_month(e, year).items():
+            for m, d in _split_by_month(e, year, p['name']).items():
                 per[m - 1] += d
         if not any(per) and p.get('status') == hr.STATUS_RESIGNED:
             continue
