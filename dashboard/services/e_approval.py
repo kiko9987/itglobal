@@ -1626,7 +1626,8 @@ def _with_preview(blocks: List[dict], row: dict) -> List[dict]:
     return blocks[:i + 1] + pv + blocks[i + 1:]
 
 
-def dm_blocks(row: dict, role: str, project_line: str, card_link: str = '', preview: bool = True) -> List[dict]:
+def dm_blocks(row: dict, role: str, project_line: str, card_link: str = '', preview: bool = False) -> List[dict]:
+    # preview 기본 꺼짐 — DM 은 원본 카드로 가는 알림만, 계산서 미리보기는 원본 카드에서 본다(11-20 KiKO)
     """DM = 알림 + 한 줄 요약 + 카드 링크. 버튼은 채널 카드에만 둔다(누르는 곳 한 군데)."""
     form = row.get('form')
     amt = int(row.get('amount') or 0)

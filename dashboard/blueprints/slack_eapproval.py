@@ -91,7 +91,7 @@ def render(row: dict, role: str = 'all', preview: bool = True):
     line, quote = _project_line_and_quote(row.get('project_code'))
     if role == 'all':
         return head, ea.card_blocks(row, ea.steps(row['id']), line, quote, role, preview=preview)
-    return head, ea.dm_blocks(row, role, line, _card_link(row), preview=preview)
+    return head, ea.dm_blocks(row, role, line, _card_link(row))   # DM 엔 미리보기 없음(11-20)
 
 
 def _send_rendered(call, row: dict, role: str, **kw):
@@ -101,7 +101,7 @@ def _send_rendered(call, row: dict, role: str, **kw):
     try:
         return call(text=text, blocks=blocks, **kw), False
     except Exception as exc:
-        if not ea.preview_blocks(row):
+        if role != 'all' or not ea.preview_blocks(row):   # 미리보기는 채널 카드에만
             raise
         logger.warning(f'{_LOG} 미리보기 빼고 다시 그림 ({ea.title(row)} {role}): {exc}')
         text, blocks = render(row, role, preview=False)
