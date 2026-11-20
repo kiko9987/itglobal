@@ -1,0 +1,93 @@
+{% extends "modern_base.html" %}
+
+{% block title %}토요일 휴무 - 아이티글로벌그룹{% endblock %}
+
+{% block additional_css %}
+<link rel="stylesheet" href="{{ gw_asset('css/gw-pages.css') }}">
+{% endblock %}
+
+{% block content %}
+{# 토요일 휴무(11-20) — 기술영업 격주휴무를 달력에서 고르고 결재받는다. 규칙은 services/sat_off.py #}
+<div class="gw-page gw-so" id="soPage">
+  <div class="gw-page-head">
+    <h1 class="gw-page-title">토요일 휴무</h1>
+  </div>
+
+  <div class="gw-cal-head">
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="soPrev" aria-label="이전 달"><i class="fas fa-chevron-left" aria-hidden="true"></i></button>
+    <h2 class="gw-cal-title" id="soTitle" aria-live="polite"></h2>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="soNext" aria-label="다음 달"><i class="fas fa-chevron-right" aria-hidden="true"></i></button>
+    <button type="button" class="btn btn-sm btn-link" id="soToday">이번 달</button>
+    <span class="gw-so-status" id="soStatus"></span>
+  </div>
+
+  <div class="gw-so-bar" id="soBar"></div>
+  <div class="gw-lv-flash" id="soFlash" role="status" aria-live="polite" tabindex="-1" hidden></div>
+
+  <div class="gw-cal" id="soCal"><div class="gw-empty">불러오는 중…</div></div>
+
+  <div class="gw-so-side">
+    <section class="gw-panel gw-so-box">
+      <h3 class="gw-so-h">사람별 횟수 <small id="soLimit"></small></h3>
+      <ul class="gw-so-counts" id="soCounts"></ul>
+    </section>
+    <section class="gw-panel gw-so-box" id="soChangesBox" hidden>
+      <h3 class="gw-so-h">변경 신청</h3>
+      <ul class="gw-so-changes" id="soChanges"></ul>
+    </section>
+    <section class="gw-panel gw-so-box" id="soLogBox" hidden>
+      <details>
+        <summary class="gw-so-h">고친 기록</summary>
+        <ul class="gw-so-log" id="soLog"></ul>
+      </details>
+    </section>
+  </div>
+</div>
+
+{# 토요일에 쉬는 사람 고르기 — 취합 담당·승인권자 #}
+<div class="modal fade" id="soPickModal" tabindex="-1" aria-labelledby="soPickTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-fullscreen-sm-down">
+    <form class="modal-content" id="soPickForm" novalidate>
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="soPickTitle">쉬는 사람</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
+      </div>
+      <div class="modal-body">
+        <p class="gw-so-hint" id="soPickHint"></p>
+        <div class="gw-so-picks" id="soPickList"></div>
+        <div class="gw-lv-err" id="soPickErr" role="alert"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">닫기</button>
+        <button type="submit" class="btn btn-primary" id="soPickSave">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# 사유 적기 — 돌려보내기·반려·변경 신청 #}
+<div class="modal fade" id="soNoteModal" tabindex="-1" aria-labelledby="soNoteTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" id="soNoteForm" novalidate>
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="soNoteTitle"></h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-2" id="soNoteWhat"></p>
+        <label class="form-label" for="soNoteText" id="soNoteLabel">사유</label>
+        <input type="text" class="form-control" id="soNoteText" maxlength="300" required>
+        <div class="gw-lv-err" id="soNoteErr" role="alert"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">닫기</button>
+        <button type="submit" class="btn btn-primary" id="soNoteOk"></button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block additional_js %}
+<script src="{{ gw_asset('js/gw-satoff.js') }}" defer></script>
+{% endblock %}

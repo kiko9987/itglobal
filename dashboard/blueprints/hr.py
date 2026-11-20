@@ -919,7 +919,13 @@ def api_leave_calendar():
         _date(y, m, 1)
     except (ValueError, TypeError):
         return jsonify({'success': False, 'message': '달 형식은 YYYY-MM 입니다.'}), 400
-    return jsonify({'success': True, 'month': f'{y:04d}-{m:02d}', 'entries': leave_view.calendar(y, m)})
+    try:
+        from dashboard.services import sat_off
+        sat = sat_off.calendar_month(y, m)          # 기술영업 토요일 휴무(11-20)
+    except Exception as e:
+        logger.warning(f'[GW휴가] 토요일 휴무 달력 실패: {e}')
+        sat = []
+    return jsonify({'success': True, 'month': f'{y:04d}-{m:02d}', 'entries': leave_view.calendar(y, m), 'sat_off': sat})
 
 
 # ── 홈 ────────────────────────────────────────────────────────────────

@@ -182,6 +182,7 @@ AREAS = [
         'items': [
             {'href': '/leave', 'label': '내 휴가', 'icon': 'fas fa-calendar-check', 'field': True},
             {'href': '/leave/team', 'label': '전사 휴가 관리', 'icon': 'fas fa-calendar-alt', 'leave_all': True},
+            {'href': '/leave/saturday', 'label': '토요일 휴무', 'icon': 'fas fa-calendar-week', 'sat_off': True},   # 기술영업 격주휴무(11-20)
         ],
     },
     {
@@ -215,7 +216,8 @@ def _matches(path: str, href: str) -> bool:
     return path == href or path.startswith(href.rstrip('/') + '/')
 
 
-def _visible(it: dict, is_admin: bool, is_hr_admin: bool, field: bool = False, leave_all: bool = False) -> bool:
+def _visible(it: dict, is_admin: bool, is_hr_admin: bool, field: bool = False, leave_all: bool = False,
+             sat_off: bool = False) -> bool:
     if field:                       # 현장·미화 세션: field=True 메뉴만
         return bool(it.get('field'))
     if it.get('admin') and not is_admin:
@@ -224,17 +226,19 @@ def _visible(it: dict, is_admin: bool, is_hr_admin: bool, field: bool = False, l
         return False
     if it.get('leave_all') and not (leave_all or is_hr_admin):
         return False
+    if it.get('sat_off') and not sat_off:
+        return False
     return True
 
 
 def build_nav(path: str, permission_level: str, is_hr_admin: bool = False, field: bool = False,
-              leave_all: bool = False) -> dict:
+              leave_all: bool = False, sat_off: bool = False) -> dict:
     """현재 주소에 맞춰 왼쪽 줄(영역)과 위쪽 줄(하위 메뉴)을 만든다.
     bottom=True 영역(관리)은 왼쪽 줄 아래쪽에 따로 둔다. field=True 는 현장·미화 세션."""
     is_admin = permission_level in ('admin', 'super_admin')
     areas, active_items = [], []
     for area in AREAS:
-        items = [dict(it) for it in area['items'] if _visible(it, is_admin, is_hr_admin, field, leave_all)]
+        items = [dict(it) for it in area['items'] if _visible(it, is_admin, is_hr_admin, field, leave_all, sat_off)]
         if not items:
             continue
         # 가장 길게 맞는 메뉴 하나만 켠다(/leave/team 에서 /leave 까지 켜지지 않게)

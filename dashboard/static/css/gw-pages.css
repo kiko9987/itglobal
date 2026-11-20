@@ -2933,6 +2933,57 @@ html:has(#bdPage) {
   .gw-vh-dayhead .gw-vh-who { margin-left: 0; width: 100%; }
 }
 
+/* ── 토요일 휴무(기술영업 격주휴무, 11-20) ── */
+.gw-so-status { font-size: 0.8rem; font-weight: 600; padding: 2px 10px; border-radius: 999px; margin-left: 4px; }
+.gw-so-status.open { background: #f1f5f9; color: #334155; }
+.gw-so-status.wait { background: #fff7ed; color: #9a3412; border: 1px dashed #fb923c; }
+.gw-so-status.confirmed { background: #ecfdf5; color: #065f46; }
+.gw-so-bar { margin-bottom: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.gw-so-how { margin: 0; color: #475569; font-size: 0.9rem; width: 100%; }
+.gw-so-note { width: 100%; padding: 8px 12px; border-radius: 8px; font-size: 0.88rem; }
+.gw-so-note.warn { background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa; }
+.gw-so-draft { width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 12px;
+  background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; font-size: 0.88rem; color: #1e3a8a; }
+.gw-cal-day.gw-so-dim { background: #fbfcfd; }
+.gw-cal-day.gw-so-dim .gw-cal-num { color: #cbd5e1; }
+.gw-so-sat.can { cursor: pointer; }
+.gw-so-sat.can:hover { background: #fff7ed; }
+.gw-so-sat.can:focus-visible { outline: 2px solid #fb923c; outline-offset: -2px; }
+.gw-so-sat.past { opacity: 0.75; }
+.gw-so-hol { color: #b91c1c; font-weight: 600; }
+.gw-so-chip { background: #e0f2fe; color: #075985; }
+.gw-so-chip.mine { background: #ffedd5; color: #7c2d12; font-weight: 600; }
+.gw-so-chip.gone { text-decoration: line-through; opacity: 0.6; }
+.gw-so-chip.add { background: #fff; border: 1px dashed #fb923c; }
+.gw-so-plus { font-size: 0.72rem; color: #94a3b8; }
+.gw-so-sat.can:hover .gw-so-plus { color: #c2410c; }
+.gw-so-side { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 14px; align-items: start; }
+.gw-so-box { padding: 12px 14px; }
+.gw-so-h { font-size: 0.95rem; font-weight: 700; margin: 0 0 8px; }
+.gw-so-h small { font-weight: 400; color: #64748b; font-size: 0.8rem; }
+.gw-so-counts, .gw-so-changes, .gw-so-log { list-style: none; margin: 0; padding: 0; }
+.gw-so-counts li { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #f1f5f9; font-size: 0.9rem; }
+.gw-so-counts li.zero { color: #94a3b8; }
+.gw-so-counts li.over b { color: #b91c1c; }
+.gw-so-counts li.mine span { font-weight: 700; }
+.gw-so-warn { font-size: 0.75rem; font-weight: 400; }
+.gw-so-changes li { padding: 8px 0; border-bottom: 1px solid #f1f5f9; font-size: 0.9rem; }
+.gw-so-sub { color: #64748b; font-size: 0.8rem; margin-top: 2px; }
+.gw-so-btns { margin-top: 6px; }
+.gw-so-cst { font-size: 0.75rem; padding: 0 6px; border-radius: 5px; background: #f1f5f9; color: #334155; }
+.gw-so-cst.wait { background: #fff7ed; color: #9a3412; }
+.gw-so-cst.approved { background: #ecfdf5; color: #065f46; }
+.gw-so-cst.rejected { background: #fef2f2; color: #991b1b; }
+.gw-so-log li { font-size: 0.8rem; color: #475569; padding: 2px 0; }
+.gw-so-log li span { color: #94a3b8; }
+.gw-so-log summary { cursor: pointer; }
+.gw-so-hint { color: #475569; font-size: 0.88rem; }
+.gw-so-picks .form-check { padding-top: 4px; padding-bottom: 4px; }
+.gw-cal-chip.sat { background: #e0f2fe; color: #075985; }
+@media (max-width: 767.98px) {
+  .gw-so-plus { display: none; }
+  .gw-so-sat .gw-so-chip { white-space: normal; word-break: keep-all; }
+}
 /* ── 차량 배정(11-20) — 다음 날 차마다 탈 사람 ───────────────────── */
 .gw-va .gw-page-title { white-space: nowrap; }
 .gw-va-daynav { display: flex; align-items: center; gap: 6px; }

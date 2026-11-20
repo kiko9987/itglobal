@@ -830,14 +830,17 @@
   function iso(y, m, d) { return y + '-' + pad(m) + '-' + pad(d); }
 
   var calEntries = [];   // 지금 보이는 달의 휴가(날짜 칸을 눌렀을 때 그날 목록)
+  var calSat = {};       // 토요일 휴무(기술영업 격주휴무, 11-20) {날짜: {names, status_label}}
   var calSeq = 0;        // 달을 빨리 넘기면 늦게 온 앞 달 응답이 지금 달을 덮어쓰던 것 → 마지막 요청만 그림(11-16 점검)
 
   function dayEntries(di) {
     return calEntries.filter(function (e) { return e.start <= di && di <= e.end; });
   }
 
-  function renderCal(entries) {
+  function renderCal(entries, sat) {
     calEntries = entries;
+    calSat = {};
+    (sat || []).forEach(function (s) { calSat[s.day] = s; });
     var first = new Date(cur.y, cur.m - 1, 1);
     var lastDay = new Date(cur.y, cur.m, 0).getDate();
     var lead = (first.getDay() + 6) % 7;     // 월요일 시작
@@ -849,14 +852,16 @@
       var di = iso(cur.y, cur.m, d);
       var wd = (lead + d - 1) % 7;
       var todays = dayEntries(di);
+      var sat = calSat[di];
       // 휴가자가 있는 칸은 누르면(키보드 Enter·Space) 그날 목록 창 — 휴대폰에선 칸이 좁아 이름이 잘렸음(11-16 점검)
       var open = '';
-      if (todays.length) {
+      if (todays.length || sat) {
         var waitN = todays.filter(function (e) { return e.status === '대기'; }).length;
         open = ' role="button" tabindex="0" data-day="' + di + '" aria-haspopup="dialog" aria-label="' +
-          esc(md(di) + ' 휴가 ' + todays.length + '명' + (waitN ? ', 승인 대기 ' + waitN + '명' : '') + ' 보기') + '"';
+          esc(md(di) + ' 휴가 ' + todays.length + '명' + (waitN ? ', 승인 대기 ' + waitN + '명' : '') +
+            (sat ? ', 토요일 휴무 ' + sat.names.length + '명' : '') + ' 보기') + '"';
       }
-      h += '<div class="gw-cal-day' + (wd >= 5 ? ' we' : '') + (di === todayIso ? ' today' : '') + (todays.length ? ' has' : '') + '"' + open + '>' +
+      h += '<div class="gw-cal-day' + (wd >= 5 ? ' we' : '') + (di === todayIso ? ' today' : '') + ((todays.length || sat) ? ' has' : '') + '"' + open + '>' +
         '<div class="gw-cal-num">' + d + '</div>';
       todays.forEach(function (e) {
         var label = e.half ? e.half + ' 반차' : (e.type === '연차' ? '' : e.type);
@@ -865,6 +870,10 @@
           esc(e.name) + (label ? ' <small>' + esc(label) + '</small>' : '') +
           '<span class="visually-hidden">' + (e.status === '대기' ? ' 승인 대기' : ' 승인됨') + '</span></div>';
       });
+      if (sat) {
+        h += '<div class="gw-cal-chip sat" title="' + esc('토요일 휴무(' + sat.status_label + ') · ' + sat.names.join(', ')) + '">' +
+          '토 휴무 ' + sat.names.length + '명</div>';
+      }
       h += '</div>';
     }
     var tail = (7 - ((lead + lastDay) % 7)) % 7;
@@ -877,10 +886,11 @@
     titleEl.textContent = cur.y + '년 ' + cur.m + '월';
     calEl.innerHTML = '<div class="gw-empty">불러오는 중…</div>';
     calEntries = [];
+    calSat = {};
     var seq = ++calSeq;
     api('/api/leave/calendar?month=' + cur.y + '-' + pad(cur.m)).then(function (j) {
       if (seq !== calSeq) return;
-      renderCal(j.entries || []);
+      renderCal(j.entries || [], j.sat_off || []);
     }).catch(function (e) {
       if (seq !== calSeq) return;
       calEl.innerHTML = '<div class="gw-empty">' + esc(e.message) + '</div>';
@@ -892,14 +902,16 @@
 
   function openDay(di) {
     var list = dayEntries(di);
-    if (!list.length || !dayModalEl) return;
-    document.getElementById('lvDayTitle').textContent = md(di) + ' 휴가 ' + list.length + '명';
+    var sat = calSat[di];
+    if ((!list.length && !sat) || !dayModalEl) return;
+    document.getElementById('lvDayTitle').textContent = md(di) + (list.length ? ' 휴가 ' + list.length + '명' : ' 토요일 휴무');
     document.getElementById('lvDayBody').innerHTML = '<ul class="gw-lv-day-list">' + list.map(function (e) {
       var kind = e.type + (e.half ? ' ' + e.half : '');
       var span = e.start === e.end ? '' : md(e.start) + ' ~ ' + md(e.end);
       return '<li><div class="gw-lv-day-main"><strong>' + esc(e.name) + '</strong> ' + statusBadge(e.status) + '</div>' +
         '<div class="gw-lv-day-sub">' + esc(kind) + (span ? ' · ' + esc(span) : '') + '</div></li>';
-    }).join('') + '</ul>';
+    }).join('') + '</ul>' + (sat ? '<p class="gw-lv-day-sub mt-2 mb-0"><strong>토요일 휴무</strong> (' + esc(sat.status_label) + ') ' +
+      esc(sat.names.join(', ')) + ' · <a href="/leave/saturday?month=' + esc(di.slice(0, 7)) + '">휴무표 보기</a></p>' : '');
     if (window.bootstrap) { returnFocusOnHide(dayModalEl); window.bootstrap.Modal.getOrCreateInstance(dayModalEl).show(); }
   }
 

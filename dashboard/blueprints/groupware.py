@@ -220,6 +220,15 @@ def gw_asset(filename: str) -> str:
     return f"{url_for('static', filename=filename)}?v={v}"
 
 
+def _sat_off_menu(email: str) -> bool:
+    """「토요일 휴무」 메뉴 — 기술영업·취합 담당·승인권자·경영지원(11-20). 실패하면 숨김."""
+    try:
+        from dashboard.blueprints.gw_satoff import can_view_email
+        return can_view_email(email)
+    except Exception:
+        return False
+
+
 @groupware_bp.app_context_processor
 def inject_groupware_layout():
     """화면을 그릴 때 새 틀을 쓸지와 메뉴를 넣어 준다. 실패하면 기존 틀."""
@@ -239,7 +248,7 @@ def inject_groupware_layout():
         return {
             'gw_layout': True,
             'gw_nav': gw.build_nav(request.path, user.get('permission_level', ''), hr.is_hr_admin(email),
-                                   leave_all=hr.can_view_all_leave(email)),
+                                   leave_all=hr.can_view_all_leave(email), sat_off=_sat_off_menu(email)),
         }
     except Exception as e:
         logger.warning(f'[GW] 틀 고르기 실패 → 기존 틀: {e}')
