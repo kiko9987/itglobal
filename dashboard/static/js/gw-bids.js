@@ -159,11 +159,22 @@
     return '<li class="gw-bd-chk ' + cls + '"><i class="fas ' + ic + '" aria-hidden="true"></i>' +
       '<span class="gw-bd-chk-l">' + esc(label) + '</span><span class="gw-bd-chk-t">' + text + '</span></li>';
   }
-  function tr2(l1, v1, l2, v2) {   // 나라장터처럼 [항목|값|항목|값], 두 번째가 없으면 값이 끝까지
-    return '<tr><th scope="row">' + esc(l1) + '</th><td' + (l2 ? '' : ' colspan="3"') + '>' + (v1 || '-') + '</td>' +
-      (l2 ? '<th scope="row">' + esc(l2) + '</th><td>' + (v2 || '-') + '</td>' : '') + '</tr>';
+  function blank(html) {   // 글자만 남겼을 때 비었거나 '-' 뿐이면 빈 칸
+    var t = String(html == null ? '' : html).replace(/<[^>]*>/g, '').replace(/\s+/g, '');
+    return !t || t === '-';
+  }
+  // 나라장터처럼 [항목|값|항목|값]. 빈 칸은 숨긴다(11-20 — 누리장터·공동주택은 없는 항목이 많아 '-'투성이였음):
+  //   둘 다 비면 줄째 빼고, 한쪽만 비면 남은 쪽이 끝까지
+  function tr2(l1, v1, l2, v2) {
+    var e1 = blank(v1), e2 = !l2 || blank(v2);
+    if (e1 && e2) return '';
+    if (e1) { l1 = l2; v1 = v2; l2 = ''; }
+    else if (e2) l2 = '';
+    return '<tr><th scope="row">' + esc(l1) + '</th><td' + (l2 ? '' : ' colspan="3"') + '>' + v1 + '</td>' +
+      (l2 ? '<th scope="row">' + esc(l2) + '</th><td>' + v2 + '</td>' : '') + '</tr>';
   }
   function sect(title, rows) {
+    if (!rows) return '';   // 묶음 전체가 비면 제목도 뺀다
     return '<h3 class="gw-bd-sec">' + esc(title) + '</h3><table class="gw-bd-kv">' +
       '<colgroup><col class="k"><col><col class="k"><col></colgroup>' + rows + '</table>';
   }
@@ -226,7 +237,9 @@
         tr2('현장설명회', full(d.briefing_at), '설명회 장소', esc(d.briefing_place)) +
         tr2('공고 게시', full(it.posted_at), '개찰 장소', esc(d.open_place))) +
       sect('금액·낙찰',
-        tr2('추정가격', '<b>' + esc(won(it.price)) + '</b>', '배정예산', d.budget ? esc(won(d.budget)) : '') +
+        tr2(it.source === '누리장터' ? '기준금액' : '추정가격', '<b>' + esc(won(it.price)) + '</b>',
+            '배정예산', d.budget ? esc(won(d.budget)) : '') +
+        tr2('부가세 포함', esc(d.vat_note)) +
         tr2('부가세', d.vat ? esc(won(d.vat)) : '', '낙찰하한율', esc(d.lower_rate)) +
         tr2('계약 방법', esc([it.contract_method, d.bid_method].filter(Boolean).join(' · ')),
             '예정가격', esc([d.price_method, d.price_count].filter(Boolean).join(' · '))) +
@@ -237,8 +250,14 @@
             tr2('제조업체만', esc(d.maker_only), '물품 분류 제한', esc(d.product_limit))
           : '')) +
       sect('참가 조건',
-        tr2('참가가능지역', esc((it.regions || []).join(', '))) +
-        tr2('면허', esc(lic || '제한 없음') + (held ? ' <span class="gw-bd-sub">(우리 면허: ' + esc(held) + ')</span>' : '')) +
+        (it.source === '나라장터' || !it.source   // 면허·지역 제한 칸은 나라장터만 있음 — 다른 곳에 '제한 없음'은 틀린 말
+          ? tr2('참가가능지역', esc((it.regions || []).join(', '))) +
+            tr2('면허', esc(lic || '제한 없음') + (held ? ' <span class="gw-bd-sub">(우리 면허: ' + esc(held) + ')</span>' : ''))
+          : '') +
+        tr2('참가 자격', esc(d.nuri_qual), '지역 제한', esc(d.nuri_region)) +                       // 누리장터
+        tr2('실적증명서', esc(d.apt_perf_cert), '신용평가 확인서', esc(d.apt_credit_cert)) +          // 공동주택
+        tr2('응찰 시스템', esc(d.apt_auth), '지급 조건', esc(d.apt_pay)) +
+        tr2('공고 내용', esc(d.apt_content)) +
         tr2('주공종', esc(d.main_license), '공사현장', esc(d.site_region || it.site_region)) +
         tr2('공동수급', esc(d.joint), '지역 공동도급', esc(d.joint_region))) +
       sect('공고·문의',
@@ -246,7 +265,8 @@
         tr2('발주기관', esc(it.org), '수요기관', esc(it.demand_org)) +
         tr2('담당자', esc(d.contact_name || it.contact), '연락처', [tel, mail].filter(Boolean).join(' · '))) +
       '<h3 class="gw-bd-sec">첨부파일</h3>' +
-      (files ? '<ul class="gw-bd-files">' + files + '</ul>' : '<p class="gw-bd-sub">첨부파일이 없어요.</p>');
+      (files ? '<ul class="gw-bd-files">' + files + '</ul>'
+        : '<p class="gw-bd-sub">' + (it.source === '공동주택' ? '첨부파일은 K-apt 공고 화면에 있어요.' : '첨부파일이 없어요.') + '</p>');
     var foot = '<div class="gw-bd-acc-foot">처음 본 때 ' + esc(when(it.first_seen)) +
       (it.mark ? ' · ' + esc(it.mark_label) + ' 표시: ' + esc(it.mark_by) + ' ' + esc(when(it.mark_at)) : '') +
       (has ? '' : ' · 일정·낙찰하한율 같은 세부 항목은 다음 모으기 때 채워져요.') + '</div>';

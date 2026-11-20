@@ -576,6 +576,8 @@ def _detail(raw: str) -> dict:
         # 공동주택(K-apt) — 입찰 시스템·실적증명서·신용평가 제출 여부·지급조건
         'apt_auth': t('aptAuth'), 'apt_perf_cert': _yn(it.get('aptPerfCert')),
         'apt_credit_cert': _yn(it.get('aptCreditCert')), 'apt_content': t('aptContent'), 'apt_pay': t('aptPay'),
+        # 누리장터 — 참가자격·지역제한 문구(대개 '공고서 참조'), 부가세 포함 안내
+        'nuri_qual': t('bidQlfctNm'), 'nuri_region': t('rgnLmtDivNm'), 'vat_note': t('vatInclsnYnNm'),
     }
 
 
