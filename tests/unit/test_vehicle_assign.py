@@ -42,10 +42,11 @@ def test_seeded_fleet(db):
     cars = {c['plate']: c for c in va.fleet()}
     assert len(cars) == 14
     assert cars['237허5358']['label'] == '레이 5358' and cars['237허5358']['usage'] == va.SHARED
-    assert cars['143고9687']['usage'] == va.FIXED and cars['143고9687']['fixed_user'] == 'YG'
+    assert cars['143고9687']['usage'] == va.SHARED and cars['53우1783']['usage'] == va.SHARED   # 카니발·스파크·모닝도 매일 배정
+    assert cars['204두8988']['usage'] == va.FIXED and cars['204두8988']['fixed_user'] == 'JW'
     assert cars['143고9687']['needs_log'] == 0 and cars['204두8988']['uplus'] == 0
-    va.update_car('53우1783', {'fixed_user': 'MJ'}, ASSIGNER)
-    assert va.fixed_users()['53우1783'] == 'MJ'
+    va.update_car('133가6633', {'fixed_user': 'MJ'}, ASSIGNER)
+    assert va.fixed_users()['133가6633'] == 'MJ'
     with pytest.raises(ValueError):
         va.update_car('53우1783', {'usage': 'x'}, ASSIGNER)
 
@@ -102,7 +103,7 @@ def test_save_confirm_and_change_dms(db):
 
 def test_day_view_draft_from_previous_shared_only(db):
     va.save_day('2026-11-20', [{'plate': '237허5358', 'people': ['TH']},
-                               {'plate': '143고9687', 'people': ['MJ']}], ASSIGNER)
+                               {'plate': '204두8988', 'people': ['MJ']}], ASSIGNER)
     v = va.day_view('2026-11-21')
     assert v['draft_from'] == '2026-11-20' and _rows(v) == {'237허5358': ['TH']}   # 빌려 쓴 고정 차는 안 따라옴
     assert va.day_view('2026-11-20')['draft_from'] is None
@@ -165,7 +166,7 @@ def test_routes_view_for_all_edit_for_assigner(db, monkeypatch):
         assert bad.status_code == 400
         p = cl.post('/api/vehicles/assign/parse', json={'day': '2026-11-22', 'text': 'JK 4041'}).get_json()
         assert p['rows'][0]['plate'] == '16소4041'
-        f = cl.post('/api/vehicles/fleet/60거5484', json={'fixed_user': 'JK'}).get_json()
+        f = cl.post('/api/vehicles/fleet/133가6633', json={'fixed_user': 'JK'}).get_json()
         assert f['car']['fixed_user'] == 'JK'
     assert field_path_allowed('GET', '/vehicles/assign') and field_path_allowed('GET', '/api/vehicles/assign')
     assert not field_path_allowed('POST', '/api/vehicles/assign')
