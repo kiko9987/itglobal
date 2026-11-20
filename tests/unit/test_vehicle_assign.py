@@ -122,6 +122,12 @@ def test_save_confirm_and_change_dms(db):
     assert set(who) == {'UTH', 'ULJW', 'UJSH', 'UJW'}
     assert '빠졌어요' in who['UJSH'] and '차량이 바뀌었어요' in who['ULJW']
     assert va.person_car('2026-11-21', 'LJW')['plate'] == '237허5358'
+    # 확정 뒤 [알리지 않고 저장](메모 오타 등) — 저장은 되고 DM 은 안 감(11-21)
+    sent.clear()
+    res = va.save_day('2026-11-21', [{'plate': '237허5358', 'people': ['TH', 'LJW'], 'note': '유리 용접'},
+                                     {'plate': '03모8021', 'people': ['JW']}], ASSIGNER, notify=False)
+    assert res['changed'] == ['237허5358'] and res['notified'] == 0 and not sent and res['confirmed']
+    assert va.day_view('2026-11-21')['cars'][0]['note'] == '유리 용접'
 
 
 def test_day_view_draft_from_previous_shared_only(db):

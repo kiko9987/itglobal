@@ -323,8 +323,9 @@ def _clean_rows(rows: Iterable[Dict], plates: set, codes: set) -> Dict[str, Dict
     return out
 
 
-def save_day(day: str, rows: Iterable[Dict], by: str, confirm: bool = False) -> Dict:
+def save_day(day: str, rows: Iterable[Dict], by: str, confirm: bool = False, notify: bool = True) -> Dict:
     """배정 저장. confirm=True 면 확정(DM 보냄). 확정된 날을 고치면 바뀐 사람에게만 DM.
+    notify=False 면 확정된 날을 고쳐도 DM 을 보내지 않는다(메모 오타 등 — 화면 [알리지 않고 저장], 11-21).
     돌려주는 값: {'changed': [...], 'notified': n, 'confirmed': bool}"""
     if not valid_day(day):
         raise ValueError('날짜가 올바르지 않아요.')
@@ -357,7 +358,7 @@ def save_day(day: str, rows: Iterable[Dict], by: str, confirm: bool = False) -> 
     notified = 0
     if confirm and not was_confirmed:
         notified = notify_people(day, cars, new, who, everyone=True)
-    elif was_confirmed and changed:
+    elif was_confirmed and changed and notify:
         notified = notify_changes(day, cars, old, new, who)
     return {'changed': changed, 'notified': notified, 'confirmed': confirm or was_confirmed}
 

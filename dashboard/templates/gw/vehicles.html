@@ -13,10 +13,10 @@
     <h1 class="gw-page-title">차량 운행</h1>
     <div class="gw-page-actions">
       <select class="form-select form-select-sm gw-vh-month" id="vhMonth" aria-label="월"></select>
-      <label class="btn btn-sm btn-primary mb-0" id="vhUploadBtn">
-        <i class="fas fa-upload me-1" aria-hidden="true"></i>운행일지 올리기
-        <input type="file" id="vhFile" accept=".zip,.xlsx" hidden>
-      </label>
+      {# label+hidden input 은 Tab 으로 갈 수 없어 단추로(11-21 점검) #}
+      <button type="button" class="btn btn-sm btn-primary" id="vhUploadBtn">
+        <i class="fas fa-upload me-1" aria-hidden="true"></i>운행일지 올리기</button>
+      <input type="file" id="vhFile" accept=".zip,.xlsx" hidden>
       <a class="btn btn-sm btn-outline-secondary" href="https://uconnect.uplus.co.kr/operationManagement/operationLog" target="_blank" rel="noopener">
         <i class="fas fa-up-right-from-square me-1" aria-hidden="true"></i>U+커넥트</a>
     </div>
@@ -31,13 +31,13 @@
   <div class="gw-panel gw-ap-tablewrap">
     <table class="gw-table gw-table-click gw-vh-table">
       <thead><tr>
-        <th>차량</th><th>차종</th><th class="num">운행일</th><th class="num">운행</th><th class="num">주행거리</th>
-        <th>운전자</th><th class="num">맞춘 방문</th>
+        <th>차량</th><th class="num gw-vh-opt">운행일</th><th class="num gw-vh-opt">운행</th><th class="num">주행거리</th>
+        <th>운전자</th><th class="num gw-vh-opt">같은 동네 방문</th>
       </tr></thead>
-      <tbody id="vhRows"><tr><td colspan="7" class="gw-empty">불러오는 중…</td></tr></tbody>
+      <tbody id="vhRows"><tr><td colspan="6" class="gw-empty">불러오는 중…</td></tr></tbody>
     </table>
   </div>
-  <p class="gw-vh-foot">운전자는 <a href="/vehicles/assign">차량 배정</a>에 넣은 사람이 먼저예요(배정). 배정이 없으면 정해진 사람(고정), 그것도 없으면 그날 이 차가 간 동네와 같은 곳에 방문 일정이 있던 영업 담당자로 추정해요(추정). 회사(김포 걸포동)를 오가는 운행은 맞춰 보지 않아요.</p>
+  <p class="gw-vh-foot">운전자 칸의 꼬리표는 이름을 어디서 가져왔는지예요. 배정은 <a href="/vehicles/assign">차량 배정</a>에 넣은 사람, 고정은 그 차를 평소 타는 사람, 추정은 그날 이 차가 간 동네에 방문 일정이 있던 영업 담당자예요. 회사(김포 걸포동)를 오가는 운행은 맞춰 보지 않아요.</p>
 </div>
 
 <div class="gw-drawer" id="vhCar" hidden>

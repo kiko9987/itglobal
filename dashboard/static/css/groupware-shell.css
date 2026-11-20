@@ -1654,6 +1654,13 @@ body.gw-shell a:focus:not(:focus-visible) {
   outline: none;
 }
 
+/* 단추 키보드 테두리 — 위 '나머지 동작' 규칙의 box-shadow:none 이 부트스트랩 포커스 링을 지워
+   ◀ ▶ 같은 단추에 포커스가 가도 안 보였다(11-21 점검, 그룹웨어 전체 공통). 마우스로 누를 땐 띄우지 않음 */
+body.gw-shell .btn:focus-visible {
+  outline: 2px solid #2a3038;
+  outline-offset: 2px;
+}
+
 /* 알림 창을 열 때 새로 받기 실패 — 예전 목록 위에 한 줄 */
 body.gw-shell .gw-notify-stale {
   margin: 4px 16px 6px;

@@ -398,7 +398,7 @@ def submit(month: str, sid: str, actor_name: str, today: Optional[date] = None) 
 def decide(month: str, approve: bool, sid: str, actor_name: str, note: str = '') -> dict:
     """결재 대기 → 확정(승인) 또는 작성 중(돌려보냄). 박정우·박용구 둘 중 한 분."""
     if sid not in approver_ids():
-        raise PermissionError('승인은 박정우 실장님이나 대표님만 할 수 있어요.')
+        raise PermissionError('승인은 승인권자만 할 수 있어요.')
     note = (note or '').strip()[:300]
     row = month_row(month)
     if row['status'] != WAIT:
@@ -490,7 +490,7 @@ def decide_change(cid: int, approve: bool, sid: str, actor_name: str, note: str 
                   today: Optional[date] = None) -> dict:
     today = today or date.today()
     if sid not in approver_ids():
-        raise PermissionError('승인은 박정우 실장님이나 대표님만 할 수 있어요.')
+        raise PermissionError('승인은 승인권자만 할 수 있어요.')
     c = get_change(cid)
     if not c:
         raise LookupError('없는 변경 신청이에요.')

@@ -158,6 +158,15 @@ def test_summary_guesses_driver_from_same_area_visits(db, monkeypatch):
     assert d['days'][0]['drivers'] == [] and d['days'][1]['drivers'] == ['최마루']
 
 
+def test_placeholder_manager_is_not_a_driver():
+    """영업 담당자 칸의 '-'·'—' 는 사람이 아니다(운전자 칸에 "-, 박민재"로 나오던 것, 11-21)."""
+    leads = [_lead('L-9', '2026-11-20', '용인 수지구 심곡로 11', '-'),
+             _lead('L-10', '2026-11-20', '용인 수지구 심곡로 12', '— , 김가람'),
+             _lead('L-11', '2026-11-20', '용인 수지구 심곡로 13', '김가람/-')]
+    v = vl.visits_by_day(leads, '2026-11-01', '2026-11-30')['2026-11-20']
+    assert [x['who'] for x in v] == [['김가람'], ['김가람']]     # '-' 만 있는 L-9 는 방문에서 빠짐
+
+
 def test_lookup_dong_uses_juso_jibun(monkeypatch):
     from dashboard.services import address_resolver as ar
     seen = []

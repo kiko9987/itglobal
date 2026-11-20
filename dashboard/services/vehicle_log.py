@@ -275,6 +275,7 @@ def is_home(addr_area: Tuple[str, str, str]) -> bool:
 # ── 방문 일정 ──────────────────────────────────────────────────────────
 _DATE_RE = re.compile(r'(\d{4})[-./](\d{1,2})[-./](\d{1,2})')
 _NOT_VISITED = ('유선', '부재', '취소', '보류')     # 방문 예정일이 있어도 가지 않은 리드
+_HAS_NAME = re.compile(r'[가-힣A-Za-z]')          # 글자가 하나라도 있어야 사람 이름('-'·'—'·'?' 제외)
 
 
 def _visit_day(v) -> str:
@@ -295,7 +296,9 @@ def _visit_leads(leads: Iterable[dict], start: str, end: str):
         status = str(lead.get('상태') or '').strip()
         if any(w in status for w in _NOT_VISITED):
             continue
-        who = [w.strip() for w in re.split(r'[,/·\s]+', str(lead.get('영업 담당자') or '')) if w.strip()]
+        # '-'·'—' 같은 빈칸 표시는 사람이 아니다(운전자 칸에 "-, 박민재"로 나오던 것, 11-21 점검)
+        who = [w.strip() for w in re.split(r'[,/·\s]+', str(lead.get('영업 담당자') or ''))
+               if _HAS_NAME.search(w)]
         addr = str(lead.get('방문 주소') or '').strip()
         if who and area(addr)[0]:
             yield day, lead, who, addr
@@ -416,6 +419,15 @@ def _models() -> Dict[str, str]:
         return {r[0]: r[1] or '' for r in conn.execute('SELECT plate, model FROM vehicles').fetchall()}
 
 
+def _labels() -> Dict[str, str]:
+    """차 이름 — 차량 배정 화면과 같은 이름('쏘렌토 8021'). 운행 화면이 번호판만 보여 줘 맞춰 보기 어려웠음(11-21)."""
+    try:
+        from dashboard.services import vehicle_assign as va
+        return {c['plate']: c.get('label') or '' for c in va.fleet(include_inactive=True)}
+    except Exception:   # 차량 목록을 못 읽어도 운행은 보여 준다(번호판만)
+        return {}
+
+
 def _match(trip: Dict, day_visits: List[Dict]) -> List[Dict]:
     """이 운행의 도착지와 같은 곳의 그날 방문(same_area). 회사(걸포동)로 오는 운행은 대조하지 않는다."""
     ar = area(trip.get('to_addr'))
@@ -474,12 +486,14 @@ def month_summary(ym: str, leads: Iterable[dict]) -> Dict:
                 c['known_days'].add(t['day'])
                 c['known'].update(names[:1])
     rows = []
+    labels = _labels()
     for c in cars.values():
         if c['known']:
             drivers, src = [n for n, _ in c['known'].most_common(3)], 'assigned'
         else:
             drivers, src = _guess(c['matched']), 'guess'
-        rows.append({'plate': c['plate'], 'model': c['model'], 'km': round(c['km'], 1), 'trips': c['trips'],
+        rows.append({'plate': c['plate'], 'label': labels.get(c['plate'], ''), 'model': c['model'],
+                     'km': round(c['km'], 1), 'trips': c['trips'],
                      'days': len(c['days']), 'last': c['last'], 'drivers': drivers, 'source': src,
                      'known_days': len(c['known_days']),
                      'visits': len({v['lead_no'] for v in c['matched']})})
@@ -509,4 +523,4 @@ def vehicle_days(ym: str, plate: str, leads: Iterable[dict]) -> Dict:
     for d in sorted(days.values(), key=lambda x: x['day'], reverse=True):
         drivers, src = _drivers_for(d['day'], plate, assigned, fixed, list(d['matched'].values()))
         out.append({'day': d['day'], 'km': round(d['km'], 1), 'trips': d['trips'], 'drivers': drivers, 'source': src})
-    return {'month': ym, 'plate': plate, 'model': _models().get(plate, ''), 'days': out}
+    return {'month': ym, 'plate': plate, 'model': _models().get(plate, ''), 'label': _labels().get(plate, ''), 'days': out}

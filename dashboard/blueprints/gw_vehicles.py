@@ -142,7 +142,8 @@ def api_assign_save():
     body = request.get_json(silent=True) or {}
     day = (body.get('day') or '').strip()
     try:
-        res = va.save_day(day, body.get('rows') or [], _me(), confirm=bool(body.get('confirm')))
+        res = va.save_day(day, body.get('rows') or [], _me(), confirm=bool(body.get('confirm')),
+                          notify=body.get('notify', True) is not False)
     except ValueError as e:
         return jsonify({'success': False, 'message': str(e)}), 400
     except Exception as e:
