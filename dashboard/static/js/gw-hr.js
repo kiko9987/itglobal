@@ -104,6 +104,7 @@
     }
     h += '</div>';
     if (p.can_edit && CFG.mode !== 'me') h += '<div class="gw-cert" id="hrCertPanel" hidden></div>';
+    h += reqListHtml(p) + tasksHtml(p);     // 변경 요청·할 일은 맨 위(11-20)
 
     h += '<div class="gw-sec-title">근무</div><dl class="gw-dl">' +
       dd('입사일', p.hire_date) +
@@ -114,7 +115,6 @@
       '</dl>';
 
     var selfMode = CFG.mode === 'me' && p.my_requests !== undefined;
-    h += reqListHtml(p);
     h += (selfMode
       ? '<div class="gw-sec-head"><div class="gw-sec-title">연락처</div>' + reqBtn(p, 'info', '변경 요청') + '</div><div id="hrReq-info"></div>'
       : '<div class="gw-sec-title">연락처</div>') + '<dl class="gw-dl">' +
@@ -161,22 +161,6 @@
       h += '<div class="gw-log">기록 없음</div>';
     }
 
-    // 입사·퇴사 할 일(11-20) — 경영지원·대표. 슬랙 DM 카드와 같은 일, 여기서 닫으면 슬랙도 닫힘
-    var tasks = p.tasks || [];
-    if (tasks.length && CFG.mode !== 'me') {
-      h += '<div class="gw-sec-title">입사·퇴사 할 일</div><ul class="gw-tasks">';
-      tasks.forEach(function (t) {
-        var done = t.status === 'done';
-        h += '<li class="gw-task' + (done ? ' done' : (/지남/.test(t.due_label || '') ? ' late' : '')) + '">' +
-          '<div class="gw-task-main"><b>' + esc(t.title) + '</b> <span class="gw-task-due">' +
-          (done ? '완료 · ' + esc(t.done_by || '') + ' · ' + esc((t.done_at || '').slice(0, 10)) : esc(t.due_label || '')) + '</span>' +
-          (done ? '' : '<div class="gw-task-guide">' + esc(t.guide || '') + '</div>') + '</div>' +
-          (done || !p.can_edit ? '' : '<button type="button" class="btn btn-sm btn-outline-primary" data-task-done="' + t.id + '" aria-label="' + esc(t.title) + ' 완료">완료</button>') +
-          '</li>';
-      });
-      h += '</ul>';
-    }
-
     h += renderPrivate(p);
 
     if (p.can_edit && p.memo) {
@@ -212,6 +196,26 @@
     bindSsnToggles();
     bindPrivate(p);
     if (document.getElementById('hrDevices')) loadDevices(p);
+  }
+
+  function tasksHtml(p) {
+    var h = '';
+    // 입사·퇴사 할 일(11-20) — 경영지원·대표. 슬랙 DM 카드와 같은 일, 여기서 닫으면 슬랙도 닫힘
+    var tasks = p.tasks || [];
+    if (tasks.length && CFG.mode !== 'me') {
+      h += '<div class="gw-sec-title">입사·퇴사 할 일</div><ul class="gw-tasks">';
+      tasks.forEach(function (t) {
+        var done = t.status === 'done';
+        h += '<li class="gw-task' + (done ? ' done' : (/지남/.test(t.due_label || '') ? ' late' : '')) + '">' +
+          '<div class="gw-task-main"><b>' + esc(t.title) + '</b> <span class="gw-task-due">' +
+          (done ? '완료 · ' + esc(t.done_by || '') + ' · ' + esc((t.done_at || '').slice(0, 10)) : esc(t.due_label || '')) + '</span>' +
+          (done ? '' : '<div class="gw-task-guide">' + esc(t.guide || '') + '</div>') + '</div>' +
+          (done || !p.can_edit ? '' : '<button type="button" class="btn btn-sm btn-outline-primary" data-task-done="' + t.id + '" aria-label="' + esc(t.title) + ' 완료">완료</button>') +
+          '</li>';
+      });
+      h += '</ul>';
+    }
+    return h;
   }
 
   // ── 본인 정보 변경 요청(11-20) — 내 정보: 요청·취소 / 인사카드(경영지원): 반영·반려 ──
@@ -394,7 +398,7 @@
       (resigned ? '' : '<option>재직증명서</option>') + '<option>경력증명서</option></select></label>' +
       '<label>용도<select class="form-select form-select-sm" id="hrCertPurpose">' +
       CERT_PURPOSES.map(function (x) { return '<option>' + x + '</option>'; }).join('') + '</select></label>' +
-      '<label class="gw-cert-wide">제출처 <span class="text-muted">(선택)</span><input type="text" class="form-control form-control-sm" id="hrCertDest" maxlength="60" placeholder="예: ○○은행 대출, ○○구청"></label>' +
+      '<label class="gw-cert-wide"><span>제출처 <span class="text-muted">(선택)</span></span><input type="text" class="form-control form-control-sm" id="hrCertDest" maxlength="60" placeholder="예: ○○은행 대출, ○○구청"></label>' +
       '</div>' +
       '<label class="gw-cert-check"><input type="checkbox" id="hrCertSsn"' + (p.has_ssn ? '' : ' disabled') + '> 주민등록번호 전체 넣기' +
       (p.has_ssn ? '' : ' <span class="text-muted">(인사카드에 없음)</span>') + '</label>' +
@@ -587,16 +591,6 @@
         }));
     }
     var docs = p.documents || [];
-    if (CFG.mode === 'me' && p.self_doc_types) {
-      if (!docs.length) h += '<div class="gw-sec-title">서류</div><div class="gw-log">업로드된 서류가 없습니다.</div>';
-      h += '<form class="gw-doc-upload" id="hrSelfDocForm">' +
-        '<select class="form-select form-select-sm" name="doc_type" aria-label="올릴 서류 종류">' +
-        p.self_doc_types.map(function (t) { return '<option>' + esc(t) + '</option>'; }).join('') + '</select>' +
-        '<input type="file" class="form-control form-control-sm" name="file" aria-label="올릴 파일" required>' +
-        '<button type="submit" class="btn btn-sm btn-outline-primary">서류 올리기</button>' +
-        '<span class="gw-form-error" id="hrSelfDocError" role="alert"></span></form>' +
-        '<div class="gw-log">올린 서류는 경영지원이 확인한 뒤 서류 목록에 들어가요.</div>';
-    }
     if (docs.length || p.can_edit) {
       h += '<div class="gw-sec-title">서류</div>';
       if (docs.length) {
@@ -620,6 +614,16 @@
           '<button type="submit" class="btn btn-sm btn-outline-primary">업로드</button>' +
           '<span class="gw-form-error" id="hrDocError" role="alert"></span></form>';
       }
+    }
+    if (CFG.mode === 'me' && p.self_doc_types) {
+      if (!docs.length && !p.can_edit) h += '<div class="gw-sec-title">서류</div><div class="gw-log">업로드된 서류가 없습니다.</div>';
+      h += '<form class="gw-doc-upload" id="hrSelfDocForm">' +
+        '<select class="form-select form-select-sm" name="doc_type" aria-label="올릴 서류 종류">' +
+        p.self_doc_types.map(function (t) { return '<option>' + esc(t) + '</option>'; }).join('') + '</select>' +
+        '<input type="file" class="form-control form-control-sm" name="file" aria-label="올릴 파일" required>' +
+        '<button type="submit" class="btn btn-sm btn-outline-primary">서류 올리기</button>' +
+        '<span class="gw-form-error" id="hrSelfDocError" role="alert"></span></form>' +
+        '<div class="gw-log">올린 서류는 경영지원이 확인한 뒤 서류 목록에 들어가요.</div>';
     }
     return h;
   }
