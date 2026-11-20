@@ -238,6 +238,23 @@ def decode_png(data: bytes) -> Tuple[int, int, bytes, Optional[bytes]]:
     return w, h, bytes(rgb), bytes(out[3::4])
 
 
+def _unbleed(img):
+    """완전히 투명한 칸의 색을 진한 칸들의 평균색으로 — 보기 프로그램이 그림을 줄일 때 투명 칸의 색(흔히 검정)이
+    가장자리에 섞여 도장이 어둡게 보이던 것(11-20, 아이티글로벌 도장만 거무스름) 막기."""
+    w, h, rgb, alpha = img
+    if alpha is None:
+        return img
+    solid = [i for i in range(w * h) if alpha[i] >= 200]
+    if not solid:
+        return img
+    avg = bytes(sum(rgb[i * 3 + k] for i in solid) // len(solid) for k in range(3))
+    out = bytearray(rgb)
+    for i in range(w * h):
+        if alpha[i] == 0:
+            out[i * 3:i * 3 + 3] = avg
+    return w, h, bytes(out), alpha
+
+
 # ── PDF ───────────────────────────────────────────────────────────────
 class Doc:
     """한 쪽짜리 문서. font(key, ttf) 로 글꼴을 등록하고 text/line/rect/image 로 그린 뒤 output()."""
@@ -286,7 +303,8 @@ class Doc:
         self.ops.append(f'{self._c(fill)} rg {x:.2f} {self.H - y - h:.2f} {w:.2f} {h:.2f} re f')
 
     def image(self, png: bytes, x, y, w, h):
-        self.images.append(decode_png(png) if isinstance(png, (bytes, bytearray)) else png)
+        img = decode_png(png) if isinstance(png, (bytes, bytearray)) else png
+        self.images.append(_unbleed(img))
         n = len(self.images)
         self.ops.append(f'q {w:.2f} 0 0 {h:.2f} {x:.2f} {self.H - y - h:.2f} cm /Im{n} Do Q')
 

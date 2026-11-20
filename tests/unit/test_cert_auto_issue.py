@@ -204,3 +204,14 @@ def test_gw_certificate_api(db, monkeypatch):
         with cl.session_transaction() as s:
             s['user'] = {'email': 'staff@example.com', 'permission_level': 'user'}
         assert cl.post(f"/api/hr/people/{p['id']}/certificate", json={'ctype': '재직증명서'}).status_code == 403
+
+
+def test_transparent_pixels_take_ink_color():
+    """투명 칸이 검정이면 보기 프로그램이 줄일 때 도장 가장자리가 어두워진다(11-20) — 진한 칸 평균색으로 바꿔 넣는다."""
+    rows = b''.join(b'\x00' + bytes((200, 30, 40, 255, 0, 0, 0, 0)) for _ in range(2))
+    def chunk(t, d):
+        return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xFFFFFFFF)
+    png = (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 2, 2, 8, 6, 0, 0, 0))
+           + chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b''))
+    w, h, rgb, a = pm._unbleed(pm.decode_png(png))
+    assert rgb[3:6] == bytes((200, 30, 40)) and a[1] == 0
