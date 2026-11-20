@@ -927,10 +927,57 @@ def current_approver(row: dict) -> str:
     return ''
 
 
+# ── 대결(2026-11-20, 플렉스 「대결 관리」 대체) ──────────────────────────────────────
+# 승인할 사람이 그날 휴가(승인된 종일 휴가)면 정해 둔 사람도 같은 카드를 받아 대신 승인·반려할 수 있다.
+# 기본: 1차(박정우) ↔ 2차(박용구) 서로. LEAVE_DELEGATES='승인자ID:대신할ID,…' 로 바꿀 수 있다.
+# 신청한 본인은 대신 승인할 수 없다(자기 휴가를 자기가 승인하지 않게). 원래 승인자도 그대로 누를 수 있다.
+def delegate_map() -> Dict[str, str]:
+    out = {}
+    for pair in (os.getenv('LEAVE_DELEGATES') or '').split(','):
+        if ':' in pair:
+            a, b = (x.strip() for x in pair.split(':', 1))
+            if a and b and a != b:
+                out[a] = b
+    if out:
+        return out
+    appr = approver_ids()
+    return {appr[0]: appr[1], appr[1]: appr[0]} if len(appr) > 1 else {}
+
+
+def away(uid: str, day: Optional[date] = None) -> bool:
+    """그날 승인된 종일 휴가 중인가(반차는 자리에 있다고 봄)."""
+    if not uid:
+        return False
+    d = (day or date.today()).isoformat()
+    ph = ','.join('?' * len(HALF_TYPES))
+    with _conn() as conn:
+        r = conn.execute(f'SELECT 1 FROM leave_requests WHERE slack_id=? AND status=? AND start<=? AND "end">=? '
+                         f'AND ltype NOT IN ({ph}) LIMIT 1', (uid, APPROVED, d, d, *HALF_TYPES)).fetchone()
+    return bool(r)
+
+
+def acting_delegate(row: dict, today: Optional[date] = None) -> str:
+    """지금 차례인 승인자가 휴가 중이면 대신 승인할 사람(없으면 '')."""
+    cur = current_approver(row)
+    d = delegate_map().get(cur, '')
+    if not cur or not d or d in (row.get('slack_id'), row.get('submitter_id')) or not away(cur, today):
+        return ''
+    return d
+
+
+def actors(row: dict, today: Optional[date] = None) -> List[str]:
+    """지금 승인·반려할 수 있는 사람 — 차례인 승인자 + (그 사람이 휴가 중이면) 대결자."""
+    cur = current_approver(row)
+    if not cur:
+        return []
+    d = acting_delegate(row, today)
+    return [cur] + ([d] if d and d != cur else [])
+
+
 def can_act(action: str, row: dict, uid: str, today: Optional[date] = None) -> bool:
     today = today or date.today()
     if action in ('approve', 'reject'):
-        return bool(uid) and uid == current_approver(row)
+        return bool(uid) and uid in actors(row, today)
     if action == 'cancel':
         if manager_only(row):
             # 경영지원이 등록한 휴가(배우자 출산 등)는 경영지원만 취소(11-18). 맞춤 휴가를 본인이 신청한 것은 보통 규칙
@@ -998,9 +1045,17 @@ def transition(rid: int, action: str, uid: str, actor_name: str, reason: str = '
         if not can_act(action, row, uid, today):
             return None
         appr = approver_ids()
+        proxy = action in ('approve', 'reject') and uid != current_approver(row)    # 대결
+        if proxy:
+            actor_name = f'{actor_name}(대결)'
         if action == 'approve':
             frm = row['status']
-            if frm == WAIT_1:
+            if frm == WAIT_1 and proxy and len(appr) > 1 and uid == appr[1]:
+                # 2차 승인자가 1차를 대신 승인 → 두 단계를 한 번에(전자결재에서 JW·YG 가 ①을 누를 때와 같게)
+                nxt, step = APPROVED, 'approve_1'
+                conn.execute('INSERT INTO leave_steps (request_id, step, actor_id, actor_name, result, reason, at) '
+                             'VALUES (?,?,?,?,?,?,?)', (rid, 'approve_2', uid, actor_name[:-4], 'approved', None, now))
+            elif frm == WAIT_1:
                 nxt, step = (WAIT_2 if len(appr) > 1 else APPROVED), 'approve_1'
             elif frm == WAIT_2:
                 nxt, step = APPROVED, 'approve_2'
@@ -1494,6 +1549,8 @@ def step_line(row: dict, step_rows: List[dict], names: Tuple[str, str] = ('박�
             break
         s = done.get(key)
         who = names[i] if i < len(names) else ''
+        if s and '(대결)' in (s.get('actor_name') or ''):      # 대신 승인(11-20) — 누가 했는지 보이게
+            who = f"{who}(대결 {s['actor_name'].replace('(대결)', '')})"
         if s and s['result'] in ('approved', 'auto'):
             parts.append(f'✅ {who}')
         elif s and s['result'] == 'rejected':

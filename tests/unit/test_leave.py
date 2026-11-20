@@ -357,3 +357,53 @@ def test_first_approver_double_click_cannot_final_approve(db):
     assert lv.get(r['id'])['status'] == lv.WAIT_2
     assert lv.transition(r['id'], 'reject', JW, '박정우') is None       # 반려도 지금 단계 승인자만
     assert lv.transition(r['id'], 'approve', YG, '박용구')['status'] == lv.APPROVED
+
+
+# ── 대결(2026-11-20) — 승인자가 그날 휴가면 정해 둔 사람이 대신 ─────────────────────────────
+def _away(name, uid, day, hire='2019-08-07'):
+    _seed(name, uid, hire, 18, '2027-08-06')
+    r = lv.create(name, uid, uid, name, lv.ANNUAL, '', day, day)
+    for who, nm in ((JW, '박정우'), (YG, '박용구')):
+        if r['status'] != lv.APPROVED and lv.can_act('approve', r, who):
+            r = lv.transition(r['id'], 'approve', who, nm)
+    assert r['status'] == lv.APPROVED
+    return r
+
+
+def test_delegate_when_first_approver_away(db, monkeypatch):
+    monkeypatch.delenv('LEAVE_DELEGATES', raising=False)
+    day = date(2026, 11, 9)
+    _away('박정우', JW, day)
+    _seed(left=3)
+    r = lv.create('박민우', MW, MW, '박민우', lv.ANNUAL, '', date(2026, 11, 12), date(2026, 11, 12))
+    assert lv.actors(r, day) == [JW, YG] and lv.acting_delegate(r, day) == YG
+    assert lv.actors(r, date(2026, 11, 10)) == [JW]                      # 다음 날엔 JW 만
+    assert not lv.can_act('approve', r, KIKO, day)
+    r = lv.transition(r['id'], 'approve', YG, '박용구', today=day)
+    assert r['status'] == lv.APPROVED                                     # 2차가 1차를 대신 → 한 번에 확정
+    line = lv.step_line(r, lv.steps(r['id']))
+    assert '박정우(대결 박용구)' in line and '✅ 박용구' in line
+
+
+def test_delegate_rules_half_day_requester_and_env(db, monkeypatch):
+    monkeypatch.delenv('LEAVE_DELEGATES', raising=False)
+    day = date(2026, 11, 9)
+    _seed('박정우', JW, '2019-08-07', 18, '2027-08-06')
+    h = lv.create('박정우', JW, JW, '박정우', lv.HALF_AM, '', day, day)
+    h = lv.transition(h['id'], 'approve', YG, '박용구')
+    assert h['status'] == lv.APPROVED and not lv.away(JW, day)            # 반차는 자리에 있음
+    # YG 본인 신청 — JW 가 휴가여도 YG 가 자기 휴가를 대신 승인하지 않음
+    _away('박정우', JW, date(2026, 11, 10))
+    _seed('박용구', YG, '2007-01-01', 24, '2026-12-31')
+    _seed(left=3)
+    # 다른 대결자 지정: JW → KiKO. KiKO 가 1차를 대신하면 2차(YG) 차례로
+    monkeypatch.setenv('LEAVE_DELEGATES', f'{JW}:{KIKO}')
+    r = lv.create('박민우', MW, MW, '박민우', lv.ANNUAL, '', date(2026, 11, 12), date(2026, 11, 12))
+    assert lv.actors(r, date(2026, 11, 10)) == [JW, KIKO]
+    r = lv.transition(r['id'], 'approve', KIKO, '고광일', today=date(2026, 11, 10))
+    assert r['status'] == lv.WAIT_2 and lv.current_approver(r) == YG
+    s = [x for x in lv.steps(r['id']) if x['step'] == 'approve_1'][0]
+    assert s['actor_name'] == '고광일(대결)' and s['actor_id'] == KIKO
+    monkeypatch.setenv('LEAVE_DELEGATES', f'{JW}:{MW}')
+    r2 = lv.create('박민우', MW, MW, '박민우', lv.ANNUAL, '', date(2026, 11, 13), date(2026, 11, 13))
+    assert lv.actors(r2, date(2026, 11, 10)) == [JW]                      # 신청자 본인은 대결자가 될 수 없음

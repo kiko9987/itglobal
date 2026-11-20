@@ -207,10 +207,10 @@ def _send_card(client, row: dict, uid: str, role: str) -> None:
 
 def _refresh(client, row: dict) -> None:
     """보낸 카드 전부 지금 상태로. 승인 카드는 그 사람이 지금 승인할 차례일 때만 버튼."""
-    cur = lv.current_approver(row)
+    can = set(lv.actors(row))              # 차례인 승인자 + 대결자(휴가 중일 때, 11-20)
     for ref in lv.dm_refs(row):
         role = ref['role']
-        if role == 'approver' and ref['user'] != cur:
+        if role == 'approver' and ref['user'] not in can:
             role = 'info'
         try:
             text, blocks = _render(row, role)
@@ -235,9 +235,14 @@ def _announce(client, row: dict) -> None:
 
 def _next_round(client, row: dict) -> None:
     """지금 승인할 사람에게 카드(이미 받았으면 건너뜀). 확정이면 요청자 알림 + #휴가_일정."""
+    sent = {(r['user'], r['role']) for r in lv.dm_refs(row)}
     cur = lv.current_approver(row)
-    if cur and (cur, 'approver') not in {(r['user'], r['role']) for r in lv.dm_refs(row)}:
+    if cur and (cur, 'approver') not in sent:
         _send_card(client, row, cur, 'approver')
+    proxy = lv.acting_delegate(row)
+    if proxy and (proxy, 'approver') not in sent:      # 차례인 승인자가 오늘 휴가 — 대결자에게도 같은 카드(11-20)
+        _send_card(client, row, proxy, 'approver')
+        _notify(client, proxy, f"🔁 {_eap()._name(cur)} 님이 오늘 휴가라 {row['name']} 님 휴가 신청을 대신 승인할 수 있어요.")
     if row['status'] == lv.APPROVED:
         for u in _requester_ids(row):
             _notify(client, u, f"✅ {row['name']} 님 휴가가 승인됐어요: {lv.period_text(row)} "

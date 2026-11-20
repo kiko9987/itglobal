@@ -112,7 +112,7 @@ def _leave_waiting(uid: str) -> List[dict]:
         ph = ','.join('?' * len(leave.OPEN))
         rows = [dict(r) for r in conn.execute(
             f'SELECT * FROM leave_requests WHERE status IN ({ph}) ORDER BY id', leave.OPEN).fetchall()]
-    return [r for r in rows if leave.current_approver(r) == uid]
+    return [r for r in rows if uid in leave.actors(r)]       # 대결 포함(11-20)
 
 
 def _leave_link(row: dict, uid: str) -> str:
