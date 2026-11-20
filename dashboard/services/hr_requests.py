@@ -119,7 +119,7 @@ def update_info(person: dict, values: Dict, by: str) -> dict:
     return _record(person, INFO, {'new': new, 'old': old}, by)
 
 
-def update_family(person: dict, rows: List[Dict], by: str) -> dict:
+def update_family(person: dict, rows: List[Dict], by: str, by_admin: bool = False) -> dict:
     """비상연락망 바로 고치기 — 원하는 목록 전체(기존 줄은 id 유지, 새 줄은 id 없음, 빠진 줄은 지움)."""
     from dashboard.services import hr
     cur = {f['id']: f for f in hr.families(person['id'])}
@@ -157,7 +157,10 @@ def update_family(person: dict, rows: List[Dict], by: str) -> dict:
             else:
                 conn.execute("INSERT INTO hr_families (person_id, name, relation, phone, source) VALUES (?,?,?,?,'self')",
                              (pid, r['name'], r['relation'], r['phone'] or None))
-    hr.log_access(pid, by, 'self_edit', 'families')
+    hr.log_access(pid, by, 'edit' if by_admin else 'self_edit', 'families')
+    if by_admin:                       # 경영지원이 인사카드에서 고친 것(11-20) — 수정 기록만, 본인 수정 기록 표엔 안 남김
+        return {'person_id': pid, 'name': person['name'], 'kind': FAMILY, 'kind_label': KIND_LABEL[FAMILY],
+                'payload': {'rows': clean, 'old': old}}
     return _record(person, FAMILY, {'rows': clean, 'old': old}, by)
 
 

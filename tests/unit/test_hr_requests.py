@@ -110,3 +110,25 @@ def test_api_and_field_gate(db, monkeypatch):
     assert field_path_allowed('POST', '/api/hr/me/contact')
     assert field_path_allowed('POST', '/api/hr/me/documents')
     assert not field_path_allowed('POST', '/api/hr/me/department')
+
+
+def test_admin_can_edit_family_on_card(db, monkeypatch):
+    import dashboard.auth as auth
+    from dashboard.blueprints import hr as hr_bp_mod
+    monkeypatch.setattr(auth, '_validate_session', lambda require_admin=False: None)
+    monkeypatch.setattr(gw, 'can_use', lambda e: True)
+    monkeypatch.setattr(hr, 'hr_admins', lambda: ['hr-admin@example.com'])
+    p = _me()
+    app = Flask(__name__)
+    app.secret_key = 'x'
+    app.register_blueprint(hr_bp_mod.hr_bp)
+    with app.test_client() as cl:
+        with cl.session_transaction() as s:
+            s['user'] = {'email': STAFF, 'permission_level': 'user'}
+        assert cl.post(f"/api/hr/people/{p['id']}/family", json={'rows': []}).status_code == 403
+        with cl.session_transaction() as s:
+            s['user'] = {'email': 'hr-admin@example.com', 'permission_level': 'admin'}
+        r = cl.post(f"/api/hr/people/{p['id']}/family", json={'rows': [{'name': '김엄마', 'relation': '모', 'phone': '010-1111-0000'}]})
+        assert r.get_json()['success'] and [f['name'] for f in hr.families(p['id'])] == ['김엄마']
+    assert any(l['action'] == 'edit' and l['detail'] == 'families' for l in hr.access_log(p['id']))
+    assert hq.history(p['id']) == []                                                 # 본인 수정 기록엔 안 남김

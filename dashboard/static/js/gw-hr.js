@@ -294,7 +294,7 @@
         return o;
       });
       sb.disabled = true; err.textContent = '';
-      reqPost('/api/hr/me/family', { rows: out })
+      reqPost(CFG.mode === 'me' ? '/api/hr/me/family' : '/api/hr/people/' + p.id + '/family', { rows: out })
         .then(function () { return loadCard(p.id); })
         .catch(function (x) { err.textContent = x.message; sb.disabled = false; });
     });
@@ -659,16 +659,18 @@
     }
     // 가족 = 비상연락망(11-19 부장님: 플렉스에 연락용으로 올린 것 — 공제 대상 아님). 공제는 연말정산 화면에서 따로 받는다.
     // 주민번호는 플렉스에 넣어 둔 사람이 있을 때만 칸을 보인다.
-    var selfFam = CFG.mode === 'me' && p.can_self_edit;
+    // 본인(내 정보) 또는 경영지원(인사카드 화면, 11-20)이 고친다
+    var selfFam = (CFG.mode === 'me' && p.can_self_edit) || (p.can_edit && CFG.mode !== 'me');
     if (selfFam && !(p.families && p.families.length)) {
       h += '<div class="gw-sec-head"><div class="gw-sec-title">비상연락망</div>' + reqBtn(p, 'family', '등록하기') + '</div>' +
-        '<div id="hrReq-family"></div><div class="gw-log">등록된 비상연락망이 없어요. 급할 때 연락할 가족을 알려 주세요.</div>';
+        '<div id="hrReq-family"></div><div class="gw-log">등록된 비상연락망이 없어요.' + (CFG.mode === 'me' ? ' 급할 때 연락할 가족을 알려 주세요.' : '') + '</div>';
     }
     if (p.families && p.families.length) {
       var famSsn = p.families.some(function (f) { return f.has_ssn; });
       h += (selfFam ? '<div class="gw-sec-head"><div class="gw-sec-title">비상연락망</div>' + reqBtn(p, 'family', '고치기') + '</div><div id="hrReq-family"></div>'
                     : '<div class="gw-sec-title">비상연락망</div>') +
-        '<p class="text-muted small mb-2">급할 때 연락할 가족이에요. 연말정산 부양가족 공제는 1월 연말정산 화면에서 따로 받아요.</p>' +
+        '<p class="text-muted small mb-2">급할 때 연락할 가족이에요. 연말정산 부양가족 공제는 1월 연말정산 화면에서 따로 받아요.' +
+        (p.families.some(function (f) { return !f.phone; }) ? ' <span class="text-danger">연락처가 없는 사람이 있어요 — 번호를 넣거나 빼 주세요.</span>' : '') + '</p>' +
         table(['이름', '관계', '연락처'].concat(famSsn ? ['주민등록번호'] : []),
         p.families.map(function (f) {
           var ssn = f.has_ssn ? '<span class="gw-ssn-val">' + esc(f.ssn_masked) + '</span>' + (p.can_reveal_ssn ? ' <button type="button" class="btn btn-sm btn-outline-secondary gw-ssn-btn" data-ssn-url="/api/hr/families/' + f.id + '/ssn" data-what="' + esc(f.name) + ' 주민등록번호" aria-label="' + esc(f.name) + ' 주민등록번호 전체 보기">전체 보기</button>' : '') : '';
