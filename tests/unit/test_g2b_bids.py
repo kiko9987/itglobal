@@ -501,3 +501,8 @@ def test_apt_digest_tag(db, monkeypatch):
     g.collect()
     g.send_morning_digest(force=True)
     assert '목동올리브힐 (공동주택)' in sent[0] and 'k-apt.go.kr/bid/bidDetail.do?bidNum=1|K-apt에서 보기' in sent[0]
+
+
+def test_apt_area_12_is_jeonnam_gwangju():
+    it = g.apt_normalize(_apt('9', bidArea=12))
+    assert it['cnstrtsiteRgnNm'] == '전남광주통합특별시' and g.area_of(it['cnstrtsiteRgnNm']) == '호남'

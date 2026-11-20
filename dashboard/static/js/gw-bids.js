@@ -11,7 +11,7 @@
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
   function safeUrl(u) {   // 나라장터·K-apt 주소만 링크로
-    return /^https:\/\/(www\.)?(g2b|k-apt)\.go\.kr\//.test(String(u || '')) ? u : '';
+    return /^https:\/\/((www|nuri)\.)?(g2b|k-apt)\.go\.kr\//.test(String(u || '')) ? u : '';
   }
   var SESSION_ENDED = '로그인이 끝났어요. 새로 고친 뒤 다시 해 주세요.';
   function api(url, opts) {
@@ -204,7 +204,7 @@
     }
     if (it.source === '누리장터') {   // 민간 입찰 — 자격·지역이 공고서에만 있어 자동 판정 못 함(11-20)
       checks += chk(null, '참가 자격', '<b>공고서 참조</b> <span class="gw-bd-sub">누리장터 민간 공고는 면허·지역 조건이 첨부 공고서에만 있어요. ' +
-        '나라장터 상세 링크가 없어 누리장터에서 공고번호 ' + esc(it.bid_no) + '로 찾아보세요</span>');
+        '[누리장터에서 보기]를 누른 뒤 공고번호 ' + esc(it.bid_no) + '로 찾아보세요</span>');
     }
     if (it.source === '공동주택') {   // 아파트 입찰(11-20) — 면허·실적 조건은 K-apt 공고 화면·첨부에
       checks += chk(null, '참가 자격', '<b>K-apt 공고 참조</b>' +
@@ -229,7 +229,8 @@
       var u = safeUrl(f.url);
       return u ? '<li><a href="' + esc(u) + '" target="_blank" rel="noopener">' + esc(f.name) + '</a></li>' : '';
     }).join('');
-    var du = safeUrl(it.detail_url);
+    // 누리장터 공고는 공고별 주소가 없어 누리장터 첫 화면으로(공고번호로 검색) — 11-20
+    var du = safeUrl(it.detail_url) || (it.source === '누리장터' ? 'https://nuri.g2b.go.kr/' : '');
     var body =
       sect('일정',
         tr2('입찰 시작', full(d.begin_at), '입찰 마감', '<b>' + full(it.close_at) + '</b>') +
@@ -273,7 +274,7 @@
     return '<tr class="gw-bd-detail"><td colspan="6"><div class="gw-bd-acc' + (state.anim ? ' gw-bd-slide' : '') + '">' +
       '<div class="gw-bd-acc-top"><ul class="gw-bd-chks" aria-label="확인할 것">' + checks + '</ul>' +
       (du ? '<a class="btn btn-sm btn-primary gw-bd-acc-go" href="' + esc(du) + '" target="_blank" rel="noopener">' +
-        '<i class="fas fa-up-right-from-square me-1" aria-hidden="true"></i>' + (it.source === '공동주택' ? 'K-apt에서 보기' : '나라장터에서 보기') + '</a>' : '') + '</div>' +
+        '<i class="fas fa-up-right-from-square me-1" aria-hidden="true"></i>' + ({ '공동주택': 'K-apt에서 보기', '누리장터': '누리장터에서 보기' }[it.source] || '나라장터에서 보기') + '</a>' : '') + '</div>' +
       body + foot + '</div></td></tr>';
   }
   function closeDetail() {
