@@ -279,7 +279,7 @@
     return '<div class="gw-lv-pdate"><input type="date" class="form-control form-control-sm" aria-label="날짜" data-pd="date">' +
       '<select class="form-select form-select-sm" aria-label="종일·반차" data-pd="half"><option value="">종일</option>' +
       '<option value="am">오전 반차</option><option value="pm">오후 반차</option></select>' +
-      '<button type="button" class="btn btn-link btn-sm" data-pd-del aria-label="이 날짜 빼기">빼기</button></div>';
+      '<button type="button" class="btn btn-link btn-sm" data-pd-del aria-label="이 날짜 삭제">삭제</button></div>';
   }
 
   function promoForm(id, kind, left, min, max) {
@@ -527,8 +527,8 @@
 
     function setMode(ed) {
       editing = ed;
-      titleEl.textContent = !ed ? '휴가 신청' : (ed.mode === 'change' ? '휴가 변경 신청' : '휴가 고치기');
-      submitBtn.textContent = !ed ? '신청' : (ed.mode === 'change' ? '변경 신청' : '고치기');
+      titleEl.textContent = !ed ? '휴가 신청' : (ed.mode === 'change' ? '휴가 변경 신청' : '휴가 수정');
+      submitBtn.textContent = !ed ? '신청' : (ed.mode === 'change' ? '변경 신청' : '수정');
     }
 
     function fillTypes() {
@@ -1097,7 +1097,7 @@
   // 휴가 기록 표 줄 끝 — 경영지원이 고칠 수 있는 줄(승인 대기·승인)만
   function admRowAct(e) {
     if (!adm || !adm.can || e.source !== 'slack' || (adm.editable || []).indexOf(e.id) === -1) return '';
-    return '<button type="button" class="btn btn-outline-secondary btn-sm gw-lv-cancel" data-adm="edit" data-id="' + esc(e.id) + '">고치기</button>' +
+    return '<button type="button" class="btn btn-outline-secondary btn-sm gw-lv-cancel" data-adm="edit" data-id="' + esc(e.id) + '">수정</button>' +
       '<button type="button" class="btn btn-outline-danger btn-sm gw-lv-cancel" data-adm="cancel" data-id="' + esc(e.id) + '">취소</button>';
   }
 
@@ -1142,7 +1142,7 @@
           kind === 'register' ? '본인·승인하는 분께 알림이 가고, 회사 휴가 일정에 올라가요.' : '상태는 그대로 두고 고쳐요. 본인에게 알림이 가요.');
     }
     h += '<div class="gw-lv-adm-actions"><button type="button" class="btn btn-sm btn-link" data-adm="close">닫기</button>' +
-      '<button type="submit" class="btn btn-sm btn-primary">' + ({ adjust: '조정', register: '등록', edit: '고치기', custom: '부여', settle: '계산' }[kind]) + '</button></div></form>';
+      '<button type="submit" class="btn btn-sm btn-primary">' + ({ adjust: '조정', register: '등록', edit: '수정', custom: '부여', settle: '계산' }[kind]) + '</button></div></form>';
     box.innerHTML = h;
     var f = document.getElementById('lvAdmF');
     function sync() {

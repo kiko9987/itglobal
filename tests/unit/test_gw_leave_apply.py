@@ -237,7 +237,7 @@ def test_requester_card_button_unchanged(slack):
     d = _next_workday(2)
     row = lv.create('박민우', 'UMW', 'UMW', '박민우', 'annual', '', d, d, 'x')
     acts = [b for blk in lv.card_blocks(row, [], 'requester') if blk['type'] == 'actions' for b in blk['elements']]
-    assert [b['text']['text'] for b in acts] == ['✏️ 고치기', '신청 취소']
+    assert [b['text']['text'] for b in acts] == ['✏️ 수정', '신청 취소']
     assert [b['action_id'] for b in acts] == [lv.A_EDIT, lv.A_CANCEL]
     assert acts[1]['confirm']['text']['text'] == '이 휴가를 취소할까요? 쓴 연차는 돌아와요.'
 

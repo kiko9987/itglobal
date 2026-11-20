@@ -105,7 +105,7 @@ def leave_view(meta: dict, vals: Optional[dict] = None) -> dict:
     mode = meta.get('mode') or ''
     title, submit = '휴가 신청', '신청'
     if mode == 'edit':
-        title, submit = '휴가 고치기', '고치기'
+        title, submit = '휴가 수정', '수정'
         blocks.insert(1, {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
                           '고치면 승인을 처음부터 다시 받아요.'}]})
     elif mode == 'change':
@@ -652,7 +652,7 @@ def register_leave_handlers(app) -> None:
         uid = (body.get('user') or {}).get('id', '')
         try:
             view = edit_view(int(body['actions'][0]['value']), uid) or {
-                'type': 'modal', 'title': _plain('휴가 고치기'), 'close': _plain('닫기'),
+                'type': 'modal', 'title': _plain('휴가 수정'), 'close': _plain('닫기'),
                 'blocks': [{'type': 'section', 'text': {'type': 'mrkdwn', 'text':
                             '이 휴가는 지금 고칠 수 없어요. 이미 처리됐거나 시작한 휴가예요. 필요하면 경영지원에 말씀해 주세요.'}}]}
             push = se._push_kw(body)

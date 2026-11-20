@@ -117,7 +117,7 @@
 
     var selfMode = CFG.mode === 'me' && p.can_self_edit;
     h += (selfMode
-      ? '<div class="gw-sec-head"><div class="gw-sec-title">연락처</div>' + reqBtn(p, 'info', '고치기') + '</div><div id="hrReq-info"></div>'
+      ? '<div class="gw-sec-head"><div class="gw-sec-title">연락처</div>' + reqBtn(p, 'info', '수정') + '</div><div id="hrReq-info"></div>'
       : '<div class="gw-sec-title">연락처</div>') + '<dl class="gw-dl">' +
       dd('회사 메일', p.work_email) + dd('개인 메일', p.personal_email) + dd('전화', phone(p.phone)) +
       dd('주소', p.address, { wide: true }) + '</dl>';
@@ -264,7 +264,7 @@
       '<input type="text" class="form-control form-control-sm" placeholder="이름" aria-label="이름" maxlength="30" value="' + esc(x.name || '') + '">' +
       '<input type="text" class="form-control form-control-sm" placeholder="관계 (예: 배우자)" aria-label="관계" maxlength="20" value="' + esc(x.relation || '') + '">' +
       '<input type="tel" class="form-control form-control-sm" placeholder="연락처" aria-label="연락처" maxlength="20" value="' + esc(x.phone || '') + '">' +
-      '<button type="button" class="btn btn-sm btn-outline-danger" data-fam-del aria-label="이 줄 빼기">빼기</button></div>';
+      '<button type="button" class="btn btn-sm btn-outline-danger" data-fam-del aria-label="이 줄 삭제">삭제</button></div>';
   }
   function openFamilyForm(p, box, btn) {
     var rows = (p.emergency || []).map(function (f) { return { id: f.id, name: f.name, relation: f.relation, phone: f.phone }; });
@@ -662,7 +662,7 @@
     var canEm = (CFG.mode === 'me' && p.can_self_edit) || (p.can_edit && CFG.mode !== 'me');
     var em = p.emergency || [];
     if (em.length || canEm) {
-      h += (canEm ? '<div class="gw-sec-head"><div class="gw-sec-title">비상연락망</div>' + reqBtn(p, 'family', em.length ? '고치기' : '등록하기') + '</div><div id="hrReq-family"></div>'
+      h += (canEm ? '<div class="gw-sec-head"><div class="gw-sec-title">비상연락망</div>' + reqBtn(p, 'family', em.length ? '수정' : '등록') + '</div><div id="hrReq-family"></div>'
                   : '<div class="gw-sec-title">비상연락망</div>');
       h += em.length
         ? '<p class="text-muted small mb-2">급할 때 연락할 사람이에요.</p>' + table(['이름', '관계', '연락처'], em.map(function (f) {

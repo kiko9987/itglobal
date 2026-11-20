@@ -1628,7 +1628,7 @@ CANCEL_TITLE, CANCEL_YES, CANCEL_NO = '휴가 취소', '취소하기', '그대�
 
 
 def edit_label(mode: str) -> str:
-    return '✏️ 변경 신청' if mode == 'change' else '✏️ 고치기'
+    return '✏️ 변경 신청' if mode == 'change' else '✏️ 수정'
 
 
 def cancel_label(mode: str) -> str:

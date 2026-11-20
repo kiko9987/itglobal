@@ -40,7 +40,7 @@ def test_self_edit_pending_via_web_notifies_approver(client, slack):
     assert any('고쳤어요' in p['text'] for p in slack.to(JW))
     me = client.get('/api/leave/me').get_json()['leave']['entries']
     e = next(x for x in me if x.get('id') == rid)
-    assert e['edit'] == 'edit' and e['edit_label'] == '✏️ 고치기' and e['edit_vals']['start'] == d.isoformat()
+    assert e['edit'] == 'edit' and e['edit_label'] == '✏️ 수정' and e['edit_vals']['start'] == d.isoformat()
 
 
 def test_change_request_via_web_then_approve_cancels_original(client, slack):
@@ -127,7 +127,7 @@ def test_slack_edit_view_prefilled(slack):
     d = _next_workday(3)
     row = lv.create('박민우', 'UMW', 'UMW', '박민우', 'annual', '', d, d, '개인 사정')
     v = slack_leave.edit_view(row['id'], 'UMW')
-    assert v['title']['text'] == '휴가 고치기' and v['submit']['text'] == '고치기'
+    assert v['title']['text'] == '휴가 수정' and v['submit']['text'] == '수정'
     assert '"edit": %d' % row['id'] in v['private_metadata'] and '"mode": "edit"' in v['private_metadata']
     starts = [b for b in v['blocks'] if b.get('block_id') == 'lv_start']
     assert starts[0]['element']['initial_date'] == d.isoformat()
