@@ -153,9 +153,9 @@
   // ── 펼친 상세 — 나라장터 공고 상세처럼 표로, 맨 위엔 우리가 판단할 것만 먼저 ──
   function full(s) { return s ? esc(when(s)) : ''; }
   function past(s) { var d = new Date(String(s || '').replace(' ', 'T')); return !isNaN(d) && d < new Date(); }
-  function chk(ok, label, text) {   // ok: true=됨, false=안 됨, null=주의
-    var cls = ok === true ? 'ok' : ok === false ? 'no' : 'warn';
-    var ic = ok === true ? 'fa-circle-check' : ok === false ? 'fa-circle-xmark' : 'fa-circle-exclamation';
+  function chk(ok, label, text) {   // ok: true=됨, false=안 됨, null=주의, 'info'=알아 둘 것
+    var cls = ok === 'info' ? 'info' : ok === true ? 'ok' : ok === false ? 'no' : 'warn';
+    var ic = { ok: 'fa-circle-check', no: 'fa-circle-xmark', warn: 'fa-circle-exclamation', info: 'fa-circle-info' }[cls];
     return '<li class="gw-bd-chk ' + cls + '"><i class="fas ' + ic + '" aria-hidden="true"></i>' +
       '<span class="gw-bd-chk-l">' + esc(label) + '</span><span class="gw-bd-chk-t">' + text + '</span></li>';
   }
@@ -177,6 +177,38 @@
     if (!rows) return '';   // 묶음 전체가 비면 제목도 뺀다
     return '<h3 class="gw-bd-sec">' + esc(title) + '</h3><table class="gw-bd-kv">' +
       '<colgroup><col class="k"><col><col class="k"><col></colgroup>' + rows + '</table>';
+  }
+  // ── 공고문에서 찾은 조건(11-20) — 첨부 공고문을 서버가 읽어 둔 것. 판정은 사람이, 원문 줄을 함께 ──
+  function noticeBlock(it) {
+    if (it.source && it.source !== '나라장터') return '';
+    if (!(it.files || []).length) return '';
+    var n = it.notice;
+    var btn = function (label) {
+      return '<button type="button" class="btn btn-sm btn-outline-secondary gw-bd-ntc-read" data-no="' + esc(it.bid_no) + '">' +
+        '<i class="fas fa-file-lines me-1" aria-hidden="true"></i>' + esc(label) + '</button>';
+    };
+    var head = '<h3 class="gw-bd-sec">공고문에서 찾은 조건</h3>';
+    if (!n) {
+      return head + '<p class="gw-bd-ntc-msg">아직 공고문을 읽지 않았어요. 입찰 가능한 공고는 모을 때 자동으로 읽어요. ' + btn('지금 읽기') + '</p>';
+    }
+    if (n.status !== 'ok') {
+      return head + '<p class="gw-bd-ntc-msg">' + esc(n.message || '공고문을 읽지 못했어요.') + ' ' + btn('다시 읽기') + '</p>';
+    }
+    var flags = (n.flags || []).map(function (f) {
+      var ok = f.level === 'info' ? 'info' : null;
+      var extra = '';
+      if (f.key === 'credit' && f.ok === false) { ok = false; extra = ' — 우리 등급(' + esc((it.ours || {}).grade) + ')으로는 안 돼요'; }
+      if (f.key === 'credit' && f.ok === true) { ok = true; extra = ' — 우리 등급(' + esc((it.ours || {}).grade) + ')으로 돼요'; }
+      return chk(ok, f.label, '<b>' + esc(f.line) + '</b>' + extra);
+    }).join('');
+    var raw = (n.sections || []).map(function (s) {
+      return '<details class="gw-bd-ntc-raw"><summary>' + esc(s.title) + ' 원문</summary><div>' +
+        s.lines.map(function (l) { return '<p>' + esc(l) + '</p>'; }).join('') + '</div></details>';
+    }).join('');
+    return head +
+      (flags ? '<ul class="gw-bd-chks gw-bd-ntc-flags" aria-label="공고문에서 찾은 조건">' + flags + '</ul>'
+        : '<p class="gw-bd-ntc-msg">확약서·실적·신용등급·직접생산 같은 눈에 띄는 조건 문구는 없었어요.</p>') +
+      raw + '<p class="gw-bd-sub gw-bd-ntc-src">' + esc(n.file_name) + ' 에서 ' + esc(when(n.read_at)) + '에 읽음 · 공고문 원본이 기준이에요</p>';
   }
   function detail(it) {
     var d = it.detail || {};
@@ -237,7 +269,7 @@
         checks += chk(q.gap_pct > 0 ? null : true, '적격심사',
           '<b>신용등급 ' + esc(ours.grade) + '(' + esc(q.credit_pts) + '점) → 예정가격의 ' + esc(q.need_pct) + '% 이상</b>' +
           (q.gap_pct > 0 ? ' — 하한율(' + esc(q.lower_pct) + '%)보다 ' + esc(q.gap_pct) + '%p 높게' : '') + amt +
-          ' <span class="gw-bd-sub">공고문의 신용등급 통과 기준·이행실적 평가 여부는 따로 확인하세요</span>');
+          ' <span class="gw-bd-sub">신용등급 통과 기준·이행실적 평가는 아래 「공고문에서 찾은 조건」에서 확인하세요</span>');
       }
     }
     if (d.qual_at) {
@@ -300,7 +332,7 @@
       '<div class="gw-bd-acc-top"><ul class="gw-bd-chks" aria-label="확인할 것">' + checks + '</ul>' +
       (du ? '<a class="btn btn-sm btn-primary gw-bd-acc-go" href="' + esc(du) + '" target="_blank" rel="noopener">' +
         '<i class="fas fa-up-right-from-square me-1" aria-hidden="true"></i>' + ({ '공동주택': 'K-apt에서 보기', '누리장터': '누리장터에서 보기' }[it.source] || '나라장터에서 보기') + '</a>' : '') + '</div>' +
-      body + foot + '</div></td></tr>';
+      noticeBlock(it) + body + foot + '</div></td></tr>';
   }
   function closeDetail() {
     var rows = $('bdRows');
@@ -389,6 +421,22 @@
       render();
       var again = $('bdRows').querySelector('button.gw-bd-grp-btn[data-grp="' + k + '"]');
       if (again) again.focus();
+      return;
+    }
+    var nb = ev.target.closest('button.gw-bd-ntc-read');   // 공고문 읽기(받아서 글로 바꾸는 데 10~30초)
+    if (nb) {
+      var no = nb.getAttribute('data-no');
+      nb.disabled = true;
+      nb.innerHTML = '<i class="fas fa-spinner fa-spin me-1" aria-hidden="true"></i>읽는 중…';
+      api('/api/bids/' + encodeURIComponent(no) + '/notice', { method: 'POST', body: {} }).then(function (j) {
+        if (state.items[no]) state.items[no].notice = j.notice;
+        var row = $('bdRows').querySelector('tr.gw-bd-row[data-no="' + no + '"]');
+        if (row && state.open === no) openDetail(row, false);
+      }).catch(function (e) {
+        nb.disabled = false;
+        nb.textContent = '다시 읽기';
+        alert(e.message);
+      });
       return;
     }
     if (ev.target.closest('a, button, select, input, label, .gw-bd-detail')) return;   // 링크·표시 칸은 펼치기 제외

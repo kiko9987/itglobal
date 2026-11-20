@@ -2660,6 +2660,7 @@ html:has(#bdPage) {
 .gw-bd-chk.ok i { color: #16a34a; }
 .gw-bd-chk.no i { color: #dc2626; }
 .gw-bd-chk.warn i { color: #d97706; }
+.gw-bd-chk.info i { color: #64748b; }
 .gw-bd-chk.no .gw-bd-chk-t b { color: #b91c1c; }
 .gw-bd-chk.warn .gw-bd-chk-t b { color: #b45309; }
 
@@ -2852,3 +2853,47 @@ html:has(#bdPage) {
 .gw-bd-prof-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 .gw-bd-prof .gw-bd-prof-chk { display: flex; align-items: center; gap: 6px; font-weight: 500; }
 .gw-bd-prof-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+
+/* 공고문에서 찾은 조건(11-20) */
+.gw-bd-ntc-flags {
+  padding: 8px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.gw-bd-ntc-flags .gw-bd-chk { grid-template-columns: 18px 132px minmax(0, 1fr); }
+.gw-bd-ntc-flags .gw-bd-chk-t b { font-weight: 500; }
+.gw-bd-ntc-flags .gw-bd-chk.no .gw-bd-chk-t b,
+.gw-bd-ntc-flags .gw-bd-chk.warn .gw-bd-chk-t b { font-weight: 600; }
+
+.gw-bd-ntc-msg {
+  margin: 0;
+  color: #4b5563;
+  font-size: 13px;
+}
+
+.gw-bd-ntc-msg .btn { margin-left: 6px; }
+
+.gw-bd-ntc-raw {
+  margin-top: 6px;
+  font-size: 13px;
+}
+
+.gw-bd-ntc-raw summary {
+  cursor: pointer;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.gw-bd-ntc-raw > div {
+  margin-top: 6px;
+  padding: 10px 12px;
+  border-left: 3px solid #cbd5e1;
+  background: #f8fafc;
+  color: #1f2937;
+  line-height: 1.6;
+}
+
+.gw-bd-ntc-raw p { margin: 0 0 4px; }
+
+.gw-bd-ntc-src { margin: 6px 0 0; }

@@ -1264,6 +1264,7 @@ def _safe_g2b_collect():
         g2b_bids.collect(days=2)
     except Exception as e:
         logger.error(f'[SCHED] 나라장터 공고 모으기 실패: {g2b_bids._safe_err(e)}')
+    _safe_g2b_notice()
 
 
 def _safe_g2b_digest():
@@ -1282,6 +1283,16 @@ def _safe_g2b_bootstrap():
         g2b_bids.maybe_bootstrap()
     except Exception as e:
         logger.warning(f'[SCHED] 나라장터 첫 채우기 실패: {g2b_bids._safe_err(e)}')
+    _safe_g2b_notice()
+
+
+def _safe_g2b_notice():
+    """입찰 가능한 공고의 첨부 공고문 읽기(11-20) — 실패해도 모으기·알림엔 영향 없음."""
+    from dashboard.services import g2b_bids, g2b_notice
+    try:
+        g2b_notice.run_pending()
+    except Exception as e:
+        logger.warning(f'[SCHED] 입찰 공고문 읽기 실패: {g2b_bids._safe_err(e)}')
 
 
 def _safe_partner_status_fill_new():

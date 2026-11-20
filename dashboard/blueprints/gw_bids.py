@@ -65,6 +65,21 @@ def api_profile_save():
     return jsonify({'success': True, 'profile': {k: v for k, v in p.items() if not k.startswith('_')}})
 
 
+# ── 공고문 읽기(11-20) — 자동으로 안 읽은 공고(입찰 불가능 탭 등)를 상세에서 바로 ──
+@gw_bids_bp.route('/api/bids/<bid_no>/notice', methods=['POST'])
+@gw_page
+def api_notice(bid_no):
+    from dashboard.services import g2b_notice
+    try:
+        v = g2b_notice.read_notice(bid_no[:40])
+    except LookupError as e:
+        return jsonify({'success': False, 'message': str(e)}), 404
+    except Exception as e:
+        logger.error(f'[입찰공고] 공고문 읽기 실패 {bid_no}: {g2b_bids._safe_err(e)}')
+        return jsonify({'success': False, 'message': '공고문을 읽지 못했어요. 잠시 뒤 다시 해 주세요.'}), 500
+    return jsonify({'success': True, 'notice': v})
+
+
 @gw_bids_bp.route('/api/bids/<bid_no>/mark', methods=['POST'])
 @gw_page
 def api_mark(bid_no):

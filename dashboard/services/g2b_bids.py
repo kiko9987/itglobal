@@ -138,6 +138,8 @@ def _conn():
                 conn.execute("ALTER TABLE g2b_bids ADD COLUMN raw TEXT NOT NULL DEFAULT ''")
             if 'source' not in cols:   # 11-20 누리장터 추가 — 그 전 줄은 모두 나라장터
                 conn.execute("ALTER TABLE g2b_bids ADD COLUMN source TEXT NOT NULL DEFAULT '나라장터'")
+            from dashboard.services.g2b_notice import DDL as _NOTICE_DDL   # 11-20 공고문 자동 읽기
+            conn.execute(_NOTICE_DDL)
             if 'kind' not in cols:   # 11-19 물품(구매·설치) 추가 — 그 전 줄은 모두 공사
                 conn.execute("ALTER TABLE g2b_bids ADD COLUMN kind TEXT NOT NULL DEFAULT '공사'")
             conn.commit()
@@ -903,7 +905,14 @@ def list_bids(tab: str = ELIGIBLE, include_closed: bool = False, q: str = '', li
         args += [now_s, now_s, limit]
         rows = [dict(r) for r in conn.execute(sql, args).fetchall()]
         last = conn.execute("SELECT value FROM g2b_kv WHERE key='last_collect'").fetchone()
-    return {'items': [_view(r, now_s) for r in rows], 'counts': counts,
+    from dashboard.services import g2b_notice
+    notices = g2b_notice.views_for([r['bid_no'] for r in rows])
+    items = []
+    for r in rows:
+        v = _view(r, now_s)
+        v['notice'] = notices.get(r['bid_no'])
+        items.append(v)
+    return {'items': items, 'counts': counts,
             'held': held_licenses(), 'planned': planned_licenses(),
             'last_collect': last[0] if last else '', 'enabled': enabled()}
 
