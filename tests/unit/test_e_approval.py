@@ -1752,6 +1752,29 @@ def test_same_file_from_folder_and_attach_posted_once(se, monkeypatch):
     assert len(se._fake.of('files_upload_v2')) == n + 2
 
 
+def test_same_name_new_content_is_attached(se, monkeypatch):
+    """11-20 #63 — 업체를 바꿔 고친 「구매요청_배관.pptx」가 예전 첨부와 이름이 같다고 빠졌다. 내용이 같을 때만 건너뛴다."""
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    monkeypatch.setattr(se.threading, 'Thread', lambda target, daemon=True: type('T', (), {'start': lambda s: target()})())
+    data = {'u1': b'OLD', 'u2': b'NEW', 'u3': b'NEW'}
+    monkeypatch.setattr(se, '_download', lambda url: data[url])
+    n = len(se._fake.of('files_upload_v2'))
+    se._post_docs_and_files_bg(row, [], [{'name': '구매요청_배관.pptx', 'url': 'u1'}], '강정권')
+    se._post_docs_and_files_bg(row, [], [{'name': '구매요청_배관.pptx', 'url': 'u2'}], '강정권')   # 고친 판
+    se._post_docs_and_files_bg(row, [], [{'name': '구매요청 배관 (1).pptx', 'url': 'u3'}], '강정권')   # 같은 내용
+    assert len(se._fake.of('files_upload_v2')) == n + 2
+
+
+def test_change_log_keeps_long_text_short():
+    """11-20 #63 — 비고(여러 줄)를 고치면 앞뒤 전문이 스레드에 그대로 찍혀 어지러웠다."""
+    from dashboard.blueprints import slack_eapproval as se_mod
+    t = se_mod._changes_text('fund', {'amount': (4466000, 2305050),
+                                      'memo': ('[창고]\n발포페어 10 roll', '[창고]\n발포페어 5 roll'),
+                                      'partner': ('알만에이엠/온라인몰', '유엠테크')})
+    assert '4,466,000 → 2,305,050' in t and '알만에이엠/온라인몰 → 유엠테크' in t
+    assert '고침 (카드 참고)' in t and '\n' not in t
+
+
 def test_invoice_preview_on_card_and_dm(se, monkeypatch):
     """11-20 KiKO — 자금집행 카드·DM 에 계산서 미리보기(공개 링크 없이 slack_file). PDF 는 안내 한 줄."""
     monkeypatch.setattr(se, '_PREVIEW_WAIT_SEC', 0)

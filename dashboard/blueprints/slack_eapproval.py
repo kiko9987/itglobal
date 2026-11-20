@@ -424,9 +424,14 @@ def post_files(row: dict, files: list, who: str, label: str = '') -> int:
     if not files or not (row.get('card_channel') and row.get('card_ts')):
         return 0
     uploads, failed, ok_refs = [], [], []
+    seen = posted_hashes(row)
     for f in files:
         data = _download(f.get('url', ''))
+        if data and _hash(data) in seen:   # 이 카드에 이미 붙은 같은 내용 — 이름이 같아도 내용이 다르면 붙인다(11-20 #63)
+            logger.info(f'{_LOG} {ea.title(row)} 같은 내용 첨부 건너뜀: {f.get("name")}')
+            continue
         if data:
+            seen.add(_hash(data))
             uploads.append({'content': data, 'filename': f.get('name') or 'file', 'title': f.get('name') or 'file'})
             ok_refs.append(f)
         else:
@@ -440,6 +445,7 @@ def post_files(row: dict, files: list, who: str, label: str = '') -> int:
             resp = eap_client().files_upload_v2(channel=row['card_channel'], thread_ts=row['card_ts'],
                                                 file_uploads=uploads, initial_comment=label or f'📎 {ea.initial(who)} 첨부')
             _remember_doc_names(row, [u['filename'] for u in uploads])
+            _remember_hashes(row, [u['content'] for u in uploads])
             _set_preview(row, resp, uploads, invoice=label.startswith('📄 계산서'))
         except Exception as exc:
             logger.warning(f'{_LOG} 첨부 올리기 실패 ({ea.title(row)}): {exc}')
@@ -527,7 +533,9 @@ def _post_docs_and_files_bg(row: dict, docs: list, files: list, who: str) -> Non
         if docs:
             post_folder_docs(row, docs)
         if files:
-            seen = posted_doc_names(row)
+            # 공사 폴더 서류로 붙인 이름만 거른다. 예전에 창으로 올린 것과 이름이 같은 새 첨부는 고친 판일 수 있어
+            #   붙인다(11-20 #63 — 업체를 바꿔 고친 「구매요청_배관.pptx」가 이름이 같다고 빠졌다)
+            seen = posted_doc_names(row, folder_only=True)
             fresh = [f for f in files if _name_key(f.get('name')) not in seen]
             if len(fresh) < len(files):
                 logger.info(f'{_LOG} {ea.title(row)} 이미 붙은 첨부 {len(files) - len(fresh)}개 건너뜀')
@@ -597,6 +605,9 @@ _FORM_DUP_COLUMNS = ('project_code', 'amount', 'content', 'grn', 'cost_category'
 _SECRET_KEYS = ('bank', 'account')   # 개인경비 계좌 — 채널 기록엔 '바뀜'만(경영지원 DM 에만 보인다)
 
 
+_CHANGE_TEXT_MAX = 40
+
+
 def _changes_text(form: str, changed: dict) -> str:
     """'금액 50,000 → 55,000 · 계좌 …' — 스레드 기록용. 양식 칸은 양식 이름표로."""
     labels = dict(_FIELD_NAMES)
@@ -620,6 +631,10 @@ def _changes_text(form: str, changed: dict) -> str:
             if isinstance(v, list):
                 return ', '.join(map(str, v)) or '-'
             return str(v or '-')
+        # 여러 줄·긴 글(비고 등)은 앞뒤를 통째로 적으면 스레드가 어지럽다 — 새 값은 카드에 있다(11-20 #63)
+        if any('\n' in fmt(x) or len(fmt(x)) > _CHANGE_TEXT_MAX for x in (a, b)):
+            parts.append(f'{labels.get(k, k)} 고침 (카드 참고)')
+            continue
         parts.append(f'{labels.get(k, k)} {fmt(a)} → {fmt(b)}')
     return ' · '.join(dict.fromkeys(parts[:8])) or '바뀐 칸 없음'
 
@@ -1457,7 +1472,8 @@ def post_folder_docs(row: dict, docs: list) -> None:
                                          file_uploads=uploads, initial_comment=head + note)
             try:
                 ea.kv_set(_DOCS_POSTED + str(row['id']), json.dumps(sorted(posted | set(up_ids))))
-                _remember_doc_names(row, [u['filename'] for u in uploads])
+                _remember_doc_names(row, [u['filename'] for u in uploads], folder=True)
+                _remember_hashes(row, [u['content'] for u in uploads])
             except Exception as exc:
                 logger.warning(f'{_LOG} 붙인 서류 기록 실패 ({ea.title(row)}): {exc}')
             return
@@ -1470,24 +1486,52 @@ def post_folder_docs(row: dict, docs: list) -> None:
 
 _DOCS_POSTED = 'docs_posted:'
 _DOCS_NAMES = 'docs_names:'
+_DOCS_FOLDER_NAMES = 'docs_folder_names:'
+_DOCS_HASHES = 'docs_hashes:'
+
+
+def _hash(data: bytes) -> str:
+    import hashlib
+    return hashlib.sha1(data or b'').hexdigest()
+
+
+def posted_hashes(row: dict) -> set:
+    """이 결재 카드 스레드에 붙인 파일 내용(sha1) — 같은 파일을 다시 올려도 한 번만 붙게."""
+    try:
+        return set(json.loads(ea.kv_get(_DOCS_HASHES + str(row.get('id'))) or '[]'))
+    except Exception:
+        return set()
+
+
+def _remember_hashes(row: dict, contents: list) -> None:
+    try:
+        ea.kv_set(_DOCS_HASHES + str(row['id']),
+                  json.dumps(sorted(posted_hashes(row) | {_hash(c) for c in contents if c})))
+    except Exception as exc:
+        logger.warning(f'{_LOG} 붙인 파일 내용 기록 실패 ({ea.title(row)}): {exc}')
 
 
 def _name_key(name) -> str:
     return re.sub(r'\s+', '', str(name or '')).lower()
 
 
-def posted_doc_names(row: dict) -> set:
-    """이 결재 카드 스레드에 붙인 파일 이름(공사 폴더 서류·창 첨부 모두, 공백·대소문자 무시)."""
+def posted_doc_names(row: dict, folder_only: bool = False) -> set:
+    """이 결재 카드 스레드에 붙인 파일 이름(공백·대소문자 무시). 기본은 공사 폴더 서류·창 첨부 모두,
+    folder_only 면 공사 폴더 서류로 붙인 것만."""
     try:
-        return set(json.loads(ea.kv_get(_DOCS_NAMES + str(row.get('id'))) or '[]'))
+        return set(json.loads(ea.kv_get((_DOCS_FOLDER_NAMES if folder_only else _DOCS_NAMES) + str(row.get('id')))
+                              or '[]'))
     except Exception:
         return set()
 
 
-def _remember_doc_names(row: dict, names: list) -> None:
+def _remember_doc_names(row: dict, names: list, folder: bool = False) -> None:
+    keys = {_name_key(n) for n in names if n}
     try:
-        ea.kv_set(_DOCS_NAMES + str(row['id']),
-                  json.dumps(sorted(posted_doc_names(row) | {_name_key(n) for n in names if n}), ensure_ascii=False))
+        ea.kv_set(_DOCS_NAMES + str(row['id']), json.dumps(sorted(posted_doc_names(row) | keys), ensure_ascii=False))
+        if folder:
+            ea.kv_set(_DOCS_FOLDER_NAMES + str(row['id']),
+                      json.dumps(sorted(posted_doc_names(row, folder_only=True) | keys), ensure_ascii=False))
     except Exception as exc:
         logger.warning(f'{_LOG} 붙인 파일 이름 기록 실패 ({ea.title(row)}): {exc}')
 
