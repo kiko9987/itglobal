@@ -2,6 +2,7 @@
 
 지금까지는 빈승정 대리(SJ)가 오후 4~5시 카톡 단체방에 'YM+LSH 레이 / JW+LJW+KMW 8021 / SJ 전기트럭'처럼
 올렸다. 레이가 3대라 어느 레이인지 남지 않고, 운행일지(U+커넥트)의 운전자 칸도 비어 있어 누가 탔는지 알 수 없었다.
+→ 카톡 배정을 그만두고 이 화면에서 배정한다(부장님 11-20: 카톡 글 붙여넣기는 카톡을 계속 쓰게 하므로 넣지 않는다).
 
 - 차 기준으로 사람을 붙인다(한 차에 여러 명, 맨 앞 사람 = 운행기록부 '사용자').
 - 공용 차(레이·쏘렌토·포터·스파크·모닝·카니발)는 매일 배정(카니발은 평소 YG 차지만 목록엔 넣는다 — 부장님 11-20).
@@ -10,8 +11,7 @@
   지금 쓰는 차가 없지만 화면은 그대로 둔다.
 - 확정하면 탄 사람마다 슬랙 DM. 확정 뒤 고치면 바뀐 사람에게만 다시 DM.
 - /일정확정이 끝나면 배정하는 사람(설정 vehicle_assigners, 기본 SJ)에게 '내일 차량 배정해 주세요' DM.
-- 카톡에 쓰던 글을 그대로 붙여 넣으면 채워 준다. 어느 차인지 모호하면(그냥 '레이') 그 사람이 최근에 탄 차를
-  먼저 골라 두고 '확인 필요'로 표시한다.
+- 그날 방문 일정이 있는데 아직 차가 없는 사람을 화면 위에 보여 준다(리드 시트 방문 예정일·영업 담당자).
 """
 from __future__ import annotations
 
@@ -348,107 +348,17 @@ def fixed_users() -> Dict[str, str]:
     return {c['plate']: c['fixed_user'] for c in fleet(True) if c['usage'] == FIXED and c['fixed_user']}
 
 
-# ── 카톡 글 해석 ─────────────────────────────────────────────────────────
-# 'YM+LSH 레이' / 'JW+LJW+KMW 8021' / 'TH+JSH 레이 5358' / 'SJ 전기트럭' / 'TH 5358(유리용접)'
-_LINE_RE = re.compile(r'^\s*([A-Za-z]{1,4}(?:\s*[+,/]\s*[A-Za-z]{1,4})*)\s*(.*?)\s*$')
-_NOTE_RE = re.compile(r'[(\[]([^)\]]*)[)\]]')
-_KEYWORDS = [   # (글자, 차종 이름에 들어가는 말) — 앞에 있는 것이 먼저
-    ('전기', '포터 일렉트릭'), ('일렉', '포터 일렉트릭'), ('가스', 'LPG'), ('lpg', 'LPG'),
-    ('레이', '레이'), ('쏘렌토', '쏘렌토'), ('소렌토', '쏘렌토'), ('포터', '포터'), ('트럭', '포터'),
-    ('스파크', '스파크'), ('모닝', '모닝'), ('카니발', '카니발'), ('파나메라', '파나메라'),
-    ('벤츠', '벤츠'), ('랜드로버', '랜드로버'), ('디펜더', '랜드로버'),
-]
-
-
-def _candidates(spec: str, cars: List[Dict]) -> List[str]:
-    s = spec.lower().replace(' ', '')
-    digits = re.findall(r'\d{4}', s)
-    if digits:
-        hit = [c['plate'] for c in cars if c['plate'].endswith(digits[0])]
-        if hit:
-            return hit
-    for word, kind in _KEYWORDS:
-        if word in s:
-            if kind == 'LPG':
-                return [c['plate'] for c in cars if c['fuel'] == 'LPG']
-            if kind == '포터':     # 그냥 '트럭'·'포터'는 전기트럭까지 셋 다
-                return [c['plate'] for c in cars if c['model'].startswith('포터')]
-            return [c['plate'] for c in cars if c['model'] == kind]
-    return []
-
-
-def parse_text(text: str, day: Optional[str] = None) -> Dict:
-    """카톡 글 → 화면에 채울 배정. {'rows': [{plate, people, note, choices, unsure, line}], 'skipped': [줄]}
-    같은 차가 두 번 나오면 뒤 줄이 이긴다(카톡에서 고쳐 쓴 줄). 모호하면 그 사람의 최근 차를 먼저 고른다."""
-    cars = fleet()
-    codes = {p['code'] for p in staff()}
-    recent = _recent_cars(day or date.today().isoformat())
-    rows: List[Dict] = []
-    skipped: List[str] = []
-    for raw in (text or '').splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        m = _LINE_RE.match(line)
-        if not m:
-            skipped.append(line)
-            continue
-        people = [p.upper() for p in re.split(r'\s*[+,/]\s*', m.group(1)) if p]
-        if not all(p in codes for p in people):
-            skipped.append(line)
-            continue
-        rest = m.group(2)
-        note = '; '.join(x.strip() for x in _NOTE_RE.findall(rest) if x.strip())
-        spec = _NOTE_RE.sub(' ', rest).strip()
-        choices = _candidates(spec, cars)
-        if not choices:
-            skipped.append(line)
-            continue
-        rows.append({'people': people, 'note': note, 'choices': choices, 'line': line})
-    # 차 고르기 — 확실한 줄 먼저, 모호한 줄은 남은 차 중 그 사람이 최근에 탄 차
-    taken = set()
-    for r in rows:
-        if len(r['choices']) == 1:
-            r['plate'], r['unsure'] = r['choices'][0], False
-            taken.add(r['plate'])
-    for r in rows:
-        if 'plate' in r:
-            continue
-        free = [p for p in r['choices'] if p not in taken] or r['choices']
-        pick = next((recent[p] for p in r['people'] if recent.get(p) in free), free[0])
-        r['plate'], r['unsure'] = pick, True
-        taken.add(pick)
-    # 줄 합치기 — 같은 차는 한 줄로(사람·메모 합침), 한 사람이 다른 차로 또 나오면 뒤 줄(고쳐 쓴 줄)이 이긴다
-    merged: Dict[str, Dict] = {}
-    for r in rows:
-        m = merged.setdefault(r['plate'], {'plate': r['plate'], 'people': [], 'notes': [], 'unsure': False,
-                                           'choices': r['choices'], 'lines': []})
-        for p in r['people']:
-            for other in merged.values():
-                if other is not m and p in other['people']:
-                    other['people'].remove(p)
-            if p not in m['people']:
-                m['people'].append(p)
-        if r['note'] and r['note'] not in m['notes']:
-            m['notes'].append(r['note'])
-        m['unsure'] = m['unsure'] or r['unsure']
-        m['lines'].append(r['line'])
-    out = [{'plate': m['plate'], 'people': m['people'], 'note': '; '.join(m['notes']), 'unsure': m['unsure'],
-            'choices': m['choices'], 'line': ' / '.join(m['lines'])} for m in merged.values() if m['people']]
-    return {'rows': out, 'skipped': skipped}
-
-
-def _recent_cars(day: str, back_days: int = 30) -> Dict[str, str]:
-    """사람 → 최근에 배정된 차(그날 이전)."""
-    start = (date.fromisoformat(day) - timedelta(days=back_days)).isoformat()
-    with _conn() as conn:
-        rows = conn.execute('SELECT day, plate, people FROM vehicle_assign WHERE day >= ? AND day < ? ORDER BY day',
-                            (start, day)).fetchall()
-    out: Dict[str, str] = {}
-    for r in rows:
-        for p in _split(r['people']):
-            out[p] = r['plate']
-    return out
+def visitors(day: str, leads: Iterable[dict]) -> List[Dict]:
+    """그날 방문 일정이 있는 사람(리드 시트 방문 예정일·영업 담당자) — 배정 화면에서 '차 없는 사람'을 짚는 데 쓴다.
+    [{code, name, visits}] — 이니셜이 없는 이름(외부 인원 등)은 뺀다."""
+    from dashboard.services import vehicle_log as vl
+    by_name = {p['name']: p for p in staff()}
+    count: Dict[str, int] = {}
+    for v in vl.visits_by_day(leads, day, day).get(day, []):
+        for n in v['who']:
+            if n in by_name:
+                count[n] = count.get(n, 0) + 1
+    return [{'code': by_name[n]['code'], 'name': n, 'visits': c} for n, c in sorted(count.items())]
 
 
 # ── 슬랙 ────────────────────────────────────────────────────────────────

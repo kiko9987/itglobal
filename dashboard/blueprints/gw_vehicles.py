@@ -117,6 +117,11 @@ def api_assign_get():
     except Exception as e:
         logger.error(f'[차량배정] 불러오기 실패: {e}', exc_info=True)
         return jsonify({'success': False, 'message': '불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요.'}), 500
+    try:
+        visitors = va.visitors(day, _leads())
+    except Exception as e:      # 리드 시트를 못 읽어도 배정은 할 수 있게
+        logger.warning(f'[차량배정] 방문 일정 읽기 실패: {e}')
+        visitors = []
     who = {p['code']: p for p in people}
     for c in view['cars']:
         c['fixed_name'] = va.display(c['fixed_user'], who) if c['fixed_user'] else ''
@@ -124,7 +129,7 @@ def api_assign_get():
         p = hr.find_by_email(view['confirmed_by'])
         view['confirmed_name'] = (p or {}).get('name') or view['confirmed_by']
     return jsonify({'success': True, **view, 'day_label': va.day_label(day),
-                    'staff': [{'code': p['code'], 'name': p['name']} for p in people],
+                    'staff': [{'code': p['code'], 'name': p['name']} for p in people], 'visitors': visitors,
                     'can_edit': _can_assign(), 'can_see_log': _hr_admin()})
 
 
@@ -145,17 +150,6 @@ def api_assign_save():
     logger.info(f"[차량배정] {day} 저장 by {_me()}: 바뀐 차 {len(res['changed'])}대, DM {res['notified']}건"
                 f"{' (확정)' if body.get('confirm') else ''}")
     return jsonify({'success': True, **res})
-
-
-@gw_vehicles_bp.route('/api/vehicles/assign/parse', methods=['POST'])
-@gw_page
-def api_assign_parse():
-    if not _can_assign():
-        return jsonify({'success': False, 'message': '차량 배정은 배정 담당자만 고칠 수 있어요.'}), 403
-    body = request.get_json(silent=True) or {}
-    text = (body.get('text') or '')[:4000]
-    day = (body.get('day') or '').strip()
-    return jsonify({'success': True, **va.parse_text(text, day if va.valid_day(day) else None)})
 
 
 @gw_vehicles_bp.route('/api/vehicles/fleet/<plate>', methods=['POST'])

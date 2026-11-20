@@ -1,4 +1,5 @@
 /* 그룹웨어 차량 배정 (2026-11-20) — 다음 날 차마다 탈 사람. 고치기는 배정 담당자(SJ)·인사 관리자만.
+   카톡 배정을 대신한다(카톡 글 붙여넣기는 넣지 않음 — 부장님 11-20).
    서버에서 온 글자는 모두 esc() 로만 넣는다. */
 (function () {
   'use strict';
@@ -35,7 +36,7 @@
     el.textContent = text || '';
   }
 
-  var S = { day: '', cars: [], staff: [], names: {}, canEdit: false, confirmed: false, dirty: false, unsure: {} };
+  var S = { day: '', cars: [], staff: [], names: {}, canEdit: false, confirmed: false, dirty: false, visitors: [] };
 
   function name(code) { return S.names[code] || code; }
   function carOf(plate) { return S.cars.filter(function (c) { return c.plate === plate; })[0]; }
@@ -82,16 +83,6 @@
     return '<select class="form-select form-select-sm gw-va-fixedsel" data-fixed="' + esc(c.plate) + '" aria-label="' +
       esc(c.label) + ' 평소 사용자"><option value="">정해진 사람 없음</option>' + opts + '</select>';
   }
-  function swapSelect(c) {
-    var choices = S.unsure[c.plate];
-    if (!choices || choices.length < 2) return '';
-    var opts = choices.map(function (p) {
-      var o = carOf(p);
-      return '<option value="' + esc(p) + '"' + (p === c.plate ? ' selected' : '') + '>' + esc(o ? o.label : p) + '</option>';
-    }).join('');
-    return '<div class="gw-va-unsure"><i class="fas fa-circle-question" aria-hidden="true"></i> 카톡 글만으로는 어느 차인지 모호해요. 맞는 차를 골라 주세요: ' +
-      '<select class="form-select form-select-sm" data-swap="' + esc(c.plate) + '" aria-label="맞는 차">' + opts + '</select></div>';
-  }
   function card(c) {
     var sub = [c.plate, c.fuel].filter(Boolean).join(' · ');
     var fixed = '';
@@ -102,12 +93,25 @@
     var people = c.people.map(function (p, i) { return chip(c, p, i); }).join('');
     if (!people && !S.canEdit) people = '<span class="gw-va-none">' + (c.usage === 'fixed' ? '평소대로' : '배정 없음') + '</span>';
     var note = S.canEdit && (c.people.length || c.note)
-      ? '<input type="text" class="form-control form-control-sm gw-va-note" maxlength="60" placeholder="메모(예: 유리용접)" data-note="' +
+      ? '<input type="text" class="form-control form-control-sm gw-va-note" maxlength="60" placeholder="메모" data-note="' +
         esc(c.plate) + '" value="' + esc(c.note || '') + '" aria-label="' + esc(c.label) + ' 메모">'
       : (c.note ? '<div class="gw-va-notetext">' + esc(c.note) + '</div>' : '');
-    return '<div class="gw-va-card' + (S.unsure[c.plate] ? ' unsure' : '') + '" data-plate="' + esc(c.plate) + '">' +
+    return '<div class="gw-va-card" data-plate="' + esc(c.plate) + '">' +
       '<div class="gw-va-car"><strong>' + esc(c.label) + '</strong><span>' + esc(sub) + '</span>' + fixed + '</div>' +
-      '<div class="gw-va-people">' + people + (S.canEdit ? addSelect(c) : '') + '</div>' + note + swapSelect(c) + '</div>';
+      '<div class="gw-va-people">' + people + (S.canEdit ? addSelect(c) : '') + '</div>' + note + '</div>';
+  }
+  function todo() {   // 그날 방문 일정이 있는데 아직 차가 없는 사람(리드 시트 기준)
+    var el = $('vaTodo');
+    if (!el) return;     // 재시작 전 옛 화면(칸 없음)에서도 깨지지 않게
+    var left = S.visitors.filter(function (v) { return !whereIs(v.code); });
+    if (!S.visitors.length) { el.hidden = true; return; }
+    el.hidden = false;
+    el.className = 'gw-va-todo' + (left.length ? ' left' : ' done');
+    el.innerHTML = left.length
+      ? '<strong>방문 일정이 있는데 아직 차가 없는 사람</strong> ' + left.map(function (v) {
+          return '<span class="gw-va-tag">' + esc(v.name) + ' <small>방문 ' + v.visits + '</small></span>';
+        }).join(' ')
+      : '<i class="fas fa-check" aria-hidden="true"></i> 방문 일정이 있는 ' + S.visitors.length + '명 모두 차가 정해졌어요.';
   }
   function render() {
     $('vaShared').innerHTML = S.cars.filter(function (c) { return c.usage !== 'fixed'; }).map(card).join('') ||
@@ -116,7 +120,7 @@
     $('vaFixed').innerHTML = fixedCars.map(card).join('');
     $('vaFixedHead').hidden = !fixedCars.length;   // 지금은 고정 차 없음(파나메라·벤츠·랜드로버는 배정에서 뺌, 11-20)
     $('vaBar').hidden = !S.canEdit;
-    $('vaPasteBox').hidden = !S.canEdit;
+    todo();
     $('vaConfirm').textContent = S.confirmed ? '고친 내용 저장 · 바뀐 사람에게 알림' : '확정하고 알리기';
     $('vaSave').hidden = S.confirmed;
     setDirty(S.dirty);
@@ -142,7 +146,7 @@
     msg('');
     return api('/api/vehicles/assign' + (day ? '?day=' + encodeURIComponent(day) : '')).then(function (j) {
       S.day = j.day; S.cars = j.cars; S.staff = j.staff; S.canEdit = !!j.can_edit;
-      S.confirmed = !!j.confirmed_at; S.unsure = {};
+      S.confirmed = !!j.confirmed_at; S.visitors = j.visitors || [];
       S.names = {};
       j.staff.forEach(function (p) { S.names[p.code] = p.name; });
       S.dirty = !!(j.draft_from && S.canEdit);
@@ -156,8 +160,6 @@
     return S.cars.map(function (c) { return { plate: c.plate, people: c.people, note: c.note || '' }; });
   }
   function save(confirm) {
-    var unsure = Object.keys(S.unsure).length;
-    if (confirm && unsure && !window.confirm('어느 차인지 모호한 줄이 ' + unsure + '개 있어요. 이대로 확정할까요?')) return;
     var btns = [$('vaSave'), $('vaConfirm')];
     btns.forEach(function (b) { b.disabled = true; });
     msg(confirm ? '저장하고 알리는 중…' : '저장하는 중…', 'info');
@@ -192,19 +194,6 @@
         fc.fixed_user = j.car.fixed_user; fc.fixed_name = name(j.car.fixed_user);
         msg(fc.label + '의 평소 사용자를 ' + (fc.fixed_user ? fc.fixed_name : '없음') + '(으)로 바꿨어요.', 'ok');
       }).catch(function (e) { msg(e.message, 'err'); t.value = fc.fixed_user || ''; });
-    } else if (t.dataset.swap) {
-      var from = carOf(t.dataset.swap), to = carOf(t.value);
-      if (!from || !to || from === to) return;
-      // 두 차의 사람·메모를 맞바꾼다. 고른 줄은 확인 끝, 밀려난 줄이 모호했으면 그 표시는 따라간다
-      var tmp = { people: to.people, note: to.note };
-      to.people = from.people; to.note = from.note;
-      from.people = tmp.people; from.note = tmp.note;
-      var other = S.unsure[to.plate];
-      delete S.unsure[from.plate];
-      delete S.unsure[to.plate];
-      if (other && from.people.length) S.unsure[from.plate] = other;
-      setDirty(true);
-      render();
     }
   });
   document.addEventListener('click', function (e) {
@@ -214,28 +203,6 @@
     c.people.splice(c.people.indexOf(rm.dataset.rm), 1);
     setDirty(true);
     render();
-  });
-  $('vaParse').addEventListener('click', function () {
-    var text = $('vaPaste').value.trim();
-    if (!text) { msg('카톡 글을 붙여 넣어 주세요.', 'err'); return; }
-    post('/api/vehicles/assign/parse', { day: S.day, text: text }).then(function (j) {
-      if (!j.rows.length) { msg('읽을 수 있는 줄이 없어요. 이니셜과 차 이름(또는 번호 4자리)을 확인해 주세요.', 'err'); return; }
-      S.cars.forEach(function (c) { if (c.usage !== 'fixed') { c.people = []; c.note = ''; } });
-      S.unsure = {};
-      j.rows.forEach(function (r) {
-        r.people.forEach(function (p) { var at = whereIs(p); if (at) at.people.splice(at.people.indexOf(p), 1); });
-        var c = carOf(r.plate);
-        c.people = c.people.concat(r.people);
-        if (r.note) c.note = r.note;
-        if (r.unsure) S.unsure[r.plate] = r.choices;
-      });
-      setDirty(true);
-      render();
-      var t = j.rows.length + '줄을 채웠어요.';
-      if (Object.keys(S.unsure).length) t += ' 노란 칸은 어느 차인지 확인해 주세요.';
-      if (j.skipped.length) t += ' 못 읽은 줄: ' + j.skipped.join(' / ');
-      msg(t, j.skipped.length ? 'err' : 'ok');
-    }).catch(function (e) { msg(e.message, 'err'); });
   });
   $('vaSave').addEventListener('click', function () { save(false); });
   $('vaConfirm').addEventListener('click', function () { save(true); });

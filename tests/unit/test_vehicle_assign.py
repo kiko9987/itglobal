@@ -15,7 +15,6 @@ STAFF = [{'code': c, 'name': n, 'slack_id': 'U' + c, 'dept': ''} for c, n in [
     ('YM', '김가람'), ('LSH', '이나래'), ('MJ', '박다솜'), ('JH', '최마루'), ('JW', '정바다'), ('LJW', '한별'),
     ('KMW', '윤솔'), ('TH', '서준'), ('JSH', '문채'), ('SJ', '오늘'), ('JK', '강해'), ('YG', '임산')]]
 
-DAY1 = 'YM+LSH  레이\nMJ+JH 레이\nJW+LJW+KMW 8021\nTH+JSH 레이 5358\nSJ 전기트럭'
 
 
 @pytest.fixture
@@ -51,32 +50,15 @@ def test_seeded_fleet(db):
         va.update_car('53우1783', {'usage': 'x'}, ASSIGNER)
 
 
-def test_parse_kakao_text(db):
-    r = va.parse_text(DAY1 + '\n2026년 11월 20일 금요일\nXX 레이', '2026-11-21')
-    rows = {x['plate']: x for x in r['rows']}
-    assert rows['03모8021']['people'] == ['JW', 'LJW', 'KMW'] and not rows['03모8021']['unsure']
-    assert rows['237허5358']['people'] == ['TH', 'JSH'] and not rows['237허5358']['unsure']
-    assert rows['90머9131']['people'] == ['SJ']
-    # 그냥 '레이' 두 줄 → 남은 레이 두 대에 하나씩, 확인 필요
-    rays = [x for x in r['rows'] if x['plate'] in ('231허6854', '231허6873')]
-    assert len(rays) == 2 and all(x['unsure'] for x in rays)
-    assert sorted(p for x in rays for p in x['people']) == ['JH', 'LSH', 'MJ', 'YM']
-    assert set(rays[0]['choices']) == {'237허5358', '231허6854', '231허6873'}
-    assert r['skipped'] == ['2026년 11월 20일 금요일', 'XX 레이']   # 이니셜이 아닌 줄·모르는 사람
-    assert va.parse_text('JW 파나메라')['skipped'] == ['JW 파나메라']   # 배정에서 뺀 차
-
-
-def test_parse_later_line_wins_and_merges_same_car(db):
-    r = va.parse_text('TH+JSH 레이 5358\nTH 5358(유리용접)\nJK 4041\nJK 쏘렌토 8021', '2026-11-21')
-    rows = {x['plate']: x for x in r['rows']}
-    assert rows['237허5358']['people'] == ['TH', 'JSH'] and rows['237허5358']['note'] == '유리용접'
-    assert '16소4041' not in rows and rows['03모8021']['people'] == ['JK']   # 고쳐 쓴 뒤 줄이 이긴다
-
-
-def test_parse_prefers_recent_car(db):
-    va.save_day('2026-11-20', [{'plate': '231허6873', 'people': ['YM']}], ASSIGNER)
-    r = va.parse_text('YM 레이', '2026-11-21')
-    assert r['rows'][0]['plate'] == '231허6873' and r['rows'][0]['unsure']
+def test_visitors_with_visits_that_day(db):
+    from tests.unit.test_vehicle_log import _lead
+    leads = [_lead('L-1', '2026-11-21', '용인 수지구 심곡로 11', '김가람, 이나래'),
+             _lead('L-2', '2026-11-21', '부천 길주로 1', '김가람'),
+             _lead('L-3', '2026-11-22', '부천 길주로 2', '박다솜'),                     # 다른 날
+             _lead('L-4', '2026-11-21', '부천 길주로 3', '외부인'),                     # 직원 명단에 없음
+             _lead('L-5', '2026-11-21', '부천 길주로 4', '서준', status='유선 상담')]   # 가지 않은 리드
+    assert va.visitors('2026-11-21', leads) == [{'code': 'YM', 'name': '김가람', 'visits': 2},
+                                                 {'code': 'LSH', 'name': '이나래', 'visits': 1}]
 
 
 def test_save_confirm_and_change_dms(db):
@@ -147,6 +129,8 @@ def test_routes_view_for_all_edit_for_assigner(db, monkeypatch):
     monkeypatch.setattr(gw, 'can_use', lambda e: True)
     monkeypatch.setattr(hr, 'hr_admins', lambda: [])
     monkeypatch.setattr(bp, 'render_template', lambda name: name)
+    from tests.unit.test_vehicle_log import _lead
+    monkeypatch.setattr(bp, '_leads', lambda: [_lead('L-1', '2026-11-21', '부천 길주로 1', '서준')])
     app = Flask(__name__)
     app.secret_key = 'x'
     app.register_blueprint(bp.gw_vehicles_bp)
@@ -155,9 +139,9 @@ def test_routes_view_for_all_edit_for_assigner(db, monkeypatch):
             s['user'] = {'email': 'staff@example.com', 'permission_level': 'user'}
         j = cl.get('/api/vehicles/assign?day=2026-11-21').get_json()
         assert j['success'] and not j['can_edit'] and len(j['cars']) == 11 and j['day_label'] == '11/21(토)'
+        assert j['visitors'] == [{'code': 'TH', 'name': '서준', 'visits': 1}]
         assert cl.get('/vehicles/assign').get_data(as_text=True) == 'gw/vehicle_assign.html'
         assert cl.post('/api/vehicles/assign', json={'day': '2026-11-21', 'rows': []}).status_code == 403
-        assert cl.post('/api/vehicles/assign/parse', json={'text': 'YM 레이'}).status_code == 403
         with cl.session_transaction() as s:
             s['user'] = {'email': ASSIGNER, 'permission_level': 'user'}
         assert cl.get('/api/vehicles/assign?day=2026-11-21').get_json()['can_edit']
@@ -166,8 +150,7 @@ def test_routes_view_for_all_edit_for_assigner(db, monkeypatch):
         assert r['success'] and r['notified'] == 1
         bad = cl.post('/api/vehicles/assign', json={'day': '2026-13-01', 'rows': []})
         assert bad.status_code == 400
-        p = cl.post('/api/vehicles/assign/parse', json={'day': '2026-11-22', 'text': 'JK 4041'}).get_json()
-        assert p['rows'][0]['plate'] == '16소4041'
+        assert cl.post('/api/vehicles/assign/parse', json={'text': 'YM 레이'}).status_code == 404   # 카톡 붙여넣기 없음
         f = cl.post('/api/vehicles/fleet/133가6633', json={'fixed_user': 'JK'}).get_json()
         assert f['car']['fixed_user'] == 'JK'
     assert field_path_allowed('GET', '/vehicles/assign') and field_path_allowed('GET', '/api/vehicles/assign')
