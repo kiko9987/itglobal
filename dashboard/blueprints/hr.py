@@ -116,6 +116,12 @@ def api_card(pid):
         return jsonify({'success': False, 'message': '없는 구성원입니다.'}), 404
     if _hr_admin():
         c['access_log'] = hr.access_log(pid)
+        try:
+            from dashboard.services import hr_tasks as ht
+            c['tasks'] = [dict(t, title=ht.title(t), due_label=ht.due_label(t), guide=ht.KINDS[t['kind']][3])
+                          for t in ht.for_person(pid) if t['kind'] in ht.KINDS]
+        except Exception as e:
+            logger.warning(f'[HR] 할 일 불러오기 실패 #{pid}: {e}')
     # 경력·학력·가족·서류 — 여기까지 왔으면 본인 또는 인사카드 관리자
     c.update(hr.private_sections(pid))
     return jsonify({'success': True, 'person': c})
@@ -202,12 +208,51 @@ def api_family_ssn(fid):
         return _fail(e)
 
 
+def _sync_tasks() -> None:
+    """입사일·퇴사일이 바뀌었을 수 있으니 입사·퇴사 할 일을 맞춘다(11-20) — 뒤에서, 실패해도 저장은 그대로."""
+    try:
+        from dashboard.blueprints.slack_hr_tasks import sync_async
+        sync_async()
+    except Exception as e:
+        logger.warning(f'[HR] 할 일 맞추기 시작 실패: {e}')
+
+
+@hr_bp.route('/api/hr/tasks/<int:tid>/done', methods=['POST'])
+@gw_page
+def api_task_done(tid):
+    """입사·퇴사 할 일 [완료] — 인사카드 관리자. 슬랙 DM 카드도 같이 닫힘으로 바꾼다."""
+    if not _hr_admin():
+        return jsonify({'success': False, 'message': '경영지원·대표만 처리할 수 있습니다.'}), 403
+    from dashboard.services import hr_tasks as ht
+    me = hr.find_by_email(_me()) or {}
+    row = ht.complete(tid, me.get('name') or _me())
+    cur = row or ht.get(tid)
+    if not cur:
+        return jsonify({'success': False, 'message': '없는 할 일입니다.'}), 404
+    if row:
+        import threading
+
+        def _bg():
+            try:
+                from dashboard.blueprints import slack_eapproval as se
+                from dashboard.blueprints.slack_hr_tasks import _refresh
+                c = se.eap_client()
+                if c:
+                    _refresh(c, row)
+            except Exception as e:
+                logger.warning(f'[HR] 할 일 슬랙 카드 고치기 실패 #{tid}: {e}')
+        threading.Thread(target=_bg, daemon=True).start()
+        logger.info(f'[HR] 할 일 완료 #{tid} by {_me()}')
+    return jsonify({'success': True, 'tasks': ht.for_person(cur['person_id'])})
+
+
 @hr_bp.route('/api/hr/people/<int:pid>', methods=['PUT'])
 @gw_page
 def api_update(pid):
     try:
         c = hr.update_person(pid, request.get_json(silent=True) or {}, _me())
         logger.info(f'[HR] 인사카드 수정 #{pid} by {_me()}')
+        _sync_tasks()
         return jsonify({'success': True, 'person': c})
     except Exception as e:
         return _fail(e)
@@ -219,6 +264,7 @@ def api_create():
     try:
         c = hr.create_person(request.get_json(silent=True) or {}, _me())
         logger.info(f'[HR] 구성원 추가 #{c["id"]} by {_me()}')
+        _sync_tasks()
         return jsonify({'success': True, 'person': c})
     except Exception as e:
         return _fail(e)

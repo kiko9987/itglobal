@@ -211,6 +211,19 @@
   gap: 6px;
 }
 
+/* 입사·퇴사 할 일(11-20) — 인사카드 */
+.gw-tasks { list-style: none; padding: 0; margin: 0; }
+.gw-task { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid #e2e8f0;
+  border-radius: 8px; margin-bottom: 6px; background: #fff; }
+.gw-task.late { border-color: #f5c2c7; background: #fff8f8; }
+.gw-task.done { color: #64748b; background: #f8fafc; }
+.gw-task.done b { text-decoration: line-through; font-weight: 600; }
+.gw-task-main { flex: 1; min-width: 0; }
+.gw-task-due { font-size: 0.82rem; color: #475569; margin-left: 4px; }
+.gw-task.late .gw-task-due { color: #b42318; font-weight: 600; }
+.gw-task-guide { font-size: 0.84rem; color: #475569; margin-top: 3px; }
+@media (max-width: 767.98px) { .gw-task .btn { min-height: 44px; } }
+
 /* 증명서 바로 발급(11-20) — 인사카드 머리 아래 펼침 */
 .gw-cert {
   margin: 12px 0 4px;

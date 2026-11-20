@@ -534,6 +534,10 @@ def start_scheduler():
             replace_existing=True,
         )
         jobs.append('연차 사용 촉진 매일 08:10')
+    # 2026-11-20 입사·퇴사 할 일(플렉스 「할 일」 대체) — 인사카드 맞추기 + 평일 기한 다가온 일 경영지원 DM
+    if os.getenv('SLACK_EAPPROVAL_BOT_TOKEN', '').strip():
+        _scheduler.add_job(_safe_hr_tasks, 'cron', hour=9, minute=0, id='hr_tasks_daily', replace_existing=True)
+        jobs.append('입사·퇴사 할 일 매일 09:00')
     # 2026-11-06 시공팀 출퇴근 — 세콤 ERP 내보내기(매시 5분 C:\S1) 파일을 10분마다 장부로.
     #   누락 묻기(매일 08:30 본인 DM)·월말 정산(매달 1일 09:10 경영지원 DM)은 ATTENDANCE_ENABLED 뒤에만
     _scheduler.add_job(
@@ -1148,6 +1152,15 @@ def _safe_leave_promotion():
         run_promotion()
     except Exception as exc:
         logger.error(f'[SCHED] 연차 사용 촉진 실패: {exc}', exc_info=True)
+
+
+def _safe_hr_tasks():
+    """입사·퇴사 할 일 (매일 09:00) — 새 할 일 DM + 평일 기한 알림."""
+    try:
+        from dashboard.blueprints.slack_hr_tasks import run_daily
+        run_daily()
+    except Exception as exc:
+        logger.error(f'[SCHED] 입사·퇴사 할 일 실패: {exc}', exc_info=True)
 
 
 def _safe_attendance_ingest():

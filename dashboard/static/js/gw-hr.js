@@ -157,6 +157,22 @@
       h += '<div class="gw-log">기록 없음</div>';
     }
 
+    // 입사·퇴사 할 일(11-20) — 경영지원·대표. 슬랙 DM 카드와 같은 일, 여기서 닫으면 슬랙도 닫힘
+    var tasks = p.tasks || [];
+    if (tasks.length && CFG.mode !== 'me') {
+      h += '<div class="gw-sec-title">입사·퇴사 할 일</div><ul class="gw-tasks">';
+      tasks.forEach(function (t) {
+        var done = t.status === 'done';
+        h += '<li class="gw-task' + (done ? ' done' : (/지남/.test(t.due_label || '') ? ' late' : '')) + '">' +
+          '<div class="gw-task-main"><b>' + esc(t.title) + '</b> <span class="gw-task-due">' +
+          (done ? '완료 · ' + esc(t.done_by || '') + ' · ' + esc((t.done_at || '').slice(0, 10)) : esc(t.due_label || '')) + '</span>' +
+          (done ? '' : '<div class="gw-task-guide">' + esc(t.guide || '') + '</div>') + '</div>' +
+          (done || !p.can_edit ? '' : '<button type="button" class="btn btn-sm btn-outline-primary" data-task-done="' + t.id + '" aria-label="' + esc(t.title) + ' 완료">완료</button>') +
+          '</li>';
+      });
+      h += '</ul>';
+    }
+
     h += renderPrivate(p);
 
     if (p.can_edit && p.memo) {
@@ -178,6 +194,14 @@
 
     var editBtn = document.getElementById('hrEditBtn');
     if (editBtn) editBtn.addEventListener('click', function () { openEdit(p); });
+    cardEl.querySelectorAll('[data-task-done]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        b.disabled = true;
+        api('/api/hr/tasks/' + b.getAttribute('data-task-done') + '/done', { method: 'POST' })
+          .then(function () { return loadCard(p.id); })
+          .catch(function (e) { b.disabled = false; window.alert(e.message); });
+      });
+    });
     var certBtn = document.getElementById('hrCertBtn');
     if (certBtn) certBtn.addEventListener('click', function () { toggleCert(p, certBtn); });
     bindSsnToggles();
