@@ -14,7 +14,7 @@ from dashboard.services import pdf_mini as pm
 
 FONT = r'C:\Windows\Fonts\malgun.ttf'
 need_font = pytest.mark.skipif(not os.path.isfile(FONT), reason='맑은 고딕 없음')
-ADMIN = 'kiko@itg-aircon.com'
+ADMIN = 'hr-admin@example.com'
 
 
 def _png(w=4, h=3, rgba=True) -> bytes:
@@ -92,6 +92,7 @@ def db(tmp_path, monkeypatch):
     seal.write_bytes(_png(8, 8))
     monkeypatch.setenv('CERT_SEAL_PATH', str(seal))
     monkeypatch.setenv('EAPPROVAL_EXECUTOR_DM_IDS', 'UHANDLER')
+    monkeypatch.setattr(hr, 'hr_admins', lambda: [ADMIN])
     gw._invalidate()
     yield d
     gw._invalidate()
@@ -99,11 +100,11 @@ def db(tmp_path, monkeypatch):
 
 def _person(**kw):
     rec = {'flex_id': 'F1', 'name': '박민우', 'status': '재직', 'hire_date': '2022-02-03', 'department': '영업',
-           'work_email': 'mw@itg-aircon.com', 'login_email': 'mw@itg-aircon.com', 'access': 'staff',
+           'work_email': 'staff@example.com', 'login_email': 'staff@example.com', 'access': 'staff',
            'ssn': '900101-1234567', 'slack_id': 'UREQ'}
     rec.update(kw)
     hr.upsert_from_flex(rec, [])
-    return hr.find_by_email('mw@itg-aircon.com')
+    return hr.find_by_email('staff@example.com')
 
 
 @need_font
@@ -194,5 +195,5 @@ def test_gw_certificate_api(db, monkeypatch):
                                                                      'group_date': True})
         assert r.status_code == 200
         with cl.session_transaction() as s:
-            s['user'] = {'email': 'mw@itg-aircon.com', 'permission_level': 'user'}
+            s['user'] = {'email': 'staff@example.com', 'permission_level': 'user'}
         assert cl.post(f"/api/hr/people/{p['id']}/certificate", json={'ctype': '재직증명서'}).status_code == 403

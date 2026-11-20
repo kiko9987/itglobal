@@ -29,8 +29,7 @@ _FIELD_API = [
     (('POST',), re.compile(r'^/api/leave/apply$')),      # 본인 휴가 신청(본인 여부는 leave_web 이 슬랙 ID 로 다시 확인)
     (('POST',), re.compile(r'^/api/leave/\d+/cancel$')), # 본인 휴가 취소(같음)
     (('GET',), re.compile(r'^/api/hr/documents/\d+$')),  # 본인 서류 내려받기(본인 여부는 화면 쪽에서 다시 확인)
-    (('POST',), re.compile(r'^/api/hr/me/requests/(info|family|doc|\d+/cancel)$')),   # 본인 정보 변경 요청(11-20)
-    (('GET',), re.compile(r'^/api/hr/requests/\d+/file$')),   # 내가 올린 서류 미리 보기(본인 여부는 서버가 확인)
+    (('POST',), re.compile(r'^/api/hr/me/(contact|family|documents)$')),   # 내 정보 직접 고치기(11-20)
     (('GET', 'POST'), re.compile(r'^/api/yearend/me(/submit|/reopen|/documents)?$')),   # 연말정산 본인 것만
     (('DELETE',), re.compile(r'^/api/yearend/me/documents/\d+$')),
     (('POST',), re.compile(r'^/api/auth/ping$')),       # 세션 연장

@@ -117,11 +117,10 @@ def api_card(pid):
     from dashboard.services import hr_requests as hq
     mine = _my_person()
     if mine and mine['id'] == pid:
-        c['my_requests'] = hq.mine(pid)
+        c['can_self_edit'] = True                 # 연락처·비상연락망·서류 올리기는 본인이 바로(11-20)
         c['self_doc_types'] = hq.SELF_DOC_TYPES
     if _hr_admin():
         c['access_log'] = hr.access_log(pid)
-        c['change_requests'] = hq.pending(pid)
         try:
             from dashboard.services import hr_tasks as ht
             c['tasks'] = [dict(t, title=ht.title(t), due_label=ht.due_label(t), guide=ht.KINDS[t['kind']][3])
@@ -241,91 +240,38 @@ def _requester_id() -> str:
     return (_me() if not _is_field() else '') or p.get('name') or ''
 
 
-def _after_request(row: dict) -> None:
+def _after_self_edit(row: dict) -> None:
     from dashboard.services import certificates as ct
     from dashboard.services import hr_requests as hq
-    _dm(ct.handler_ids(), f"✏️ {row['name']} 님이 인사 정보 변경을 요청했어요 — {row['kind_label']}: {hq.summary(row)}\n"
-                          f"확인: {_base_url()}/hr/people#{row['person_id']}")
-    logger.info(f"[HR] 변경 요청 #{row['id']} {row['name']} {row['kind']}")
+    _dm(ct.handler_ids(), f"✏️ {row['name']} 님이 내 정보에서 {row['kind_label']}을(를) 고쳤어요 — {hq.summary(row)}\n"
+                          f"보기: {_base_url()}/hr/people#{row['person_id']}")
+    logger.info(f"[HR] 본인 수정 #{row['person_id']} {row['name']} {row['kind']}")
 
 
-@hr_bp.route('/api/hr/me/requests/<kind>', methods=['POST'])
+@hr_bp.route('/api/hr/me/<kind>', methods=['POST'])
 @gw_page
-def api_my_request(kind):
+def api_self_edit(kind):
+    """내 정보 직접 고치기(11-20) — 연락처·비상연락망·서류 올리기만. 나머지는 경영지원(update_person)."""
     from dashboard.services import hr_requests as hq
     me = _my_person()
     if not me:
         return jsonify({'success': False, 'message': '인사카드가 연결되지 않았어요. 경영지원에 문의해 주세요.'}), 403
     try:
-        if kind == hq.INFO:
-            row = hq.request_info(me, request.get_json(silent=True) or {}, _requester_id())
-        elif kind == hq.FAMILY:
-            row = hq.request_family(me, (request.get_json(silent=True) or {}).get('rows') or [], _requester_id())
-        elif kind == hq.DOC:
+        if kind == 'contact':
+            row = hq.update_info(me, request.get_json(silent=True) or {}, _requester_id())
+        elif kind == 'family':
+            row = hq.update_family(me, (request.get_json(silent=True) or {}).get('rows') or [], _requester_id())
+        elif kind == 'documents':
             f = request.files.get('file')
             if not f:
                 return jsonify({'success': False, 'message': '파일을 골라 주세요.'}), 400
-            row = hq.request_doc(me, request.form.get('doc_type', ''), f.filename or '', f.read(), _requester_id())
+            row = hq.upload_doc(me, request.form.get('doc_type', ''), f.filename or '', f.read(), _requester_id())
         else:
-            return jsonify({'success': False, 'message': '없는 요청 종류예요.'}), 404
+            return jsonify({'success': False, 'message': '고칠 수 없는 항목이에요.'}), 404
     except ValueError as e:
         return jsonify({'success': False, 'message': str(e)}), 400
-    _after_request(row)
-    return jsonify({'success': True, 'requests': hq.mine(me['id'])})
-
-
-@hr_bp.route('/api/hr/me/requests/<int:rid>/cancel', methods=['POST'])
-@gw_page
-def api_my_request_cancel(rid):
-    from dashboard.services import hr_requests as hq
-    me = _my_person()
-    if not me:
-        return jsonify({'success': False, 'message': '인사카드가 연결되지 않았어요.'}), 403
-    try:
-        hq.cancel(rid, me['id'], _requester_id())
-    except (ValueError, LookupError) as e:
-        return jsonify({'success': False, 'message': str(e)}), 400
-    return jsonify({'success': True, 'requests': hq.mine(me['id'])})
-
-
-@hr_bp.route('/api/hr/requests/<int:rid>/file', methods=['GET'])
-@gw_page
-def api_request_file(rid):
-    """올린 서류 미리 보기 — 경영지원·대표, 반영 전."""
-    from flask import send_file
-    from dashboard.services import hr_requests as hq
-    row = hq.get(rid)
-    path = hq.staged_path(rid)
-    if not (_hr_admin() or (row and (_my_person() or {}).get('id') == row['person_id'])):
-        return jsonify({'success': False, 'message': '볼 수 없는 파일입니다.'}), 403
-    if not row or not path:
-        return jsonify({'success': False, 'message': '파일이 없습니다.'}), 404
-    resp = send_file(path, as_attachment=False, download_name=row['payload'].get('file_name') or 'file', max_age=0)
-    resp.headers['Cache-Control'] = 'no-store'
-    return resp
-
-
-@hr_bp.route('/api/hr/requests/<int:rid>/<action>', methods=['POST'])
-@gw_page
-def api_request_handle(rid, action):
-    from dashboard.services import hr_requests as hq
-    if not _hr_admin():
-        return jsonify({'success': False, 'message': '경영지원·대표만 처리할 수 있습니다.'}), 403
-    try:
-        if action == 'approve':
-            row = hq.approve(rid, _me())
-        elif action == 'reject':
-            row = hq.reject(rid, _me(), (request.get_json(silent=True) or {}).get('reason') or '')
-        else:
-            return jsonify({'success': False, 'message': '없는 동작이에요.'}), 404
-    except (ValueError, LookupError, PermissionError) as e:
-        return jsonify({'success': False, 'message': str(e)}), 400
-    p = hr.get_person(row['person_id']) or {}
-    if p.get('slack_id'):
-        _dm([p['slack_id']], (f"✅ 인사 정보 변경 요청({row['kind_label']})이 반영됐어요." if row['status'] == hq.APPROVED
-                              else f"❌ 인사 정보 변경 요청({row['kind_label']})이 반려됐어요: {row.get('reason') or ''}"))
-    logger.info(f"[HR] 변경 요청 #{rid} {row['status']} by {_me()}")
-    return jsonify({'success': True, 'requests': hq.pending(row['person_id'])})
+    _after_self_edit(row)
+    return jsonify({'success': True})
 
 
 def _sync_tasks() -> None:

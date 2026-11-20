@@ -1,19 +1,20 @@
 # -*- coding: utf-8 -*-
-"""본인 정보 변경 요청 (2026-11-20, 플렉스 「정보 변경 승인」 대체) — 직원이 내 정보에서 요청 → 경영지원이 반영·반려.
+"""내 정보 직접 고치기 (2026-11-20) — 연락처·비상연락망·서류는 본인이 바로 고친다.
 
-- 연락처(전화·개인 메일·주소), 비상연락망(가족 이름·관계·연락처), 서류(등본·통장 사본 등) 세 가지.
-- 지금까지는 인사카드를 경영지원만 고칠 수 있었다(직원은 말로 부탁). 요청은 대기 → [반영]하면 인사카드에 들어가고
-  [반려]하면 사유가 본인에게 간다. 서류는 반영 전까지 임시 폴더(hr_docs/_pending)에만 있다.
-- 같은 종류(연락처·비상연락망) 요청은 하나씩 — 확인 중이면 취소하고 다시 낸다. 서류는 여러 장 가능.
+처음엔 '변경 요청 → 경영지원 반영'으로 만들었다가 같은 날 부장님: "본인 정보는 본인이 해야 맞다, 다만 전부는 아니고".
+그래서 본인이 바로 고칠 수 있는 것만 정했다:
+  - 연락처(전화·개인 메일·주소), 비상연락망(가족 이름·관계·연락처), 서류 올리기(등본·통장 사본 등)
+  - 이름·주민번호·입사일·부서·직위 같은 인사 정보, 서류 지우기는 계속 경영지원만.
+고치면 바로 인사카드에 들어가고, 경영지원에게 알림 DM, 인사카드 수정 기록(본인 수정)에 남는다.
+이 표(hr_change_requests)는 무엇을 언제 바꿨는지 남기는 기록이다(status='applied').
 """
 import json
-import os
 import re
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Dict, List, Optional
 
-PENDING, APPROVED, REJECTED, CANCELLED = 'pending', 'approved', 'rejected', 'cancelled'
+APPLIED = 'applied'
 INFO, FAMILY, DOC = 'info', 'family', 'doc'
 KIND_LABEL = {INFO: '연락처', FAMILY: '비상연락망', DOC: '서류'}
 INFO_FIELDS = [('phone', '전화'), ('personal_email', '개인 메일'), ('address', '주소')]
@@ -27,7 +28,7 @@ _DDL = ['''CREATE TABLE IF NOT EXISTS hr_change_requests (
     name TEXT,
     kind TEXT NOT NULL,
     payload TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
+    status TEXT NOT NULL DEFAULT 'applied',
     requested_by TEXT,
     created_at TEXT NOT NULL,
     handled_by TEXT,
@@ -81,27 +82,20 @@ def _check_phone(v: str, what: str = '전화') -> str:
     return v
 
 
-def _pending_of(person_id: int, kind: str) -> Optional[dict]:
-    with _conn() as conn:
-        return _row(conn.execute('SELECT * FROM hr_change_requests WHERE person_id=? AND kind=? AND status=?',
-                                 (person_id, kind, PENDING)).fetchone())
-
-
-def _insert(person: dict, kind: str, payload: dict, by: str, staged: str = None) -> dict:
+def _record(person: dict, kind: str, payload: dict, by: str) -> dict:
     with _conn() as conn:
         rid = conn.execute('INSERT INTO hr_change_requests (person_id, name, kind, payload, status, requested_by, '
-                           'created_at, staged) VALUES (?,?,?,?,?,?,?,?)',
-                           (person['id'], person['name'], kind, json.dumps(payload, ensure_ascii=False), PENDING,
-                            by, _now(), staged)).lastrowid
+                           'created_at, handled_by, handled_at) VALUES (?,?,?,?,?,?,?,?,?)',
+                           (person['id'], person['name'], kind, json.dumps(payload, ensure_ascii=False), APPLIED,
+                            by, _now(), '본인', _now())).lastrowid
         return _row(conn.execute('SELECT * FROM hr_change_requests WHERE id=?', (rid,)).fetchone())
 
 
-def request_info(person: dict, values: Dict, by: str) -> dict:
-    """연락처 바꾸기 요청 — 바뀐 칸만 담는다."""
-    if _pending_of(person['id'], INFO):
-        raise ValueError('확인 중인 연락처 요청이 있어요. 취소하고 다시 내 주세요.')
+def update_info(person: dict, values: Dict, by: str) -> dict:
+    """연락처 바로 고치기 — 바뀐 칸만."""
+    from dashboard.services import hr
     new, old = {}, {}
-    for k, label in INFO_FIELDS:
+    for k, _label in INFO_FIELDS:
         if k not in values:
             continue
         v = (values.get(k) or '').strip()
@@ -113,18 +107,21 @@ def request_info(person: dict, values: Dict, by: str) -> dict:
                 raise ValueError('개인 메일 형식을 확인해 주세요.')
         if k == 'address' and len(v) > 200:
             raise ValueError('주소가 너무 길어요(200자까지).')
-        if (person.get(k) or '') != v and not (k == 'phone' and _digits(person.get(k)) == _digits(v) and v):
+        if (person.get(k) or '') != v:
             new[k], old[k] = v, person.get(k) or ''
     if not new:
         raise ValueError('바뀐 내용이 없어요.')
-    return _insert(person, INFO, {'new': new, 'old': old}, by)
+    sets = ', '.join(f'{k} = ?' for k in new)
+    with hr._conn() as conn:
+        conn.execute(f'UPDATE hr_people SET {sets}, updated_at = ?, updated_by = ? WHERE id = ?',
+                     (*[v or None for v in new.values()], _now(), (by or '').lower(), person['id']))
+    hr.log_access(person['id'], by, 'self_edit', ','.join(sorted(new)))
+    return _record(person, INFO, {'new': new, 'old': old}, by)
 
 
-def request_family(person: dict, rows: List[Dict], by: str) -> dict:
-    """비상연락망 바꾸기 요청 — 원하는 목록 전체(기존 줄은 id 유지, 새 줄은 id 없음, 빠진 줄은 지움)."""
+def update_family(person: dict, rows: List[Dict], by: str) -> dict:
+    """비상연락망 바로 고치기 — 원하는 목록 전체(기존 줄은 id 유지, 새 줄은 id 없음, 빠진 줄은 지움)."""
     from dashboard.services import hr
-    if _pending_of(person['id'], FAMILY):
-        raise ValueError('확인 중인 비상연락망 요청이 있어요. 취소하고 다시 내 주세요.')
     cur = {f['id']: f for f in hr.families(person['id'])}
     clean = []
     for r in rows or []:
@@ -147,153 +144,47 @@ def request_family(person: dict, rows: List[Dict], by: str) -> dict:
     if [(r['id'], r['name'], r['relation'], _digits(r['phone'])) for r in clean] == \
             [(r['id'], r['name'], r['relation'], _digits(r['phone'])) for r in old]:
         raise ValueError('바뀐 내용이 없어요.')
-    return _insert(person, FAMILY, {'rows': clean, 'old': old}, by)
+    pid = person['id']
+    keep = {r['id'] for r in clean if r['id']}
+    with hr._conn() as conn:
+        for fid in cur:
+            if fid not in keep:
+                conn.execute('DELETE FROM hr_families WHERE id=? AND person_id=?', (fid, pid))
+        for r in clean:
+            if r['id']:
+                conn.execute('UPDATE hr_families SET name=?, relation=?, phone=? WHERE id=? AND person_id=?',
+                             (r['name'], r['relation'], r['phone'] or None, r['id'], pid))
+            else:
+                conn.execute("INSERT INTO hr_families (person_id, name, relation, phone, source) VALUES (?,?,?,?,'self')",
+                             (pid, r['name'], r['relation'], r['phone'] or None))
+    hr.log_access(pid, by, 'self_edit', 'families')
+    return _record(person, FAMILY, {'rows': clean, 'old': old}, by)
 
 
-def _pending_dir() -> str:
-    from dashboard.services import hr
-    d = os.path.join(hr.docs_dir(), '_pending')
-    os.makedirs(d, exist_ok=True)
-    return d
-
-
-def request_doc(person: dict, doc_type: str, file_name: str, data: bytes, by: str) -> dict:
+def upload_doc(person: dict, doc_type: str, file_name: str, data: bytes, by: str) -> dict:
+    """서류 바로 올리기 — 인사카드 서류에 들어감(지우기는 경영지원만)."""
     from dashboard.services import hr
     if doc_type not in SELF_DOC_TYPES:
         raise ValueError('서류 종류를 골라 주세요.')
-    if not data:
-        raise ValueError('빈 파일입니다.')
-    if len(data) > hr.DOC_MAX_BYTES:
-        raise ValueError('파일이 너무 커요(8MB까지).')
     if not (file_name or '').lower().endswith(hr.DOC_EXT):
         raise ValueError('올릴 수 없는 파일 형식이에요.')
-    safe = hr._safe_name(file_name)
-    row = _insert(person, DOC, {'doc_type': doc_type, 'file_name': safe, 'size': len(data)}, by)
-    path = os.path.join(_pending_dir(), f"{row['id']}_{safe}")
-    with open(path, 'wb') as fp:
-        fp.write(data)
-    with _conn() as conn:
-        conn.execute('UPDATE hr_change_requests SET staged=? WHERE id=?', (path, row['id']))
-    return row
+    saved = hr.save_document(person['id'], doc_type, file_name, data, by, trusted=True)
+    return _record(person, DOC, {'doc_type': doc_type, 'file_name': hr._safe_name(file_name), 'size': len(data),
+                                 'doc_id': saved.get('id')}, by)
 
 
-def get(rid: int) -> Optional[dict]:
-    with _conn() as conn:
-        return _row(conn.execute('SELECT * FROM hr_change_requests WHERE id=?', (rid,)).fetchone())
-
-
-def staged_path(rid: int) -> Optional[str]:
-    with _conn() as conn:
-        r = conn.execute('SELECT staged FROM hr_change_requests WHERE id=? AND status=?', (rid, PENDING)).fetchone()
-    return r['staged'] if r and r['staged'] and os.path.isfile(r['staged']) else None
-
-
-def pending(person_id: Optional[int] = None) -> List[dict]:
-    sql, args = 'SELECT * FROM hr_change_requests WHERE status=?', [PENDING]
-    if person_id is not None:
-        sql += ' AND person_id=?'
-        args.append(person_id)
-    with _conn() as conn:
-        return [_row(r) for r in conn.execute(sql + ' ORDER BY id', args).fetchall()]
-
-
-def mine(person_id: int, limit: int = 10) -> List[dict]:
-    """본인 화면 — 확인 중 + 최근 처리된 것(취소 제외)."""
+def history(person_id: int, limit: int = 10) -> List[dict]:
     with _conn() as conn:
         return [_row(r) for r in conn.execute(
-            'SELECT * FROM hr_change_requests WHERE person_id=? AND status != ? ORDER BY id DESC LIMIT ?',
-            (person_id, CANCELLED, limit)).fetchall()]
-
-
-def _drop_staged(rid: int) -> None:
-    with _conn() as conn:
-        r = conn.execute('SELECT staged FROM hr_change_requests WHERE id=?', (rid,)).fetchone()
-        conn.execute('UPDATE hr_change_requests SET staged=NULL WHERE id=?', (rid,))
-    if r and r['staged']:
-        try:
-            os.remove(r['staged'])
-        except OSError:
-            pass
-
-
-def _close(rid: int, status: str, by: str, reason: str = '') -> Optional[dict]:
-    with _conn() as conn:
-        cur = conn.execute('UPDATE hr_change_requests SET status=?, handled_by=?, handled_at=?, reason=? '
-                           'WHERE id=? AND status=?', (status, by, _now(), reason or None, rid, PENDING))
-        if cur.rowcount != 1:
-            return None
-        return _row(conn.execute('SELECT * FROM hr_change_requests WHERE id=?', (rid,)).fetchone())
-
-
-def cancel(rid: int, person_id: int, by: str) -> dict:
-    row = get(rid)
-    if not row or row['person_id'] != person_id:
-        raise LookupError('없는 요청이에요.')
-    done = _close(rid, CANCELLED, by)
-    if not done:
-        raise ValueError('이미 처리된 요청이에요.')
-    _drop_staged(rid)
-    return done
-
-
-def reject(rid: int, admin: str, reason: str) -> dict:
-    from dashboard.services import hr
-    if not hr.is_hr_admin(admin):
-        raise PermissionError('경영지원·대표만 처리할 수 있습니다.')
-    if not (reason or '').strip():
-        raise ValueError('반려 사유를 적어 주세요.')
-    done = _close(rid, REJECTED, admin, reason.strip()[:300])
-    if not done:
-        raise ValueError('이미 처리된 요청이에요.')
-    _drop_staged(rid)
-    return done
-
-
-def approve(rid: int, admin: str) -> dict:
-    """반영 — 인사카드에 넣고 닫는다. 넣다가 실패하면 대기 그대로."""
-    from dashboard.services import hr
-    if not hr.is_hr_admin(admin):
-        raise PermissionError('경영지원·대표만 처리할 수 있습니다.')
-    row = get(rid)
-    if not row or row['status'] != PENDING:
-        raise ValueError('이미 처리된 요청이에요.')
-    pid, pl = row['person_id'], row['payload']
-    if row['kind'] == INFO:
-        hr.update_person(pid, pl['new'], admin)
-    elif row['kind'] == FAMILY:
-        keep = {r['id'] for r in pl['rows'] if r.get('id')}
-        with hr._conn() as conn:
-            for f in conn.execute('SELECT id FROM hr_families WHERE person_id=?', (pid,)).fetchall():
-                if f['id'] not in keep:
-                    conn.execute('DELETE FROM hr_families WHERE id=? AND person_id=?', (f['id'], pid))
-            for r in pl['rows']:
-                if r.get('id'):
-                    conn.execute('UPDATE hr_families SET name=?, relation=?, phone=? WHERE id=? AND person_id=?',
-                                 (r['name'], r['relation'], r['phone'] or None, r['id'], pid))
-                else:
-                    conn.execute("INSERT INTO hr_families (person_id, name, relation, phone, source) VALUES (?,?,?,?,'self')",
-                                 (pid, r['name'], r['relation'], r['phone'] or None))
-        hr.log_access(pid, admin, 'edit', 'families')
-    elif row['kind'] == DOC:
-        path = staged_path(rid)
-        if not path:
-            raise LookupError('올린 파일을 찾지 못했어요. 반려하고 다시 올려 달라고 해 주세요.')
-        with open(path, 'rb') as fp:
-            data = fp.read()
-        hr.save_document(pid, pl['doc_type'], pl['file_name'], data, row.get('requested_by') or admin, trusted=True)
-    done = _close(rid, APPROVED, admin)
-    if not done:
-        raise ValueError('이미 처리된 요청이에요.')
-    if row['kind'] == DOC:
-        _drop_staged(rid)
-    return done
+            'SELECT * FROM hr_change_requests WHERE person_id=? AND status=? ORDER BY id DESC LIMIT ?',
+            (person_id, APPLIED, limit)).fetchall()]
 
 
 def summary(row: dict) -> str:
-    """한 줄 요약 — 슬랙 알림·홈 할 일."""
+    """한 줄 요약 — 경영지원 알림."""
     pl = row['payload']
     if row['kind'] == INFO:
         return ', '.join(dict(INFO_FIELDS)[k] for k in pl.get('new', {}))
     if row['kind'] == FAMILY:
-        return f"{len(pl.get('rows', []))}명으로"
+        return f"{len(pl.get('rows', []))}명"
     return f"{pl.get('doc_type', '')} · {pl.get('file_name', '')}"

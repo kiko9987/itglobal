@@ -104,7 +104,7 @@
     }
     h += '</div>';
     if (p.can_edit && CFG.mode !== 'me') h += '<div class="gw-cert" id="hrCertPanel" hidden></div>';
-    h += reqListHtml(p) + tasksHtml(p);     // 변경 요청·할 일은 맨 위(11-20)
+    h += tasksHtml(p);     // 입사·퇴사 할 일은 맨 위(11-20)
 
     h += '<div class="gw-sec-title">근무</div><dl class="gw-dl">' +
       dd('입사일', p.hire_date) +
@@ -114,9 +114,9 @@
       dd('직무', p.job_role) +
       '</dl>';
 
-    var selfMode = CFG.mode === 'me' && p.my_requests !== undefined;
+    var selfMode = CFG.mode === 'me' && p.can_self_edit;
     h += (selfMode
-      ? '<div class="gw-sec-head"><div class="gw-sec-title">연락처</div>' + reqBtn(p, 'info', '변경 요청') + '</div><div id="hrReq-info"></div>'
+      ? '<div class="gw-sec-head"><div class="gw-sec-title">연락처</div>' + reqBtn(p, 'info', '고치기') + '</div><div id="hrReq-info"></div>'
       : '<div class="gw-sec-title">연락처</div>') + '<dl class="gw-dl">' +
       dd('회사 메일', p.work_email) + dd('개인 메일', p.personal_email) + dd('전화', phone(p.phone)) +
       dd('주소', p.address, { wide: true }) + '</dl>';
@@ -168,7 +168,7 @@
     }
 
     if (p.access_log && p.access_log.length) {
-      var labels = { edit: '수정', create: '추가', doc_upload: '서류 업로드', doc_delete: '서류 삭제', cert_issue: '증명서 발급' };
+      var labels = { edit: '수정', create: '추가', doc_upload: '서류 업로드', doc_delete: '서류 삭제', cert_issue: '증명서 발급', self_edit: '본인 수정' };
       h += '<details class="mt-3"><summary class="gw-log">수정 기록 ' + p.access_log.length + '건</summary><ul class="gw-log mt-1">';
       p.access_log.forEach(function (l) {
         h += '<li>' + esc(l.at) + ' · ' + esc(l.viewer_email) + ' · ' + esc(labels[l.action] || l.action) +
@@ -218,55 +218,9 @@
     return h;
   }
 
-  // ── 본인 정보 변경 요청(11-20) — 내 정보: 요청·취소 / 인사카드(경영지원): 반영·반려 ──
-  var REQ_STATUS = { pending: ['gw-badge-wait', '확인 중'], approved: ['gw-badge-active', '반영됨'], rejected: ['gw-badge-reject', '반려'] };
+  // ── 내 정보 직접 고치기(11-20) — 연락처·비상연락망·서류 올리기는 본인이 바로(부장님: 본인 정보는 본인이) ──
   function reqBtn(p, kind, label) {
-    var busy = (p.my_requests || []).some(function (r) { return r.kind === kind && r.status === 'pending'; });
-    return busy ? '<span class="gw-badge gw-badge-wait">확인 중인 요청 있음</span>'
-      : '<button type="button" class="btn btn-sm btn-outline-secondary" data-req-open="' + kind + '">' + label + '</button>';
-  }
-  function reqDetail(r) {
-    var pl = r.payload || {};
-    if (r.kind === 'info') {
-      var names = { phone: '전화', personal_email: '개인 메일', address: '주소' };
-      return Object.keys(pl['new'] || {}).map(function (k) {
-        var o = (pl.old || {})[k];
-        return '<div><span class="text-muted">' + names[k] + '</span> ' + (o ? esc(o) + ' → ' : '') + '<b>' + esc(pl['new'][k] || '(비움)') + '</b></div>';
-      }).join('');
-    }
-    if (r.kind === 'family') {
-      return (pl.rows || []).map(function (x) {
-        return '<div>' + esc(x.name) + ' <span class="text-muted">(' + esc(x.relation) + ')</span> ' + esc(phone(x.phone)) +
-          (x.id ? '' : ' <span class="gw-badge gw-badge-active">새로</span>') + '</div>';
-      }).join('') + ((pl.old || []).length > (pl.rows || []).filter(function (x) { return x.id; }).length ? '<div class="text-muted">빠진 사람은 지워져요</div>' : '');
-    }
-    return '<div>' + esc(pl.doc_type || '') + ' · ' + esc(pl.file_name || '') +
-      (r.status === 'pending' ? ' <a href="/api/hr/requests/' + r.id + '/file" target="_blank" rel="noopener">보기</a>' : '') + '</div>';
-  }
-  function reqListHtml(p) {
-    var admin = p.change_requests || [], mine = (p.my_requests || []).filter(function (r) { return r.status === 'pending' || r.status === 'rejected'; });
-    var h = '';
-    if (admin.length && CFG.mode !== 'me') {
-      h += '<div class="gw-sec-title">변경 요청 <span class="gw-badge gw-badge-wait">' + admin.length + '</span></div><ul class="gw-tasks">';
-      admin.forEach(function (r) {
-        h += '<li class="gw-task"><div class="gw-task-main"><b>' + esc(r.kind_label) + '</b> <span class="gw-task-due">' + esc((r.created_at || '').slice(0, 16)) + '</span>' +
-          '<div class="gw-task-guide">' + reqDetail(r) + '</div></div>' +
-          '<div class="gw-req-act"><button type="button" class="btn btn-sm btn-primary" data-req-approve="' + r.id + '">반영</button>' +
-          '<button type="button" class="btn btn-sm btn-outline-danger" data-req-reject="' + r.id + '">반려</button></div></li>';
-      });
-      h += '</ul>';
-    }
-    if (mine.length && CFG.mode === 'me') {
-      h += '<div class="gw-sec-title">내 변경 요청</div><ul class="gw-tasks">';
-      mine.forEach(function (r) {
-        var st = REQ_STATUS[r.status] || ['', r.status];
-        h += '<li class="gw-task"><div class="gw-task-main"><b>' + esc(r.kind_label) + '</b> <span class="gw-badge ' + st[0] + '">' + st[1] + '</span>' +
-          '<div class="gw-task-guide">' + reqDetail(r) + (r.status === 'rejected' && r.reason ? '<div class="text-danger">반려 사유: ' + esc(r.reason) + '</div>' : '') + '</div></div>' +
-          (r.status === 'pending' ? '<button type="button" class="btn btn-sm btn-outline-secondary" data-req-cancel="' + r.id + '">요청 취소</button>' : '') + '</li>';
-      });
-      h += '</ul>';
-    }
-    return h;
+    return '<button type="button" class="btn btn-sm btn-outline-secondary" data-req-open="' + kind + '">' + label + '</button>';
   }
   function reqPost(url, body) {
     return api(url, { method: 'POST', body: body });
@@ -276,7 +230,7 @@
       '<label>전화<input type="tel" class="form-control form-control-sm" name="phone" maxlength="20" value="' + esc(p.phone || '') + '"></label>' +
       '<label>개인 메일<input type="email" class="form-control form-control-sm" name="personal_email" maxlength="120" value="' + esc(p.personal_email || '') + '"></label>' +
       '<label class="gw-req-wide">주소<input type="text" class="form-control form-control-sm" name="address" maxlength="200" value="' + esc(p.address || '') + '"></label>' +
-      '<div class="gw-req-btns"><button type="submit" class="btn btn-sm btn-primary">요청 보내기</button><button type="button" class="btn btn-sm btn-outline-secondary" data-req-close>닫기</button>' +
+      '<div class="gw-req-btns"><button type="submit" class="btn btn-sm btn-primary">저장</button><button type="button" class="btn btn-sm btn-outline-secondary" data-req-close>닫기</button>' +
       '<span class="gw-form-error" role="alert"></span></div></form>';
     var f = box.querySelector('form');
     f.elements.phone.focus();
@@ -285,7 +239,7 @@
       e.preventDefault();
       var err = f.querySelector('.gw-form-error'), sb = f.querySelector('button[type=submit]');
       sb.disabled = true; err.textContent = '';
-      reqPost('/api/hr/me/requests/info', { phone: f.elements.phone.value, personal_email: f.elements.personal_email.value, address: f.elements.address.value })
+      reqPost('/api/hr/me/contact', { phone: f.elements.phone.value, personal_email: f.elements.personal_email.value, address: f.elements.address.value })
         .then(function () { return loadCard(p.id); })
         .catch(function (x) { err.textContent = x.message; sb.disabled = false; });
     });
@@ -302,7 +256,7 @@
     if (!rows.length) rows.push({});
     box.innerHTML = '<form class="gw-req-form" id="hrReqFamForm"><div class="gw-req-fams">' + rows.map(famRow).join('') + '</div>' +
       '<button type="button" class="btn btn-sm btn-outline-secondary" data-fam-add>+ 사람 추가</button>' +
-      '<div class="gw-req-btns"><button type="submit" class="btn btn-sm btn-primary">요청 보내기</button><button type="button" class="btn btn-sm btn-outline-secondary" data-req-close>닫기</button>' +
+      '<div class="gw-req-btns"><button type="submit" class="btn btn-sm btn-primary">저장</button><button type="button" class="btn btn-sm btn-outline-secondary" data-req-close>닫기</button>' +
       '<span class="gw-form-error" role="alert"></span></div></form>';
     var f = box.querySelector('form'), list = f.querySelector('.gw-req-fams');
     function bindDel() {
@@ -325,7 +279,7 @@
         return o;
       });
       sb.disabled = true; err.textContent = '';
-      reqPost('/api/hr/me/requests/family', { rows: out })
+      reqPost('/api/hr/me/family', { rows: out })
         .then(function () { return loadCard(p.id); })
         .catch(function (x) { err.textContent = x.message; sb.disabled = false; });
     });
@@ -339,33 +293,6 @@
         (kind === 'info' ? openInfoForm : openFamilyForm)(p, box, b);
       });
     });
-    cardEl.querySelectorAll('[data-req-cancel]').forEach(function (b) {
-      b.addEventListener('click', function () {
-        b.disabled = true;
-        reqPost('/api/hr/me/requests/' + b.getAttribute('data-req-cancel') + '/cancel')
-          .then(function () { return loadCard(p.id); })
-          .catch(function (x) { b.disabled = false; window.alert(x.message); });
-      });
-    });
-    cardEl.querySelectorAll('[data-req-approve]').forEach(function (b) {
-      b.addEventListener('click', function () {
-        b.disabled = true;
-        reqPost('/api/hr/requests/' + b.getAttribute('data-req-approve') + '/approve')
-          .then(function () { return loadCard(p.id); })
-          .catch(function (x) { b.disabled = false; window.alert(x.message); });
-      });
-    });
-    cardEl.querySelectorAll('[data-req-reject]').forEach(function (b) {
-      b.addEventListener('click', function () {
-        var reason = window.prompt('반려 사유를 적어 주세요. 본인에게 슬랙으로 가요.');
-        if (reason === null) return;
-        if (!reason.trim()) { window.alert('반려 사유를 적어 주세요.'); return; }
-        b.disabled = true;
-        reqPost('/api/hr/requests/' + b.getAttribute('data-req-reject') + '/reject', { reason: reason })
-          .then(function () { return loadCard(p.id); })
-          .catch(function (x) { b.disabled = false; window.alert(x.message); });
-      });
-    });
     var sf = document.getElementById('hrSelfDocForm');
     if (sf) {
       sf.addEventListener('submit', function (e) {
@@ -375,7 +302,7 @@
         if (file.size > 8 * 1024 * 1024) { err.textContent = '8MB까지 올릴 수 있어요.'; return; }
         var sb = sf.querySelector('button[type=submit]');
         sb.disabled = true; err.textContent = '';
-        fetch('/api/hr/me/requests/doc', { method: 'POST', body: new FormData(sf), credentials: 'same-origin' })
+        fetch('/api/hr/me/documents', { method: 'POST', body: new FormData(sf), credentials: 'same-origin' })
           .then(function (r) { return r.json().then(function (j) { if (!r.ok || !j.success) throw new Error(j.message || '올리지 못했어요.'); return j; }); })
           .then(function () { return loadCard(p.id); })
           .catch(function (x) { err.textContent = x.message; sb.disabled = false; });
@@ -573,14 +500,14 @@
     }
     // 가족 = 비상연락망(11-19 부장님: 플렉스에 연락용으로 올린 것 — 공제 대상 아님). 공제는 연말정산 화면에서 따로 받는다.
     // 주민번호는 플렉스에 넣어 둔 사람이 있을 때만 칸을 보인다.
-    var selfFam = CFG.mode === 'me' && p.my_requests !== undefined;
+    var selfFam = CFG.mode === 'me' && p.can_self_edit;
     if (selfFam && !(p.families && p.families.length)) {
-      h += '<div class="gw-sec-head"><div class="gw-sec-title">비상연락망</div>' + reqBtn(p, 'family', '등록 요청') + '</div>' +
+      h += '<div class="gw-sec-head"><div class="gw-sec-title">비상연락망</div>' + reqBtn(p, 'family', '등록하기') + '</div>' +
         '<div id="hrReq-family"></div><div class="gw-log">등록된 비상연락망이 없어요. 급할 때 연락할 가족을 알려 주세요.</div>';
     }
     if (p.families && p.families.length) {
       var famSsn = p.families.some(function (f) { return f.has_ssn; });
-      h += (selfFam ? '<div class="gw-sec-head"><div class="gw-sec-title">비상연락망</div>' + reqBtn(p, 'family', '고치기 요청') + '</div><div id="hrReq-family"></div>'
+      h += (selfFam ? '<div class="gw-sec-head"><div class="gw-sec-title">비상연락망</div>' + reqBtn(p, 'family', '고치기') + '</div><div id="hrReq-family"></div>'
                     : '<div class="gw-sec-title">비상연락망</div>') +
         '<p class="text-muted small mb-2">급할 때 연락할 가족이에요. 연말정산 부양가족 공제는 1월 연말정산 화면에서 따로 받아요.</p>' +
         table(['이름', '관계', '연락처'].concat(famSsn ? ['주민등록번호'] : []),
@@ -616,14 +543,14 @@
       }
     }
     if (CFG.mode === 'me' && p.self_doc_types) {
-      if (!docs.length && !p.can_edit) h += '<div class="gw-sec-title">서류</div><div class="gw-log">업로드된 서류가 없습니다.</div>';
-      h += '<form class="gw-doc-upload" id="hrSelfDocForm">' +
+      if (!docs.length && !p.can_edit) h += '<div class="gw-sec-title">서류</div>';
+            h += '<form class="gw-doc-upload" id="hrSelfDocForm">' +
         '<select class="form-select form-select-sm" name="doc_type" aria-label="올릴 서류 종류">' +
         p.self_doc_types.map(function (t) { return '<option>' + esc(t) + '</option>'; }).join('') + '</select>' +
         '<input type="file" class="form-control form-control-sm" name="file" aria-label="올릴 파일" required>' +
         '<button type="submit" class="btn btn-sm btn-outline-primary">서류 올리기</button>' +
         '<span class="gw-form-error" id="hrSelfDocError" role="alert"></span></form>' +
-        '<div class="gw-log">올린 서류는 경영지원이 확인한 뒤 서류 목록에 들어가요.</div>';
+        '<div class="gw-log">올리면 바로 위 서류 목록에 들어가요. 잘못 올렸으면 경영지원에 지워 달라고 해 주세요.</div>';
     }
     return h;
   }

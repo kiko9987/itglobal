@@ -9,7 +9,7 @@ from dashboard.services import groupware as gw
 from dashboard.services import hr
 from dashboard.services import hr_tasks as ht
 
-ADMIN = 'kiko@itg-aircon.com'
+ADMIN = 'hr-admin@example.com'
 
 
 @pytest.fixture
@@ -22,6 +22,7 @@ def db(tmp_path, monkeypatch):
     monkeypatch.setenv('GW_HR_KEY', Fernet.generate_key().decode())
     monkeypatch.setenv('EAPPROVAL_EXECUTOR_DM_IDS', 'UHANDLER')
     monkeypatch.delenv('HR_TASKS_FROM', raising=False)
+    monkeypatch.setattr(hr, 'hr_admins', lambda: [ADMIN])
     gw._invalidate()
     yield d
     gw._invalidate()
@@ -131,5 +132,5 @@ def test_gw_home_todo_and_api(db, monkeypatch):
         r = cl.post(f'/api/hr/tasks/{tid}/done').get_json()
         assert r['success'] and [t['status'] for t in r['tasks']].count('done') == 1
         with cl.session_transaction() as s:
-            s['user'] = {'email': 'x@itg-aircon.com', 'permission_level': 'user'}
+            s['user'] = {'email': 'x@example.com', 'permission_level': 'user'}
         assert cl.post(f'/api/hr/tasks/{tid}/done').status_code == 403
