@@ -745,11 +745,15 @@ def process_edit(uid: str, aid: int, fields: dict, files: list, docs: Optional[l
         if not files and not docs:
             _notify(client, uid, f'{ea.title(row)} — 바뀐 내용이 없어 그대로 두었어요.')
         return row
+    # 장부 칸만 고쳤거나 금액이 줄었으면 받은 승인 그대로(11-20 KiKO) — 'edit' 줄로 남는다
+    _st = ea.steps(aid)
+    kept = bool(_st) and _st[-1]['step'] == 'edit'
+    note = ' — 받은 승인 그대로예요 (받는 곳이 같고 금액이 늘지 않았어요)' if kept else ''
     if prev == ea.REVISE:
-        _thread_log(row, _changes_block(f'✏️ {ea.initial(name)} 수정해서 다시 올림', row['form'], changed))
+        _thread_log(row, _changes_block(f'✏️ {ea.initial(name)} 수정해서 다시 올림{note}', row['form'], changed))
     else:   # 승인 전에 요청자가 직접 고침 — 받은 승인이 있었으면 처음부터 다시(11-11)
         again = ' (승인은 처음부터 다시 받아요)' if prev == ea.FINAL and row['status'] == ea.PENDING else ''
-        _thread_log(row, _changes_block(f'✏️ {ea.initial(name)} 직접 고침{again}', row['form'], changed))
+        _thread_log(row, _changes_block(f'✏️ {ea.initial(name)} 직접 고침{again}{note}', row['form'], changed))
     refresh(row)
     who = [x for x in _targets(row) if x[1] != 'notice']
     have = {(r['user'], r['role']) for r in ea.dm_refs(row)}
@@ -1867,7 +1871,7 @@ def _edit_applied(aid: int, uid: str, sub_at: str) -> bool:
     if not sub_at:
         cur = ea.get(int(aid))
         return not cur or cur['status'] != ea.REVISE
-    return any(s['step'] == 'resubmit' and s.get('actor_id') == uid and str(s.get('at') or '') >= sub_at
+    return any(s['step'] in ('resubmit', 'edit') and s.get('actor_id') == uid and str(s.get('at') or '') >= sub_at
                for s in ea.steps(int(aid)))
 
 

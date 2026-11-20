@@ -1594,6 +1594,55 @@ def test_revise_then_edit_fund_same_card(se):
     assert se.apply_action('approve', new['id'], KIKO) is None and ea.get(new['id'])['status'] == ea.APPROVED
 
 
+def _approved_then_revised(se):
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    assert se.apply_action('approve', row['id'], KIKO) is None
+    if ea.get(row['id'])['status'] == ea.FINAL:
+        assert se.apply_action('final', row['id'], YG) is None
+    assert ea.get(row['id'])['status'] == ea.APPROVED
+    assert se.apply_action('revise', row['id'], KIKO, '분류 확인') is None
+    return ea.get(row['id'])
+
+
+def _edit(se, row, override):
+    f, errs = se.validate_new_submit(_state_from_view(se.edit_view(row), override))
+    assert errs == {}
+    return se.process_new_submit(MGR, f)
+
+
+def test_revise_keeps_approval_when_only_books_or_cheaper(se):
+    """11-20 KiKO — 최종 승인 뒤 보완 요청: 분류·내용만 고치거나 금액이 줄면 대표님 재결재 없이 이체 대기로."""
+    row = _approved_then_revised(se)
+    rev = ea.revision(row['id'])
+    new = _edit(se, row, {'amount': {'value': '500000'}, 'content': {'value': 'FCU 부품 (수량 줄임)'}})
+    assert new['status'] == ea.APPROVED and new['amount'] == 500000
+    assert ea.revision(row['id']) == rev + 1                       # 옛 버튼은 막힌다
+    assert ea.step_line(new, ea.steps(new['id'])).startswith('결재: ✅')   # 받은 승인이 카드에 그대로
+    logs = [m['text'] for m in se._fake.of('chat_postMessage') if m.get('thread_ts') == new['card_ts']]
+    assert any('받은 승인 그대로예요' in t for t in logs)
+    assert ea.last_revise(ea.steps(new['id'])) is None
+
+
+@pytest.mark.parametrize('override', [
+    {'amount': {'value': '600000'}},                                  # 금액이 늘면
+    {'account': {'value': '110-511-000000'}},                         # 받는 계좌가 바뀌면
+])
+def test_revise_restarts_approval_when_more_money_or_new_payee(se, override):
+    row = _approved_then_revised(se)
+    new = _edit(se, row, override)
+    assert new['status'] == ea.PENDING
+
+
+def test_keeps_approvals_rule():
+    old = {'form': ea.FORM_FUND}
+    assert ea.keeps_approvals(old, {'project_code': ('프로젝트0', '공통비'), 'cost_category': ('기타비:기타', '공통비:운영')})
+    assert ea.keeps_approvals(old, {'amount': (4466000, 2305050)})
+    assert not ea.keeps_approvals(old, {'amount': (100, 101)})
+    assert not ea.keeps_approvals(old, {'amount': (4466000, 2305050), 'partner': ('알만', '유엠테크')})
+    assert not ea.keeps_approvals(old, {'grn': ('G', 'R')})
+    assert not ea.keeps_approvals({'form': 'supply'}, {'memo': ('a', 'b')})
+
+
 def test_revise_task_form_and_resubmit_back_to_processing(se):
     from dashboard.services import e_approval_forms as forms
     vals = {'grn': 'G (글로벌)', 'project': '', 'docs': ['인감증명서'], 'year': '', 'other': '',
