@@ -105,6 +105,7 @@
     h += '</div>';
     if (p.can_edit && CFG.mode !== 'me') h += '<div class="gw-cert" id="hrCertPanel" hidden></div>';
     h += tasksHtml(p);     // 입사·퇴사 할 일은 맨 위(11-20)
+    h += myCertHtml(p);    // 내 정보: 증명서 신청(11-20)
 
     h += '<div class="gw-sec-title">근무</div><dl class="gw-dl">' +
       dd('입사일', p.hire_date) +
@@ -189,6 +190,20 @@
         api('/api/hr/tasks/' + b.getAttribute('data-task-done') + '/done', { method: 'POST' })
           .then(function () { return loadCard(p.id); })
           .catch(function (e) { b.disabled = false; window.alert(e.message); });
+      });
+    });
+    var myCertBtn = document.getElementById('hrMyCertBtn');
+    if (myCertBtn) myCertBtn.addEventListener('click', function () {
+      var box = document.getElementById('hrMyCertForm');
+      if (box.innerHTML) { box.innerHTML = ''; myCertBtn.setAttribute('aria-expanded', 'false'); return; }
+      openMyCert(p, box, myCertBtn);
+    });
+    cardEl.querySelectorAll('[data-cert-cancel]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        b.disabled = true;
+        api('/api/hr/me/cert-request/' + b.getAttribute('data-cert-cancel') + '/cancel', { method: 'POST' })
+          .then(function () { return loadCard(p.id); })
+          .catch(function (x) { b.disabled = false; window.alert(x.message); });
       });
     });
     var certBtn = document.getElementById('hrCertBtn');
@@ -308,6 +323,76 @@
           .catch(function (x) { err.textContent = x.message; sb.disabled = false; });
       });
     }
+  }
+
+  // ── 내 정보: 증명서 신청(11-20) — 슬랙 [📜 증명서 신청]과 같은 장부·카드 ──
+  var CERT_ST = { pending: 'gw-badge-wait', issued: 'gw-badge-active', rejected: 'gw-badge-reject', cancelled: '' };
+  function myCertHtml(p) {
+    if (CFG.mode !== 'me' || !p.cert_options) return '';
+    var list = (p.cert_requests || []).slice(0, 5);
+    var h = '<div class="gw-sec-head"><div class="gw-sec-title">증명서</div>' +
+      '<button type="button" class="btn btn-sm btn-outline-secondary" id="hrMyCertBtn" aria-expanded="false" aria-controls="hrMyCertForm">' +
+      '<i class="fas fa-file-signature me-1" aria-hidden="true"></i>증명서 신청</button></div><div id="hrMyCertForm"></div>';
+    if (list.length) {
+      h += '<ul class="gw-tasks">' + list.map(function (r) {
+        return '<li class="gw-task' + (r.status === 'cancelled' ? ' done' : '') + '"><div class="gw-task-main"><b>' + esc(r.ctype) + '</b> ' +
+          '<span class="gw-badge ' + (CERT_ST[r.status] || '') + '">' + esc(r.status_label) + '</span>' +
+          '<div class="gw-task-guide">' + esc(r.company) + ' · ' + esc(r.purpose) + ' · ' + esc((r.created_at || '').slice(0, 10)) +
+          (r.status === 'issued' ? ' — 슬랙 DM과 아래 서류에서 받을 수 있어요' : '') +
+          (r.status === 'rejected' && r.note ? '<div class="text-danger">반려 사유: ' + esc(r.note) + '</div>' : '') + '</div></div>' +
+          (r.status === 'pending' ? '<button type="button" class="btn btn-sm btn-outline-secondary" data-cert-cancel="' + r.id + '">신청 취소</button>' : '') +
+          '</li>';
+      }).join('') + '</ul>';
+    } else {
+      h += '<div class="gw-log">재직·경력증명서를 신청하면 경영지원이 발급해 슬랙 DM으로 보내 드려요.</div>';
+    }
+    return h;
+  }
+  function opt(list, sel) {
+    return list.map(function (x) {
+      var v = typeof x === 'object' ? x.key : x, t = typeof x === 'object' ? x.name : x;
+      return '<option value="' + esc(v) + '"' + (v === sel ? ' selected' : '') + '>' + esc(t) + '</option>';
+    }).join('');
+  }
+  function openMyCert(p, box, btn) {
+    var o = p.cert_options, resigned = p.status === '퇴사';
+    box.innerHTML = '<form class="gw-req-form gw-cert-req" id="hrMyCert">' +
+      '<label>발급 회사<select class="form-select form-select-sm" name="company" required><option value="">고르기</option>' + opt(o.companies, '') + '</select></label>' +
+      '<label>종류<select class="form-select form-select-sm" name="ctype">' + opt(o.types, resigned ? '경력증명서' : '재직증명서') + '</select></label>' +
+      '<label>용도<select class="form-select form-select-sm" name="purpose">' + opt(o.purposes, o.purposes[0]) + '</select></label>' +
+      '<label><span>제출처 <span class="text-muted">(선택 · 기타면 용도를 적어 주세요)</span></span><input type="text" class="form-control form-control-sm" name="dest" maxlength="60" placeholder="예: ○○은행 대출, 비자 신청"></label>' +
+      '<label>주민등록번호 표기<select class="form-select form-select-sm" name="ssn">' + opt(o.ssn, o.ssn[0]) + '</select></label>' +
+      '<label>받는 방법<select class="form-select form-select-sm" name="receive">' + opt(o.receive, o.receive[0]) + '</select></label>' +
+      '<label><span>부수 <span class="text-muted">(원본일 때)</span></span><input type="number" class="form-control form-control-sm" name="copies" min="1" max="10" placeholder="1"></label>' +
+      '<label><span>필요한 날 <span class="text-muted">(선택)</span></span><input type="date" class="form-control form-control-sm" name="need_by"></label>' +
+      '<label class="gw-req-wide"><span>메모 <span class="text-muted">(선택)</span></span><input type="text" class="form-control form-control-sm" name="memo" maxlength="500" placeholder="예: 영문 필요, 입사일을 그룹 입사일로"></label>' +
+      '<div class="gw-req-btns"><button type="submit" class="btn btn-sm btn-primary">신청</button>' +
+      '<button type="button" class="btn btn-sm btn-outline-secondary" data-req-close>닫기</button>' +
+      '<span class="gw-form-error" role="alert"></span></div></form>';
+    btn.setAttribute('aria-expanded', 'true');
+    var f = box.querySelector('form');
+    f.elements.company.focus();
+    f.querySelector('[data-req-close]').addEventListener('click', function () {
+      box.innerHTML = ''; btn.setAttribute('aria-expanded', 'false'); btn.focus();
+    });
+    f.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var err = f.querySelector('.gw-form-error'), sb = f.querySelector('button[type=submit]');
+      if (!f.elements.company.value) { err.textContent = '발급 회사를 골라 주세요.'; f.elements.company.focus(); return; }
+      var body = {};
+      ['company', 'ctype', 'purpose', 'dest', 'ssn', 'receive', 'copies', 'need_by', 'memo'].forEach(function (k) { body[k] = f.elements[k].value; });
+      sb.disabled = true; err.textContent = '';
+      api('/api/hr/me/cert-request', { method: 'POST', body: body })
+        .then(function () {
+          return loadCard(p.id).then(function () {
+            var sr = document.getElementById('hrCardSr');
+            if (sr) sr.textContent = '증명서를 신청했어요. 경영지원이 발급하면 슬랙 DM으로 보내 드려요.';
+            var b2 = document.getElementById('hrMyCertBtn');
+            if (b2) b2.focus();
+          });
+        })
+        .catch(function (x) { err.textContent = x.message; sb.disabled = false; });
+    });
   }
 
   // ── 증명서 바로 발급(11-20) — 인사카드 관리자. 퇴직자·창구 요청용(직원 신청은 슬랙 전자결재 [📜 증명서 신청]) ──

@@ -147,6 +147,31 @@ def read_request(view: dict) -> Dict[str, str]:
             'need_by': (v.get('c_need', {}).get('c_need') or {}).get('selected_date') or '', 'memo': txt('c_memo')}
 
 
+def web_vals(body: dict) -> Dict[str, str]:
+    """그룹웨어 신청 창(11-20) → 슬랙 창과 같은 값. 고르는 칸은 목록 안의 값만."""
+    def s(k, n=200):
+        return str(body.get(k) or '').strip()[:n]
+    vals = {'ctype': s('ctype'), 'company': s('company'), 'purpose': s('purpose'), 'dest': s('dest', 60),
+            'ssn': s('ssn'), 'receive': s('receive'), 'copies': s('copies', 2), 'need_by': s('need_by', 10),
+            'memo': s('memo', 500)}
+    bad = [k for k, opts in (('ctype', TYPES), ('purpose', PURPOSES), ('ssn', SSN_OPTS), ('receive', RECEIVE))
+           if vals[k] not in opts]
+    if vals['company'] not in COMPANIES:
+        bad.append('company')
+    if bad:
+        raise ValueError('발급 회사·종류·용도·주민등록번호 표기·받는 방법을 골라 주세요.')
+    errs = validate(vals)
+    if errs:
+        raise ValueError(next(iter(errs.values())))
+    return vals
+
+
+def web_options() -> dict:
+    """그룹웨어 신청 창 고르는 칸."""
+    return {'types': TYPES, 'purposes': PURPOSES, 'ssn': SSN_OPTS, 'receive': RECEIVE,
+            'companies': [{'key': k, 'name': company_label(k)} for k in COMPANY_ORDER]}
+
+
 def validate(vals: Dict[str, str]) -> Dict[str, str]:
     errs = {}
     if vals['copies'] and (not vals['copies'].isdigit() or not 1 <= int(vals['copies']) <= 10):

@@ -223,3 +223,48 @@ def test_purpose_text_etc_shows_only_written():
     assert ct.purpose_text('기타', '') == '기타'
     assert ct.purpose_text('관공서 제출', '') == '관공서 제출'
     assert ct.request_opts({'purpose': '기타', 'dest': '비자 신청'})['purpose'] == '비자 신청'
+
+
+def test_web_vals_checks_choices():
+    good = {'company': 'itg', 'ctype': '재직증명서', 'purpose': '기타', 'dest': '비자 신청', 'ssn': ct.SSN_OPTS[0],
+            'receive': ct.RECEIVE[0], 'copies': '', 'need_by': '', 'memo': ''}
+    assert ct.web_vals(good)['company'] == 'itg'
+    for bad in ({'company': ''}, {'ctype': '이상한'}, {'purpose': '맘대로'}, {'copies': '0'}):
+        with pytest.raises(ValueError):
+            ct.web_vals(dict(good, **bad))
+    o = ct.web_options()
+    assert [c['key'] for c in o['companies']] == ['itg', 'group'] and o['types'] == ct.TYPES
+
+
+def test_gw_cert_request_and_cancel(db, monkeypatch):
+    import dashboard.auth as auth
+    from dashboard.blueprints import hr as hr_bp_mod
+    from dashboard.blueprints import slack_eapproval as se
+    from dashboard.blueprints.groupware import field_path_allowed
+    monkeypatch.setattr(auth, '_validate_session', lambda require_admin=False: None)
+    monkeypatch.setattr(gw, 'can_use', lambda e: True)
+    c = _Client()
+    monkeypatch.setattr(se, 'eap_client', lambda: c)
+    monkeypatch.setattr(se, '_name', lambda uid: '박민우')
+    p = _person()
+    app = Flask(__name__)
+    app.secret_key = 'x'
+    app.register_blueprint(hr_bp_mod.hr_bp)
+    body = {'company': 'group', 'ctype': '재직증명서', 'purpose': '금융기관 제출', 'dest': '○○은행',
+            'ssn': ct.SSN_OPTS[0], 'receive': ct.RECEIVE[0], 'copies': '', 'need_by': '', 'memo': ''}
+    with app.test_client() as cl:
+        with cl.session_transaction() as s:
+            s['user'] = {'email': 'staff@example.com', 'permission_level': 'user'}
+        card = cl.get(f"/api/hr/people/{p['id']}").get_json()['person']
+        assert card['cert_options']['types'] == ct.TYPES and card['cert_requests'] == []
+        r = cl.post('/api/hr/me/cert-request', json=body).get_json()
+        assert r['success'] and r['requests'][0]['status'] == 'pending' and r['requests'][0]['company'] == '(주)아이티글로벌그룹'
+        posted = [x[1] for x in c.calls if x[0] == 'post']
+        assert 'DUREQ' in posted and 'DUHANDLER' in posted                         # 슬랙과 같은 카드
+        rid = r['requests'][0]['id']
+        assert cl.post('/api/hr/me/cert-request', json=dict(body, company='')).status_code == 400
+        r = cl.post(f'/api/hr/me/cert-request/{rid}/cancel').get_json()
+        assert r['success'] and r['requests'][0]['status'] == 'cancelled'
+        assert cl.post(f'/api/hr/me/cert-request/{rid}/cancel').status_code == 400
+    assert field_path_allowed('POST', '/api/hr/me/cert-request')
+    assert field_path_allowed('POST', '/api/hr/me/cert-request/3/cancel')

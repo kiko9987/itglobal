@@ -119,6 +119,9 @@ def api_card(pid):
     if mine and mine['id'] == pid:
         c['can_self_edit'] = True                 # 연락처·비상연락망·서류 올리기는 본인이 바로(11-20)
         c['self_doc_types'] = hq.SELF_DOC_TYPES
+        from dashboard.services import certificates as ct
+        c['cert_options'] = ct.web_options()       # 그룹웨어 증명서 신청(11-20)
+        c['cert_requests'] = [_cert_row(r) for r in ct.mine(mine['slack_id'])] if mine.get('slack_id') else []
     if _hr_admin():
         c['access_log'] = hr.access_log(pid)
         try:
@@ -273,6 +276,63 @@ def api_self_edit(kind):
         return jsonify({'success': False, 'message': str(e)}), 400
     _after_self_edit(row)
     return jsonify({'success': True})
+
+
+def _cert_row(r: dict) -> dict:
+    from dashboard.services import certificates as ct
+    return {'id': r['id'], 'ctype': r['ctype'], 'company': ct.company_label(r.get('company') or ''),
+            'purpose': ct.purpose_text(r.get('purpose') or '', r.get('dest') or ''), 'status': r['status'],
+            'status_label': ct.STATUS.get(r['status'], ('', r['status']))[1], 'note': r.get('handled_note') or '',
+            'created_at': r['created_at']}
+
+
+@hr_bp.route('/api/hr/me/cert-request', methods=['POST'])
+@gw_page
+def api_my_cert_request():
+    """그룹웨어 증명서 신청(11-20) — 슬랙 [📜 증명서 신청]과 같은 장부·카드(신청자·경영지원 DM)."""
+    from dashboard.services import certificates as ct
+    me = _my_person()
+    if not me:
+        return jsonify({'success': False, 'message': '인사카드가 연결되지 않았어요. 경영지원에 문의해 주세요.'}), 403
+    if not me.get('slack_id'):
+        return jsonify({'success': False, 'message': '인사카드에 슬랙 계정이 연결돼 있어야 신청할 수 있어요. 경영지원에 말씀해 주세요.'}), 400
+    try:
+        vals = ct.web_vals(request.get_json(silent=True) or {})
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+    from dashboard.blueprints import slack_eapproval as se
+    from dashboard.blueprints.slack_cert import submit
+    client = se.eap_client()
+    if not client:
+        return jsonify({'success': False, 'message': '지금은 신청할 수 없어요(전자결재 봇 연결 없음). 경영지원에 말씀해 주세요.'}), 503
+    try:
+        submit(client, me['slack_id'], vals)
+    except Exception as e:
+        logger.error(f'[HR] 증명서 신청 실패 #{me["id"]}: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': '신청을 저장하지 못했어요. 잠시 뒤 다시 해 주세요.'}), 500
+    return jsonify({'success': True, 'requests': [_cert_row(r) for r in ct.mine(me['slack_id'])]})
+
+
+@hr_bp.route('/api/hr/me/cert-request/<int:rid>/cancel', methods=['POST'])
+@gw_page
+def api_my_cert_cancel(rid):
+    from dashboard.services import certificates as ct
+    me = _my_person()
+    row = ct.get(rid)
+    if not me or not me.get('slack_id') or not row or row['requester_id'] != me['slack_id']:
+        return jsonify({'success': False, 'message': '없는 신청이에요.'}), 404
+    new = ct.finish(rid, ct.CANCELLED, me['name'], '신청자 취소')
+    if not new:
+        return jsonify({'success': False, 'message': '이미 처리된 신청이에요.'}), 400
+    try:
+        from dashboard.blueprints import slack_eapproval as se
+        from dashboard.blueprints.slack_cert import _refresh
+        c = se.eap_client()
+        if c:
+            _refresh(c, new)
+    except Exception as e:
+        logger.warning(f'[HR] 증명서 취소 카드 고치기 실패 #{rid}: {e}')
+    return jsonify({'success': True, 'requests': [_cert_row(r) for r in ct.mine(me['slack_id'])]})
 
 
 def _sync_tasks() -> None:

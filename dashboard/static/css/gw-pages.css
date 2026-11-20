@@ -230,6 +230,7 @@
 .gw-req-form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.82rem; color: #475569; }
 .gw-req-form .gw-req-wide, .gw-req-form .gw-req-btns, .gw-req-form .gw-req-fams, .gw-req-form [data-fam-add] { grid-column: 1 / -1; }
 #hrReqFamForm { grid-template-columns: 1fr; }
+.gw-cert-req { grid-template-columns: repeat(2, minmax(0, 1fr)); }   /* 내 정보 증명서 신청(11-20) */
 #hrReqFamForm [data-fam-add] { justify-self: start; }
 .gw-req-fam { display: grid; grid-template-columns: 1fr 1fr 1.2fr auto; gap: 6px; margin-bottom: 6px; }
 .gw-req-btns { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
