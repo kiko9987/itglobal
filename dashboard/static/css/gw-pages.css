@@ -178,6 +178,8 @@
 .gw-badge-leave { background: #fef3c7; color: #92400e; }
 .gw-badge-resigned { background: #f1f5f9; color: #475569; }
 .gw-badge-field { background: #e0f2fe; color: #075985; }
+/* 표 칸 안 배지 — middle 로는 한글 이름보다 2~3px 처져 그 줄만 높아졌다(11-20 부장님, 직원별 표). 글자 기준선에 붙이고 1px 올림 */
+td .gw-badge { vertical-align: 1px; line-height: 1.3; }
 
 /* ── 인사카드 ─────────────────────────────────── */
 .gw-card {
