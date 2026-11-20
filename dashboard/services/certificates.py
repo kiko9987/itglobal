@@ -485,8 +485,16 @@ def issues(person_id: int, limit: int = 20) -> List[dict]:
 
 def request_opts(row: dict) -> dict:
     """슬랙 신청 → 자동 발급 옵션: 용도(제출처 포함)·주민번호 전체 여부."""
-    purpose = row.get('purpose') or ''
-    if row.get('dest'):
-        purpose = f"{purpose} ({row['dest']})" if purpose else row['dest']
-    return {'purpose': purpose, 'ssn': (row.get('ssn') or '').startswith('주민등록번호 전체'),
+    return {'purpose': purpose_text(row.get('purpose') or '', row.get('dest') or ''),
+            'ssn': (row.get('ssn') or '').startswith('주민등록번호 전체'),
             'company': row.get('company') or ''}
+
+
+def purpose_text(purpose: str, dest: str = '') -> str:
+    """증명서 '용도' 칸 — 용도 (제출처). '기타'에 적은 내용이 있으면 그 내용만(11-20 부장님: '기타 (…)'는 어색)."""
+    purpose, dest = (purpose or '').strip(), (dest or '').strip()
+    if purpose == '기타' and dest:
+        return dest
+    if dest:
+        return f'{purpose} ({dest})' if purpose else dest
+    return purpose

@@ -344,7 +344,9 @@
     document.getElementById('hrCertGo').addEventListener('click', function () {
       var go = this, msg = document.getElementById('hrCertMsg');
       var dest = document.getElementById('hrCertDest').value.trim();
-      var purpose = document.getElementById('hrCertPurpose').value + (dest ? ' (' + dest + ')' : '');
+      var pv = document.getElementById('hrCertPurpose').value;
+      // '기타'에 적은 내용이 있으면 그 내용만(11-20) — certificates.purpose_text 와 같게
+      var purpose = (pv === '기타' && dest) ? dest : pv + (dest ? ' (' + dest + ')' : '');
       var g = document.getElementById('hrCertGroup');
       var company = document.getElementById('hrCertCompany').value;
       if (!company) {

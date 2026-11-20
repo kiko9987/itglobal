@@ -215,3 +215,11 @@ def test_transparent_pixels_take_ink_color():
            + chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b''))
     w, h, rgb, a = pm._unbleed(pm.decode_png(png))
     assert rgb[3:6] == bytes((200, 30, 40)) and a[1] == 0
+
+
+def test_purpose_text_etc_shows_only_written():
+    assert ct.purpose_text('금융기관 제출', '○○은행') == '금융기관 제출 (○○은행)'
+    assert ct.purpose_text('기타', '비자 신청') == '비자 신청'               # '기타 (…)' 대신 적은 내용만(11-20)
+    assert ct.purpose_text('기타', '') == '기타'
+    assert ct.purpose_text('관공서 제출', '') == '관공서 제출'
+    assert ct.request_opts({'purpose': '기타', 'dest': '비자 신청'})['purpose'] == '비자 신청'
