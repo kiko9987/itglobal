@@ -379,6 +379,20 @@ def test_branch_and_coffee_signal_l04558():
     assert ar._strip_personal_name('1층 국면당 공세점') == '1층 국면당 공세점'
 
 
+def test_complex_tenant_not_attached_l04623(monkeypatch):
+    # 같은 번지에 단지 자체 POI(…아파트)가 있으면 '단지명+X'(부동산·어린이집)는 입점 업체
+    road = '경기 화성시 동탄구 동탄역로 196'
+    pois = {
+        '동탄역예미지': [('동탄역예미지시그너스아파트', road),
+                     ('동탄역예미지채움부동산공인중개사사무소', road)],
+        '예미지시그너스': [('동탄역예미지시그너스아파트', road), ('예미지시그너스어린이집', road)],
+    }
+    monkeypatch.setattr(ar, '_search_poi', lambda q: next(
+        (v for k, v in pois.items() if q.startswith(k)), []))
+    t = '화성 동탄구 동탄역로 196 동탄역 예미지 시그너스'
+    assert ar._enrich_with_poi(t, t) == t
+
+
 def test_corp_mark_stripped_from_building_name_l04615(monkeypatch):
     bld = {'road_address': {'building_name': '주식회사에이피로지스틱스'}}
     monkeypatch.setattr(ar, '_kakao_search', lambda q: bld)

@@ -2182,6 +2182,8 @@ _POI_FACILITY_SUBSTR = (
     # 아파트 단지 공용시설 (2026-11-09 L-04506: '디에트르송도시그니처뷰아파트 경로당'이
     #   고객 상가 주소의 건물명으로 들어감)
     '경로당', '노인정', '작은도서관', '독서실', '피트니스', '커뮤니티', '놀이터', '주민공동',
+    # 단지·상가 입점 부동산 (2026-11-20 L-04623 '동탄역예미지채움부동산공인중개사사무소')
+    '부동산', '공인중개', '어린이집',
 )
 # 접미로만 판정하는 시설어 — substr 로 넣으면 오탐(글로비스⊃로비)이라 endswith 로.
 #   '사무동로비'·'중앙로비' 등 로비/홀 부속공간 (2026-08-14 ETC-1765ea 사무동로비 오삽입).
@@ -2291,12 +2293,21 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
         # 결합형 자체가 같은 도로의 정식 POI(=건물)면 '결합형 X'의 X는 입점 업체 →
         #   치환 금지 (2026-10-20 L-04307: '크란츠 테크노' → '크란츠테크노 어머니맛나부페',
         #   L-04213 _bld_exists 와 같은 원리). 원문에 그 이름이 있으면 기존대로.
+        # 결합형을 품은 '건물 자체' POI(…아파트·오피스텔 등)가 같은 번지에 있어도 같은 뜻 —
+        #   나머지 '결합형 X'는 단지 안 입점 업체 (2026-11-20 L-04623: '동탄역예미지시그너스아파트'
+        #   가 있는데 '…채움부동산공인중개사사무소'·'예미지시그너스어린이집'을 건물명 자리에 붙임)
         _jexact = any(
-            (_p or '').replace(' ', '') == _jc and _road_key(_r or '') == v_key
+            _road_key(_r or '') == v_key and (
+                (_p or '').replace(' ', '') == _jc
+                or (_jc in (_p or '').replace(' ', '')
+                    and re.search(r'(?:아파트|오피스텔|빌라|맨션)$', (_p or '').replace(' ', ''))))
             for _p, _r in _jresults)
         for _pname, _road in _jresults:
+            # 단지 정식 이름 자체(…1단지아파트 등)로의 치환은 허용, 그 밖의 '결합형 X'만 차단
+            #   (L-04511 '광화문 스페이스본' → '광화문스페이스본1단지아파트' 유지)
             if (_jexact and _pname and _pname.replace(' ', '') != _jc
-                    and _pname.replace(' ', '') not in original_text.replace(' ', '')):
+                    and _pname.replace(' ', '') not in original_text.replace(' ', '')
+                    and not re.search(r'(?:아파트|오피스텔|빌라|맨션)$', _pname.replace(' ', ''))):
                 continue
             if not _pname or not _road or _road_key(_road) != v_key:
                 continue
@@ -2330,7 +2341,10 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
                 _span_end += _m_tok.end()
             _rest = _pn_ns[len(_acc):]
             if not _rest or re.fullmatch(r'(?:주상복합)?(?:아파트|오피스텔|빌라|맨션)', _rest):
-                continue
+                # 건물 자체 POI 를 찾았으면 여기서 멈춤 — 다음 후보는 같은 건물의 입점 업체라
+                #   지점명으로 붙이면 엉뚱함 (2026-11-20 L-04623: '동탄역예미지시그너스아파트'
+                #   다음의 '동탄역예미지채움부동산공인중개사사무소'가 건물명 자리에 들어감)
+                break
             # 남는 게 동 번호인데 고객이 바로 뒤에 다른 동을 적었으면 다른 동 POI (2026-11-10
             #   L-04021: '본관 2동' 인데 POI '본관1동' 을 붙여 '본관1동 2동')
             if (re.fullmatch(r'[A-Za-z]?\d+동', _rest)
