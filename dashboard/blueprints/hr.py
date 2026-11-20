@@ -181,7 +181,8 @@ def api_certificate(pid):
     body = request.get_json(silent=True) or {}
     try:
         res = ct.issue_pdf(pid, body.get('ctype', ''), (body.get('purpose') or '').strip()[:100], _me(),
-                           ssn=bool(body.get('ssn')), group_date=bool(body.get('group_date')))
+                           ssn=bool(body.get('ssn')), group_date=bool(body.get('group_date')),
+                           company_key=body.get('company') or '')
     except (ValueError, RuntimeError, LookupError) as e:
         return jsonify({'success': False, 'message': str(e)}), 400
     logger.info(f"[HR] 증명서 발급 #{pid} {res['doc_no']} by {_me()}")

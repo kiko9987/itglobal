@@ -17,14 +17,14 @@ def db(tmp_path, monkeypatch):
     return d
 
 
-VALS = {'ctype': '재직증명서', 'purpose': '금융기관 제출', 'dest': '○○은행', 'ssn': ct.SSN_OPTS[0],
+VALS = {'ctype': '재직증명서', 'company': 'itg', 'purpose': '금융기관 제출', 'dest': '○○은행', 'ssn': ct.SSN_OPTS[0],
         'receive': ct.RECEIVE[0], 'copies': '', 'need_by': '', 'memo': ''}
 
 
 def _state(**kw):
     v = {}
     for k, val in kw.items():
-        if k in ('c_type', 'c_purpose', 'c_ssn', 'c_receive'):
+        if k in ('c_type', 'c_company', 'c_purpose', 'c_ssn', 'c_receive'):
             v[k] = {k: {'selected_option': {'value': val}}}
         elif k == 'c_need':
             v[k] = {k: {'selected_date': val}}
@@ -36,10 +36,10 @@ def _state(**kw):
 def test_view_and_read():
     view = ct.request_view('박민우')
     ids = [b.get('block_id') for b in view['blocks'] if b.get('block_id')]
-    assert ids == ['c_type', 'c_purpose', 'c_dest', 'c_ssn', 'c_receive', 'c_copies', 'c_need', 'c_memo']
-    vals = ct.read_request(_state(c_type='경력증명서', c_purpose='관공서 제출', c_dest=' 구청 ',
+    assert ids == ['c_type', 'c_company', 'c_purpose', 'c_dest', 'c_ssn', 'c_receive', 'c_copies', 'c_need', 'c_memo']
+    vals = ct.read_request(_state(c_type='경력증명서', c_company='(주)아이티글로벌그룹', c_purpose='관공서 제출', c_dest=' 구청 ',
                                   c_ssn=ct.SSN_OPTS[1], c_receive=ct.RECEIVE[1], c_copies='2'))
-    assert vals['ctype'] == '경력증명서' and vals['dest'] == '구청' and vals['copies'] == '2'
+    assert vals['ctype'] == '경력증명서' and vals['company'] == 'group' and vals['dest'] == '구청' and vals['copies'] == '2'
     assert ct.validate(vals) == {}
     assert 'c_copies' in ct.validate(dict(vals, copies='0'))
     assert 'c_need' in ct.validate(dict(vals, need_by=(date.today() - timedelta(days=1)).isoformat()))
@@ -53,7 +53,7 @@ def test_flow_issue_once_and_cards(db):
         return next(b for b in bl if b['type'] == 'actions')
     assert [e['action_id'] for e in act(h)['elements']] == [ct.A_AUTO, ct.A_ISSUE, ct.A_REJECT]
     assert [e['action_id'] for e in act(ct.card_blocks(row, 'requester'))['elements']] == [ct.A_CANCEL]
-    assert '○○은행' in ct.card_text(row) and '부' not in ct.card_text(row).split('받는 방법')[1].split('\n')[0]
+    assert '○○은행' in ct.card_text(row) and '(주)아이티글로벌' in ct.card_text(row) and '부' not in ct.card_text(row).split('받는 방법')[1].split('\n')[0]
     done = ct.finish(row['id'], ct.ISSUED, '황샛별', '', ['재직증명서.pdf'])
     assert done['status'] == ct.ISSUED and not any(b['type'] == 'actions' for b in ct.card_blocks(done, 'handler'))
     assert ct.finish(row['id'], ct.REJECTED, '황샛별', 'x') is None                     # 두 번 처리 안 됨

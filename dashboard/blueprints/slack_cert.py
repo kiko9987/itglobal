@@ -101,14 +101,17 @@ def auto_issue(client, rid: int, uid: str) -> str:
     me = hr.find_by_slack(uid) or {}
     by = (me.get('login_email') or me.get('work_email') or se._name(uid) or uid).strip()
     opts = ct.request_opts(row)
+    if not opts['company']:      # 두 법인 선택 전(11-20 이전) 신청 — 회사를 모르니 바로 발급하지 않는다
+        return '발급 회사가 정해지지 않은 신청이에요. [📎 파일 올려 발급]을 쓰거나 다시 신청해 달라고 해 주세요.'
     try:
-        res = ct.issue_pdf(person['id'], row['ctype'], opts['purpose'], by, ssn=opts['ssn'], request_id=rid)
+        res = ct.issue_pdf(person['id'], row['ctype'], opts['purpose'], by, ssn=opts['ssn'], request_id=rid,
+                           company_key=opts['company'])
     except (ValueError, RuntimeError, LookupError) as exc:
         return str(exc)
     ch = client.conversations_open(users=row['requester_id'])['channel']['id']
     client.files_upload_v2(channel=ch, file_uploads=[{'content': res['pdf'], 'filename': res['file_name'],
                                                       'title': res['file_name']}],
-                           initial_comment=f"📜 {row['ctype']}가 발급됐어요. ({row['purpose']}) · 발급번호 {res['doc_no']}")
+                           initial_comment=f"📜 {ct.company_label(opts['company'])} {row['ctype']}가 발급됐어요. ({row['purpose']}) · 발급번호 {res['doc_no']}")
     original = (row.get('receive') or '').startswith('직인')
     if original:   # 원본을 원한 신청 — 경영지원이 뽑아 줄 수 있게 같은 파일을 경영지원 DM 에도
         try:

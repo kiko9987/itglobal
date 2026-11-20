@@ -321,6 +321,8 @@
     panel.innerHTML =
       '<div class="gw-cert-title">증명서 발급 <span class="text-muted">직인이 찍힌 PDF를 만들고 아래 서류에도 남겨요</span></div>' +
       '<div class="gw-cert-grid">' +
+      '<label>발급 회사<select class="form-select form-select-sm" id="hrCertCompany">' +
+      '<option value="">고르기</option><option value="itg">(주)아이티글로벌</option><option value="group">(주)아이티글로벌그룹</option></select></label>' +
       '<label>종류<select class="form-select form-select-sm" id="hrCertType">' +
       (resigned ? '' : '<option>재직증명서</option>') + '<option>경력증명서</option></select></label>' +
       '<label>용도<select class="form-select form-select-sm" id="hrCertPurpose">' +
@@ -335,7 +337,7 @@
       '<div class="gw-cert-msg" id="hrCertMsg" role="status"></div>';
     panel.hidden = false;
     btn.setAttribute('aria-expanded', 'true');
-    document.getElementById('hrCertType').focus();
+    document.getElementById('hrCertCompany').focus();
     document.getElementById('hrCertClose').addEventListener('click', function () {
       panel.hidden = true; btn.setAttribute('aria-expanded', 'false'); btn.focus();
     });
@@ -344,12 +346,19 @@
       var dest = document.getElementById('hrCertDest').value.trim();
       var purpose = document.getElementById('hrCertPurpose').value + (dest ? ' (' + dest + ')' : '');
       var g = document.getElementById('hrCertGroup');
+      var company = document.getElementById('hrCertCompany').value;
+      if (!company) {
+        msg.className = 'gw-cert-msg text-danger';
+        msg.textContent = '발급 회사를 골라 주세요.';
+        document.getElementById('hrCertCompany').focus();
+        return;
+      }
       go.disabled = true;
       msg.className = 'gw-cert-msg';
       msg.textContent = '만드는 중…';
       fetch('/api/hr/people/' + p.id + '/certificate', {
         method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ctype: document.getElementById('hrCertType').value, purpose: purpose,
+        body: JSON.stringify({ company: company, ctype: document.getElementById('hrCertType').value, purpose: purpose,
                                ssn: document.getElementById('hrCertSsn').checked, group_date: !!(g && g.checked) })
       }).then(function (r) {
         if (!r.ok) return r.json().catch(function () { return {}; }).then(function (j) { throw new Error(j.message || ('발급하지 못했어요 (' + r.status + ')')); });

@@ -250,7 +250,7 @@
 }
 .gw-cert-title { font-weight: 700; font-size: 0.95rem; margin-bottom: 10px; }
 .gw-cert-title .text-muted { font-weight: 400; font-size: 0.82rem; margin-left: 6px; }
-.gw-cert-grid { display: grid; grid-template-columns: 160px 160px 1fr; gap: 10px; }
+.gw-cert-grid { display: grid; grid-template-columns: 190px 140px 150px 1fr; gap: 10px; }
 .gw-cert-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 0.82rem; color: #475569; }
 .gw-cert-check { display: block; margin-top: 10px; font-size: 0.88rem; }
 .gw-cert-check input { margin-right: 6px; }

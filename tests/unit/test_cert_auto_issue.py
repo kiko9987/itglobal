@@ -63,20 +63,24 @@ def test_doc_output_is_pdf_with_text_and_image():
 
 
 def test_cert_rows_employed_vs_career(monkeypatch):
-    monkeypatch.delenv('CERT_NAME', raising=False)
+    monkeypatch.delenv('CERT_GROUP_NAME', raising=False)
     p = {'name': '박민우', 'birth_date': '1990-03-05', 'address': '김포', 'hire_date': '2023-07-24', 'status': '재직',
          'department': '기술영업', 'job_rank': '매니저', 'job_role': '영업', 'group_hire_date': '2022-01-01'}
     rows = dict(ct.cert_rows(p, '재직증명서', '금융기관 제출'))
     assert dict(rows['기본 정보'])['생년월일'] == '1990년 3월 5일' and '주민등록번호' not in dict(rows['기본 정보'])
     assert dict(rows['재직 정보'])['재직 기간'] == '2023년 7월 24일 ~ 현재'
-    assert dict(rows['회사 정보'])['회사명'] == '(주)아이티글로벌그룹'
+    assert dict(rows['회사 정보'])['회사명'] == '(주)아이티글로벌그룹'          # 기본=그룹(플렉스 발급본)
+    itg = dict(ct.cert_rows(p, '재직증명서', 'x', company_key='itg'))
+    assert dict(itg['회사 정보'])['회사명'] == '(주)아이티글로벌' and dict(itg['회사 정보'])['사업자등록번호'] == '884-81-01425'
     g = dict(ct.cert_rows(p, '재직증명서', 'x', group_date=True))
     assert dict(g['재직 정보'])['재직 기간'].startswith('2022년 1월 1일')
     c = dict(ct.cert_rows(dict(p, status='퇴사', resign_date='2026-10-26'), '경력증명서', 'x', ssn_full='900305-1234567'))
     assert dict(c['경력 정보'])['근무 기간'] == '2023년 7월 24일 ~ 2026년 10월 26일'
     assert dict(c['기본 정보'])['주민등록번호'] == '900305-1234567'
-    monkeypatch.setenv('CERT_NAME', '(주)아이티글로벌')
-    assert ct.company()['name'] == '(주)아이티글로벌'
+    monkeypatch.setenv('CERT_GROUP_NAME', '(주)새이름')
+    assert ct.company('group')['name'] == '(주)새이름' and ct.company_key('(주)새이름') == 'group'
+    with pytest.raises(ValueError):
+        ct.company('')
 
 
 @pytest.fixture
@@ -88,9 +92,8 @@ def db(tmp_path, monkeypatch):
         monkeypatch.setattr(mod, '_table_ready', False)
     monkeypatch.setenv('GW_HR_KEY', Fernet.generate_key().decode())
     monkeypatch.setenv('GW_HR_DOCS_DIR', str(tmp_path / 'docs'))
-    seal = tmp_path / 'seal.png'
-    seal.write_bytes(_png(8, 8))
-    monkeypatch.setenv('CERT_SEAL_PATH', str(seal))
+    (tmp_path / 'seal.png').write_bytes(_png(8, 8))            # 그룹 직인(플렉스에서 받은 처음 이름)
+    monkeypatch.setenv('CERT_SEAL_DIR', str(tmp_path))
     monkeypatch.setenv('EAPPROVAL_EXECUTOR_DM_IDS', 'UHANDLER')
     monkeypatch.setattr(hr, 'hr_admins', lambda: [ADMIN])
     gw._invalidate()
@@ -110,29 +113,31 @@ def _person(**kw):
 @need_font
 def test_issue_pdf_records_and_saves_document(db):
     p = _person()
-    res = ct.issue_pdf(p['id'], '재직증명서', '금융기관 제출', ADMIN, ssn=True)
+    res = ct.issue_pdf(p['id'], '재직증명서', '금융기관 제출', ADMIN, ssn=True, company_key='group')
     assert res['pdf'].startswith(b'%PDF') and res['doc_no'].endswith('-0001')
     docs = hr.documents(p['id'])
     assert [d['doc_type'] for d in docs] == ['발급 증명서'] and docs[0]['file_name'] == res['file_name']
     assert ct.issues(p['id'])[0]['ssn_included'] == 1
     assert any(l['action'] == 'cert_issue' for l in hr.access_log(p['id']))
-    assert ct.issue_pdf(p['id'], '경력증명서', 'x', ADMIN)['doc_no'].endswith('-0002')
+    assert ct.issues(p['id'])[0]['company'] == 'group' and '아이티글로벌그룹' in res['file_name']
+    assert ct.issue_pdf(p['id'], '경력증명서', 'x', ADMIN, company_key='group')['doc_no'].endswith('-0002')
 
 
 @need_font
 def test_issue_pdf_guards(db, monkeypatch):
     p = _person()
     with pytest.raises(ValueError):
-        ct.issue_pdf(p['id'], '이상한 증명서', 'x', ADMIN)
+        ct.issue_pdf(p['id'], '이상한 증명서', 'x', ADMIN, company_key='group')
     with hr._conn() as conn:
         conn.execute("UPDATE hr_people SET status='퇴사', resign_date='2026-10-01', ssn_enc=NULL WHERE id=?", (p['id'],))
     with pytest.raises(ValueError, match='경력증명서'):
-        ct.issue_pdf(p['id'], '재직증명서', 'x', ADMIN)
+        ct.issue_pdf(p['id'], '재직증명서', 'x', ADMIN, company_key='group')
     with pytest.raises(ValueError, match='주민등록번호'):
-        ct.issue_pdf(p['id'], '경력증명서', 'x', ADMIN, ssn=True)
-    monkeypatch.setenv('CERT_SEAL_PATH', r'C:\없는\seal.png')
-    with pytest.raises(RuntimeError, match='직인'):
+        ct.issue_pdf(p['id'], '경력증명서', 'x', ADMIN, ssn=True, company_key='group')
+    with pytest.raises(ValueError, match='발급 회사'):
         ct.issue_pdf(p['id'], '경력증명서', 'x', ADMIN)
+    with pytest.raises(RuntimeError, match='아이티글로벌 직인'):          # 아이티글로벌 직인 그림은 아직 없음
+        ct.issue_pdf(p['id'], '경력증명서', 'x', ADMIN, company_key='itg')
 
 
 class _Client:
@@ -160,7 +165,7 @@ def test_slack_auto_issue(db, monkeypatch):
     monkeypatch.setattr(se, '_name', lambda uid: '황샛별')
     monkeypatch.setattr(se, '_notify', lambda c, uid, text: c.calls.append(('notify', uid, text)))
     p = _person()
-    vals = {'ctype': '재직증명서', 'purpose': '금융기관 제출', 'dest': '○○은행', 'ssn': ct.SSN_OPTS[0],
+    vals = {'ctype': '재직증명서', 'company': 'group', 'purpose': '금융기관 제출', 'dest': '○○은행', 'ssn': ct.SSN_OPTS[0],
             'receive': ct.RECEIVE[1], 'copies': '2', 'need_by': '', 'memo': ''}
     row = ct.create('UREQ', '박민우', vals)
     c = _Client()
@@ -170,6 +175,8 @@ def test_slack_auto_issue(db, monkeypatch):
     assert ct.get(row['id'])['status'] == ct.ISSUED
     assert ct.issues(p['id'])[0]['purpose'] == '금융기관 제출 (○○은행)' and ct.issues(p['id'])[0]['request_id'] == row['id']
     assert sc.auto_issue(c, row['id'], 'UHANDLER') == '이미 처리된 신청이에요.'
+    old = ct.create('UREQ', '박민우', dict(vals, company=''))              # 회사 고르기 전 신청
+    assert '발급 회사' in sc.auto_issue(c, old['id'], 'UHANDLER') and ct.get(old['id'])['status'] == ct.PENDING
     # 인사카드에 슬랙 연결이 없으면 바로 발급 대신 안내
     row2 = ct.create('UNOCARD', '누구', dict(vals, receive=ct.RECEIVE[0]))
     assert '슬랙 연결' in sc.auto_issue(c, row2['id'], 'UHANDLER')
@@ -189,9 +196,9 @@ def test_gw_certificate_api(db, monkeypatch):
     with app.test_client() as cl:
         with cl.session_transaction() as s:
             s['user'] = {'email': ADMIN, 'permission_level': 'admin'}
-        r = cl.post(f"/api/hr/people/{p['id']}/certificate", json={'ctype': '재직증명서', 'purpose': '관공서 제출'})
+        r = cl.post(f"/api/hr/people/{p['id']}/certificate", json={'company': 'group', 'ctype': '재직증명서', 'purpose': '관공서 제출'})
         assert r.status_code == 200 and r.data.startswith(b'%PDF') and r.headers['X-Doc-No'].endswith('-0001')
-        r = cl.post(f"/api/hr/people/{p['id']}/certificate", json={'ctype': '재직증명서', 'purpose': 'x', 'ssn': True,
+        r = cl.post(f"/api/hr/people/{p['id']}/certificate", json={'company': 'group', 'ctype': '재직증명서', 'purpose': 'x', 'ssn': True,
                                                                      'group_date': True})
         assert r.status_code == 200
         with cl.session_transaction() as s:
