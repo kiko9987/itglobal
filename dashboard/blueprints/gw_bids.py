@@ -38,6 +38,33 @@ def api_list():
     return jsonify({'success': True, **data})
 
 
+def _is_admin() -> bool:
+    return (session.get('user') or {}).get('permission_level') in ('admin', 'super_admin')
+
+
+# ── 우리 회사 정보(11-20) — 보기는 누구나, 고치기는 관리자 ──
+@gw_bids_bp.route('/api/bids/profile', methods=['GET'])
+@gw_page
+def api_profile():
+    p = {k: v for k, v in g2b_bids.get_profile().items() if not k.startswith('_')}
+    return jsonify({'success': True, 'profile': p, 'grades': list(g2b_bids.CREDIT_GRADES), 'can_edit': _is_admin()})
+
+
+@gw_bids_bp.route('/api/bids/profile', methods=['POST'])
+@gw_page
+def api_profile_save():
+    if not _is_admin():
+        return jsonify({'success': False, 'message': '우리 회사 정보는 관리자만 고칠 수 있어요.'}), 403
+    try:
+        p = g2b_bids.save_profile(request.get_json(silent=True) or {}, _me())
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        logger.error(f'[입찰공고] 회사 정보 저장 실패: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': '저장하지 못했어요. 잠시 뒤 다시 해 주세요.'}), 500
+    return jsonify({'success': True, 'profile': {k: v for k, v in p.items() if not k.startswith('_')}})
+
+
 @gw_bids_bp.route('/api/bids/<bid_no>/mark', methods=['POST'])
 @gw_page
 def api_mark(bid_no):

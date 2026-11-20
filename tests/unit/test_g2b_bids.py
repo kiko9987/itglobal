@@ -15,6 +15,7 @@ def db(tmp_path, monkeypatch):
     d = UserDatabase(db_path=str(tmp_path / 'users.db'))
     monkeypatch.setattr(g, '_db', lambda: d)
     monkeypatch.setattr(g, '_table_ready', False)
+    monkeypatch.setattr(g, '_profile_cache', {'at': 0.0, 'val': None})   # 회사 정보는 30초 기억 — 테스트마다 새로
     monkeypatch.setenv('G2B_SERVICE_KEY', 'test-key')
     monkeypatch.delenv('G2B_LICENSES', raising=False)
     monkeypatch.delenv('G2B_LICENSES_PLANNED', raising=False)
@@ -506,3 +507,45 @@ def test_apt_digest_tag(db, monkeypatch):
 def test_apt_area_12_is_jeonnam_gwangju():
     it = g.apt_normalize(_apt('9', bidArea=12))
     assert it['cnstrtsiteRgnNm'] == '전남광주통합특별시' and g.area_of(it['cnstrtsiteRgnNm']) == '호남'
+
+
+
+# ── 우리 회사 정보·적격심사 85점 11-20 ───────────────────────────────
+def test_qual_need_table2_by_credit_grade():
+    need = lambda gr, b=0: g.qual_need('T2', gr, b, False, 80.495)['need_pct']   # noqa: E731
+    assert need('A-') == 80.5 and need('BBB-') == 80.85 and need('B+') == 81.5 and need('없음') == 85.5
+    assert need('B+', 1) == 81.0                                      # 신인도 +1 이면 0.5%p 내려감
+    assert g.qual_need('T3', 'B+', 0, False, 84.245)['need_pct'] == 84.5
+    assert g.qual_need('T3', '없음', 0, True, 84.245)['need_pct'] == 84.25   # 창업 7년 이내 = 신용 만점
+    assert g.qual_need('T1', 'B+') == {} and g.qual_need('T2', '') == {}
+
+
+def test_qual_table_only_local_goods():
+    m = '적격심사제-추정가격이 10억원 미만 고시금액 이상인 물품의 평가기준(물품구매)'
+    local = '지방자치단체 입찰시 낙찰자 결정기준'
+    assert g.qual_table({'_kind': '물품', 'sucsfbidMthdNm': m, 'sucsfbidMthdAppStd': local}) == 'T2'
+    assert g.qual_table({'_kind': '공사', 'sucsfbidMthdNm': m, 'sucsfbidMthdAppStd': local}) == ''
+    assert g.qual_table({'_kind': '물품', 'sucsfbidMthdNm': m, 'sucsfbidMthdAppStd': '조달청'}) == ''
+
+
+def test_profile_save_validates_and_reclassifies(db, monkeypatch):
+    _fake_api(monkeypatch, [_item('C3')], {'C3': (['경기도 김포시'], [[MECH, REFRIG]])})
+    g.collect()
+    assert g.list_bids(g.ELIGIBLE)['items'] == []
+    with pytest.raises(ValueError):
+        g.save_profile({'credit_grade': 'ZZZ'}, 'x')
+    p = g.save_profile({'credit_grade': 'B+', 'licenses': f'{MECH}, {REFRIG}', 'planned': '',
+                        'products': '4010178702 냉난방기' + chr(10) + '아무말' + chr(10) + '4010180601 전기히트펌프', 'bonus': '5'}, '고광일')
+    assert p['credit_grade'] == 'B+' and p['licenses'] == [MECH, REFRIG] and p['planned'] == []
+    assert [x['code'] for x in p['products']] == ['4010178702', '4010180601'] and p['bonus'] == 2.0
+    assert [x['bid_no'] for x in g.list_bids(g.ELIGIBLE)['items']] == ['C3']   # 면허 바꾸자 바로 다시 분류
+
+
+def test_ours_products_and_qual_on_view(db, monkeypatch):
+    t = _thng('T1', sucsfbidLwltRate='80.495', sucsfbidMthdAppStd='지방자치단체 입찰시 낙찰자 결정기준')
+    _fake_api(monkeypatch, [t], {'T1': ([], [[MECH]])})
+    g.collect()
+    g.save_profile({'credit_grade': 'B+', 'licenses': MECH, 'products': '4010178702 냉난방기'}, 'x')
+    ours = g.list_bids()['items'][0]['ours']
+    assert ours['products_known'] and ours['products_missing'] == ['4010180601', '4010178701']
+    assert ours['qual']['need_pct'] == 81.5 and ours['qual']['gap_pct'] == 1.0 and ours['grade'] == 'B+'

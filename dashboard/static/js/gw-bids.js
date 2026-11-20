@@ -211,9 +211,34 @@
         (d.apt_perf_cert === '예' ? ' · <b>실적증명서 제출</b>' : '') + (d.apt_credit_cert === '예' ? ' · 신용평가등급확인서 제출' : '') +
         ' <span class="gw-bd-sub">입찰 시스템: ' + esc(d.apt_auth || '-') + ' — 응찰은 그 사이트에서 해요</span>');
     }
-    if (it.bid_kind === '물품' && it.source !== '공동주택') {   // 물품은 나라장터 물품 분류 등록이 있어야 투찰 — 등록 여부는 우리가 확인
-      checks += chk(null, '물품 등록', '<b>' + esc((d.products || []).join(', ') || '공고문의 물품 분류') + '</b>' +
-        ' <span class="gw-bd-sub">나라장터에 이 물품으로 등록돼 있어야 입찰할 수 있어요</span>');
+    var ours = it.ours || {};
+    if (it.bid_kind === '물품' && it.source !== '공동주택') {   // 우리 등록 물품 분류와 대조(11-20)
+      var miss = ours.products_missing || [];
+      if (!ours.products_known) {
+        checks += chk(null, '물품 등록', '<b>' + esc((d.products || []).join(', ') || '공고문의 물품 분류') + '</b>' +
+          ' <span class="gw-bd-sub">나라장터에 이 물품으로 등록돼 있어야 해요 — 「우리 회사 정보」에 등록 물품을 넣으면 자동으로 대조해요</span>');
+      } else if (miss.length) {
+        checks += chk(false, '물품 등록', '<b>우리 미등록: ' + esc(miss.join(', ')) + '</b>' +
+          ' <span class="gw-bd-sub">참가 등록 마감 전에 나라장터에 물품 분류를 추가해야 해요</span>');
+      } else {
+        checks += chk(true, '물품 등록', '공고 물품 분류 모두 등록돼 있어요');
+      }
+    }
+    if (ours.qual) {   // 물품 적격심사 85점(별표2·3) — 우리 신용등급으로
+      var q = ours.qual;
+      if (!ours.grade) {
+        checks += chk(null, '적격심사', '<b>85점 이상이어야 낙찰</b> <span class="gw-bd-sub">「우리 회사 정보」에 신용평가등급을 넣으면 필요한 금액을 계산해요</span>');
+      } else if (q.table === 'T1') {
+        checks += chk(null, '적격심사', '<b>10억 이상 물품(이행실적 30점 포함)</b> <span class="gw-bd-sub">실적 점수가 있어 자동 계산은 안 해요</span>');
+      } else if (q.need_pct == null) {
+        checks += chk(false, '적격심사', '<b>신용등급 ' + esc(ours.grade) + '로는 85점을 넘길 수 없어요</b>');
+      } else {
+        var amt = d.budget ? ' · 사정률 100%면 약 ' + esc(won(Math.ceil(d.budget * q.need_pct / 100))) : '';
+        checks += chk(q.gap_pct > 0 ? null : true, '적격심사',
+          '<b>신용등급 ' + esc(ours.grade) + '(' + esc(q.credit_pts) + '점) → 예정가격의 ' + esc(q.need_pct) + '% 이상</b>' +
+          (q.gap_pct > 0 ? ' — 하한율(' + esc(q.lower_pct) + '%)보다 ' + esc(q.gap_pct) + '%p 높게' : '') + amt +
+          ' <span class="gw-bd-sub">공고문의 신용등급 통과 기준·이행실적 평가 여부는 따로 확인하세요</span>');
+      }
     }
     if (d.qual_at) {
       checks += chk(past(d.qual_at) ? false : (soon(d.qual_at) ? null : true), '참가 등록 마감',
@@ -396,6 +421,55 @@
       .then(function () { load(); })
       .catch(function (e) { s.disabled = false; alert(e.message); load(); });
   });
+
+  // ── 우리 회사 정보 창(11-20) ──
+  (function () {
+    var box = $('bdProfile'), form = $('bdProfileForm'), opener = null;
+    if (!box || !form) return;   // 재시작 전 옛 템플릿
+    function close() { box.hidden = true; if (opener) opener.focus(); }
+    function fill(j) {
+      var p = j.profile || {};
+      var sel = form.elements.credit_grade;
+      sel.innerHTML = '<option value="">선택 안 함</option>' + (j.grades || []).map(function (g) {
+        return '<option value="' + esc(g) + '">' + esc(g.replace(/0$/, '°')) + '</option>';
+      }).join('');
+      sel.value = p.credit_grade || '';
+      form.elements.entity.value = p.entity || '';
+      form.elements.credit_agency.value = p.credit_agency || '';
+      form.elements.credit_until.value = p.credit_until || '';
+      form.elements.licenses.value = (p.licenses || []).join(', ');
+      form.elements.planned.value = (p.planned || []).join(', ');
+      form.elements.products.value = (p.products || []).map(function (x) { return x.code + ' ' + (x.name || ''); }).join('\n');
+      form.elements.bonus.value = String(p.bonus || 0);
+      form.elements.startup.checked = !!p.startup;
+      $('bdProfileMeta').textContent = p.updated_at ? '마지막 저장: ' + p.updated_at + ' · ' + (p.updated_by || '') : '';
+      Array.prototype.forEach.call(form.elements, function (el) { el.disabled = !j.can_edit; });
+      $('bdProfileSave').hidden = !j.can_edit;
+      $('bdProfileMsg').textContent = j.can_edit ? '' : '보기만 할 수 있어요(고치기는 관리자).';
+    }
+    $('bdProfileBtn').addEventListener('click', function () {
+      opener = this;
+      box.hidden = false;
+      $('bdProfileMsg').textContent = '불러오는 중…';
+      api('/api/bids/profile').then(fill).catch(function (e) { $('bdProfileMsg').textContent = e.message; });
+    });
+    box.addEventListener('click', function (ev) { if (ev.target.closest('[data-close]')) close(); });
+    document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape' && !box.hidden) close(); });
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var f = form.elements;
+      var body = { entity: f.entity.value, credit_grade: f.credit_grade.value, credit_agency: f.credit_agency.value,
+        credit_until: f.credit_until.value, licenses: f.licenses.value, planned: f.planned.value,
+        products: f.products.value, bonus: f.bonus.value, startup: f.startup.checked };
+      $('bdProfileSave').disabled = true;
+      $('bdProfileMsg').textContent = '저장 중…';
+      api('/api/bids/profile', { method: 'POST', body: body }).then(function () {
+        $('bdProfileMsg').textContent = '저장했어요. 공고를 다시 따졌어요.';
+        load();
+      }).catch(function (e) { $('bdProfileMsg').textContent = e.message; })
+        .then(function () { $('bdProfileSave').disabled = false; });
+    });
+  })();
 
   load();
 })();

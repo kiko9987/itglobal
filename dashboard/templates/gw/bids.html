@@ -12,6 +12,8 @@
   <div class="gw-page-head">
     <h1 class="gw-page-title">입찰 공고</h1>
     <div class="gw-page-actions">
+      <button type="button" class="btn btn-sm btn-outline-primary" id="bdProfileBtn">
+        <i class="fas fa-building me-1" aria-hidden="true"></i>우리 회사 정보</button>
       <a class="btn btn-sm btn-outline-secondary" href="https://www.g2b.go.kr" target="_blank" rel="noopener">
         <i class="fas fa-up-right-from-square me-1" aria-hidden="true"></i>나라장터</a>
       <a class="btn btn-sm btn-outline-secondary" href="https://nuri.g2b.go.kr/" target="_blank" rel="noopener">
@@ -48,6 +50,47 @@
     </table>
   </div>
   <p class="gw-bd-foot" id="bdFoot"></p>
+</div>
+
+{# 우리 회사 정보(11-20) — 공고마다 대조할 우리 쪽 사실. 고치기는 관리자 #}
+<div class="gw-drawer" id="bdProfile" hidden>
+  <div class="gw-drawer-backdrop" data-close></div>
+  <aside class="gw-drawer-panel" role="dialog" aria-modal="true" aria-labelledby="bdProfileTitle">
+    <div class="gw-drawer-head">
+      <h2 id="bdProfileTitle">우리 회사 정보</h2>
+      <button type="button" class="btn-close" data-close aria-label="닫기"></button>
+    </div>
+    <div class="gw-drawer-body">
+      <p class="gw-bd-sub">입찰 공고마다 이 정보와 대조해 '확인할 것'에 보여 줘요. 바꾸면 저장된 공고도 바로 다시 따져요.</p>
+      <form id="bdProfileForm" class="gw-bd-prof">
+        <label>입찰 법인 <input type="text" name="entity" maxlength="30" class="form-control form-control-sm"></label>
+        <div class="gw-bd-prof-row">
+          <label>신용평가등급
+            <select name="credit_grade" class="form-select form-select-sm"></select></label>
+          <label>평가 기관 <input type="text" name="credit_agency" maxlength="30" class="form-control form-control-sm" placeholder="예: 나이스디앤비"></label>
+          <label>유효기간 <input type="date" name="credit_until" class="form-control form-control-sm"></label>
+        </div>
+        <label>보유 면허 <span class="gw-bd-sub">(쉼표로 구분)</span>
+          <input type="text" name="licenses" class="form-control form-control-sm" placeholder="기계설비ㆍ가스공사업"></label>
+        <label>준비 중 면허 <span class="gw-bd-sub">(이것만 없는 공고는 따로 표시)</span>
+          <input type="text" name="planned" class="form-control form-control-sm" placeholder="냉매회수업"></label>
+        <label>나라장터 등록 물품 분류 <span class="gw-bd-sub">(한 줄에 하나: 물품분류번호 이름)</span>
+          <textarea name="products" rows="4" class="form-control form-control-sm" placeholder="4010178702 냉난방기"></textarea></label>
+        <div class="gw-bd-prof-row">
+          <label>신인도 가점 <span class="gw-bd-sub">(중소기업·인증 등)</span>
+            <select name="bonus" class="form-select form-select-sm">
+              <option value="0">0</option><option value="0.5">+0.5</option><option value="1">+1</option>
+              <option value="1.5">+1.5</option><option value="2">+2</option></select></label>
+          <label class="gw-bd-prof-chk"><input type="checkbox" name="startup"> 창업 7년 이내(고시금액 미만 물품은 신용 만점)</label>
+        </div>
+        <p class="gw-bd-sub" id="bdProfileMeta"></p>
+        <div class="gw-bd-prof-actions">
+          <span class="gw-bd-sub" id="bdProfileMsg" aria-live="polite"></span>
+          <button type="submit" class="btn btn-sm btn-primary" id="bdProfileSave">저장</button>
+        </div>
+      </form>
+    </div>
+  </aside>
 </div>
 {% endblock %}
 

@@ -172,11 +172,137 @@ def _env_list(name: str, default: str) -> List[str]:
 
 
 def held_licenses() -> List[str]:
-    return _env_list('G2B_LICENSES', '기계설비ㆍ가스공사업')
+    p = get_profile()
+    return p['licenses'] if p.get('licenses') else _env_list('G2B_LICENSES', '기계설비ㆍ가스공사업')
 
 
 def planned_licenses() -> List[str]:
+    p = get_profile()
+    if p.get('_saved'):   # 화면에서 저장한 뒤로는 저장값(빈 목록도 그대로)
+        return p.get('planned') or []
     return _env_list('G2B_LICENSES_PLANNED', '냉매회수업')
+
+
+# ── 우리 회사 정보(11-20 부장님: 추산초에서 신용등급 기준으로 탈락 — 금액보다 먼저 걸러야 할 조건) ──
+#   그룹웨어 입찰 공고 화면 「우리 회사 정보」에서 고친다. 공고마다 대조: 면허·물품 분류 등록·적격심사 85점.
+CREDIT_GRADES = ('AAA', 'AA+', 'AA0', 'AA-', 'A+', 'A0', 'A-', 'BBB+', 'BBB0', 'BBB-',
+                 'BB+', 'BB0', 'BB-', 'B+', 'B0', 'B-', 'CCC+이하', '없음')
+_PROFILE_DEFAULT = {'credit_grade': '', 'credit_agency': '', 'credit_until': '', 'licenses': [], 'planned': [],
+                    'products': [], 'bonus': 0, 'startup': False, 'entity': '아이티글로벌그룹'}
+_profile_cache = {'at': 0.0, 'val': None}
+
+
+def get_profile() -> dict:
+    import time
+    if _profile_cache['val'] is not None and time.time() - _profile_cache['at'] < 30:
+        return _profile_cache['val']
+    val = dict(_PROFILE_DEFAULT)
+    try:
+        with _conn() as conn:
+            row = conn.execute("SELECT value FROM g2b_kv WHERE key='profile'").fetchone()
+        if row and row[0]:
+            val.update(json.loads(row[0]))
+            val['_saved'] = True
+    except Exception as e:
+        logger.warning(f'[G2B] 회사 정보 읽기 실패: {e}')
+    _profile_cache.update(at=time.time(), val=val)
+    return val
+
+
+def _codes(text) -> List[dict]:
+    """'4010178702 냉난방기' 줄들 → [{'code','name'}]. 10자리 물품분류번호만."""
+    out, seen = [], set()
+    lines = text if isinstance(text, list) else str(text or '').splitlines()
+    for ln in lines:
+        if isinstance(ln, dict):
+            code, name = str(ln.get('code') or ''), str(ln.get('name') or '')
+        else:
+            m = re.match(r'\s*(\d{8,10})\s*(.*)', str(ln))
+            if not m:
+                continue
+            code, name = m.group(1), m.group(2).strip()
+        if code and code not in seen:
+            seen.add(code)
+            out.append({'code': code, 'name': name[:40]})
+    return out
+
+
+def save_profile(data: dict, who: str) -> dict:
+    grade = str(data.get('credit_grade') or '')
+    if grade and grade not in CREDIT_GRADES:
+        raise ValueError('신용평가등급 값이 올바르지 않습니다.')
+    until = str(data.get('credit_until') or '')[:10]
+    if until and not re.match(r'^\d{4}-\d{2}-\d{2}$', until):
+        raise ValueError('유효기간은 날짜(YYYY-MM-DD)로 넣어 주세요.')
+    lic = lambda v: [x.strip() for x in (v if isinstance(v, list) else re.split(r'[,\n]', str(v or ''))) if x.strip()][:10]   # noqa: E731
+    try:
+        bonus = max(-2.0, min(2.0, float(data.get('bonus') or 0)))
+    except (TypeError, ValueError):
+        raise ValueError('신인도 가점은 -2 ~ +2 숫자로 넣어 주세요.')
+    val = {'credit_grade': grade, 'credit_agency': str(data.get('credit_agency') or '')[:30], 'credit_until': until,
+           'licenses': lic(data.get('licenses')), 'planned': lic(data.get('planned')),
+           'products': _codes(data.get('products'))[:40], 'bonus': bonus, 'startup': bool(data.get('startup')),
+           'entity': str(data.get('entity') or '아이티글로벌그룹')[:30],
+           'updated_by': who, 'updated_at': _now()[:16]}
+    with _conn() as conn:
+        conn.execute("INSERT OR REPLACE INTO g2b_kv (key, value) VALUES ('profile', ?)", (json.dumps(val, ensure_ascii=False),))
+    _profile_cache.update(at=0.0, val=None)
+    n = reclassify()   # 면허가 바뀌었을 수 있어 저장된 공고 다시 분류
+    logger.info(f'[G2B] 회사 정보 저장 by {who} — 다시 분류 {n}건')
+    return get_profile()
+
+
+# ── 물품 적격심사 85점 계산(지방자치단체 입찰시 낙찰자 결정기준 제2장의3, 2026-11-02 시행) ──
+#   별표2(10억 미만 고시금액 이상): 기술능력 10(물품 구매는 만점) + 신용 30 + 가격 60(60-2|88-x|, 95.5~100%=45) + 신인도
+#   별표3(고시금액 미만): 기술능력 10 + 신용 20(창업 7년 이내 만점) + 가격 70(70-4|88-x|, 91.75~100%=55) + 신인도
+#   별표1(10억 이상)은 이행실적 30점이 있어 계산 안 함. 공고에 이행실적 평가가 따로 있으면 계산이 달라짐(공고문 확인).
+_CREDIT_T2 = {'AAA': 30, 'AA+': 30, 'AA0': 30, 'AA-': 30, 'A+': 30, 'A0': 30, 'A-': 30, 'BBB+': 29.7, 'BBB0': 29.5,
+              'BBB-': 29.3, 'BB+': 29.0, 'BB0': 29.0, 'BB-': 28.5, 'B+': 28.0, 'B0': 28.0, 'B-': 28.0,
+              'CCC+이하': 25.0, '없음': 20.0}
+_CREDIT_T3 = {**{g: 20.0 for g in ('AAA', 'AA+', 'AA0', 'AA-', 'A+', 'A0', 'A-', 'BBB+', 'BBB0', 'BBB-')},
+              'BB+': 19.7, 'BB0': 19.7, 'BB-': 19.3, 'B+': 19.0, 'B0': 19.0, 'B-': 19.0, 'CCC+이하': 15.0, '없음': 10.0}
+
+
+def _price_t2(x: float) -> float:
+    return 45.0 if 95.5 <= x <= 100 else max(2.0, 60 - 2 * abs(88 - x))
+
+
+def _price_t3(x: float) -> float:
+    return 55.0 if 91.75 <= x <= 100 else max(2.0, 70 - 4 * abs(88 - x))
+
+
+def qual_table(item: dict) -> str:
+    """물품 적격심사 공고가 어느 별표인지 — 'T2'·'T3'·'T1'(계산 안 함)·''(해당 없음)."""
+    method = item.get('sucsfbidMthdNm') or ''
+    std = item.get('sucsfbidMthdAppStd') or ''
+    if item.get('_kind') != '물품' or '적격심사' not in method or '지방자치단체' not in std:
+        return ''
+    if '10억원 미만' in method and '고시금액 이상' in method:
+        return 'T2'
+    if '고시금액 미만' in method:
+        return 'T3'
+    if '10억원 이상' in method:
+        return 'T1'
+    return ''
+
+
+def qual_need(table: str, grade: str, bonus: float = 0.0, startup: bool = False, lower: float = 0.0) -> dict:
+    """85점에 필요한 최소 '투찰금액/예정가격'(%) — 낙찰하한율 이상. 계산 못 하면 {}."""
+    if table not in ('T2', 'T3') or not grade:
+        return {}
+    credit = (_CREDIT_T2 if table == 'T2' else _CREDIT_T3).get(grade)
+    if credit is None:
+        return {}
+    if table == 'T3' and startup:
+        credit = 20.0
+    price = _price_t2 if table == 'T2' else _price_t3
+    x = round(max(lower, 0.0) * 100) / 100 if lower else 80.0   # 0.01%p 단위로 올려 가며
+    while x <= 100.0:
+        if 10 + credit + price(round(x, 2)) + bonus >= 85 - 1e-9:
+            return {'table': table, 'credit_pts': credit, 'need_pct': round(x, 2), 'lower_pct': lower,
+                    'gap_pct': round(x - lower, 2) if lower else 0.0}
+        x = round(x + 0.01, 2)
+    return {'table': table, 'credit_pts': credit, 'need_pct': None, 'lower_pct': lower}
 
 
 def alert_channel() -> str:
@@ -574,6 +700,9 @@ def _detail(raw: str) -> dict:
             [f"{t('dtilPrdctClsfcNoNm')}({t('dtilPrdctClsfcNo')})"] if t('dtilPrdctClsfcNo') else []),
         'product_limit': _yn(it.get('prdctClsfcLmtYn')), 'maker_only': _yn(it.get('mnfctYn')),
         'deliver_days': t('dlvrDaynum'), 'deliver_cond': t('dlvryCndtnNm'),
+        'product_codes': [c for c in re.findall(r'\^(\d{8,10})\^', t('purchsObjPrdctList'))] or (
+            [t('dtilPrdctClsfcNo')] if t('dtilPrdctClsfcNo') else []),
+        'award_std': t('sucsfbidMthdAppStd'),
         # 공동주택(K-apt) — 입찰 시스템·실적증명서·신용평가 제출 여부·지급조건
         'apt_auth': t('aptAuth'), 'apt_perf_cert': _yn(it.get('aptPerfCert')),
         'apt_credit_cert': _yn(it.get('aptCreditCert')), 'apt_content': t('aptContent'), 'apt_pay': t('aptPay'),
@@ -717,7 +846,35 @@ def _view(r: dict, now_s: str) -> dict:
         'is_new': bool(r['posted_at']) and r['posted_at'] >= (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d %H:%M'),
         'hard_reason': r.get('hard_reason', ''),
         'detail': _detail(r.get('raw') or ''),
+        'ours': _ours(r),
     }
+
+
+def _ours(r: dict) -> dict:
+    """우리 회사 정보와 대조 — 물품 분류 등록·적격심사 85점(11-20)."""
+    p = get_profile()
+    try:
+        it = json.loads(r.get('raw') or '{}')
+    except ValueError:
+        it = {}
+    it['_kind'] = r.get('kind') or '공사'
+    out = {'grade': p.get('credit_grade') or '', 'entity': p.get('entity') or ''}
+    codes = [c for c in re.findall(r'\^(\d{8,10})\^', it.get('purchsObjPrdctList') or '')] or (
+        [it['dtilPrdctClsfcNo']] if it.get('dtilPrdctClsfcNo') else [])
+    if codes and it['_kind'] == '물품':
+        mine = {x['code'] for x in p.get('products') or []}
+        out['products_missing'] = [c for c in codes if c not in mine]
+        out['products_known'] = bool(mine)
+    table = qual_table(it)
+    if table:
+        lower = 0.0
+        try:
+            lower = float(it.get('sucsfbidLwltRate') or 0)
+        except ValueError:
+            pass
+        out['qual'] = qual_need(table, p.get('credit_grade') or '', float(p.get('bonus') or 0),
+                                bool(p.get('startup')), lower) or {'table': table}
+    return out
 
 
 def list_bids(tab: str = ELIGIBLE, include_closed: bool = False, q: str = '', limit: int = 300) -> dict:
