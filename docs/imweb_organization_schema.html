@@ -21,8 +21,13 @@
      구조화 데이터 자동 생성을 끄는 설정이 있으면 끄는 게 좋다. 없으면 그대로 두어도 큰 손해는 아니다.
   C. 로고는 303x55 로, 구글 권장(최소 112x112)에 못 미친다. 정사각형에 가까운 로고를 올리면 주소를 바꿔 넣는다.
 
+  [2026-11-20 두 법인 반영]
+  - (주)아이티글로벌그룹을 별도 Organization 노드로 넣고, 두 법인을 같은 Brand(#brand)로 묶었다.
+    기계설비·가스공사업 등록은 그룹 소유라 (주)아이티글로벌 설명에서 "등록 전문건설사업자"를 뺐다.
+  - taxID(사업자등록번호)는 회사소개서 2026 PDF판 마지막 장과 같은 값. 그룹 foundingDate 는 개업일.
+
   [확인되면 더 넣을 것]
-  - openingHours(영업시간), vatID(사업자등록번호), foundingDate(법인 설립일). 확인 전에는 넣지 않는다.
+  - openingHours(영업시간). (주)아이티글로벌 foundingDate(2019-08-07)는 등록증 확인 후.
 -->
 <script type="application/ld+json">
 {
@@ -41,7 +46,9 @@
         "height": 55
       },
       "image": "https://cdn.imweb.me/upload/S2020040584513d33c8b3c/d43cbe4fe485b.png",
-      "description": "서울·경기·인천 수도권의 상업용 냉난방기·시스템에어컨 판매·설계·시공 전문 기업. LG·삼성·캐리어 인증점이자 기계설비·가스공사업 등록 전문건설사업자로, 사무실·상가·식당·병원·학원·공장·관공서 현장을 무료 방문 실측 후 견적합니다.",
+      "description": "서울·경기·인천 수도권의 상업용 냉난방기·시스템에어컨 판매·설계·시공 전문 기업. LG·삼성·캐리어 인증점이며, 사무실·상가·식당·병원·학원·공장·관공서 현장을 무료 방문 실측 후 견적합니다. 별도 사업자 (주)아이티글로벌그룹을 함께 운영하며, 기계설비·가스공사업 전문건설업 등록은 (주)아이티글로벌그룹이 보유합니다.",
+      "brand": { "@id": "https://www.itg-aircon.com/#brand" },
+      "taxID": "884-81-01425",
       "telephone": "+82-1899-1377",
       "email": "contact@itg-aircon.com",
       "address": {
@@ -92,6 +99,32 @@
           { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "냉난방기 교체·추가 설치", "description": "기존 장비·배관 상태 확인 후 교체 또는 추가 설치" } },
           { "@type": "Offer", "itemOffered": { "@type": "Service", "name": "상업용 에어컨 분해 세척", "description": "천장형·스탠드형·덕트형 분해 약품 세척" } }
         ]
+      }
+    },
+    {
+      "@type": "Brand",
+      "@id": "https://www.itg-aircon.com/#brand",
+      "name": "아이티글로벌",
+      "alternateName": "IT GLOBAL"
+    },
+    {
+      "@type": "Organization",
+      "@id": "https://www.itg-aircon.com/#group",
+      "name": "(주)아이티글로벌그룹",
+      "alternateName": "아이티글로벌그룹",
+      "brand": { "@id": "https://www.itg-aircon.com/#brand" },
+      "taxID": "533-88-02845",
+      "foundingDate": "2024-01-12",
+      "description": "(주)아이티글로벌과 같은 건물에서 함께 운영하는 별도 사업자. 기계설비·가스공사업 전문건설업 등록 업체.",
+      "url": "https://www.itg-aircon.com/",
+      "telephone": "+82-1899-1377",
+      "address": {
+        "@type": "PostalAddress",
+        "streetAddress": "걸포로 134-84",
+        "addressLocality": "김포시",
+        "addressRegion": "경기도",
+        "postalCode": "10076",
+        "addressCountry": "KR"
       }
     },
     {

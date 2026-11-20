@@ -53,6 +53,13 @@ def test_사실이_홈페이지_llms와_어긋나지_않는다():
     assert '1899-1377' in LLMS_TXT
 
 
+def test_두_법인을_별도_사업자로_밝힌다():
+    # 전문건설업 등록은 그룹 소유 — (주)아이티글로벌 단독 등록처럼 쓰면 안 된다(11-20 부장님).
+    assert '884-81-01425' in LLMS_TXT and '533-88-02845' in LLMS_TXT
+    assert '별도 사업자' in LLMS_TXT
+    assert '인증점이자 기계설비' not in LLMS_TXT
+
+
 def test_로그인_없는_경로에_내부_정보가_없다(client):
     html = client.get('/company').get_data(as_text=True)
     md = client.get('/company.md').get_data(as_text=True)
