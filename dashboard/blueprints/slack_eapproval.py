@@ -609,7 +609,20 @@ _CHANGE_TEXT_MAX = 40
 
 
 def _changes_text(form: str, changed: dict) -> str:
-    """'금액 50,000 → 55,000 · 계좌 …' — 스레드 기록용. 양식 칸은 양식 이름표로."""
+    """'금액 50,000 → 55,000 · 계좌 …' — 감사 기록용 한 줄. 양식 칸은 양식 이름표로."""
+    return ' · '.join(f'{lb} {rest}' for lb, rest in _change_parts(form, changed)) or '바뀐 칸 없음'
+
+
+def _changes_block(head: str, form: str, changed: dict) -> str:
+    """스레드 기록 — 머리 한 줄 + 바뀐 칸마다 한 줄(11-20 KiKO: 한 줄로 이어 붙이니 읽기 어렵다)."""
+    parts = _change_parts(form, changed)
+    if not parts:
+        return f'{head} — 바뀐 칸 없음'
+    return head + '\n' + '\n'.join(f'• *{lb}* {rest}' for lb, rest in parts)
+
+
+def _change_parts(form: str, changed: dict) -> List[tuple]:
+    """[(칸 이름, '이전 → 이후')] 최대 8개."""
     labels = dict(_FIELD_NAMES)
     field_keys = set()
     if form in ea.forms.FORMS:
@@ -622,7 +635,7 @@ def _changes_text(form: str, changed: dict) -> str:
         if k in ('extra', 'payee_saved') or k.startswith('_') or dup:
             continue
         if form == ea.forms.FORM_EXPENSE and k in _SECRET_KEYS:
-            parts.append(f'{labels.get(k, k)} 바뀜 (경영지원 DM 에서 확인)')
+            parts.append((labels.get(k, k), '바뀜 (경영지원 DM 에서 확인)'))
             continue
 
         def fmt(v):
@@ -633,10 +646,10 @@ def _changes_text(form: str, changed: dict) -> str:
             return str(v or '-')
         # 여러 줄·긴 글(비고 등)은 앞뒤를 통째로 적으면 스레드가 어지럽다 — 새 값은 카드에 있다(11-20 #63)
         if any('\n' in fmt(x) or len(fmt(x)) > _CHANGE_TEXT_MAX for x in (a, b)):
-            parts.append(f'{labels.get(k, k)} 고침 (카드 참고)')
+            parts.append((labels.get(k, k), '고침 (카드 참고)'))
             continue
-        parts.append(f'{labels.get(k, k)} {fmt(a)} → {fmt(b)}')
-    return ' · '.join(dict.fromkeys(parts[:8])) or '바뀐 칸 없음'
+        parts.append((labels.get(k, k), f'{fmt(a)} → {fmt(b)}'))
+    return list(dict.fromkeys(parts))[:8]
 
 
 def open_edit_modal(client, trigger_id: str, aid: int, uid: str) -> Optional[str]:
@@ -733,10 +746,10 @@ def process_edit(uid: str, aid: int, fields: dict, files: list, docs: Optional[l
             _notify(client, uid, f'{ea.title(row)} — 바뀐 내용이 없어 그대로 두었어요.')
         return row
     if prev == ea.REVISE:
-        _thread_log(row, f'✏️ {ea.initial(name)} 수정해서 다시 올림 — {_changes_text(row["form"], changed)}')
+        _thread_log(row, _changes_block(f'✏️ {ea.initial(name)} 수정해서 다시 올림', row['form'], changed))
     else:   # 승인 전에 요청자가 직접 고침 — 받은 승인이 있었으면 처음부터 다시(11-11)
         again = ' (승인은 처음부터 다시 받아요)' if prev == ea.FINAL and row['status'] == ea.PENDING else ''
-        _thread_log(row, f'✏️ {ea.initial(name)} 직접 고침{again} — {_changes_text(row["form"], changed)}')
+        _thread_log(row, _changes_block(f'✏️ {ea.initial(name)} 직접 고침{again}', row['form'], changed))
     refresh(row)
     who = [x for x in _targets(row) if x[1] != 'notice']
     have = {(r['user'], r['role']) for r in ea.dm_refs(row)}

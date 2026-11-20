@@ -1,4 +1,4 @@
-"""전자결재 엔진 (2026-10-30) — 장부·상태 전환·권한·계좌 기억·카드, 슬랙 흐름(가짜 클라이언트)."""
+﻿"""전자결재 엔진 (2026-10-30) — 장부·상태 전환·권한·계좌 기억·카드, 슬랙 흐름(가짜 클라이언트)."""
 import json
 
 import pytest
@@ -1587,7 +1587,7 @@ def test_revise_then_edit_fund_same_card(se):
     assert new['id'] == row['id'] and new['card_ts'] == card_ts and new['status'] == ea.PENDING
     assert new['amount'] == 550000 and new['account'] == '110-511-000000'
     logs = [m['text'] for m in se._fake.of('chat_postMessage') if m.get('thread_ts') == card_ts]
-    assert any('수정해서 다시 올림' in t and '금액 533,500 → 550,000' in t for t in logs)
+    assert any(t.startswith('✏️') and '수정해서 다시 올림\n' in t and '• *금액* 533,500 → 550,000' in t for t in logs)
     # 다시 올린 뒤엔 승인 기록이 새로 — 승인 대기로 보이고, 승인하면 이체 대기
     assert '⏳ 경영지원 (KiKO) 승인' in ea.step_line(new, ea.steps(new['id']))
     assert se.apply_action('approve', new['id'], KIKO) is None and ea.get(new['id'])['status'] == ea.APPROVED
