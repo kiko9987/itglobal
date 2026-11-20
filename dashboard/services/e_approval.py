@@ -716,7 +716,7 @@ def requester_can_cancel(row: dict) -> bool:
 
 # extra 중 시스템이 붙이는 표시 칸 — 수정 기록('바뀐 칸')에 넣지 않는다
 _SYSTEM_EXTRA = ('f', 'payee_saved', 'payee_changed', 'payee_known', 'payee_unlisted', 'dup_of', 'old_prepaid', 'inv_by', 'inv_by_other', 'job',
-                 'fund_move')
+                 'fund_move', 'inv_preview')
 
 # 다시 올릴 때 고칠 수 있는 장부 칸(양식 값 전부는 extra 에)
 EDIT_COLUMNS = ('project_code', 'cost_category', 'content', 'evidence', 'grn', 'partner', 'payee_name',
@@ -1459,13 +1459,15 @@ def offered_actions(row: dict) -> set:
 
 
 def card_blocks(row: dict, step_rows: List[dict], project_line: str, quote_amount: int = 0,
-                role: str = 'all') -> List[dict]:
+                role: str = 'all', preview: bool = True) -> List[dict]:
     # 11-01 다른 채널 카드처럼 위·아래, 내용과 버튼 사이에 한 줄씩 여백.
     # section 글자 한도 3,000자 — 넘으면 카드 게시·갱신이 통째로 실패한다(긴 비고·사유, 11-05 점검)
     body = '⠀\n' + card_text(row, step_rows, project_line, quote_amount)
     if len(body) > 2900:
         body = body[:2880] + '\n…(길어서 줄였어요)'
     blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': body}}]
+    if preview:
+        blocks += preview_blocks(row)
     if role == 'all' and row.get('status') in (PENDING, FINAL, APPROVED) and weekend_test_ids():
         # 시험 모드가 남아 있으면 카드에 바로 보이게 — 예전엔 아무 표시 없이 경영지원 DM 만 빠졌다(11-16 점검)
         blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': TEST_MODE_NOTE}]})
@@ -1588,7 +1590,43 @@ def my_requests_text(opened: List[dict], closed: List[dict], links: Dict[int, st
     return '\n'.join(lines)
 
 
-def dm_blocks(row: dict, role: str, project_line: str, card_link: str = '') -> List[dict]:
+_IMAGE_EXT = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.heic')
+
+
+def preview_ref(name: str, file_id: str, label: str = '계산서') -> Optional[dict]:
+    """카드 스레드에 올린 파일 → 미리보기 기록 {'id','kind','name','label'}. 이미지·PDF 만."""
+    n = (name or '').lower()
+    kind = 'image' if n.endswith(_IMAGE_EXT) else 'pdf' if n.endswith('.pdf') else ''
+    return {'id': file_id, 'kind': kind, 'name': name, 'label': label} if (kind and file_id) else None
+
+
+def preview_blocks(row: dict) -> List[dict]:
+    """진행 중 결재 카드·DM 의 계산서 미리보기(11-20 KiKO) — 승인자가 스레드를 안 열고 계산서 금액·계좌를 본다.
+
+    공개 링크(files.sharedPublicURL)는 만들지 않는다 — 계산서에 사업자번호·계좌가 있어 슬랙 밖으로 열리면 안 됨.
+    봇이 올린 파일을 slack_file 로 가리킨다. PDF 는 이미지 블록이 안 돼 스레드 안내 한 줄."""
+    if row.get('status') not in OPEN_STATUSES:
+        return []
+    p = extra(row).get('inv_preview') or {}
+    label = p.get('label') or '계산서'
+    if p.get('kind') == 'image' and p.get('id'):
+        return [{'type': 'image', 'slack_file': {'id': p['id']}, 'alt_text': f'{label} 미리보기'}]
+    if p.get('kind') == 'pdf':
+        return [{'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
+                 f"📄 {label} PDF({(p.get('name') or '')[:60]})는 카드 스레드에서 열어 주세요."}]}]
+    return []
+
+
+def _with_preview(blocks: List[dict], row: dict) -> List[dict]:
+    """본문(첫 section) 바로 아래에 미리보기."""
+    pv = preview_blocks(row)
+    if not pv:
+        return blocks
+    i = next((k for k, b in enumerate(blocks) if b.get('type') == 'section'), 0)
+    return blocks[:i + 1] + pv + blocks[i + 1:]
+
+
+def dm_blocks(row: dict, role: str, project_line: str, card_link: str = '', preview: bool = True) -> List[dict]:
     """DM = 알림 + 한 줄 요약 + 카드 링크. 버튼은 채널 카드에만 둔다(누르는 곳 한 군데)."""
     form = row.get('form')
     amt = int(row.get('amount') or 0)
@@ -1603,7 +1641,8 @@ def dm_blocks(row: dict, role: str, project_line: str, card_link: str = '') -> L
     # 수정하기는 DM 에서도 바로(채널 카드까지 안 가도)
     els = [_btn('✏️ 수정하기', A_EDIT, row['id'], 'primary')] if role == 'requester' and row.get('status') == REVISE else None
     notes = [{'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': link}]}] if link else None
-    return spaced(text[:2900], els, notes)
+    blocks = spaced(text[:2900], els, notes)
+    return _with_preview(blocks, row) if preview else blocks
 
 
 def menu_blocks() -> List[dict]:
