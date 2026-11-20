@@ -749,7 +749,11 @@ def resubmit(aid: int, actor_id: str, actor_name: str, fields: Dict) -> Optional
             if c not in fields:
                 continue
             v = int(fields.get(c) or 0) if c == 'amount' else fields.get(c)
-            if (old.get(c) or None) != (v or None):
+            # 수정 창은 예전 은행 이름('신한')을 목록 이름('신한은행')으로 채운다 — 같은 은행이면 바뀐 칸이 아니다
+            #   (아니면 매번 '은행 바뀜'으로 승인을 처음부터 다시 받았다, 11-20)
+            if c == 'bank' and old.get(c) and v and same_bank(old.get(c), v):
+                pass
+            elif (old.get(c) or None) != (v or None):
                 changed[c] = (old.get(c), v)
             sets.append(f'{c}=?')
             vals.append(v)
@@ -777,12 +781,20 @@ def resubmit(aid: int, actor_id: str, actor_name: str, fields: Dict) -> Optional
         if not changed and prev != REVISE:   # 바뀐 게 없으면 받은 승인을 지우지 않는다
             conn.rollback()
             return old, {}
+        kept = keeps_approvals(old, changed) and _reached_status(conn, old)
+        if kept:   # 장부 칸만 고침·금액이 줄거나 같음 — 받은 승인 그대로, 그 단계로 돌아간다(11-20 KiKO)
+            nxt = kept
         cur = conn.execute(f'UPDATE approvals SET {", ".join(sets + ["status=?", "updated_at=?"])} '
                            f'WHERE id=? AND status=?', (*vals, nxt, now, aid, prev))
         if cur.rowcount != 1:
             conn.rollback()
             return None
         # 승인 기록은 새로 받는다 — 예전 승인·처리 줄은 지우지 않고 'resubmit' 줄 뒤로 밀린다(step_line 은 마지막 것)
+        if kept:   # 'edit' 줄 — 승인 줄은 그대로 보이고(step_line 은 마지막 'resubmit' 뒤만 봄) 수정 회차는 올라간다
+            conn.execute('INSERT INTO approval_steps (approval_id, step, actor_id, actor_name, result, reason, at) '
+                         'VALUES (?,?,?,?,?,?,?)', (aid, 'edit', actor_id, actor_name, 'kept', '받은 승인 유지', now))
+            conn.commit()
+            return _row(conn, aid), changed
         conn.execute('INSERT INTO approval_steps (approval_id, step, actor_id, actor_name, result, at) '
                      'VALUES (?,?,?,?,?,?)', (aid, 'resubmit', actor_id, actor_name, 'resubmitted', now))
         if self_ok:
@@ -794,11 +806,42 @@ def resubmit(aid: int, actor_id: str, actor_name: str, fields: Dict) -> Optional
         return _row(conn, aid), changed
 
 
+# 고쳐도 받은 승인을 그대로 두는 칸(11-20 KiKO) — 장부 기록만 바뀌고 나가는 돈·받는 곳은 그대로.
+#   금액은 줄거나 같을 때만(싸졌는데 다시 결재받는 건 이상하다). 받는 곳(거래처·예금주·은행·계좌)·나가는 통장이
+#   바뀌거나 금액이 늘면 처음부터 다시 — 계좌 바꿔치기 방어(11-14 보안 점검)는 그대로.
+KEEP_APPROVAL_FIELDS = frozenset({'project_code', 'cost_category', 'content', 'evidence', 'memo', 'urgency', 'amount'})
+
+
+def keeps_approvals(old: dict, changed: Dict) -> bool:
+    """이 수정이면 받은 승인을 그대로 둬도 되나 — 자금집행만."""
+    if old.get('form') != FORM_FUND or not changed or not set(changed) <= KEEP_APPROVAL_FIELDS:
+        return False
+    if 'amount' in changed:
+        a, b = changed['amount']
+        if int(b or 0) > int(a or 0):
+            return False
+    return True
+
+
+def _reached_status(conn, old: dict) -> Optional[str]:
+    """마지막으로 다시 올린 뒤 받은 승인으로 갈 단계 — 최종 승인까지면 APPROVED, ① 승인만이면 FINAL. 없으면 None."""
+    rows = [dict(r) for r in conn.execute('SELECT * FROM approval_steps WHERE approval_id=? ORDER BY id',
+                                          (old['id'],)).fetchall()]
+    last = max((i for i, r in enumerate(rows) if r['step'] == 'resubmit'), default=-1)
+    by = {r['step']: r for r in rows[last + 1:] if r['step'] in ('approve', 'final')}
+    ok = ('approved', 'auto')
+    if (by.get('final') or {}).get('result') in ok:
+        return APPROVED
+    if (by.get('approve') or {}).get('result') in ok:
+        return FINAL if needs_final(old['form']) else APPROVED
+    return None
+
+
 def revision(aid: int) -> int:
     """수정해 다시 올린 횟수 — 버튼 값에 실어 옛 버튼을 가려낸다(11-11)."""
     with _db()._get_connection() as conn:
         _ensure_tables(conn)
-        r = conn.execute("SELECT COUNT(*) FROM approval_steps WHERE approval_id=? AND step='resubmit'",
+        r = conn.execute("SELECT COUNT(*) FROM approval_steps WHERE approval_id=? AND step IN ('resubmit','edit')",
                          (int(aid),)).fetchone()
         return int(r[0] if r else 0)
 
@@ -812,7 +855,7 @@ def parse_button_value(value: str) -> Tuple[int, Optional[int]]:
 def last_revise(step_rows: List[dict]) -> Optional[dict]:
     """가장 최근 수정 요청 줄(다시 올린 뒤면 None)."""
     for s in reversed(step_rows):
-        if s['step'] == 'resubmit':
+        if s['step'] in ('resubmit', 'edit'):
             return None
         if s['step'] == 'revise':
             return s
@@ -848,7 +891,7 @@ def transition(aid: int, action: str, actor_id: str, actor_name: str, reason: st
         args = [nxt, now, aid, *allowed]
         if expected_rev is not None:
             sql += (" AND (SELECT COUNT(*) FROM approval_steps"
-                    " WHERE approval_steps.approval_id=approvals.id AND step='resubmit')=?")
+                    " WHERE approval_steps.approval_id=approvals.id AND step IN ('resubmit','edit'))=?")
             args.append(int(expected_rev))
         cur = conn.execute(sql, args)
         if cur.rowcount != 1:
