@@ -943,6 +943,15 @@ def _bank_key(s: str) -> str:
     return re.sub(r'\s|은행$', '', (s or '').strip()).replace('은행', '')
 
 
+def same_bank(a: str, b: str) -> bool:
+    """'기업은행'·'IBK기업은행'·'기업' 을 같은 은행으로. 예전에 직접 쓴 이름은 창에서 목록 이름으로 바뀌어
+    채워지는데 원래 이름과 그대로 비교해 같은 계좌에 '예전 계좌와 달라요'가 떴다(2026-11-20 #65 홍일 PVC)."""
+    na, nb = forms.normalize_bank(a or ''), forms.normalize_bank(b or '')
+    if na and nb:
+        return na == nb
+    return _bank_key(a) == _bank_key(b)
+
+
 def add_known_accounts(partner: str, rows: List[Tuple[str, str, str]]) -> int:
     """거래처 확인 계좌 넣기 — rows=[(은행, 계좌, 이름표)]. 같은 계좌는 은행·이름표만 고친다. 넣은 수."""
     key = partner_key(partner)
@@ -981,7 +990,7 @@ def match_known_account(partner: str, bank: str, account: str) -> Tuple[bool, Op
     rows = known_accounts(partner)
     digits = _acct_digits(account)
     for r in rows:
-        if r['account'] == digits and (not r.get('bank') or _bank_key(r['bank']) == _bank_key(bank)):
+        if r['account'] == digits and (not r.get('bank') or same_bank(r['bank'], bank)):
             return True, r
     return bool(rows), None
 
@@ -2191,7 +2200,8 @@ def read_new_request(view: dict) -> Dict:
     meta = json.loads(view.get('private_metadata') or '{}')
     f = {
         'project_code': meta.get('project') or _sel('project', A_PROJECT),
-        'evidence': _sel('evidence'), 'cost_category': _sel('cost', A_COST) or _sel('cost'), 'content': _txt('content'),
+        'evidence': _sel('evidence'),
+        'cost_category': _sel('cost', A_COST) or _sel('cost'), 'content': _txt('content'),
         'partner': partner_from_value(_sel('partner', A_PARTNER)) or meta.get('partner', ''),
         'amount': parse_amount(_txt('amount')), 'grn': _sel('grn'),
         'payee_name': field_value(v, 'payee_name'), 'bank': field_value(v, 'bank'),
@@ -2208,6 +2218,10 @@ def read_new_request(view: dict) -> Dict:
         p = inv['parsed']
         f.update(partner=p.get('partner', ''), amount=int(p.get('amount') or 0), grn=p.get('grn') or f['grn'],
                  origin_channel=inv['ch'], origin_ts=inv['ts'], _inv_parsed=p)
+        # 계산서를 고르면 창이 다시 그려지며 증빙에 '전자계산서'가 보이지만, 슬랙은 처음 그린 빈 값을 그대로
+        #   넘겨 '증빙: -'로 올라갔다(11-17~20 #50·51·57·65·66). 화면에 보인 값으로 채운다.
+        if not f['evidence']:
+            f['evidence'] = EVIDENCE_TYPES[0][0]
     if meta.get('edit'):
         f['_edit'] = int(meta['edit'])
     f['_files'] = forms.read_attachments(view)
@@ -2263,7 +2277,7 @@ def mark_payee_saved(f: Dict) -> None:
     """기억해 둔 계좌와 같은 계좌로 보내면 카드에 표시(경영지원이 이체 전에 한 번 더 보게)."""
     saved = lookup_payee(f.get('partner', ''))
     same = bool(saved and normalize_account(saved.get('account')) == normalize_account(f.get('account'))
-                and (saved.get('bank') or '') == (f.get('bank') or ''))   # 은행만 바뀐 것도 '다른 계좌'(11-11)
+                and same_bank(saved.get('bank'), f.get('bank')))   # 은행만 바뀐 것도 '다른 계좌'(11-11)
     x = dict(f.get('extra') or {})
     if same:
         x['payee_saved'] = True

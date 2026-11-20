@@ -1,4 +1,4 @@
-"""보안 점검 4차(2026-11-14) — 매입 계산서 → 자금집행: 두 번 이체·계좌 바뀜·계산서 글 출처·[다시 지정] 막기."""
+﻿"""보안 점검 4차(2026-11-14) — 매입 계산서 → 자금집행: 두 번 이체·계좌 바뀜·계산서 글 출처·[다시 지정] 막기."""
 import json
 from datetime import datetime, timedelta
 
@@ -79,6 +79,29 @@ def test_payee_changed_flag_card_and_transfer_confirm(se):
     g = dict(FIELDS)                                   # 같은 계좌면 표시 없음
     ea.mark_payee_saved(g)
     assert g['extra'].get('payee_saved') and 'payee_changed' not in g['extra']
+
+
+def test_same_account_with_listed_bank_name_is_not_changed(tmp_db):
+    """11-20 #65 홍일 PVC — 예전에 '기업은행'으로 적은 계좌가 창에서 'IBK기업은행'으로 채워져 같은 계좌인데 ⚠️."""
+    ea.remember_payee('홍일P.V.C', '이남일(홍일P.V.C)', '기업은행', '296-105209-04-016')
+    f = dict(FIELDS, partner='홍일 PVC', payee_name='이남일(홍일P.V.C)', bank='IBK기업은행', account='296-105209-04-016')
+    ea.mark_payee_saved(f)
+    assert f['extra'].get('payee_saved') and 'payee_changed' not in f['extra']
+    g = dict(f, bank='신한은행', extra={})                   # 은행이 정말 다르면 그대로 ⚠️
+    ea.mark_payee_saved(g)
+    assert g['extra'].get('payee_changed')
+    assert ea.same_bank('기업', 'IBK기업은행') and not ea.same_bank('기업은행', '신한은행')
+
+
+def test_invoice_picked_evidence_defaults_when_slack_drops_it():
+    """11-17~20 #50·51·57·65·66 — 계산서를 고르면 증빙에 '전자계산서'가 보이지만 슬랙이 빈 값을 넘겨 '증빙: -'."""
+    view = {'state': {'values': {}}, 'private_metadata': '{"inv": {"ts": "1.2", "ch": "C1", "parsed": {"amount": 1000, "partner": "x", "grn": "G"}}}'}
+    assert ea.read_new_request(view)['evidence'] == '전자계산서'
+    view['private_metadata'] = '{}'                                 # 계산서 안 고른 선입금은 비운 그대로
+    assert ea.read_new_request(view)['evidence'] == ''
+    view = {'state': {'values': {'evidence': {'evidence': {'selected_option': {'value': '기타영수증'}}}}},
+            'private_metadata': '{"inv": {"ts": "1.2", "ch": "C1", "parsed": {"amount": 1000, "partner": "x", "grn": "G"}}}'}
+    assert ea.read_new_request(view)['evidence'] == '기타영수증'      # 직접 고른 값은 그대로
 
 
 def test_first_time_partner_has_no_change_flag(tmp_db):
