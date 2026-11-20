@@ -97,8 +97,24 @@ def test_visitors_with_visits_that_day(db):
              _lead('L-3', '2026-11-22', '부천 길주로 2', '박다솜'),                     # 다른 날
              _lead('L-4', '2026-11-21', '부천 길주로 3', '외부인'),                     # 직원 명단에 없음
              _lead('L-5', '2026-11-21', '부천 길주로 4', '서준', status='유선 상담')]   # 가지 않은 리드
-    assert va.visitors('2026-11-21', leads) == [{'code': 'YM', 'name': '김가람', 'visits': 2},
-                                                 {'code': 'LSH', 'name': '이나래', 'visits': 1}]
+    assert va.visitors('2026-11-21', leads) == [
+        {'code': 'YM', 'name': '김가람', 'visits': 2,
+         'places': [{'label': '용인 수지구', 'addr': '용인 수지구 심곡로 11'}, {'label': '부천', 'addr': '부천 길주로 1'}]},
+        {'code': 'LSH', 'name': '이나래', 'visits': 1,
+         'places': [{'label': '용인 수지구', 'addr': '용인 수지구 심곡로 11'}]}]
+
+
+def test_visitor_places_use_found_dong(db):
+    """갈 곳은 동까지 — 찾아 둔 동이 있으면 '용인 풍덕천동', 같은 주소 두 번은 한 곳(11-21 부장님)."""
+    from tests.unit.test_vehicle_log import _lead
+    with vl._conn() as conn:
+        conn.execute('INSERT INTO vehicle_addr_dong (addr, dong, checked_at) VALUES (?,?,?)',
+                     ('용인 수지구 심곡로 11', '풍덕천동', '2026-11-21 09:00'))
+    leads = [_lead('L-1', '2026-11-21', '용인 수지구 심곡로 11', '김가람'),
+             _lead('L-2', '2026-11-21', '용인 수지구 심곡로 11', '김가람')]
+    v = va.visitors('2026-11-21', leads)
+    assert v[0]['visits'] == 2 and v[0]['places'] == [{'label': '용인 풍덕천동', 'addr': '용인 수지구 심곡로 11'}]
+    assert vl.unresolved(leads, '2026-11-21', '2026-11-21') == []
 
 
 def test_save_confirm_and_change_dms(db):
@@ -177,6 +193,8 @@ def test_routes_view_for_all_edit_for_assigner(db, monkeypatch):
     monkeypatch.setattr(bp, 'render_template', lambda name: name)
     from tests.unit.test_vehicle_log import _lead
     monkeypatch.setattr(bp, '_leads', lambda: [_lead('L-1', '2026-11-21', '부천 길주로 1', '서준')])
+    resolve = []
+    monkeypatch.setattr(bp, '_resolve_later', lambda s, e: resolve.append((s, e)))   # 행안부 부르지 않게
     app = Flask(__name__)
     app.secret_key = 'x'
     app.register_blueprint(bp.gw_vehicles_bp)
@@ -185,8 +203,10 @@ def test_routes_view_for_all_edit_for_assigner(db, monkeypatch):
             s['user'] = {'email': 'staff@example.com', 'permission_level': 'user'}
         j = cl.get('/api/vehicles/assign?day=2026-11-21').get_json()
         assert j['success'] and not j['can_edit'] and len(j['cars']) == 11 and j['day_label'] == '11/21(토)'
-        assert j['visitors'] == [{'code': 'TH', 'name': '서준', 'visits': 1}]
+        assert j['visitors'] == [{'code': 'TH', 'name': '서준', 'visits': 1,
+                                  'places': [{'label': '부천', 'addr': '부천 길주로 1'}]}]
         assert j['teams'] == [{'members': ['TH'], 'visits': 1}]
+        assert j['resolving'] and resolve == [('2026-11-21', '2026-11-21')]   # 동은 뒤에서 찾고 화면이 다시 받아 감
         assert cl.get('/vehicles/assign').get_data(as_text=True) == 'gw/vehicle_assign.html'
         assert cl.post('/api/vehicles/assign', json={'day': '2026-11-21', 'rows': []}).status_code == 403
         with cl.session_transaction() as s:

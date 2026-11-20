@@ -386,15 +386,22 @@ def fixed_users() -> Dict[str, str]:
 
 def visitors(day: str, leads: Iterable[dict]) -> List[Dict]:
     """그날 방문 일정이 있는 사람(리드 시트 방문 예정일·영업 담당자) — 배정 화면에서 '차 없는 사람'을 짚는 데 쓴다.
-    [{code, name, visits}] — 이니셜이 없는 이름(외부 인원 등)은 뺀다."""
+    [{code, name, visits, places:[{label, addr}]}] — 이니셜이 없는 이름(외부 인원 등)은 뺀다.
+    places = 그 사람이 갈 곳(동 단위 이름·방문 주소, 11-21 부장님) — 배정 화면 명단과 차 카드에 보인다.
+    고객명은 넣지 않는다(차 고르는 데는 위치만 있으면 됨)."""
     from dashboard.services import vehicle_log as vl
     by_name = {p['name']: p for p in staff()}
     count: Dict[str, int] = {}
+    places: Dict[str, List[Dict]] = {}
     for v in vl.visits_by_day(leads, day, day).get(day, []):
         for n in v['who']:
             if n in by_name:
                 count[n] = count.get(n, 0) + 1
-    return [{'code': by_name[n]['code'], 'name': n, 'visits': c} for n, c in sorted(count.items())]
+                mine = places.setdefault(n, [])
+                if all(p['addr'] != v['addr'] for p in mine):
+                    mine.append({'label': vl.place_label(v['area'], v['addr']), 'addr': v['addr']})
+    return [{'code': by_name[n]['code'], 'name': n, 'visits': c, 'places': places.get(n, [])}
+            for n, c in sorted(count.items())]
 
 
 # ── 슬랙 ────────────────────────────────────────────────────────────────

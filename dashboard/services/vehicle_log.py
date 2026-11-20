@@ -304,6 +304,12 @@ def _visit_leads(leads: Iterable[dict], start: str, end: str):
             yield day, lead, who, addr
 
 
+def place_label(ar: Tuple[str, str, str], addr: str = '') -> str:
+    """갈 곳 짧은 이름 — (시, 구, 동) → '천안 불당동'. 동을 아직 못 찾았으면 '천안 서북구'."""
+    city, gu, dong = ar
+    return ' '.join(x for x in (city, dong or gu) if x) or str(addr or '')[:20]
+
+
 def visits_by_day(leads: Iterable[dict], start: str, end: str) -> Dict[str, List[Dict]]:
     """리드 시트 → {날짜: [{'lead_no','who':[이름],'addr','area'}]} (기간 안, 담당자·주소 있는 방문만).
     방문 주소는 도로명이라 동이 없다 — resolve_dongs 로 미리 찾아 둔 동을 붙인다."""

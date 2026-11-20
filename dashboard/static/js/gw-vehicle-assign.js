@@ -46,7 +46,8 @@
 
   var TOUCH = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);   // 휴대폰: 끌기 대신 누르기
   var S = { day: '', cars: [], staff: [], names: {}, canEdit: false, confirmed: false, dirty: false,
-            visits: {}, teams: [], picked: null, seq: 0, focus: null };   // picked = 'YM' 또는 팀 'YM,LSH'
+            visits: {}, places: {}, teams: [], picked: null, seq: 0, focus: null,
+            openPlaces: {}, placeTries: 0, placeTimer: null };   // places = {이니셜: [{label, addr}]} 그날 갈 곳   // picked = 'YM' 또는 팀 'YM,LSH'
 
   function name(code) { return S.names[code] || code; }
   function carOf(plate) { return S.cars.filter(function (c) { return c.plate === plate; })[0]; }
@@ -92,15 +93,50 @@
   }
 
   // ── 그리기 ──
+  // 명단 이름 옆 = 방문 수와 갈 곳(첫 곳 + 외 n), 상세 주소는 마우스를 올리면(11-21 부장님)
   function visitTag(code) {
     var n = S.visits[code];
-    return n ? '<small class="gw-va-visit">방문 ' + n + '</small>' : '';
+    if (!n) return '';
+    var g = groupLabels(S.places[code] || []);
+    var where = g.length ? ' · ' + g[0].label + (g[0].n > 1 ? ' ' + g[0].n + '곳' : '') + (g.length > 1 ? ' 외 ' + (g.length - 1) : '') : '';
+    return '<small class="gw-va-visit">방문 ' + n + esc(where) + '</small>';
+  }
+  function groupLabels(list) {   // 같은 동(구)끼리 묶기 — [{label, n}] 처음 나온 순서대로
+    var at = {}, out = [];
+    list.forEach(function (p) {
+      if (at[p.label] === undefined) { at[p.label] = out.length; out.push({ label: p.label, n: 0 }); }
+      out[at[p.label]].n++;
+    });
+    return out;
+  }
+  function placeTitle(code) {
+    var pl = S.places[code] || [];
+    return pl.length ? ' title="' + esc(pl.map(function (p) { return p.addr; }).join(' / ')) + '"' : '';
+  }
+  // 차 카드 = 그 차에 탄 사람들이 갈 곳(동 단위로 묶음). 펼치면 주소와 누가 가는지
+  function carPlaces(c) {
+    var byAddr = {}, addrs = [];
+    c.people.forEach(function (code) {
+      (S.places[code] || []).forEach(function (p) {
+        if (!byAddr[p.addr]) { byAddr[p.addr] = { label: p.label, who: [] }; addrs.push(p.addr); }
+        byAddr[p.addr].who.push(name(code));
+      });
+    });
+    if (!addrs.length) return '';
+    var sum = groupLabels(addrs.map(function (a) { return byAddr[a]; }))
+      .map(function (g) { return g.label + (g.n > 1 ? ' ' + g.n + '곳' : ''); }).join(' · ');
+    var open = S.openPlaces[c.plate] ? ' open' : '';
+    return '<details class="gw-va-places" data-places="' + esc(c.plate) + '"' + open + '>' +
+      '<summary><i class="fas fa-location-dot" aria-hidden="true"></i><span>' + esc(sum) + '</span><i class="fas fa-chevron-down gw-va-fold" aria-hidden="true"></i></summary>' +
+      '<ul>' + addrs.map(function (a) {
+        return '<li>' + esc(a) + ' <span>— ' + esc(byAddr[a].who.join(', ')) + '</span></li>';
+      }).join('') + '</ul></details>';
   }
   function person(code, extra) {   // 왼쪽 명단 한 사람
     var at = whereIs(code);
     var cls = 'gw-va-person' + (at ? ' placed' : '') + (S.picked === code ? ' picked' : '');
     return '<button type="button" class="' + cls + '" data-person="' + esc(code) + '"' +
-      (S.picked === code ? ' aria-pressed="true"' : ' aria-pressed="false"') + '>' +
+      (S.picked === code ? ' aria-pressed="true"' : ' aria-pressed="false"') + placeTitle(code) + '>' +
       '<span class="gw-va-pname">' + esc(name(code)) + '</span>' + visitTag(code) +
       (at ? '<small class="gw-va-where">' + esc(at.label) + '</small>' : '') + (extra || '') + '</button>';
   }
@@ -198,7 +234,7 @@
     var drop = S.canEdit ? ' data-drop="car"' : '';
     return '<div class="gw-va-card' + (S.picked ? ' can-drop' : '') + '" data-plate="' + esc(c.plate) + '"' + drop + '>' +
       '<div class="gw-va-car"><strong>' + esc(c.label) + '</strong><span>' + esc(sub) + '</span>' + fixed + '</div>' +
-      '<div class="gw-va-people">' + people + put + '</div>' + note + '</div>';
+      carPlaces(c) + '<div class="gw-va-people">' + people + put + '</div>' + note + '</div>';
   }
   function render() {
     $('vaShared').innerHTML = S.cars.filter(function (c) { return c.usage !== 'fixed'; }).map(card).join('') ||
@@ -243,16 +279,43 @@
       if (my !== S.seq) return;
       S.day = j.day; S.cars = j.cars; S.staff = j.staff; S.canEdit = !!j.can_edit;
       S.confirmed = !!j.confirmed_at; S.picked = null;
-      S.names = {}; S.visits = {};
+      S.names = {}; S.visits = {}; S.places = {}; S.openPlaces = {};
       j.staff.forEach(function (p) { S.names[p.code] = p.name; });
-      (j.visitors || []).forEach(function (v) { S.visits[v.code] = v.visits; });
+      (j.visitors || []).forEach(function (v) { S.visits[v.code] = v.visits; S.places[v.code] = v.places || []; });
       S.teams = j.teams || [];
       S.dirty = !!(j.draft_kind && S.canEdit && j.cars.some(function (c) { return c.people.length; }));
       $('vaDay').value = j.day;
       try { history.replaceState(null, '', '/vehicles/assign?day=' + j.day); } catch (e) { /* 무시 */ }
       status(j);
       render();
+      S.placeTries = 0;
+      placesLater(j.resolving);
     }).catch(function (e) { if (my === S.seq) msg(e.message, 'err'); });
+  }
+  // 갈 곳의 동을 서버가 뒤에서 찾는 중이면 잠시 뒤 갈 곳만 다시 받는다(배정 고친 것은 그대로)
+  function placesLater(resolving) {
+    clearTimeout(S.placeTimer);
+    if (!resolving || S.placeTries >= 3) return;
+    var my = S.seq, day = S.day;
+    S.placeTimer = setTimeout(function () {
+      S.placeTries++;
+      api('/api/vehicles/assign?day=' + encodeURIComponent(day)).then(function (j) {
+        if (my !== S.seq || j.day !== S.day) return;
+        S.places = {};
+        (j.visitors || []).forEach(function (v) { S.places[v.code] = v.places || []; });
+        var act = document.activeElement;
+        // 메모를 쓰는 중이거나 끄는 중이면 다시 그리지 않는다 — 다음에 그릴 때 들어감
+        var inBoard = act && act.closest && act.closest('.gw-va-board');
+        if (!D && !(inBoard && act.matches('input, select'))) {
+          if (inBoard && act.dataset.team) focusAfter('[data-team="' + cssq(act.dataset.team) + '"]');
+          else if (inBoard && act.closest('.gw-va-chip[data-person]') && act.matches('.gw-va-cname')) focusAfter(chipSel(act.closest('.gw-va-chip').dataset.person));
+          else if (inBoard && act.dataset.person) focusAfter(staffSel(act.dataset.person));
+          else if (inBoard && act.matches('summary')) focusAfter('[data-places="' + cssq(act.parentNode.dataset.places) + '"] summary');
+          render();
+        }
+        placesLater(j.resolving);
+      }).catch(function () { /* 다음에 불러올 때 */ });
+    }, 15000);
   }
   function rowsForSave() {
     return S.cars.map(function (c) { return { plate: c.plate, people: c.people, note: c.note || '' }; });
@@ -382,7 +445,7 @@
       render();
       return;
     }
-    if (e.target.closest('input, select')) return;
+    if (e.target.closest('input, select, details')) return;   // 갈 곳 펼치기는 차에 넣기가 아님
     var tb = e.target.closest('[data-team]');
     if (tb) { pick(tb.dataset.team, tb); return; }
     var p = e.target.closest('[data-person]');
@@ -402,6 +465,11 @@
       pick(S.picked, was && was.closest && (was.closest('[data-team]') || was.closest('.gw-va-chip')) ? was : null);
     }
   });
+  // 펼친 갈 곳은 다시 그려도 펼친 채로
+  document.addEventListener('toggle', function (e) {
+    var d = e.target;
+    if (d && d.dataset && d.dataset.places) S.openPlaces[d.dataset.places] = d.open;
+  }, true);
   document.addEventListener('change', function (e) {
     var t = e.target;
     if (t.dataset.note) {

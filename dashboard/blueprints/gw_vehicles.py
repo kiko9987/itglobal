@@ -114,9 +114,13 @@ def api_assign_get():
     try:        # 일정확정 결과(리드 시트 방문 예정일·영업 담당자) — 못 읽어도 배정은 할 수 있게
         leads = _leads()
         visitors, teams = va.visitors(day, leads), va.teams(day, leads)
+        # 갈 곳을 동까지 보이게 — 아직 못 찾은 방문 주소는 뒤에서 찾고(행안부), 화면이 잠시 뒤 다시 받아 간다
+        resolving = bool(vl.unresolved(leads, day, day))
+        if resolving and not _resolving.locked():
+            _resolve_later(day, day)
     except Exception as e:
         logger.warning(f'[차량배정] 방문 일정 읽기 실패: {e}')
-        visitors, teams = [], []
+        visitors, teams, resolving = [], [], False
     try:
         view = va.day_view(day, teams)
         people = va.staff()
@@ -131,7 +135,7 @@ def api_assign_get():
         view['confirmed_name'] = (p or {}).get('name') or view['confirmed_by']
     return jsonify({'success': True, **view, 'day_label': va.day_label(day),
                     'staff': [{'code': p['code'], 'name': p['name']} for p in people], 'visitors': visitors, 'teams': teams,
-                    'can_edit': _can_assign(), 'can_see_log': _hr_admin()})
+                    'resolving': resolving, 'can_edit': _can_assign(), 'can_see_log': _hr_admin()})
 
 
 @gw_vehicles_bp.route('/api/vehicles/assign', methods=['POST'])
