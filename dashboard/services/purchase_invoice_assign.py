@@ -29,9 +29,11 @@ CALLBACK_SUBMIT = 'submit_pinv_assign'  # 모달 제출
 # ── 현장 아닌 선택지 ─────────────────────────────────────────────────
 STOCK_CODE = '프로젝트0'    # 회사 재고로 사거나 회사로 먼저 사서 나중에 현장에 내보내는 것
 COMMON_CODE = '공통비'      # 사무실 등 현장과 무관한 비용
+# 공통비를 위로·쓰임새를 이름표에(11-20 KiKO) — '현장 미정 자재'를 '현장 모를 때 고르는 칸'으로 읽어
+#   차량 수리비(#66)까지 회사 재고로 올라왔다. 공통비가 먼저 보이게 순서도 바꿨다.
 SPECIAL_LABELS = {
-    STOCK_CODE: '프로젝트 0 · 회사 재고 (현장 미정 자재)',
-    COMMON_CODE: '공통비 · 현장 무관 (사무실 집기, 수선비 등)',
+    COMMON_CODE: '공통비 · 회사 운영비 (사무용품·차량·안전용품 등 현장과 무관)',
+    STOCK_CODE: '프로젝트 0 · 회사 재고 (창고에 두고 나중에 현장에 쓸 자재·제품)',
 }
 # 법인서류 요청 전용 — 서류는 돈이 아니라 '공통비'(비용 분류)가 맞지 않음. 특정 현장이 아니면 이것(11-05)
 NO_SITE_CODE = '현장 없음'
@@ -62,9 +64,12 @@ _COST_LABEL = dict(COST_CATEGORIES + FUND_ONLY_COST)
 
 
 def cost_project_error(cost: str, project_code: str) -> str:
-    """공통비 분류는 현장이 「공통비」일 때만 — 공사 현장 원가에 사무실 비용이 섞이지 않게."""
+    """공통비 분류는 현장이 「공통비」일 때만 — 공사 현장 원가에 사무실 비용이 섞이지 않게.
+    거꾸로 「공통비」 현장은 공통비 분류만(11-20 #66 — 공통비로 고쳤는데 분류가 '기타비 · 기타'로 남아 승인됐다)."""
     if (cost or '').startswith('공통비:') and project_code != COMMON_CODE:
-        return '공통비 분류는 현장을 「공통비」로 골랐을 때만 써요.'
+        return '공통비 분류는 프로젝트를 「공통비」로 골랐을 때만 써요.'
+    if project_code == COMMON_CODE and cost and not cost.startswith('공통비:'):
+        return '공통비는 「공통비 · …」 분류(사무 집기·비품 / 사무실 수선 / 기타 운영비) 중에서 골라 주세요.'
     return ''
 
 
@@ -161,7 +166,7 @@ def build_project_options(recs: List[dict], query: str, manager_name: Optional[s
 
     - 타이핑: 코드·사업자명·주소·거래처명에 들어 있으면 → 최근(코드 큰) 순.
     - 빈 클릭: 내 담당 프로젝트 최근 순(수금 여부 무관 — 부대비용은 공사 끝난 뒤에도 옴).
-    - 프로젝트0·공통비는 빈 클릭이면 맨 위, 타이핑이면 맞을 때만.
+    - 공통비·프로젝트0은 빈 클릭이면 맨 위(공통비 먼저), 타이핑이면 맞을 때만.
     - specials: 보여줄 특수 항목 코드(None=전부). 법인서류 요청은 공통비만.
     """
     q = (query or '').strip().lower()

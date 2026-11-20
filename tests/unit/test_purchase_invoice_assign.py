@@ -96,11 +96,11 @@ def _vals(opts):
 
 def test_options_empty_query_mine_recent_first_with_specials_on_top():
     opts = pinv.build_project_options(RECS, '', manager_name='박정우')
-    assert _vals(opts) == [pinv.STOCK_CODE, pinv.COMMON_CODE, 'G4100-JW', 'G4049-JW']
+    assert _vals(opts) == [pinv.COMMON_CODE, pinv.STOCK_CODE, 'G4100-JW', 'G4049-JW']
 
 
 def test_options_empty_query_without_manager_only_specials():
-    assert _vals(pinv.build_project_options(RECS, '', manager_name=None)) == [pinv.STOCK_CODE, pinv.COMMON_CODE]
+    assert _vals(pinv.build_project_options(RECS, '', manager_name=None)) == [pinv.COMMON_CODE, pinv.STOCK_CODE]
 
 
 def test_options_specials_filter_for_new_fund_request():
