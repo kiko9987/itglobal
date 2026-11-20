@@ -41,6 +41,19 @@ BASE = 'https://apis.data.go.kr/1230000/ad/BidPublicInfoService02/'
 NURI_BASE = 'https://apis.data.go.kr/1230000/ao/PrvtBidNtceService/'
 NURI_KINDS = (('공사', 'getPrvtBidPblancListInfoCnstwk'), ('물품', 'getPrvtBidPblancListInfoThng'))
 NURI_REGION = 'getPrvtBidPblancListInfoPrtcptPsblRgn'
+# 공동주택 입찰(K-apt, 국토교통부, 11-20) — 아파트 관리주체의 공사·물품 업체 선정. 같은 키.
+#   공고일 범위로 통째로 받아(주 ~1,300건, 1,000건씩) 제목으로 거름. 금액·면허 항목 없음 → 상세는 K-apt 공고 화면에서
+APT_BASE = 'https://apis.data.go.kr/1613000/ApHusBidPblAncInfoOfferServiceV3/'
+APT_OP = 'getPblAncDeSearchV3'
+APT_KIND = {'01': '일반경쟁', '02': '제한경쟁', '03': '지명경쟁'}
+APT_SUC = {'01': '최저낙찰', '02': '적격심사', '03': '최저가낙찰', '04': '최고가낙찰'}
+APT_CLS = {'02': '공사', '03': '용역', '04': '물품'}
+APT_AUTH = {'01': 'K-apt', '02': '조달청', '03': '아파트비드포유', '04': 'KG2B전자입찰', '05': '나이스아파트',
+            '06': '이아파트', '10': '민간입찰', '99': '기타 민간업체'}
+APT_AREA = {11: '서울특별시', 26: '부산광역시', 27: '대구광역시', 28: '인천광역시', 29: '광주광역시', 30: '대전광역시',
+            31: '울산광역시', 36: '세종특별자치시', 41: '경기도', 42: '강원도', 51: '강원특별자치도', 43: '충청북도',
+            44: '충청남도', 45: '전라북도', 52: '전북특별자치도', 46: '전라남도', 47: '경상북도', 48: '경상남도',
+            50: '제주특별자치도'}
 NURI_LICENSE = 'getPrvtBidPblancListInfoLicenseLimit'
 OP_LIST = 'getBidPblancListInfoCnstwkPPSSrch02'        # 나라장터 검색조건 공사 공고
 OP_LIST_THNG = 'getBidPblancListInfoThngPPSSrch02'     # 물품 공고 — '구매 및 설치'만 씀(11-19 추산초 계기)
@@ -212,12 +225,16 @@ def hard_reason(item: dict) -> str:
 
 # 검색어 '난방'이 딸려 오는 다른 공사 — 이 말을 지운 뒤에도 검색어가 남아야 냉난방 공사로 본다(11-18 '지역난방설비동 채광창 교체')
 NOT_HVAC_WORDS = ('지역난방', '재난방송', '재난방지', '피난방', '난방비')
+# 냉난방 말이 들어가도 우리 일이 아닌 것(11-20 공동주택 실측: '난방배관 설비보호제 납품', '난방배관 교체공사 감리업자 선정')
+NOT_OUR_WORK = ('설비보호제', '감리')
 
 
 def is_relevant(title: str, kind: str = '공사') -> bool:
     """물품은 '구매 및 설치'만(단순 구매는 제조·공급업체 몫)."""
     t = title or ''
     if kind == '물품' and '설치' not in t:
+        return False
+    if any(w in t for w in NOT_OUR_WORK):
         return False
     for w in NOT_HVAC_WORDS:
         t = t.replace(w, '')
@@ -310,6 +327,8 @@ def search(keyword: str, start: datetime, end: datetime, op: str = OP_LIST) -> L
 
 
 def fetch_limits(bid_no: str, bid_ord: str, source: str = '나라장터') -> tuple:
+    if source == '공동주택':   # K-apt 는 면허·지역 제한 조회가 없음(공고 화면·첨부에만)
+        return [], []
     q = {'inqryDiv': 2, 'bidNtceNo': bid_no, 'bidNtceOrd': bid_ord, 'numOfRows': 50, 'pageNo': 1}
     nuri = source == '누리장터'
     base, op_r, op_l = (NURI_BASE, NURI_REGION, NURI_LICENSE) if nuri else (BASE, OP_REGION, OP_LICENSE)
@@ -384,6 +403,41 @@ def nuri_normalize(it: dict) -> dict:
     return n
 
 
+def apt_list(start: datetime, end: datetime) -> List[dict]:
+    out, page = [], 1
+    while True:
+        body = _get(APT_OP, {'_type': 'json', 'startDate': start.strftime('%Y%m%d'), 'endDate': end.strftime('%Y%m%d'),
+                             'numOfRows': 1000, 'pageNo': page}, APT_BASE)
+        items = _items(body)
+        out.extend(items)
+        if not items or page * 1000 >= _int(body.get('totalCount')) or page >= 5:
+            return out
+        page += 1
+
+
+def apt_normalize(it: dict) -> dict:
+    """K-apt 항목을 나라장터 이름으로. 공고번호는 'KAPT-' 를 붙여 나라장터 번호와 안 겹치게."""
+    num = str(it.get('bidNum') or '')
+    area = APT_AREA.get(_int(it.get('bidArea')), '')
+    auth = APT_AUTH.get(str(it.get('codeAuth') or ''), '')
+    n = {
+        'bidNtceNo': f'KAPT-{num}', 'bidNtceOrd': '001' if str(it.get('bidState')) in ('2', '3') else '000',
+        'bidNtceNm': (it.get('bidTitle') or '').strip(), 'ntceInsttNm': (it.get('bidKaptname') or '').strip(),
+        'dminsttNm': (it.get('bidKaptname') or '').strip(),
+        'bidNtceDt': str(it.get('bidRegDate') or '')[:10], 'bidClseDt': str(it.get('bidDeadline') or '')[:16],
+        'cntrctCnclsMthdNm': APT_KIND.get(str(it.get('codeKind') or ''), ''),
+        'sucsfbidMthdNm': APT_SUC.get(str(it.get('codeSucWay') or ''), ''),
+        'cnstrtsiteRgnNm': area,
+        'dcmtgOprtnDt': str(it.get('bidFieldDesDate') or '')[:16], 'dcmtgOprtnPlce': it.get('bidFieldDesLoc') or '',
+        'bidNtceDtlUrl': f'https://www.k-apt.go.kr/bid/bidDetail.do?bidNum={num}' if num else '',
+        'reNtceYn': 'Y' if str(it.get('bidState')) == '3' else 'N',
+        'aptAuth': auth, 'aptPerfCert': it.get('bidMngCertYn') or '', 'aptCreditCert': it.get('bidCreditConfYn') or '',
+        'aptContent': (it.get('bidContent') or '').strip(), 'aptPay': (it.get('bidTermsOfPayment') or '').strip(),
+        '_source': '공동주택', '_kind': APT_CLS.get(str(it.get('codeClassifyType2') or ''), '공사'),
+    }
+    return {k: v for k, v in n.items() if v not in (None,)}
+
+
 # ── 모으기 ────────────────────────────────────────────────────────────
 def collect(days: int = 2, now: Optional[datetime] = None) -> dict:
     """최근 days 일 공고를 검색어마다 찾아 새것·정정공고만 지역·면허를 붙여 저장."""
@@ -414,6 +468,16 @@ def collect(days: int = 2, now: Optional[datetime] = None) -> dict:
                 except Exception as e:
                     errors += 1
                     logger.warning(f'[G2B] 검색 실패 ({kind} {kw}): {_safe_err(e)}')
+        try:   # 공동주택(K-apt) — 공고일 범위로 통째로(물품도 '설치' 없어도 받음: 아파트 물품은 대개 납품·설치 한 묶음)
+            for raw_it in apt_list(start, now):
+                it = apt_normalize(raw_it)
+                no = it.get('bidNtceNo')
+                if no and no != 'KAPT-' and is_relevant(it.get('bidNtceNm') or ''):
+                    it['_kw'] = '공동주택'
+                    found[no] = it
+        except Exception as e:
+            errors += 1
+            logger.warning(f'[G2B] 공동주택 목록 실패: {_safe_err(e)}')
         for kind, op in NURI_KINDS:   # 누리장터 — 목록 통째로 받아 제목으로
             try:
                 for raw_it in nuri_list(op, start, now):
@@ -445,7 +509,8 @@ def collect(days: int = 2, now: Optional[datetime] = None) -> dict:
                         conn.execute('UPDATE g2b_bids SET raw=? WHERE bid_no=?', (_raw(it), no))
                 continue
             try:
-                regions, groups = fetch_limits(no, ord_, it.get('_source') or '나라장터')
+                regions, groups = (([], []) if it.get('_source') == '공동주택'   # K-apt 는 제한 조회 없음
+                                   else fetch_limits(no, ord_, it.get('_source') or '나라장터'))
             except Exception as e:
                 errors += 1
                 logger.warning(f'[G2B] 지역·면허 조회 실패 {no}: {_safe_err(e)}')
@@ -508,6 +573,9 @@ def _detail(raw: str) -> dict:
             [f"{t('dtilPrdctClsfcNoNm')}({t('dtilPrdctClsfcNo')})"] if t('dtilPrdctClsfcNo') else []),
         'product_limit': _yn(it.get('prdctClsfcLmtYn')), 'maker_only': _yn(it.get('mnfctYn')),
         'deliver_days': t('dlvrDaynum'), 'deliver_cond': t('dlvryCndtnNm'),
+        # 공동주택(K-apt) — 입찰 시스템·실적증명서·신용평가 제출 여부·지급조건
+        'apt_auth': t('aptAuth'), 'apt_perf_cert': _yn(it.get('aptPerfCert')),
+        'apt_credit_cert': _yn(it.get('aptCreditCert')), 'apt_content': t('aptContent'), 'apt_pay': t('aptPay'),
     }
 
 
@@ -739,7 +807,8 @@ def format_digest(rows: List[dict], license_only: int, page_url: str) -> str:
     lines = [f'*나라장터 새 입찰 공고 {len(rows)}건* (경기·김포 업체 참가 가능, 지금 면허로 들어갈 수 있는 것)']
     for r in rows:
         files = sort_files(json.loads(r.get('files') or '[]'))
-        links = [f"<{r['detail_url']}|나라장터에서 보기>"] if r.get('detail_url') else []
+        site = 'K-apt' if r.get('source') == '공동주택' else '나라장터'
+        links = [f"<{r['detail_url']}|{site}에서 보기>"] if r.get('detail_url') else []
         for f in files[:4]:
             name = f['name']
             kind = '공고문' if '공고' in name else '내역서' if '내역' in name else '시방서' if '시방' in name else ''
@@ -749,7 +818,8 @@ def format_digest(rows: List[dict], license_only: int, page_url: str) -> str:
             links.append(f"<{f['url']}|{kind}{' ' + ext if ext else ''}>")
         lines.append(
             f"\n• *{r['title']}*\n"
-            f"   {r['demand_org'] or r['org']}{' (누리장터)' if r.get('source') == '누리장터' else ''} · "
+            f"   {r['demand_org'] or r['org']}"
+            f"{' (' + r['source'] + ')' if r.get('source') in ('누리장터', '공동주택') else ''} · "
             f"{(r['award_method'] or r['contract_method']).split('-')[0]} · "
             f"추정가격 {_won(r['price'])}\n"
             f"   마감 {_when(r['close_at'])} · 참가가능지역: {', '.join(json.loads(r['regions']))}\n"

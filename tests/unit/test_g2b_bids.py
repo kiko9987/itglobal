@@ -93,8 +93,9 @@ def test_classify_categories():
 
 
 # ── 모으기 ────────────────────────────────────────────────────────────
-def _fake_api(monkeypatch, items, limits, nuri=None):
+def _fake_api(monkeypatch, items, limits, nuri=None, apt=None):
     nuri = nuri or {}
+    apt = apt or []
     calls = {'limits': 0}
 
     def search(kw, start, end, op=g.OP_LIST):
@@ -110,6 +111,7 @@ def _fake_api(monkeypatch, items, limits, nuri=None):
     monkeypatch.setattr(g, 'search', search)
     monkeypatch.setattr(g, 'fetch_limits', fetch_limits)
     monkeypatch.setattr(g, 'nuri_list', lambda op, start, end: [dict(i) for i in nuri.get(op, [])])
+    monkeypatch.setattr(g, 'apt_list', lambda start, end: [dict(i) for i in apt])
     return calls
 
 
@@ -462,3 +464,40 @@ def test_nuri_digest_tag(db, monkeypatch):
     g.collect()
     g.send_morning_digest(force=True)
     assert '지구촌교회 (누리장터)' in sent[0]
+
+
+
+# ── 공동주택(K-apt) 11-20 ─────────────────────────────────────────────
+def _apt(num='20261117000000001', title='휘트니스센터 천장형 시스템 냉난방기 설치 공사 업체 선정', **kw):
+    it = {'bidNum': num, 'aptCode': 'A1', 'bidArea': 41, 'bidTitle': title, 'bidContent': '첨부 참조',
+          'bidRegDate': '2026-11-19', 'bidDeadline': _future(), 'bidKaptname': '목동올리브힐', 'bidState': '1',
+          'codeAuth': '01', 'codeKind': '01', 'codeClassifyType1': '02', 'codeClassifyType2': '02',
+          'codeSucWay': '03', 'bidFieldDesDate': '2026-11-23 14:00:00', 'bidFieldDesLoc': '관리사무소',
+          'bidMngCertYn': 'Y', 'bidCreditConfYn': 'N'}
+    it.update(kw)
+    return it
+
+
+def test_apt_collected_with_kapt_link_and_filters(db, monkeypatch):
+    apt = [_apt('1'), _apt('2', bidTitle='난방배관 설비보호제 납품 및 투입업체 선정'),
+           _apt('3', bidTitle='난방배관 교체공사 감리업자 선정'), _apt('4', bidTitle='주택관리업체 선정'),
+           _apt('5', bidTitle='전기실 에어컨 설치', codeKind='03')]
+    _fake_api(monkeypatch, [], {}, apt=apt)
+    r = g.collect()
+    assert r['new'] == 2                                    # 설비보호제·감리·무관은 안 넣음
+    items = {x['bid_no']: x for x in g.list_bids(g.ELIGIBLE)['items'] + g.list_bids(g.BLOCKED)['items']}
+    a = items['KAPT-1']
+    assert a['source'] == '공동주택' and a['category'] == g.ELIGIBLE and a['area'] == '수도권'
+    assert a['detail_url'] == 'https://www.k-apt.go.kr/bid/bidDetail.do?bidNum=1'
+    assert a['contract_method'] == '일반경쟁' and a['detail']['briefing_at'] == '2026-11-23 14:00'
+    assert a['detail']['apt_perf_cert'] == '예' and a['detail']['apt_auth'] == 'K-apt'
+    assert items['KAPT-5']['category'] == g.OTHER and '지명경쟁' in items['KAPT-5']['reason']
+
+
+def test_apt_digest_tag(db, monkeypatch):
+    sent = []
+    monkeypatch.setattr(g, '_post_slack', lambda ch, text: sent.append(text) or True)
+    _fake_api(monkeypatch, [], {}, apt=[_apt('1')])
+    g.collect()
+    g.send_morning_digest(force=True)
+    assert '목동올리브힐 (공동주택)' in sent[0] and 'k-apt.go.kr/bid/bidDetail.do?bidNum=1|K-apt에서 보기' in sent[0]

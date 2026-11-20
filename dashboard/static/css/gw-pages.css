@@ -2841,3 +2841,5 @@ html:has(#bdPage) {
 
 .gw-bd-src.g2b { background: #eef2ff; color: #3730a3; }
 .gw-bd-src.nuri { background: #ecfdf5; color: #047857; }
+
+.gw-bd-src.apt { background: #fff7ed; color: #c2410c; }   /* 공동주택(K-apt) 11-20 */

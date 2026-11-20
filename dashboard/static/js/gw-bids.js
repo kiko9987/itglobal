@@ -10,8 +10,8 @@
     return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
-  function safeUrl(u) {   // 나라장터 주소만 링크로
-    return /^https:\/\/(www\.)?g2b\.go\.kr\//.test(String(u || '')) ? u : '';
+  function safeUrl(u) {   // 나라장터·K-apt 주소만 링크로
+    return /^https:\/\/(www\.)?(g2b|k-apt)\.go\.kr\//.test(String(u || '')) ? u : '';
   }
   var SESSION_ENDED = '로그인이 끝났어요. 새로 고친 뒤 다시 해 주세요.';
   function api(url, opts) {
@@ -122,7 +122,7 @@
       esc(when(it.close_at)) + '</span>' + (it.closed ? '<div class="gw-bd-sub">마감</div>' : '');
     var title = '<div class="gw-bd-title">' + (it.is_new ? '<span class="gw-badge gw-badge-new">New</span> ' : '') +
       esc(it.title) + '</div><div class="gw-bd-sub">' +
-      '<span class="gw-bd-src ' + (it.source === '누리장터' ? 'nuri' : 'g2b') + '">' + esc(it.source || '나라장터') + '</span>' +
+      '<span class="gw-bd-src ' + ({ '누리장터': 'nuri', '공동주택': 'apt' }[it.source] || 'g2b') + '">' + esc(it.source || '나라장터') + '</span>' +
       esc(it.demand_org || it.org) +
       (it.contact ? ' · 담당 ' + esc(it.contact) : '') + '</div>';
     var bAt = (it.detail || {}).briefing_at;   // 현장설명회 — 놓치면 못 들어가는 공고가 있어 줄에서 바로 보이게
@@ -132,10 +132,11 @@
         (past(bAt) ? ' (지남)' : '') + '</div>';
     }
     var nuri = it.source === '누리장터';   // 자격·지역이 공고서에만 → '전국·면허 제한 없음'으로 보이면 오해
-    var cond = '<div>' + (nuri ? '지역·면허: 공고서 참조'
+    var apt = it.source === '공동주택';
+    var cond = '<div>' + (apt ? esc(it.site_region || '지역 미상') + ' 아파트' : nuri ? '지역·면허: 공고서 참조'
       : it.nationwide ? '<span class="gw-badge gw-badge-nation">전국</span> 지역 제한 없음'
       : esc((it.regions || []).join(', '))) + '</div><div class="gw-bd-sub">' +
-      (nuri ? '누리장터 민간 공고' : esc((it.licenses || []).join(' 또는 ') || '면허 제한 없음')) + '</div>' +
+      (apt ? '자격: K-apt 공고 참조' : nuri ? '누리장터 민간 공고' : esc((it.licenses || []).join(' 또는 ') || '면허 제한 없음')) + '</div>' +
       (it.category !== 'eligible' && it.reason ? '<div class="gw-bd-miss">' + esc(it.reason) + '</div>' : '');
     var open = state.open === it.bid_no;
     return '<tr class="gw-bd-row' + (it.mark === 'skip' ? ' gw-bd-skip' : '') + (open ? ' gw-bd-open' : '') +
@@ -180,9 +181,11 @@
       ? chk(true, '면허', esc(lic || '제한 없음') + (lic ? ' — 보유' : ''))
       : chk(false, '면허', '<b>' + esc(it.missing || '우리 면허로 안 됨') + (it.missing ? ' 없음' : '') + '</b> — ' + esc(lic) +
           (lic.indexOf('+') > -1 ? ' 모두 있어야 해요' : ''));
-    if (it.source === '누리장터') checks = '';   // 지역·면허는 아래 '참가 자격: 공고서 참조' 한 줄로
+    if (it.source === '누리장터' || it.source === '공동주택') checks = '';   // 지역·면허는 아래 '참가 자격' 한 줄로
     checks += it.hard_reason ? chk(false, '참가 조건', esc(it.hard_reason))
-      : chk(true, '참가 조건', '실적제한·사전심사(PQ) 없음 · ' + esc(it.award_method || it.contract_method));
+      : it.source === '공동주택'   // K-apt 는 실적·PQ 항목이 없어 '없음'이라 하면 틀림 — 입찰·낙찰 방식만
+        ? chk(true, '입찰 방식', esc([it.contract_method, it.award_method].filter(Boolean).join(' · ') || '-'))
+        : chk(true, '참가 조건', '실적제한·사전심사(PQ) 없음 · ' + esc(it.award_method || it.contract_method));
     if (d.briefing_at) {
       checks += chk(past(d.briefing_at) ? false : null, '현장설명회',
         '<b>' + full(d.briefing_at) + '</b>' + (d.briefing_place ? ' · ' + esc(d.briefing_place) : '') +
@@ -192,7 +195,12 @@
       checks += chk(null, '참가 자격', '<b>공고서 참조</b> <span class="gw-bd-sub">누리장터 민간 공고는 면허·지역 조건이 첨부 공고서에만 있어요. ' +
         '나라장터 상세 링크가 없어 누리장터에서 공고번호 ' + esc(it.bid_no) + '로 찾아보세요</span>');
     }
-    if (it.bid_kind === '물품') {   // 물품은 나라장터 물품 분류 등록이 있어야 투찰 — 등록 여부는 우리가 확인
+    if (it.source === '공동주택') {   // 아파트 입찰(11-20) — 면허·실적 조건은 K-apt 공고 화면·첨부에
+      checks += chk(null, '참가 자격', '<b>K-apt 공고 참조</b>' +
+        (d.apt_perf_cert === '예' ? ' · <b>실적증명서 제출</b>' : '') + (d.apt_credit_cert === '예' ? ' · 신용평가등급확인서 제출' : '') +
+        ' <span class="gw-bd-sub">입찰 시스템: ' + esc(d.apt_auth || '-') + ' — 응찰은 그 사이트에서 해요</span>');
+    }
+    if (it.bid_kind === '물품' && it.source !== '공동주택') {   // 물품은 나라장터 물품 분류 등록이 있어야 투찰 — 등록 여부는 우리가 확인
       checks += chk(null, '물품 등록', '<b>' + esc((d.products || []).join(', ') || '공고문의 물품 분류') + '</b>' +
         ' <span class="gw-bd-sub">나라장터에 이 물품으로 등록돼 있어야 입찰할 수 있어요</span>');
     }
@@ -245,7 +253,7 @@
     return '<tr class="gw-bd-detail"><td colspan="6"><div class="gw-bd-acc' + (state.anim ? ' gw-bd-slide' : '') + '">' +
       '<div class="gw-bd-acc-top"><ul class="gw-bd-chks" aria-label="확인할 것">' + checks + '</ul>' +
       (du ? '<a class="btn btn-sm btn-primary gw-bd-acc-go" href="' + esc(du) + '" target="_blank" rel="noopener">' +
-        '<i class="fas fa-up-right-from-square me-1" aria-hidden="true"></i>나라장터에서 보기</a>' : '') + '</div>' +
+        '<i class="fas fa-up-right-from-square me-1" aria-hidden="true"></i>' + (it.source === '공동주택' ? 'K-apt에서 보기' : '나라장터에서 보기') + '</a>' : '') + '</div>' +
       body + foot + '</div></td></tr>';
   }
   function closeDetail() {
@@ -275,7 +283,7 @@
       if (my !== state.seq) return;
       $('bdCntEligible').textContent = j.counts.eligible;
       $('bdCntBlocked').textContent = j.counts.blocked;
-      $('bdRule').textContent = '나라장터·누리장터의 냉난방 관련 공사 공고와 물품(구매·설치) 공고를 모았어요. 입찰 가능 기준: 참가가능지역 제한 없음(전국) 또는 경기도·김포시 포함, ' +
+      $('bdRule').textContent = '나라장터·누리장터·공동주택(K-apt)의 냉난방 관련 공사 공고와 물품(구매·설치) 공고를 모았어요. 입찰 가능 기준: 참가가능지역 제한 없음(전국) 또는 경기도·김포시 포함, ' +
         '지금 면허(' + (j.held || []).join(', ') + ')로 참가 가능, 실적제한·사전심사(PQ)·지명경쟁·4억 이상 적격심사 없음.' +
         (j.planned && j.planned.length ? ' 준비 중인 면허: ' + j.planned.join(', ') + '.' : '');
       state.held = j.held || [];
@@ -317,7 +325,7 @@
     sel.className = 'gw-chip-select';
     sel.id = 'bdSrc';
     sel.setAttribute('aria-label', '플랫폼');
-    [['', '플랫폼 전체'], ['나라장터', '나라장터'], ['누리장터', '누리장터']].forEach(function (o) {
+    [['', '플랫폼 전체'], ['나라장터', '나라장터'], ['누리장터', '누리장터'], ['공동주택', '공동주택']].forEach(function (o) {
       var op = document.createElement('option');
       op.value = o[0];
       op.textContent = o[1];
