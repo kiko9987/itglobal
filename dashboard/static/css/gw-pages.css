@@ -3042,6 +3042,11 @@ html:has(#bdPage) {
 .gw-va-person.placed { color: #64748b; background: #f8fafc; }
 .gw-va-person.picked, .gw-va-chip.picked { outline: 2px solid #4f46e5; outline-offset: 1px; }
 .gw-va-pname { font-weight: 600; }
+.gw-va-team { border: 1px dashed #fdba74; border-radius: 10px; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+
+.gw-va-teambtn { align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; border: 1px solid #fb923c; background: #ffedd5; color: #9a3412; border-radius: 999px; padding: 2px 10px; font-size: 0.8rem; font-weight: 600; cursor: grab; user-select: none; }
+.gw-va-teambtn small { font-weight: 400; }
+.gw-va-teambtn.picked { outline: 2px solid #4f46e5; outline-offset: 1px; }
 .gw-va-visit { color: #c2410c; font-size: 0.72rem; }
 .gw-va-where { margin-left: auto; color: #6366f1; font-size: 0.74rem; }
 .gw-va-chip[data-person] { cursor: grab; user-select: none; }
@@ -3055,5 +3060,6 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
   .gw-va-staff { top: 0; z-index: 5; max-height: 38vh; }
   .gw-va-plist { flex-direction: row; flex-wrap: wrap; }
   .gw-va-person { width: auto; }
+  .gw-va-team { flex-direction: row; flex-wrap: wrap; align-items: center; }
   .gw-va-where { margin-left: 0; }
 }

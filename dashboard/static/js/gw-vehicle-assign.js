@@ -40,10 +40,13 @@
 
   var TOUCH = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);   // 휴대폰: 끌기 대신 누르기
   var S = { day: '', cars: [], staff: [], names: {}, canEdit: false, confirmed: false, dirty: false,
-            visits: {}, picked: null };
+            visits: {}, teams: [], picked: null };   // picked = 'YM' 또는 팀 'YM,LSH'
 
   function name(code) { return S.names[code] || code; }
   function carOf(plate) { return S.cars.filter(function (c) { return c.plate === plate; })[0]; }
+  function keyCodes(key) { return String(key || '').split(',').filter(Boolean); }
+  function keyName(key) { return keyCodes(key).map(name).join(' + '); }
+  function anyPlaced(key) { return keyCodes(key).some(function (c) { return whereIs(c); }); }
   function whereIs(code) {
     for (var i = 0; i < S.cars.length; i++) if (S.cars[i].people.indexOf(code) !== -1) return S.cars[i];
     return null;
@@ -79,25 +82,45 @@
     if (!S.canEdit) return;
     var codes = S.staff.map(function (p) { return p.code; });
     var free = codes.filter(function (c) { return !whereIs(c); });
-    var freeVisit = free.filter(function (c) { return S.visits[c]; });
-    var freeOther = free.filter(function (c) { return !S.visits[c]; });
+    // 일정확정 팀(그날 방문을 같이 가는 사람) 중 아직 차 없는 사람이 있는 팀
+    var inTeam = {};
+    var teams = S.teams.map(function (t) {
+      var left = t.members.filter(function (m) { return S.names[m] && free.indexOf(m) !== -1; });
+      left.forEach(function (m) { inTeam[m] = 1; });
+      return { left: left, visits: t.visits };
+    }).filter(function (t) { return t.left.length; });
+    var freeOther = free.filter(function (c) { return !inTeam[c]; });
     var placed = codes.filter(function (c) { return whereIs(c); });
     function group(title, list, cls) {
       if (!list.length) return '';
       return '<div class="gw-va-group ' + (cls || '') + '"><div class="gw-va-gtitle">' + esc(title) + ' <span>' + list.length + '</span></div>' +
         '<div class="gw-va-plist">' + list.map(function (c) { return person(c); }).join('') + '</div></div>';
     }
+    function teamBox(t) {
+      var key = t.left.join(',');
+      if (t.left.length === 1) return person(key);   // 혼자 가는 사람은 상자 없이
+      var on = S.picked === key;
+      var btn = t.left.length > 1
+        ? '<button type="button" class="gw-va-teambtn' + (on ? ' picked' : '') + '" data-team="' + esc(key) +
+          '" aria-pressed="' + on + '" title="팀 그대로 함께 옮기기">' +
+          '<i class="fas fa-people-group" aria-hidden="true"></i> 함께 <small>방문 ' + t.visits + '</small></button>'
+        : '';
+      return '<div class="gw-va-team">' + btn + t.left.map(function (c) { return person(c); }).join('') + '</div>';
+    }
+    var nTeam = teams.reduce(function (n, t) { return n + t.left.length; }, 0);
     $('vaStaffList').innerHTML =
-      group('방문 있음 · 차 없음', freeVisit, 'need') +
+      (teams.length ? '<div class="gw-va-group need"><div class="gw-va-gtitle">일정확정 팀 · 차 없음 <span>' + nTeam + '</span></div>' +
+        '<div class="gw-va-plist">' + teams.map(teamBox).join('') + '</div></div>' : '') +
       group('차 없음', freeOther) +
       group('배정됨', placed, 'done');
     var how = $('vaStaffHow');
     how.className = 'gw-va-staff-how' + (S.picked ? ' picking' : '');
     how.textContent = S.picked
-      ? name(S.picked) + ' 님 → 넣을 차를 누르세요.' + (whereIs(S.picked) ? ' 여기 빈 곳을 누르면 차에서 빠져요.' : '') + ' (Esc: 취소)'
-      : (TOUCH ? '이름을 누르고 → 넣을 차를 누르세요.' : '이름을 끌어 차에 놓으세요. 누르고 → 차를 눌러도 돼요.');
-    $('vaStaffCount').textContent = freeVisit.length ? '방문 있는데 차 없음 ' + freeVisit.length + '명' : '';
-    $('vaStaffCount').className = freeVisit.length ? 'gw-va-warn' : '';
+      ? keyName(S.picked) + ' → 넣을 차를 누르세요.' + (anyPlaced(S.picked) ? ' 여기 빈 곳을 누르면 차에서 빠져요.' : '') + ' (Esc: 취소)'
+      : (TOUCH ? '이름(또는 팀의 [함께])을 누르고 → 넣을 차를 누르세요.'
+         : '이름이나 팀의 [함께]를 끌어 차에 놓으세요. 누르고 → 차를 눌러도 돼요.');
+    $('vaStaffCount').textContent = nTeam ? '방문 있는데 차 없음 ' + nTeam + '명' : '';
+    $('vaStaffCount').className = nTeam ? 'gw-va-warn' : '';
   }
   function chip(c, code, i) {
     var lead = i === 0 ? '<span class="gw-va-lead">운전</span>' : '';
@@ -126,7 +149,7 @@
     }
     var people = c.people.map(function (p, i) { return chip(c, p, i); }).join('');
     if (!people) {
-      people = '<span class="gw-va-none">' + (S.canEdit ? (S.picked ? '여기를 누르면 ' + esc(name(S.picked)) + ' 님을 넣어요'
+      people = '<span class="gw-va-none">' + (S.canEdit ? (S.picked ? '여기를 누르면 ' + esc(keyName(S.picked)) + ' 님을 넣어요'
         : '여기에 사람을 놓으세요') : (c.usage === 'fixed' ? '평소대로' : '배정 없음')) + '</span>';
     }
     var note = S.canEdit && (c.people.length || c.note)
@@ -134,7 +157,7 @@
         esc(c.plate) + '" value="' + esc(c.note || '') + '" aria-label="' + esc(c.label) + ' 메모">'
       : (c.note ? '<div class="gw-va-notetext">' + esc(c.note) + '</div>' : '');
     var drop = S.canEdit ? ' data-drop="car"' + (S.picked ? ' tabindex="0" role="button" aria-label="' +
-      esc(c.label) + '에 ' + esc(name(S.picked)) + ' 넣기"' : '') : '';
+      esc(c.label) + '에 ' + esc(keyName(S.picked)) + ' 넣기"' : '') : '';
     return '<div class="gw-va-card' + (S.picked ? ' can-drop' : '') + '" data-plate="' + esc(c.plate) + '"' + drop + '>' +
       '<div class="gw-va-car"><strong>' + esc(c.label) + '</strong><span>' + esc(sub) + '</span>' + fixed + '</div>' +
       '<div class="gw-va-people">' + people + '</div>' + note + '</div>';
@@ -162,7 +185,10 @@
     } else {
       parts.push('<span class="gw-badge gw-badge-wait">확정 전</span>');
     }
-    if (j.draft_from && S.canEdit) {
+    var drafted = j.cars.some(function (c) { return c.people.length; });
+    if (j.draft_kind === 'teams' && drafted && S.canEdit) {
+      parts.push('<span class="gw-va-draft">일정확정 팀대로, 각 팀이 최근에 탄 차에 미리 넣어 두었어요. 바뀐 곳만 고치고 확정해 주세요.</span>');
+    } else if (j.draft_from && S.canEdit) {
       parts.push('<span class="gw-va-draft">아직 배정이 없어서 ' + esc(j.draft_from.slice(5).replace('-', '/')) +
         ' 배정을 미리 넣어 두었어요. 바뀐 곳만 고치고 확정해 주세요.</span>');
     }
@@ -178,7 +204,8 @@
       S.names = {}; S.visits = {};
       j.staff.forEach(function (p) { S.names[p.code] = p.name; });
       (j.visitors || []).forEach(function (v) { S.visits[v.code] = v.visits; });
-      S.dirty = !!(j.draft_from && S.canEdit);
+      S.teams = j.teams || [];
+      S.dirty = !!(j.draft_kind && S.canEdit && j.cars.some(function (c) { return c.people.length; }));
       $('vaDay').value = j.day;
       try { history.replaceState(null, '', '/vehicles/assign?day=' + j.day); } catch (e) { /* 무시 */ }
       status(j);
@@ -215,19 +242,22 @@
     if (i === -1) c.people.push(code); else c.people.splice(i, 0, code);
     setDirty(true);
   }
+  function placeMany(key, plate, before) {   // 팀이면 적힌 순서대로 같은 자리에
+    keyCodes(key).forEach(function (c) { place(c, plate, before); });
+  }
   function pick(code) {
     S.picked = S.picked === code ? null : code;
     render();      // 안내는 명단 위 한 줄에서 바뀐다(위에 띄우면 화면이 밀려 다음 누르기가 빗나감)
   }
-  function drop(code, target) {   // target = 놓은 자리의 요소
+  function drop(key, target) {   // key = 사람 또는 팀('YM,LSH'), target = 놓은 자리의 요소
     var chipEl = target && target.closest('.gw-va-chip[data-person]');
     var cardEl = target && target.closest('[data-drop="car"]');
     var outEl = target && target.closest('[data-drop="out"]');
     S.picked = null;
     if (cardEl) {
-      place(code, cardEl.dataset.plate, chipEl ? chipEl.dataset.person : null);
-    } else if (outEl && whereIs(code)) {
-      unplace(code);
+      placeMany(key, cardEl.dataset.plate, chipEl ? chipEl.dataset.person : null);
+    } else if (outEl && anyPlaced(key)) {
+      keyCodes(key).forEach(unplace);
       setDirty(true);
     }
     msg('');
@@ -238,9 +268,9 @@
   var D = null;
   document.addEventListener('pointerdown', function (e) {
     if (!S.canEdit || e.pointerType !== 'mouse' || e.button !== 0) return;
-    var p = e.target.closest('[data-person]');
+    var p = e.target.closest('[data-team], [data-person]');
     if (!p || e.target.closest('[data-rm]')) return;
-    D = { code: p.dataset.person, x: e.clientX, y: e.clientY, ghost: null, over: null };
+    D = { code: p.dataset.team || p.dataset.person, x: e.clientX, y: e.clientY, ghost: null, over: null };
   });
   document.addEventListener('pointermove', function (e) {
     if (!D) return;
@@ -248,7 +278,7 @@
       if (Math.abs(e.clientX - D.x) + Math.abs(e.clientY - D.y) < 6) return;
       D.ghost = document.createElement('div');
       D.ghost.className = 'gw-va-ghost';
-      D.ghost.textContent = name(D.code);
+      D.ghost.textContent = keyName(D.code);
       document.body.appendChild(D.ghost);
       document.body.classList.add('gw-va-dragging');
     }
@@ -289,6 +319,8 @@
       return;
     }
     if (e.target.closest('input, select')) return;
+    var tb = e.target.closest('[data-team]');
+    if (tb) { pick(tb.dataset.team); return; }
     var p = e.target.closest('[data-person]');
     if (p && S.picked && S.picked !== p.dataset.person && p.dataset.in) {   // 고른 사람을 차 안 이 사람 앞자리로
       drop(S.picked, p);

@@ -165,17 +165,23 @@ def update_car(plate: str, values: Dict, by: str) -> Dict:
     return next(c for c in fleet(True) if c['plate'] == plate)
 
 
+OFFICE_DEPTS = ('경영지원',)
+
+
 def staff() -> List[Dict]:
-    """배정할 수 있는 사람 — 재직 인사카드 중 이니셜(공사 코드 접미사)이 있는 사람.
+    """배정할 수 있는 사람 — 재직 인사카드 중 이니셜(공사 코드 접미사)이 있는 현장 인원(사무직 제외).
     [{code, name, slack_id, dept}] (code = 이니셜)"""
     from dashboard.services import hr
     from dashboard.services.staff_directory import suffix_map
+    from dashboard.services.staff_directory import non_sales_owners
     sm = suffix_map()
+    office = set(non_sales_owners())
     rows = hr._rows("SELECT name, slack_id, department FROM hr_people WHERE status = '재직' ORDER BY name")
     out, seen = [], set()
     for r in rows:
         code = (sm.get(r['name']) or '').upper()
-        if not code or code in seen:
+        # 사무직(경영지원·비영업 명단)은 현장 차를 안 탄다 — 샛별 등(부장님 11-20)
+        if not code or code in seen or r['name'] in office or (r.get('department') or '') in OFFICE_DEPTS:
             continue
         seen.add(code)
         out.append({'code': code, 'name': r['name'], 'slack_id': r.get('slack_id') or '', 'dept': r.get('department') or ''})
@@ -239,15 +245,44 @@ def _previous_day_with_rows(day: str) -> Optional[str]:
     return r[0] if r and r[0] else None
 
 
-def day_view(day: str) -> Dict:
-    """배정 화면 한 날짜 — 차량마다 사람·메모. 아직 아무것도 없으면 직전 배정(공용 차만)을 초안으로."""
+def _recent_cars(day: str, back_days: int = 30) -> Dict[str, str]:
+    """사람 → 그날 이전에 마지막으로 탄 차."""
+    start = (date.fromisoformat(day) - timedelta(days=back_days)).isoformat()
+    with _conn() as conn:
+        rows = conn.execute('SELECT day, plate, people FROM vehicle_assign WHERE day >= ? AND day < ? ORDER BY day',
+                            (start, day)).fetchall()
+    out: Dict[str, str] = {}
+    for r in rows:
+        for p in _split(r['people']):
+            out[p] = r['plate']
+    return out
+
+
+def _team_draft(day: str, teams: List[Dict], cars: List[Dict]) -> Dict[str, Dict]:
+    """일정확정 팀마다 그 팀 사람이 최근에 탄 차(비어 있으면)에 넣은 초안. 탄 적 없으면 넣지 않는다."""
+    recent = _recent_cars(day)
+    shared = {c['plate'] for c in cars if c['usage'] == SHARED}
+    rows: Dict[str, Dict] = {}
+    for t in teams:
+        plate = next((recent[p] for p in t['members'] if recent.get(p) in shared and recent[p] not in rows), None)
+        if plate:
+            rows[plate] = {'people': list(t['members']), 'note': ''}
+    return rows
+
+
+def day_view(day: str, teams: Optional[List[Dict]] = None) -> Dict:
+    """배정 화면 한 날짜 — 차량마다 사람·메모. 아직 아무것도 없으면 초안:
+    일정확정 팀이 있으면 팀대로(각 팀이 최근 탄 차), 없으면 직전 배정(공용 차만)."""
     cars = fleet()
     rows = _day_rows(day)
     info = _day_info(day)
-    draft_from = None
-    if not any(r['people'] for r in rows.values()):
+    draft_from = draft_kind = None
+    if not any(r['people'] for r in rows.values()) and teams:
+        rows, draft_kind = _team_draft(day, teams, cars), 'teams'
+    elif not any(r['people'] for r in rows.values()):
         prev = _previous_day_with_rows(day)
         if prev:
+            draft_kind = 'prev'
             prev_rows = _day_rows(prev)
             shared = {c['plate'] for c in cars if c['usage'] == SHARED}
             rows = {p: {'people': r['people'], 'note': ''} for p, r in prev_rows.items() if p in shared and r['people']}
@@ -258,7 +293,7 @@ def day_view(day: str) -> Dict:
         out.append({**{k: c[k] for k in ('plate', 'label', 'model', 'fuel', 'corp', 'usage', 'fixed_user',
                                          'needs_log', 'uplus')},
                     'people': r['people'], 'note': r['note']})
-    return {'day': day, 'cars': out, 'draft_from': draft_from,
+    return {'day': day, 'cars': out, 'draft_from': draft_from, 'draft_kind': draft_kind,
             'confirmed_at': (info or {}).get('confirmed_at'), 'confirmed_by': (info or {}).get('confirmed_by')}
 
 
@@ -470,3 +505,27 @@ def request_assignment(day: Optional[str] = None) -> int:
             conn.execute('INSERT INTO vehicle_assign_day (day, requested_at) VALUES (?,?) '
                          'ON CONFLICT(day) DO UPDATE SET requested_at = excluded.requested_at', (day, _now()))
     return n
+
+
+def teams(day: str, leads: Iterable[dict]) -> List[Dict]:
+    """일정확정에서 함께 가는 사람 묶음 — 리드 시트 그날 방문의 영업 담당자 조합(예: YM+LSH).
+    한 사람이 두 조합에 걸치면 방문 많은 조합 → 작은 조합 순으로 먼저 잡는다(11-21: TH+LJW·MW+TH+LJW → TH+LJW, MW).
+    [{'members': [이니셜(적힌 순서)], 'visits': n}] — 직원 명단에 없는 이름은 뺀다."""
+    from collections import Counter
+    from dashboard.services import vehicle_log as vl
+    by_name = {p['name']: p['code'] for p in staff()}
+    combos: Counter = Counter()
+    for v in vl.visits_by_day(leads, day, day).get(day, []):
+        codes = tuple(dict.fromkeys(by_name[n] for n in v['who'] if n in by_name))
+        if codes:
+            combos[codes] += 1
+    taken: set = set()
+    out: Dict[tuple, int] = {}
+    for combo, n in sorted(combos.items(), key=lambda kv: (-kv[1], len(kv[0]), kv[0])):
+        rest = tuple(p for p in combo if p not in taken)
+        if not rest:
+            continue
+        taken.update(rest)
+        out[rest] = out.get(rest, 0) + n
+    # 남은 사람이 이미 있는 팀과 같으면 합친다(위 out 키가 같으면 이미 합쳐짐)
+    return [{'members': list(k), 'visits': v} for k, v in out.items()]

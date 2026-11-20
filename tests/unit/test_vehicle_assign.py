@@ -10,6 +10,7 @@ from dashboard.services import hr
 from dashboard.services import vehicle_assign as va
 from dashboard.services import vehicle_log as vl
 
+ORIG_STAFF = va.staff   # 아래 db 픽스처가 가짜 명단으로 바꾸기 전 원래 함수
 ASSIGNER = 'sj@example.com'
 STAFF = [{'code': c, 'name': n, 'slack_id': 'U' + c, 'dept': ''} for c, n in [
     ('YM', '김가람'), ('LSH', '이나래'), ('MJ', '박다솜'), ('JH', '최마루'), ('JW', '정바다'), ('LJW', '한별'),
@@ -48,6 +49,45 @@ def test_seeded_fleet(db):
     assert va.fixed_users()['133가6633'] == 'MJ'
     with pytest.raises(ValueError):
         va.update_car('53우1783', {'usage': 'x'}, ASSIGNER)
+
+
+def test_staff_excludes_office(monkeypatch):
+    """사무직(경영지원 부서·비영업 명단)은 차 배정 명단에서 뺀다 — 샛별(11-20 부장님)."""
+    from dashboard.services import staff_directory as sd
+    monkeypatch.setattr(sd, 'suffix_map', lambda: {'김가람': 'YM', '구름': 'SB', '송이': 'MW', '하늘': 'HN'})
+    monkeypatch.setattr(sd, 'non_sales_owners', lambda: ['하늘'])
+    monkeypatch.setattr(hr, '_rows', lambda sql, args=(): [
+        {'name': '김가람', 'slack_id': 'U1', 'department': '기술영업'},
+        {'name': '구름', 'slack_id': 'U2', 'department': '경영지원'},
+        {'name': '송이', 'slack_id': 'U3', 'department': '영업'},
+        {'name': '하늘', 'slack_id': 'U4', 'department': ''}])
+    assert [p['code'] for p in ORIG_STAFF()] == ['MW', 'YM']
+
+
+def _leads_1121():
+    from tests.unit.test_vehicle_log import _lead
+    return [_lead('L-1', '2026-11-21', '부천 길주로 1', '오늘, 윤솔'),
+            _lead('L-2', '2026-11-21', '부천 길주로 2', '오늘, 윤솔'),
+            _lead('L-3', '2026-11-21', '부천 길주로 3', '서준, 한별'),
+            _lead('L-4', '2026-11-21', '부천 길주로 4', '김가람, 서준, 한별'),   # 한 번만 같이 간 조합
+            _lead('L-5', '2026-11-21', '부천 길주로 5', '강해'),
+            _lead('L-6', '2026-11-21', '부천 길주로 6', '외부인')]
+
+
+def test_teams_from_schedule(db):
+    """일정확정 조합(영업 담당자)이 팀 — 겹치면 방문 많은 조합, 같으면 작은 조합이 먼저(11-21 실제 모양)."""
+    t = {tuple(x['members']): x['visits'] for x in va.teams('2026-11-21', _leads_1121())}
+    assert t == {('SJ', 'KMW'): 2, ('JK',): 1, ('TH', 'LJW'): 1, ('YM',): 1}
+
+
+def test_team_draft_uses_recent_car(db):
+    va.save_day('2026-11-20', [{'plate': '231허6854', 'people': ['SJ']},
+                               {'plate': '03모8021', 'people': ['TH']}], ASSIGNER)
+    teams = va.teams('2026-11-21', _leads_1121())
+    v = va.day_view('2026-11-21', teams)
+    assert v['draft_kind'] == 'teams'
+    assert _rows(v) == {'231허6854': ['SJ', 'KMW'], '03모8021': ['TH', 'LJW']}   # 탄 적 없는 팀(JK·YM)은 비워 둠
+    assert va.day_view('2026-11-21')['draft_kind'] == 'prev'                     # 팀 정보 없으면 전날 배정
 
 
 def test_visitors_with_visits_that_day(db):
@@ -140,6 +180,7 @@ def test_routes_view_for_all_edit_for_assigner(db, monkeypatch):
         j = cl.get('/api/vehicles/assign?day=2026-11-21').get_json()
         assert j['success'] and not j['can_edit'] and len(j['cars']) == 11 and j['day_label'] == '11/21(토)'
         assert j['visitors'] == [{'code': 'TH', 'name': '서준', 'visits': 1}]
+        assert j['teams'] == [{'members': ['TH'], 'visits': 1}]
         assert cl.get('/vehicles/assign').get_data(as_text=True) == 'gw/vehicle_assign.html'
         assert cl.post('/api/vehicles/assign', json={'day': '2026-11-21', 'rows': []}).status_code == 403
         with cl.session_transaction() as s:
