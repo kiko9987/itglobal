@@ -66,6 +66,17 @@ os.environ['LOG_DIR'] = os.environ.get(
     'TEST_LOG_DIR', os.path.join(_tempfile.gettempdir(), 'itg_pytest_logs')
 )
 
+# 사용자 DB(users.db: 감사 로그·전자결재·인사 등)도 임시 파일로 — get_user_database()/get_audit_repository()
+#   싱글톤이 기본 경로(instance/users.db = 운영 DB)를 잡아, 전자결재 테스트의 _audit 이 운영 audit_logs 에
+#   가짜 'EAPPROVAL_*'(강원포장 533,500원) 9,815건을 남겼다(2026-10-30~11-20). UserDatabase 도 테스트 중
+#   …/instance/users.db 연결을 거부한다(user_database._refuse_prod_db_in_tests).
+os.environ['USER_DB_PATH'] = os.path.join(_tempfile.mkdtemp(prefix='itg_pytest_userdb_'), 'users.db')
+_PROD_USER_DB = os.path.normcase(os.path.abspath(
+    os.path.join(os.path.dirname(__file__), 'instance', 'users.db')))
+assert os.path.normcase(os.path.abspath(os.environ['USER_DB_PATH'])) != _PROD_USER_DB, (
+    '테스트 사용자 DB 가 운영 instance/users.db 를 가리킴.'
+)
+
 # 방어: 혹시라도 테스트 DB 가 0 이면 세션 자체를 중단 (import 실패로 전량 차단)
 assert os.environ['REDIS_DB'] != '0', (
     'REDIS_DB=0(프로덕션)에서 테스트 금지. REDIS_TEST_DB 로 별도 DB(예: 15) 지정.'
@@ -141,6 +152,21 @@ def _block_real_slack(request):
         yield
     finally:
         BaseClient.api_call = _orig
+
+
+# ── 세션 tripwire: 사용자 DB 싱글톤이 운영 users.db 에 묶이지 않았는지 검증 ───
+@pytest.fixture(autouse=True, scope='session')
+def _assert_user_db_isolated():
+    """핵심 차단은 UserDatabase 의 연결 거부 — 이건 그게 뚫렸는지 보는 둘째 겹(종료 시 검사)."""
+    yield
+    try:
+        import dashboard.utils.user_database as udb
+    except ImportError:
+        return
+    inst = udb._user_db_instance
+    if inst is not None:
+        assert os.path.normcase(os.path.abspath(inst.db_path)) != _PROD_USER_DB, (
+            f'사용자 DB 싱글톤이 운영 DB 에 묶임: {inst.db_path}')
 
 
 # ── 세션 tripwire: 앱 Redis 싱글톤이 비-프로덕션 DB 에 묶였는지 검증 ───
