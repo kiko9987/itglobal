@@ -58,7 +58,7 @@
 
 
   var state = { tab: 'eligible', q: '', closed: false, seq: 0, items: {}, open: '', anim: false,
-    rows: [], area: '', showSkip: false, folded: {}, enabled: true };
+    rows: [], area: '', src: '', showSkip: false, folded: {}, enabled: true };
 
   // ── 마감일 묶음(11-20 부장님: 쭉 나열되면 보기 힘듦) ──
   function dayStart(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
@@ -80,7 +80,8 @@
     var all = state.rows;
     var skipped = all.filter(function (it) { return it.mark === 'skip'; }).length;
     var rows = all.filter(function (it) {
-      return (!state.area || it.area === state.area) && (state.showSkip || it.mark !== 'skip');
+      return (!state.area || it.area === state.area) && (!state.src || (it.source || '나라장터') === state.src) &&
+        (state.showSkip || it.mark !== 'skip');
     });
     $('bdSkipCnt').textContent = skipped ? '(' + skipped + ')' : '';
     $('bdCount').textContent = rows.length === all.length ? rows.length + '건' : rows.length + '건 / 전체 ' + all.length + '건';
@@ -120,8 +121,9 @@
     var close = '<span class="' + (it.closed ? 'gw-bd-closed-t' : (soon(it.close_at) ? 'gw-bd-soon' : '')) + '">' +
       esc(when(it.close_at)) + '</span>' + (it.closed ? '<div class="gw-bd-sub">마감</div>' : '');
     var title = '<div class="gw-bd-title">' + (it.is_new ? '<span class="gw-badge gw-badge-new">New</span> ' : '') +
-      esc(it.title) + '</div><div class="gw-bd-sub">' + esc(it.demand_org || it.org) +
-      (it.source === '누리장터' ? ' · 누리장터' : '') +
+      esc(it.title) + '</div><div class="gw-bd-sub">' +
+      '<span class="gw-bd-src ' + (it.source === '누리장터' ? 'nuri' : 'g2b') + '">' + esc(it.source || '나라장터') + '</span>' +
+      esc(it.demand_org || it.org) +
       (it.contact ? ' · 담당 ' + esc(it.contact) : '') + '</div>';
     var bAt = (it.detail || {}).briefing_at;   // 현장설명회 — 놓치면 못 들어가는 공고가 있어 줄에서 바로 보이게
     if (bAt) {
@@ -273,7 +275,7 @@
       if (my !== state.seq) return;
       $('bdCntEligible').textContent = j.counts.eligible;
       $('bdCntBlocked').textContent = j.counts.blocked;
-      $('bdRule').textContent = '나라장터 냉난방 관련 공사 공고와 물품(구매·설치) 공고를 모았어요. 입찰 가능 기준: 참가가능지역 제한 없음(전국) 또는 경기도·김포시 포함, ' +
+      $('bdRule').textContent = '나라장터·누리장터의 냉난방 관련 공사 공고와 물품(구매·설치) 공고를 모았어요. 입찰 가능 기준: 참가가능지역 제한 없음(전국) 또는 경기도·김포시 포함, ' +
         '지금 면허(' + (j.held || []).join(', ') + ')로 참가 가능, 실적제한·사전심사(PQ)·지명경쟁·4억 이상 적격심사 없음.' +
         (j.planned && j.planned.length ? ' 준비 중인 면허: ' + j.planned.join(', ') + '.' : '');
       state.held = j.held || [];
@@ -310,6 +312,20 @@
   });
   $('bdClosed').addEventListener('change', function () { state.closed = this.checked; load(); });
   $('bdArea').addEventListener('change', function () { state.area = this.value; render(); });
+  (function () {   // 플랫폼 고르기(11-20) — 템플릿을 안 바꿔 재시작 없이 붙도록 여기서 만든다
+    var sel = document.createElement('select');
+    sel.className = 'gw-chip-select';
+    sel.id = 'bdSrc';
+    sel.setAttribute('aria-label', '플랫폼');
+    [['', '플랫폼 전체'], ['나라장터', '나라장터'], ['누리장터', '누리장터']].forEach(function (o) {
+      var op = document.createElement('option');
+      op.value = o[0];
+      op.textContent = o[1];
+      sel.appendChild(op);
+    });
+    $('bdArea').insertAdjacentElement('afterend', sel);
+    sel.addEventListener('change', function () { state.src = this.value; render(); });
+  })();
   $('bdSkip').addEventListener('change', function () { state.showSkip = this.checked; render(); });
   $('bdRows').addEventListener('click', function (ev) {
     var gb = ev.target.closest('button.gw-bd-grp-btn');   // 묶음 머리줄 = 접기·펴기

@@ -2826,3 +2826,18 @@ html:has(#bdPage) {
   outline: 2px solid #2563eb;
   outline-offset: -2px;
 }
+
+/* 입찰 공고 — 플랫폼 딱지(11-20): 모든 줄에 붙여 구분 */
+.gw-bd-src {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  vertical-align: 1px;
+}
+
+.gw-bd-src.g2b { background: #eef2ff; color: #3730a3; }
+.gw-bd-src.nuri { background: #ecfdf5; color: #047857; }
