@@ -94,7 +94,7 @@ def leave_view(meta: dict, vals: Optional[dict] = None) -> dict:
     else:
         blocks.append(_datepicker('lv_start', '시작일', vals.get('start', '')))
         blocks.append(_datepicker('lv_end', '마지막 날', vals.get('end', ''), optional=True,
-                                  hint='하루만 쉬면 비워 두세요. 주말·공휴일은 일수에서 빠져요.'))
+                                  hint='하루만 쉬면 비워 두세요. 쉬는 날(일요일·공휴일, 근무 없는 토요일)은 일수에서 빠져요.'))
     reason = {'type': 'plain_text_input', 'action_id': 'lv_reason', 'max_length': 200,
               'placeholder': _plain('예: 개인 사정')}
     if vals.get('reason'):

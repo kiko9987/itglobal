@@ -106,26 +106,80 @@ def type_options() -> List[Tuple[str, str]]:
 
 
 # ── 날짜 ──────────────────────────────────────────────────────────────
-def is_workday(d: date) -> bool:
-    if d.weekday() >= 5:
-        return False
+def _is_holiday(d: date) -> bool:
     if (d.month, d.day) == (5, 1):   # 노동절 — 회사 휴무(11-05 KiKO). holidays.KR 엔 없음
-        return False
+        return True
     try:
         import holidays
-        return d not in holidays.KR(years=d.year)
+        return d in holidays.KR(years=d.year)
     except Exception:
-        return True
+        return False
 
 
-def count_days(ltype: str, start: date, end: Optional[date]) -> float:
-    """쓰는 일수 — 주말·공휴일은 빼고, 반차는 0.5."""
+def is_workday(d: date) -> bool:
+    """회사 달력(월~금) 근무일 — 알림·출퇴근·촉진 지정일 등 회사 기준. 사람별 휴가 일수는 count_days(name=)."""
+    return d.weekday() < 5 and not _is_holiday(d)
+
+
+# ── 토요일 근무(11-20 부장님: 시공은 토요일 근무, 영업은 토요일 스케줄 근무) ──────────────
+#   플렉스 근무 규칙 '시공'·'영업'이 월~토, 나머지(경영지원·미화·대표)는 월~금이었다. 부서는 인사카드가 정본.
+#   영업은 근무표가 잡힌 토요일만 근무일인데 그룹웨어엔 근무표가 없다 → 휴가의 첫날이나 마지막 날로 고른 토요일은
+#   근무 토요일로 보고 세고(쉬려고 고른 날), 기간 가운데 낀 토요일은 근무가 없던 날로 보고 세지 않는다.
+#   플렉스 기록과 같다(박민재 10-06~10-10 은 10-10 을 세어 4일, 강민석 08-14~08-18 은 08-15 를 안 세어 2일).
+WORK_WEEKDAY, WORK_SAT, WORK_SAT_SCHEDULE = 'weekday', 'sat', 'sat_schedule'
+WORK_LABELS = {WORK_WEEKDAY: '월~금', WORK_SAT: '월~토 (토요일 근무)', WORK_SAT_SCHEDULE: '월~금 + 근무표 토요일'}
+
+
+def _department(name: str) -> str:
+    """인사카드 부서 — 휴가 명단의 슬랙 ID 로 찾고, 없으면 이름(재직 카드)으로. 표가 없으면 ''."""
+    if not name:
+        return ''
+    with _conn() as conn:
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='hr_people'").fetchone():
+            return ''
+        st = conn.execute('SELECT slack_id FROM leave_staff WHERE name=?', (name,)).fetchone()
+        row = None
+        if st and st[0]:
+            row = conn.execute("SELECT department FROM hr_people WHERE slack_id=? ORDER BY (status=?) , id DESC "
+                               'LIMIT 1', (st[0], _HR_RESIGNED)).fetchone()
+        if row is None:
+            row = conn.execute("SELECT department FROM hr_people WHERE name=? ORDER BY (status=?), id DESC LIMIT 1",
+                               (name, _HR_RESIGNED)).fetchone()
+    return (row[0] or '') if row else ''
+
+
+def work_pattern(name: str) -> str:
+    dept = _department(name)
+    if '시공' in dept:
+        return WORK_SAT
+    if '영업' in dept:
+        return WORK_SAT_SCHEDULE
+    return WORK_WEEKDAY
+
+
+def staff_workday(d: date, pattern: str = WORK_WEEKDAY, first: Optional[date] = None,
+                  last: Optional[date] = None) -> bool:
+    """그 사람에게 d 가 근무일인가. first·last = 휴가 첫날·마지막 날(영업 근무표 토요일 판단용)."""
+    wd = d.weekday()
+    if wd == 6:
+        return False
+    if wd == 5 and not (pattern == WORK_SAT or (pattern == WORK_SAT_SCHEDULE and d in (first, last))):
+        return False
+    return not _is_holiday(d)
+
+
+def count_days(ltype: str, start: date, end: Optional[date], name: str = '',
+               span: Optional[Tuple[date, date]] = None) -> float:
+    """쓰는 일수 — 쉬는 날(일요일·공휴일, 근무 없는 토요일)은 빼고, 반차는 0.5.
+    name 이 없으면 회사 달력(월~금). span = 원래 휴가 기간(한 해치만 셀 때 영업 토요일을 원래 첫날·마지막 날로 판단)."""
+    pattern = work_pattern(name) if name else WORK_WEEKDAY
     if ltype in HALF_TYPES:
-        return 0.5 if is_workday(start) else 0.0
+        return 0.5 if staff_workday(start, pattern, start, start) else 0.0
     end = end or start
+    first, last = span or (start, end)
     n, d = 0, start
     while d <= end:
-        if is_workday(d):
+        if staff_workday(d, pattern, first, last):
             n += 1
         d += timedelta(days=1)
     return float(n)
@@ -582,10 +636,10 @@ def steps(rid: int) -> List[dict]:
             'SELECT * FROM leave_steps WHERE request_id=? ORDER BY id', (rid,)).fetchall()]
 
 
-def days_in_year(ltype: str, start: date, end: date, year: int) -> float:
+def days_in_year(ltype: str, start: date, end: date, year: int, name: str = '') -> float:
     """기간 중 그 해에 걸친 날만 센 일수 — 12/29~1/3 병가는 두 해에 나눠 잡는다."""
     s, e = max(start, date(year, 1, 1)), min(end, date(year, 12, 31))
-    return count_days(ltype, s, e) if s <= e else 0.0
+    return count_days(ltype, s, e, name, span=(start, end)) if s <= e else 0.0
 
 
 def used_in_year(name: str, ltype: str, year: int, sub: str = '', exclude_id: int = 0) -> float:
@@ -595,7 +649,7 @@ def used_in_year(name: str, ltype: str, year: int, sub: str = '', exclude_id: in
     with _conn() as conn:
         rows = conn.execute(q, (name, ltype, sub or '', *HOLDING, exclude_id,
                                 f'{year}-12-31', f'{year}-01-01')).fetchall()
-    return sum(days_in_year(r['ltype'], _d(r['start']), _d(r['end']), year) for r in rows)
+    return sum(days_in_year(r['ltype'], _d(r['start']), _d(r['end']), year, name) for r in rows)
 
 
 def sick_used(name: str, year: int, exclude_id: int = 0) -> float:
@@ -813,9 +867,9 @@ def validate(name: str, ltype: str, sub: str, start: Optional[date], end: Option
             errs['end'] = '마지막 날이 시작일보다 빨라요.'
             return errs
     end = start if ltype in HALF_TYPES else end
-    days = count_days(ltype, start, end)
+    days = count_days(ltype, start, end, name)
     if days <= 0:
-        errs['start'] = '주말·공휴일이라 쓸 휴가가 없어요.'
+        errs['start'] = '쉬는 날(주말·공휴일)이라 쓸 휴가가 없어요.'
         return errs
     clash = [r for r in overlaps(name, start, end, exclude_id)
              if not (ltype in HALF_TYPES and r['ltype'] in HALF_TYPES and r['ltype'] != ltype)]
@@ -847,7 +901,7 @@ def validate(name: str, ltype: str, sub: str, start: Optional[date], end: Option
             return errs
         label, cap = (EVENT_SUBS[sub] if ltype == EVENT else ('병가', SICK_DAYS_PER_YEAR))
         for y in range(start.year, end.year + 1):
-            here = days_in_year(ltype, start, end, y)
+            here = days_in_year(ltype, start, end, y, name)
             used = used_in_year(name, ltype, y, sub if ltype == EVENT else '', exclude_id=exclude_id)
             if here and used + here > cap:
                 errs['end'] = (f'{label}은 한 해 {cap}일까지예요 ({y}년에 이미 신청한 {fmt_days(used)}'
@@ -874,7 +928,7 @@ def create(name: str, subject_slack_id: str, submitter_id: str, submitter_name: 
     replaces: 승인된 휴가를 바꾸는 변경 신청(11-18) — 원래 휴가는 이 신청이 승인될 때 취소된다. 그때까지 둘 다
     연차를 잡고 있되, 이 신청의 몫은 원래 휴가가 잡은 몫을 쓸 수 있는 셈으로 뗀다(잠깐 남은 연차가 덜 보일 수 있음)."""
     end = start if ltype in HALF_TYPES else (end or start)
-    days = count_days(ltype, start, end)
+    days = count_days(ltype, start, end, name)
     who = subject_slack_id or ''
     status, auto = _initial_status(who)
     now = _now()
@@ -997,7 +1051,7 @@ def cancel_mode(row: dict, uid: str, today: Optional[date] = None) -> str:
     today = today or date.today()
     mine = uid in (row.get('slack_id'), row.get('submitter_id'))
     if mine and row['status'] == APPROVED and _d(row['start']) < today <= _d(row['end']) \
-            and count_days(row['ltype'], _d(row['start']), today - timedelta(days=1)) > 0:
+            and count_days(row['ltype'], _d(row['start']), today - timedelta(days=1), row['name']) > 0:
         return 'rest'
     return 'all'
 
@@ -1012,7 +1066,7 @@ def cut_rest(rid: int, uid: str, actor_name: str, today: Optional[date] = None) 
             return None
         new_end = today - timedelta(days=1)
         start = _d(row['start'])
-        days = count_days(row['ltype'], start, new_end)
+        days = count_days(row['ltype'], start, new_end, row['name'])
         cur = conn.execute('UPDATE leave_requests SET "end"=?, days=?, updated_at=? WHERE id=? AND status=? '
                            'AND "end"=?', (new_end.isoformat(), days, now, rid, APPROVED, row['end']))
         if cur.rowcount != 1:
@@ -1140,7 +1194,7 @@ def edit_request(rid: int, ltype: str, sub: str, start: Optional[date], end: Opt
     if errs:
         return None, (_admin_errs(errs) if as_admin else errs)
     sub = sub if ltype == EVENT else ''
-    days = count_days(ltype, start, end)
+    days = count_days(ltype, start, end, row['name'])
     before = _what(row)
     now = _now()
     if as_admin:
@@ -1461,7 +1515,7 @@ def admin_register(name: str, ltype: str, sub: str, start: Optional[date], end: 
     errs = validate(name, ltype, sub, start, end, allow_admin=True)
     if errs:
         return None, _admin_errs(errs)
-    days = count_days(ltype, start, end)
+    days = count_days(ltype, start, end, name)
     now = _now()
     with _conn() as conn:
         cur = conn.execute(
