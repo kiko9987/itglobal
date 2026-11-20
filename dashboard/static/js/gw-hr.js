@@ -308,21 +308,6 @@
         (kind === 'info' ? openInfoForm : openFamilyForm)(p, box, b);
       });
     });
-    var sf = document.getElementById('hrSelfDocForm');
-    if (sf) {
-      sf.addEventListener('submit', function (e) {
-        e.preventDefault();
-        var err = document.getElementById('hrSelfDocError'), file = sf.elements.file.files[0];
-        if (!file) { err.textContent = '파일을 골라 주세요.'; return; }
-        if (file.size > 8 * 1024 * 1024) { err.textContent = '8MB까지 올릴 수 있어요.'; return; }
-        var sb = sf.querySelector('button[type=submit]');
-        sb.disabled = true; err.textContent = '';
-        fetch('/api/hr/me/documents', { method: 'POST', body: new FormData(sf), credentials: 'same-origin' })
-          .then(function (r) { return r.json().then(function (j) { if (!r.ok || !j.success) throw new Error(j.message || '올리지 못했어요.'); return j; }); })
-          .then(function () { return loadCard(p.id); })
-          .catch(function (x) { err.textContent = x.message; sb.disabled = false; });
-      });
-    }
   }
 
   // ── 내 정보: 증명서 신청(11-20) — 슬랙 [📜 증명서 신청]과 같은 장부·카드 ──
@@ -392,6 +377,77 @@
           });
         })
         .catch(function (x) { err.textContent = x.message; sb.disabled = false; });
+    });
+  }
+
+  // ── 서류 올리기 창(11-20) — 종류 + 파일 끌어 놓기/고르기 + [올리기] ──
+  var DOC_MAX = 8 * 1024 * 1024;
+  function bindDocUpload(p) {
+    var btn = document.getElementById('hrDocUpBtn');
+    if (!btn) return;
+    var self = !(p.can_edit && CFG.mode !== 'me');
+    var types = self ? (p.self_doc_types || []) : (p.doc_types || []);
+    btn.addEventListener('click', function () {
+      var box = document.getElementById('hrDocUp');
+      if (box.innerHTML) { box.innerHTML = ''; btn.setAttribute('aria-expanded', 'false'); return; }
+      btn.setAttribute('aria-expanded', 'true');
+      box.innerHTML = '<form class="gw-req-form gw-doc-up" id="hrDocUpForm">' +
+        '<label>서류 종류<select class="form-select form-select-sm" name="doc_type">' +
+        types.map(function (t) { return '<option>' + esc(t) + '</option>'; }).join('') + '</select></label>' +
+        '<label class="gw-drop" id="hrDrop"><input type="file" name="file" class="gw-drop-input" aria-describedby="hrDropHint">' +
+        '<i class="fas fa-cloud-arrow-up" aria-hidden="true"></i>' +
+        '<span class="gw-drop-text" id="hrDropText">파일을 여기로 끌어 놓거나 눌러서 고르세요</span>' +
+        '<span class="gw-drop-hint" id="hrDropHint">PDF·사진·한글·워드·엑셀 · 8MB까지</span></label>' +
+        (self ? '<p class="gw-req-wide gw-log mb-0">올리면 바로 서류 목록에 들어가요. 잘못 올렸으면 경영지원에 지워 달라고 해 주세요.</p>' : '') +
+        '<div class="gw-req-btns"><button type="submit" class="btn btn-sm btn-primary">올리기</button>' +
+        '<button type="button" class="btn btn-sm btn-outline-secondary" data-up-close>닫기</button>' +
+        '<span class="gw-form-error" role="alert"></span></div></form>';
+      var f = box.querySelector('form'), drop = box.querySelector('#hrDrop'), input = f.elements.file;
+      var text = box.querySelector('#hrDropText'), err = f.querySelector('.gw-form-error');
+      function picked() {
+        var file = input.files[0];
+        drop.classList.toggle('has-file', !!file);
+        text.textContent = file ? file.name + ' (' + kb(file.size) + ')' : '파일을 여기로 끌어 놓거나 눌러서 고르세요';
+        err.textContent = file && file.size > DOC_MAX ? '8MB까지 올릴 수 있어요.' : '';
+      }
+      input.addEventListener('change', picked);
+      ['dragenter', 'dragover'].forEach(function (ev) {
+        drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); });
+      });
+      ['dragleave', 'drop'].forEach(function (ev) {
+        drop.addEventListener(ev, function () { drop.classList.remove('over'); });
+      });
+      drop.addEventListener('drop', function (e) {
+        e.preventDefault();
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+          input.files = e.dataTransfer.files;
+          picked();
+        }
+      });
+      f.querySelector('[data-up-close]').addEventListener('click', function () {
+        box.innerHTML = ''; btn.setAttribute('aria-expanded', 'false'); btn.focus();
+      });
+      f.elements.doc_type.focus();
+      f.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var file = input.files[0];
+        if (!file) { err.textContent = '올릴 파일을 골라 주세요.'; return; }
+        if (file.size > DOC_MAX) { err.textContent = '8MB까지 올릴 수 있어요.'; return; }
+        var sb = f.querySelector('button[type=submit]');
+        sb.disabled = true; err.textContent = '';
+        var url = self ? '/api/hr/me/documents' : '/api/hr/people/' + p.id + '/documents';
+        fetch(url, { method: 'POST', body: new FormData(f), credentials: 'same-origin' })
+          .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok || j.success === false) throw new Error(j.message || '올리지 못했어요.'); return j; }); })
+          .then(function () {
+            return loadCard(p.id).then(function () {
+              var sr = document.getElementById('hrCardSr');
+              if (sr) sr.textContent = '서류를 올렸어요: ' + file.name;
+              var b2 = document.getElementById('hrDocUpBtn');
+              if (b2) b2.focus();
+            });
+          })
+          .catch(function (x) { err.textContent = x.message; sb.disabled = false; });
+      });
     });
   }
 
@@ -614,10 +670,15 @@
         }));
     }
     var docs = p.documents || [];
-    if (docs.length || p.can_edit) {
-      h += '<div class="gw-sec-title">서류</div>';
+    // 서류 올리기(11-20 다시) — 머리 [서류 올리기] → 종류 고르기 + 파일 끌어 놓기/고르기. 관리자는 인사카드 화면, 본인은 내 정보
+    var upMode = (p.can_edit && CFG.mode !== 'me') ? 'admin' : (CFG.mode === 'me' && p.self_doc_types ? 'self' : '');
+    if (docs.length || upMode) {
+      h += upMode
+        ? '<div class="gw-sec-head"><div class="gw-sec-title">서류</div><button type="button" class="btn btn-sm btn-outline-secondary" id="hrDocUpBtn" aria-expanded="false" aria-controls="hrDocUp">' +
+          '<i class="fas fa-upload me-1" aria-hidden="true"></i>서류 올리기</button></div><div id="hrDocUp"></div>'
+        : '<div class="gw-sec-title">서류</div>';
       if (docs.length) {
-        h += table(['종류', '파일', '크기', '업로드일', ''], docs.map(function (d) {
+        h += table(['종류', '파일', '크기', '올린 날', ''], docs.map(function (d) {
           return '<tr><td>' + esc(d.doc_type || '기타') + '</td><td class="gw-doc-name">' + esc(d.file_name) + '</td><td>' + kb(d.size) +
             '</td><td>' + (d.uploaded_by === 'flex-import' ? '<span class="text-muted">플렉스에서 옮김</span>' : esc((d.created_at || '').slice(0, 10))) +
             '</td><td class="gw-doc-act">' +
@@ -627,26 +688,8 @@
             '</td></tr>';
         }));
       } else {
-        h += '<div class="gw-log">업로드된 서류가 없습니다.</div>';
+        h += '<div class="gw-log">올린 서류가 없어요.</div>';
       }
-      if (p.can_edit && CFG.mode !== 'me') {
-        h += '<form class="gw-doc-upload" id="hrDocForm">' +
-          '<select class="form-select form-select-sm" name="doc_type" aria-label="서류 종류">' +
-          (p.doc_types || []).map(function (t) { return '<option>' + esc(t) + '</option>'; }).join('') + '</select>' +
-          '<input type="file" class="form-control form-control-sm" name="file" aria-label="파일" required>' +
-          '<button type="submit" class="btn btn-sm btn-outline-primary">업로드</button>' +
-          '<span class="gw-form-error" id="hrDocError" role="alert"></span></form>';
-      }
-    }
-    if (CFG.mode === 'me' && p.self_doc_types) {
-      if (!docs.length && !p.can_edit) h += '<div class="gw-sec-title">서류</div>';
-            h += '<form class="gw-doc-upload" id="hrSelfDocForm">' +
-        '<select class="form-select form-select-sm" name="doc_type" aria-label="올릴 서류 종류">' +
-        p.self_doc_types.map(function (t) { return '<option>' + esc(t) + '</option>'; }).join('') + '</select>' +
-        '<input type="file" class="form-control form-control-sm" name="file" aria-label="올릴 파일" required>' +
-        '<button type="submit" class="btn btn-sm btn-outline-primary">서류 올리기</button>' +
-        '<span class="gw-form-error" id="hrSelfDocError" role="alert"></span></form>' +
-        '<div class="gw-log">올리면 바로 위 서류 목록에 들어가요. 잘못 올렸으면 경영지원에 지워 달라고 해 주세요.</div>';
     }
     return h;
   }
@@ -660,24 +703,7 @@
           .catch(function (e) { window.alert(e.message); });
       });
     });
-    var form = document.getElementById('hrDocForm');
-    if (form) {
-      form.addEventListener('submit', function (e) {
-        e.preventDefault();
-        var err = document.getElementById('hrDocError');
-        var file = form.elements.file.files[0];
-        if (!file) { err.textContent = '파일을 골라 주세요.'; return; }
-        if (file.size > 8 * 1024 * 1024) { err.textContent = '8MB까지 업로드할 수 있습니다.'; return; }
-        var fd = new FormData(form);
-        var btn = form.querySelector('button[type=submit]');
-        btn.disabled = true;
-        err.textContent = '';
-        fetch('/api/hr/people/' + p.id + '/documents', { method: 'POST', body: fd, credentials: 'same-origin' })
-          .then(function (r) { return r.json().then(function (j) { if (!r.ok || !j.success) throw new Error(j.message || '업로드하지 못했습니다.'); return j; }); })
-          .then(function () { loadCard(p.id); })
-          .catch(function (x) { err.textContent = x.message; btn.disabled = false; });
-      });
-    }
+    bindDocUpload(p);
   }
 
   function loadCard(id) {
