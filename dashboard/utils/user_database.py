@@ -10,12 +10,34 @@ import json
 import os
 import threading
 import shutil
+import sys
+import tempfile
 import logging
 from datetime import datetime, timedelta
 from contextlib import contextmanager
 from typing import Optional, Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
+
+
+def _is_testing() -> bool:
+    """pytest 실행 중인지 — 루트 conftest 가 FLASK_ENV=testing 을 걸고, conftest 없이 돌려도 pytest 가 import 돼 있다."""
+    return (os.getenv('FLASK_ENV') == 'testing' or 'PYTEST_CURRENT_TEST' in os.environ
+            or 'pytest' in sys.modules)
+
+
+def _refuse_prod_db_in_tests(db_path: str) -> None:
+    """테스트 중 운영 users.db(…/instance/users.db) 연결을 거부한다.
+
+    2026-10-30~11-20: 전자결재 테스트의 _audit 이 get_audit_repository() 싱글톤(기본 경로 = 운영 DB)으로
+    audit_logs 에 가짜 'EAPPROVAL_*'(강원포장 533,500원) 9,815건을 남겼다. 테스트는 tmp_path DB 를 써야 한다.
+    """
+    if not _is_testing():
+        return
+    p = os.path.normcase(os.path.abspath(db_path))
+    if (os.path.basename(p) == 'users.db'
+            and os.path.basename(os.path.dirname(p)) == os.path.normcase('instance')):
+        raise RuntimeError(f'테스트에서 운영 사용자 DB 연결 금지: {db_path} — tmp_path DB 를 쓰세요.')
 
 # 보안 설정 상수
 PBKDF2_ITERATIONS = 100000  # PBKDF2 반복 횟수 (OWASP 권장: 100,000+)
@@ -27,6 +49,11 @@ class UserDatabase:
     """SQLite 기반 사용자 관리 시스템"""
 
     def __init__(self, db_path: str = None):
+        # pytest 중 기본 경로는 USER_DB_PATH(루트 conftest 가 임시 파일로 지정) — 운영 users.db 에
+        #   가짜 감사 로그가 쌓이던 문제(2026-10-30~11-20 EAPPROVAL 9,815건) 재발 방지.
+        if not db_path and _is_testing():
+            db_path = os.environ.get('USER_DB_PATH') or os.path.join(
+                tempfile.gettempdir(), f'itg_pytest_users_{os.getpid()}.db')
         if db_path:
             self.db_path = db_path
         else:
@@ -267,6 +294,7 @@ class UserDatabase:
     def _get_connection(self):
         """스레드 안전한 데이터베이스 연결"""
         with self.lock:
+            _refuse_prod_db_in_tests(self.db_path)
             conn = sqlite3.connect(self.db_path, timeout=30.0)
             conn.row_factory = sqlite3.Row  # 딕셔너리 형태로 결과 반환
             conn.execute('PRAGMA foreign_keys = ON')
