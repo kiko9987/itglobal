@@ -22,6 +22,7 @@ def db(tmp_path, monkeypatch):
         monkeypatch.setattr(mod, '_db', lambda: d)
         monkeypatch.setattr(mod, '_table_ready', False)
     monkeypatch.setattr(va, 'staff', lambda: [])
+    monkeypatch.setattr(gw, 'DEV_PREVIEW_USERS', ())   # 개발 중 문은 test_vehicle_assign 에서 따로 본다
     gw._invalidate()
     yield d
     gw._invalidate()

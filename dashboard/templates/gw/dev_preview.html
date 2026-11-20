@@ -1,0 +1,19 @@
+{% extends "modern_base.html" %}
+
+{% block title %}개발 중 - 아이티글로벌그룹{% endblock %}
+
+{% block additional_css %}
+<link rel="stylesheet" href="{{ gw_asset('css/gw-pages.css') }}">
+{% endblock %}
+
+{% block content %}
+{# 개발 중 화면(토요일 휴무·차량, 11-21 부장님) — 명단(services/groupware.py DEV_PREVIEW_USERS) 밖의 사람에게 보인다 #}
+<div class="gw-page">
+  <div class="gw-empty-box gw-dev">
+    <i class="fas fa-screwdriver-wrench gw-dev-icon" aria-hidden="true"></i>
+    <h1 class="gw-dev-title">아직 개발 중인 화면이에요</h1>
+    <p class="gw-dev-text">다 만들면 열어 드릴게요.</p>
+    <a class="btn btn-primary" href="/home">홈으로</a>
+  </div>
+</div>
+{% endblock %}

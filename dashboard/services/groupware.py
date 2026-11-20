@@ -93,6 +93,15 @@ def is_pilot(email: str) -> bool:
     return bool(email) and email.lower() in _load()['pilots']
 
 
+# 개발 중 화면(토요일 휴무·차량, 11-21 부장님) — 이 명단만 들어가고, 다른 사람은 '아직 개발 중' 안내.
+# 메뉴는 그대로 보인다. 모두에게 열 때는 비운다(()).
+DEV_PREVIEW_USERS: tuple = ('kiko@itg-aircon.com',)
+
+
+def dev_preview_ok(email: str) -> bool:
+    return not DEV_PREVIEW_USERS or (email or '').strip().lower() in DEV_PREVIEW_USERS
+
+
 def can_use(email: str) -> bool:
     """새 틀을 쓸 수 있는 사람인가(전체 켜기 또는 시범 명단)."""
     return bool(email) and (is_open_all() or is_pilot(email))

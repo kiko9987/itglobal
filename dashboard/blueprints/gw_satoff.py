@@ -6,7 +6,7 @@ from datetime import date
 
 from flask import Blueprint, jsonify, redirect, render_template, request, session
 
-from dashboard.blueprints.hr import _hr_admin, _me, gw_page
+from dashboard.blueprints.hr import _hr_admin, _me, dev_preview_gate, gw_page
 from dashboard.services import hr
 from dashboard.services import sat_off as so
 from dashboard.utils.logging_config import get_logger
@@ -14,6 +14,7 @@ from dashboard.utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 gw_satoff_bp = Blueprint('gw_satoff', __name__)
+gw_satoff_bp.before_request(dev_preview_gate)   # 개발 중 — 부장님만(11-21)
 
 
 def _who():

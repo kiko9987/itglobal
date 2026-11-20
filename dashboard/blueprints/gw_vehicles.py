@@ -10,7 +10,7 @@ from datetime import date
 
 from flask import Blueprint, jsonify, redirect, render_template, request
 
-from dashboard.blueprints.hr import _hr_admin, _is_field, _me, gw_page
+from dashboard.blueprints.hr import _hr_admin, _is_field, _me, dev_preview_gate, gw_page
 from dashboard.services import hr
 from dashboard.services import vehicle_assign as va
 from dashboard.services import vehicle_log as vl
@@ -19,6 +19,7 @@ from dashboard.utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 gw_vehicles_bp = Blueprint('gw_vehicles', __name__)
+gw_vehicles_bp.before_request(dev_preview_gate)   # 개발 중 — 부장님만(11-21)
 _MONTH_RE = re.compile(r'^\d{4}-(0[1-9]|1[0-2])$')
 _resolving = threading.Lock()
 

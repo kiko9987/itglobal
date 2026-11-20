@@ -59,6 +59,16 @@ def gw_page(f):
     return wrapper
 
 
+def dev_preview_gate():
+    """개발 중 화면(토요일 휴무·차량) 문 — 블루프린트 before_request 로 건다(11-21 부장님).
+    명단(gw.DEV_PREVIEW_USERS) 밖이면 화면은 '아직 개발 중' 안내, API 는 403. 로그인 확인은 각 화면이 한다."""
+    if not session.get('user') or gw.dev_preview_ok(_me()):
+        return None
+    if request.path.startswith('/api/'):
+        return jsonify({'success': False, 'message': '아직 개발 중인 화면이에요.'}), 403
+    return render_template('gw/dev_preview.html')
+
+
 def _fail(e: Exception):
     if isinstance(e, PermissionError):
         return jsonify({'success': False, 'message': str(e)}), 403

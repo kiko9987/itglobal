@@ -501,9 +501,12 @@ def request_assignment(day: Optional[str] = None) -> int:
     info = _day_info(day) or {}
     if info.get('confirmed_at') or info.get('requested_at'):
         return 0
+    from dashboard.services import groupware as gw
     from dashboard.services import hr
     n = 0
     for email in assigners():
+        if not gw.dev_preview_ok(email):     # 화면이 아직 개발 중이라 못 여는 사람에게는 링크를 보내지 않음(11-21)
+            continue
         p = hr.find_by_email(email)
         sid = (p or {}).get('slack_id') or ''
         if _dm(sid, f":car: 일정확정이 끝났어요. {day_label(day)} 차량 배정을 해 주세요.\n<{_page_url(day)}|차량 배정 열기>"):

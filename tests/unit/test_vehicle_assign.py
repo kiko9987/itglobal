@@ -27,6 +27,7 @@ def db(tmp_path, monkeypatch):
         monkeypatch.setattr(mod, '_table_ready', False)
     monkeypatch.setattr(va, 'staff', lambda: [dict(p) for p in STAFF])
     monkeypatch.setattr(va, 'assigners', lambda: [ASSIGNER])
+    monkeypatch.setattr(gw, 'DEV_PREVIEW_USERS', ())   # 개발 중 문은 아래 test_dev_preview_* 에서 따로 본다
     sent = []
     monkeypatch.setattr(va, '_dm', lambda sid, text: sent.append((sid, text)) or True)
     gw._invalidate()
@@ -222,6 +223,43 @@ def test_routes_view_for_all_edit_for_assigner(db, monkeypatch):
         assert f['car']['fixed_user'] == 'JK'
     assert field_path_allowed('GET', '/vehicles/assign') and field_path_allowed('GET', '/api/vehicles/assign')
     assert not field_path_allowed('POST', '/api/vehicles/assign')
+
+
+def test_dev_preview_only_kiko(db, monkeypatch):
+    """토요일 휴무·차량은 개발 중 — 부장님만 들어가고, 다른 사람은 '아직 개발 중' 안내·API 403(11-21)."""
+    import dashboard.auth as auth
+    from dashboard.blueprints import gw_satoff as so_bp
+    from dashboard.blueprints import gw_vehicles as bp
+    from dashboard.blueprints import hr as hr_bp
+    kiko = 'kiko@itg-aircon.com'
+    monkeypatch.setattr(gw, 'DEV_PREVIEW_USERS', (kiko,))
+    monkeypatch.setattr(auth, '_validate_session', lambda require_admin=False: None)
+    monkeypatch.setattr(gw, 'can_use', lambda e: True)
+    monkeypatch.setattr(bp, 'render_template', lambda name: name)
+    monkeypatch.setattr(hr_bp, 'render_template', lambda name: name)
+    monkeypatch.setattr(bp, '_leads', lambda: [])
+    app = Flask(__name__)
+    app.secret_key = 'x'
+    app.register_blueprint(bp.gw_vehicles_bp)
+    app.register_blueprint(so_bp.gw_satoff_bp)
+    with app.test_client() as cl:
+        with cl.session_transaction() as s:
+            s['user'] = {'email': ASSIGNER, 'permission_level': 'admin'}
+        for path in ('/vehicles/assign', '/vehicles', '/leave/saturday'):
+            assert cl.get(path).get_data(as_text=True) == 'gw/dev_preview.html', path
+        for path in ('/api/vehicles/assign', '/api/vehicles', '/api/satoff'):
+            r = cl.get(path)
+            assert r.status_code == 403 and '개발 중' in r.get_json()['message'], path
+        assert cl.post('/api/satoff/toggle', json={}).status_code == 403
+        with cl.session_transaction() as s:
+            s['user'] = {'email': kiko, 'permission_level': 'super_admin'}
+        assert cl.get('/vehicles/assign').get_data(as_text=True) == 'gw/vehicle_assign.html'
+        assert cl.get('/api/vehicles/assign?day=2026-11-21').get_json()['success']
+    # 배정 담당자(SJ)가 못 여는 동안은 '차량 배정해 주세요' DM 도 보내지 않는다
+    monkeypatch.setattr(hr, 'find_by_email', lambda e: {'slack_id': 'USJ'})
+    assert va.request_assignment('2026-11-21') == 0 and db == []
+    monkeypatch.setattr(gw, 'DEV_PREVIEW_USERS', ())                                  # 모두에게 열면 다시 보냄
+    assert va.request_assignment('2026-11-21') == 1
 
 
 def test_menu():
