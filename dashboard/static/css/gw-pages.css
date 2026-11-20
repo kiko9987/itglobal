@@ -224,6 +224,22 @@
 .gw-task-guide { font-size: 0.84rem; color: #475569; margin-top: 3px; }
 @media (max-width: 767.98px) { .gw-task .btn { min-height: 44px; } }
 
+/* 본인 정보 변경 요청(11-20) */
+.gw-req-form { margin: 8px 0 12px; padding: 12px 14px; border: 1px solid #dbe3ec; border-radius: 10px; background: #f8fafc;
+  display: grid; grid-template-columns: 180px 1fr; gap: 10px; }
+.gw-req-form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.82rem; color: #475569; }
+.gw-req-form .gw-req-wide, .gw-req-form .gw-req-btns, .gw-req-form .gw-req-fams, .gw-req-form [data-fam-add] { grid-column: 1 / -1; }
+#hrReqFamForm { grid-template-columns: 1fr; }
+#hrReqFamForm [data-fam-add] { justify-self: start; }
+.gw-req-fam { display: grid; grid-template-columns: 1fr 1fr 1.2fr auto; gap: 6px; margin-bottom: 6px; }
+.gw-req-btns { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.gw-req-act { display: flex; gap: 6px; flex-shrink: 0; }
+@media (max-width: 767.98px) {
+  .gw-req-form { grid-template-columns: 1fr; }
+  .gw-req-fam { grid-template-columns: 1fr 1fr; }
+  .gw-req-form .btn, .gw-req-act .btn { min-height: 44px; }
+}
+
 /* 증명서 바로 발급(11-20) — 인사카드 머리 아래 펼침 */
 .gw-cert {
   margin: 12px 0 4px;
@@ -791,6 +807,7 @@
 
 /* ── 휴가 ─────────────────────────────────────── */
 .gw-badge-reject { background: #fee2e2; color: #991b1b; }
+.gw-badge-wait { background: #fef3c7; color: #92400e; }   /* 확인 중(변경 요청 11-20) */
 
 .gw-stats {
   display: grid;

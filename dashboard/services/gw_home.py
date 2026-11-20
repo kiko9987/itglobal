@@ -192,6 +192,19 @@ def todos(person: Optional[dict], slack_id: str, field: bool, hr_admin: bool,
                             'action': '인사카드 열기', 'href': f"/hr/people#{rows[0]['person_id']}"})
         except Exception as e:
             logger.warning(f'[GW-HOME] 입사·퇴사 할 일 실패: {e}')
+    # 4-3) 본인 정보 변경 요청(11-20) — 경영지원·대표
+    if hr_admin and not field:
+        try:
+            from dashboard.services import hr_requests as hq
+            reqs = hq.pending()
+            if reqs:
+                names = ', '.join(dict.fromkeys(f"{r['name']} {r['kind_label']}" for r in reqs[:3]))
+                out.append({'id': 'hr-requests', 'sig': ','.join(str(r['id']) for r in reqs), 'tone': 'act',
+                            'icon': 'fas fa-user-pen', 'title': f'인사 정보 변경 요청 {len(reqs)}건',
+                            'desc': names + (' 외' if len(reqs) > 3 else '') + ' — 인사카드에서 반영하거나 반려해 주세요.',
+                            'action': '인사카드 열기', 'href': f"/hr/people#{reqs[0]['person_id']}"})
+        except Exception as e:
+            logger.warning(f'[GW-HOME] 변경 요청 할 일 실패: {e}')
     # 5) 나라장터 입찰 공고(11-18) — 마감 전 '들어갈 수 있는 공고'가 있을 때만 한 줄
     if not field:
         from dashboard.services import g2b_bids
