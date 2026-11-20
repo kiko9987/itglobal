@@ -175,6 +175,7 @@ AREAS = [
         'key': 'support', 'label': '경영지원', 'icon': 'fas fa-coins',
         'items': [
             {'href': '/settlement/collected', 'label': '월별 수금', 'icon': 'fas fa-file-invoice-dollar'},
+            {'href': '/vehicles', 'label': '차량 운행', 'icon': 'fas fa-car', 'hr_admin': True},   # U+커넥트 운행일지(11-20)
         ],
     },
     {

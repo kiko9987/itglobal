@@ -469,6 +469,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         from dashboard.blueprints.hr import hr_bp
         from dashboard.blueprints.gw_approval import gw_approval_bp
         from dashboard.blueprints.gw_bids import gw_bids_bp
+        from dashboard.blueprints.gw_vehicles import gw_vehicles_bp
         from dashboard.blueprints.admin_sequence import sequence_bp
         from dashboard.blueprints.constructors import constructors_bp
         from dashboard.blueprints.slack_bot import slack_bp
@@ -493,6 +494,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         app.register_blueprint(hr_bp)  # 그룹웨어 인사 — 내 정보·구성원(인사카드)·그룹웨어 설정
         app.register_blueprint(gw_approval_bp)  # 그룹웨어 결재함·플렉스 보관함(슬랙 전자결재와 같은 장부)
         app.register_blueprint(gw_bids_bp)  # 그룹웨어 입찰 공고(나라장터, 11-18)
+        app.register_blueprint(gw_vehicles_bp)  # 그룹웨어 차량 운행(U+커넥트 운행일지, 11-20)
         app.register_blueprint(monitoring_bp)
         app.register_blueprint(admin_bp)
         app.register_blueprint(users_bp)

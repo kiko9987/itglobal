@@ -2897,3 +2897,38 @@ html:has(#bdPage) {
 .gw-bd-ntc-raw p { margin: 0 0 4px; }
 
 .gw-bd-ntc-src { margin: 6px 0 0; }
+
+/* ── 차량 운행(11-20) — U+커넥트 운행일지 ───────────────────────── */
+.gw-vh .gw-page-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.gw-vh .gw-page-actions .gw-vh-month { flex: 0 0 auto; width: 132px; }
+.gw-vh .gw-page-title { white-space: nowrap; }
+.gw-vh-table th, .gw-vh-table td { white-space: nowrap; }
+.gw-vh .gw-ap-tablewrap { overflow-x: auto; }
+.gw-vh-how { color: #64748b; font-size: 0.86rem; margin: 0 0 10px; }
+.gw-vh-msg:empty { display: none; }
+.gw-vh-msg { margin: 0 0 12px; padding: 8px 12px; border-radius: 8px; font-size: 0.88rem; }
+.gw-vh-msg.info { background: #eff6ff; color: #1e40af; }
+.gw-vh-msg.ok { background: #f0fdf4; color: #166534; }
+.gw-vh-msg.err { background: #fef2f2; color: #991b1b; }
+.gw-vh-up { font-size: 1rem; }
+.gw-vh-table .num, .gw-vh-trips .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gw-vh-foot { color: #64748b; font-size: 0.82rem; margin-top: 10px; }
+.gw-vh-panel { width: min(760px, 100vw); }
+.gw-vh-sub { color: #64748b; font-size: 0.84rem; margin-bottom: 12px; }
+.gw-vh-day { margin-bottom: 18px; }
+.gw-vh-dayhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 8px 0; border-bottom: 1px solid #e2e8f0; }
+.gw-vh-dayhead span { color: #475569; font-size: 0.88rem; }
+.gw-vh-dayhead .gw-vh-who { margin-left: auto; color: #1a1c20; }
+.gw-vh-trips { font-size: 0.86rem; table-layout: fixed; width: 100%; }
+.gw-vh-trips th:nth-child(1) { width: 64px; }
+.gw-vh-trips th:nth-child(2) { width: 38%; }
+.gw-vh-trips th:nth-child(3) { width: 76px; }
+.gw-vh-panel .gw-drawer-head h2:focus, .gw-vh-panel .gw-drawer-head h2:focus-visible { outline: none; box-shadow: none; }
+.gw-vh-trips td { vertical-align: top; }
+.gw-vh-time { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.gw-vh-home td { color: #94a3b8; }
+.gw-vh-visit + .gw-vh-visit { margin-top: 6px; }
+.gw-vh-addr { color: #64748b; font-size: 0.8rem; }
+@media (max-width: 767.98px) {
+  .gw-vh-dayhead .gw-vh-who { margin-left: 0; width: 100%; }
+}
