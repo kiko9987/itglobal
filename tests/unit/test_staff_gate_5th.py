@@ -14,9 +14,9 @@ import pytest
 import dashboard.blueprints.slack_bot as sb
 from dashboard.services import e_approval as ea
 from dashboard.services import hr
-from tests.unit.test_e_approval import (  # noqa: F401 — 픽스처 재사용
+from test_e_approval import (  # noqa: F401 — 픽스처 재사용
     FIELDS, KIKO, MGR, SB, _no_final_by_default, se, tmp_db)
-from tests.unit.test_fund_dup_guards import _age
+from test_fund_dup_guards import _age
 
 
 @pytest.fixture

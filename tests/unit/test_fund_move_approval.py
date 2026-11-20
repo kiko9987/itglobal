@@ -5,7 +5,7 @@ import pytest
 
 from dashboard.services import e_approval as ea
 from dashboard.services import fund_transfer as ft
-from tests.unit.test_e_approval import (  # noqa: F401 — 픽스처 재사용
+from test_e_approval import (  # noqa: F401 — 픽스처 재사용
     KIKO, MGR, SB, _new_view, _no_final_by_default, se, tmp_db)
 
 REQ = {'code': 'R4292-SJ', 'row': 4293, 'stage': '계약금', 'col': 'V', 'amount': 3102000, 'partner': '민영준',
