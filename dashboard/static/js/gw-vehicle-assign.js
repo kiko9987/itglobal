@@ -1,5 +1,7 @@
 /* 그룹웨어 차량 배정 (2026-11-20) — 다음 날 차마다 탈 사람. 고치기는 배정 담당자(SJ)·인사 관리자만.
    카톡 배정을 대신한다(카톡 글 붙여넣기는 넣지 않음 — 부장님 11-20).
+   보드 방식(부장님 11-20): 왼쪽 사람 명단 → 오른쪽 차로 마우스로 끌어 놓기.
+   휴대폰·키보드는 사람을 누르고(고르기) → 차를 누른다. 차 안 사람 위에 놓으면 그 앞자리로(맨 앞 = 운전).
    서버에서 온 글자는 모두 esc() 로만 넣는다. */
 (function () {
   'use strict';
@@ -36,7 +38,9 @@
     el.textContent = text || '';
   }
 
-  var S = { day: '', cars: [], staff: [], names: {}, canEdit: false, confirmed: false, dirty: false, visitors: [] };
+  var TOUCH = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);   // 휴대폰: 끌기 대신 누르기
+  var S = { day: '', cars: [], staff: [], names: {}, canEdit: false, confirmed: false, dirty: false,
+            visits: {}, picked: null };
 
   function name(code) { return S.names[code] || code; }
   function carOf(plate) { return S.cars.filter(function (c) { return c.plate === plate; })[0]; }
@@ -56,22 +60,52 @@
   }
 
   // ── 그리기 ──
+  function visitTag(code) {
+    var n = S.visits[code];
+    return n ? '<small class="gw-va-visit">방문 ' + n + '</small>' : '';
+  }
+  function person(code, extra) {   // 왼쪽 명단 한 사람
+    var at = whereIs(code);
+    var cls = 'gw-va-person' + (at ? ' placed' : '') + (S.picked === code ? ' picked' : '');
+    return '<button type="button" class="' + cls + '" data-person="' + esc(code) + '"' +
+      (S.picked === code ? ' aria-pressed="true"' : ' aria-pressed="false"') + '>' +
+      '<span class="gw-va-pname">' + esc(name(code)) + '</span>' + visitTag(code) +
+      (at ? '<small class="gw-va-where">' + esc(at.label) + '</small>' : '') + (extra || '') + '</button>';
+  }
+  function staffPanel() {
+    var panel = $('vaStaff');
+    if (!panel) return;              // 서버 재시작 전 옛 화면 — 명단 칸이 없음
+    panel.hidden = !S.canEdit;
+    if (!S.canEdit) return;
+    var codes = S.staff.map(function (p) { return p.code; });
+    var free = codes.filter(function (c) { return !whereIs(c); });
+    var freeVisit = free.filter(function (c) { return S.visits[c]; });
+    var freeOther = free.filter(function (c) { return !S.visits[c]; });
+    var placed = codes.filter(function (c) { return whereIs(c); });
+    function group(title, list, cls) {
+      if (!list.length) return '';
+      return '<div class="gw-va-group ' + (cls || '') + '"><div class="gw-va-gtitle">' + esc(title) + ' <span>' + list.length + '</span></div>' +
+        '<div class="gw-va-plist">' + list.map(function (c) { return person(c); }).join('') + '</div></div>';
+    }
+    $('vaStaffList').innerHTML =
+      group('방문 있음 · 차 없음', freeVisit, 'need') +
+      group('차 없음', freeOther) +
+      group('배정됨', placed, 'done');
+    var how = $('vaStaffHow');
+    how.className = 'gw-va-staff-how' + (S.picked ? ' picking' : '');
+    how.textContent = S.picked
+      ? name(S.picked) + ' 님 → 넣을 차를 누르세요.' + (whereIs(S.picked) ? ' 여기 빈 곳을 누르면 차에서 빠져요.' : '') + ' (Esc: 취소)'
+      : (TOUCH ? '이름을 누르고 → 넣을 차를 누르세요.' : '이름을 끌어 차에 놓으세요. 누르고 → 차를 눌러도 돼요.');
+    $('vaStaffCount').textContent = freeVisit.length ? '방문 있는데 차 없음 ' + freeVisit.length + '명' : '';
+    $('vaStaffCount').className = freeVisit.length ? 'gw-va-warn' : '';
+  }
   function chip(c, code, i) {
     var lead = i === 0 ? '<span class="gw-va-lead">운전</span>' : '';
     var x = S.canEdit ? '<button type="button" class="gw-va-x" data-rm="' + esc(code) + '" data-plate="' + esc(c.plate) +
       '" aria-label="' + esc(name(code)) + ' 빼기">×</button>' : '';
-    return '<span class="gw-va-chip">' + lead + esc(name(code)) + x + '</span>';
-  }
-  function addSelect(c) {
-    var opts = S.staff.map(function (p) {
-      var at = whereIs(p.code);
-      if (at && at.plate === c.plate) return '';
-      var tail = at ? ' — ' + at.label + '에서 옮김' : '';
-      return '<option value="' + esc(p.code) + '">' + esc(p.name + ' (' + p.code + ')' + tail) + '</option>';
-    }).join('');
-    var label = c.usage === 'fixed' ? '+ 빌려 쓰기' : '+ 사람';
-    return '<select class="form-select form-select-sm gw-va-add" data-add="' + esc(c.plate) + '" aria-label="' +
-      esc(c.label) + '에 사람 넣기"><option value="">' + label + '</option>' + opts + '</select>';
+    var cls = 'gw-va-chip' + (S.picked === code ? ' picked' : '');
+    var attrs = S.canEdit ? ' data-person="' + esc(code) + '" data-in="' + esc(c.plate) + '" role="button" tabindex="0"' : '';
+    return '<span class="' + cls + '"' + attrs + '>' + lead + esc(name(code)) + x + '</span>';
   }
   function fixedSelect(c) {   // 고정 차의 평소 사용자 — 고르면 바로 저장(배정과 별개)
     var has = false;
@@ -91,27 +125,19 @@
         : (c.fixed_name ? esc(c.fixed_name) : '<span class="gw-va-none">정해진 사람 없음</span>')) + '</div>';
     }
     var people = c.people.map(function (p, i) { return chip(c, p, i); }).join('');
-    if (!people && !S.canEdit) people = '<span class="gw-va-none">' + (c.usage === 'fixed' ? '평소대로' : '배정 없음') + '</span>';
+    if (!people) {
+      people = '<span class="gw-va-none">' + (S.canEdit ? (S.picked ? '여기를 누르면 ' + esc(name(S.picked)) + ' 님을 넣어요'
+        : '여기에 사람을 놓으세요') : (c.usage === 'fixed' ? '평소대로' : '배정 없음')) + '</span>';
+    }
     var note = S.canEdit && (c.people.length || c.note)
       ? '<input type="text" class="form-control form-control-sm gw-va-note" maxlength="60" placeholder="메모" data-note="' +
         esc(c.plate) + '" value="' + esc(c.note || '') + '" aria-label="' + esc(c.label) + ' 메모">'
       : (c.note ? '<div class="gw-va-notetext">' + esc(c.note) + '</div>' : '');
-    return '<div class="gw-va-card" data-plate="' + esc(c.plate) + '">' +
+    var drop = S.canEdit ? ' data-drop="car"' + (S.picked ? ' tabindex="0" role="button" aria-label="' +
+      esc(c.label) + '에 ' + esc(name(S.picked)) + ' 넣기"' : '') : '';
+    return '<div class="gw-va-card' + (S.picked ? ' can-drop' : '') + '" data-plate="' + esc(c.plate) + '"' + drop + '>' +
       '<div class="gw-va-car"><strong>' + esc(c.label) + '</strong><span>' + esc(sub) + '</span>' + fixed + '</div>' +
-      '<div class="gw-va-people">' + people + (S.canEdit ? addSelect(c) : '') + '</div>' + note + '</div>';
-  }
-  function todo() {   // 그날 방문 일정이 있는데 아직 차가 없는 사람(리드 시트 기준)
-    var el = $('vaTodo');
-    if (!el) return;     // 재시작 전 옛 화면(칸 없음)에서도 깨지지 않게
-    var left = S.visitors.filter(function (v) { return !whereIs(v.code); });
-    if (!S.visitors.length) { el.hidden = true; return; }
-    el.hidden = false;
-    el.className = 'gw-va-todo' + (left.length ? ' left' : ' done');
-    el.innerHTML = left.length
-      ? '<strong>방문 일정이 있는데 아직 차가 없는 사람</strong> ' + left.map(function (v) {
-          return '<span class="gw-va-tag">' + esc(v.name) + ' <small>방문 ' + v.visits + '</small></span>';
-        }).join(' ')
-      : '<i class="fas fa-check" aria-hidden="true"></i> 방문 일정이 있는 ' + S.visitors.length + '명 모두 차가 정해졌어요.';
+      '<div class="gw-va-people">' + people + '</div>' + note + '</div>';
   }
   function render() {
     $('vaShared').innerHTML = S.cars.filter(function (c) { return c.usage !== 'fixed'; }).map(card).join('') ||
@@ -119,8 +145,10 @@
     var fixedCars = S.cars.filter(function (c) { return c.usage === 'fixed'; });
     $('vaFixed').innerHTML = fixedCars.map(card).join('');
     $('vaFixedHead').hidden = !fixedCars.length;   // 지금은 고정 차 없음(파나메라·벤츠·랜드로버는 배정에서 뺌, 11-20)
+    staffPanel();
+    if ($('vaBoard')) $('vaBoard').classList.toggle('editing', S.canEdit);
+    else if (S.canEdit) msg('배정 화면이 새로 바뀌었어요. 서버 재시작 뒤 새로 고치면 사람 명단이 보여요.', 'info');
     $('vaBar').hidden = !S.canEdit;
-    todo();
     $('vaConfirm').textContent = S.confirmed ? '고친 내용 저장 · 바뀐 사람에게 알림' : '확정하고 알리기';
     $('vaSave').hidden = S.confirmed;
     setDirty(S.dirty);
@@ -146,9 +174,10 @@
     msg('');
     return api('/api/vehicles/assign' + (day ? '?day=' + encodeURIComponent(day) : '')).then(function (j) {
       S.day = j.day; S.cars = j.cars; S.staff = j.staff; S.canEdit = !!j.can_edit;
-      S.confirmed = !!j.confirmed_at; S.visitors = j.visitors || [];
-      S.names = {};
+      S.confirmed = !!j.confirmed_at; S.picked = null;
+      S.names = {}; S.visits = {};
       j.staff.forEach(function (p) { S.names[p.code] = p.name; });
+      (j.visitors || []).forEach(function (v) { S.visits[v.code] = v.visits; });
       S.dirty = !!(j.draft_from && S.canEdit);
       $('vaDay').value = j.day;
       try { history.replaceState(null, '', '/vehicles/assign?day=' + j.day); } catch (e) { /* 무시 */ }
@@ -172,20 +201,115 @@
       .then(function () { btns.forEach(function (b) { b.disabled = false; }); setDirty(S.dirty); });
   }
 
-  // ── 고치기 ──
-  function moveTo(code, plate) {
+  // ── 옮기기 ──
+  function unplace(code) {
     var at = whereIs(code);
     if (at) at.people.splice(at.people.indexOf(code), 1);
-    carOf(plate).people.push(code);
-    setDirty(true);
-    if (at && at.plate !== plate) msg(name(code) + '님을 ' + at.label + '에서 옮겼어요.', 'info');
+    return at;
   }
+  function place(code, plate, before) {   // before = 그 사람 앞자리로(없으면 맨 뒤)
+    if (code === before) return;
+    unplace(code);
+    var c = carOf(plate);
+    var i = before ? c.people.indexOf(before) : -1;
+    if (i === -1) c.people.push(code); else c.people.splice(i, 0, code);
+    setDirty(true);
+  }
+  function pick(code) {
+    S.picked = S.picked === code ? null : code;
+    render();      // 안내는 명단 위 한 줄에서 바뀐다(위에 띄우면 화면이 밀려 다음 누르기가 빗나감)
+  }
+  function drop(code, target) {   // target = 놓은 자리의 요소
+    var chipEl = target && target.closest('.gw-va-chip[data-person]');
+    var cardEl = target && target.closest('[data-drop="car"]');
+    var outEl = target && target.closest('[data-drop="out"]');
+    S.picked = null;
+    if (cardEl) {
+      place(code, cardEl.dataset.plate, chipEl ? chipEl.dataset.person : null);
+    } else if (outEl && whereIs(code)) {
+      unplace(code);
+      setDirty(true);
+    }
+    msg('');
+    render();
+  }
+
+  // 마우스 끌기 — 손가락(터치)은 스크롤과 겹쳐서 끌지 않고 누르기로 한다
+  var D = null;
+  document.addEventListener('pointerdown', function (e) {
+    if (!S.canEdit || e.pointerType !== 'mouse' || e.button !== 0) return;
+    var p = e.target.closest('[data-person]');
+    if (!p || e.target.closest('[data-rm]')) return;
+    D = { code: p.dataset.person, x: e.clientX, y: e.clientY, ghost: null, over: null };
+  });
+  document.addEventListener('pointermove', function (e) {
+    if (!D) return;
+    if (!D.ghost) {
+      if (Math.abs(e.clientX - D.x) + Math.abs(e.clientY - D.y) < 6) return;
+      D.ghost = document.createElement('div');
+      D.ghost.className = 'gw-va-ghost';
+      D.ghost.textContent = name(D.code);
+      document.body.appendChild(D.ghost);
+      document.body.classList.add('gw-va-dragging');
+    }
+    D.ghost.style.left = e.clientX + 'px';
+    D.ghost.style.top = e.clientY + 'px';
+    var t = document.elementFromPoint(e.clientX, e.clientY);
+    var over = t && (t.closest('.gw-va-chip[data-person]') || t.closest('[data-drop]'));
+    if (over !== D.over) {
+      if (D.over) D.over.classList.remove('over');
+      if (over) over.classList.add('over');
+      D.over = over;
+    }
+  });
+  document.addEventListener('pointerup', function (e) {
+    if (!D) return;
+    var d = D;
+    D = null;
+    if (!d.ghost) return;            // 움직이지 않았으면 누르기(click)로 처리
+    d.ghost.remove();
+    document.body.classList.remove('gw-va-dragging');
+    if (d.over) d.over.classList.remove('over');
+    // 끌기 직후 브라우저가 click 을 보낼 수도, 안 보낼 수도 있다 — 그 한 번만 막고 곧 풀어 다음 누르기는 살린다
+    S.suppressClick = true;
+    setTimeout(function () { S.suppressClick = false; }, 0);
+    drop(d.code, document.elementFromPoint(e.clientX, e.clientY));
+  });
+
+  // 누르기 — 사람 고르기 / 차에 넣기 / 명단으로 빼기
+  document.addEventListener('click', function (e) {
+    if (S.suppressClick) { S.suppressClick = false; return; }
+    if (!S.canEdit) return;
+    var rm = e.target.closest('[data-rm]');
+    if (rm) {
+      var c = carOf(rm.dataset.plate);
+      c.people.splice(c.people.indexOf(rm.dataset.rm), 1);
+      setDirty(true);
+      render();
+      return;
+    }
+    if (e.target.closest('input, select')) return;
+    var p = e.target.closest('[data-person]');
+    if (p && S.picked && S.picked !== p.dataset.person && p.dataset.in) {   // 고른 사람을 차 안 이 사람 앞자리로
+      drop(S.picked, p);
+      return;
+    }
+    if (p) { pick(p.dataset.person); return; }
+    if (S.picked) {
+      var target = e.target.closest('[data-drop]');
+      if (target) drop(S.picked, target);
+    }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && S.picked) { pick(S.picked); return; }
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-drop="car"], .gw-va-chip[data-person]')) {
+      e.preventDefault();
+      e.target.click();
+    }
+  });
   document.addEventListener('change', function (e) {
     var t = e.target;
-    if (t.dataset.add) {
-      if (t.value) moveTo(t.value, t.dataset.add);
-      render();
-    } else if (t.dataset.note) {
+    if (t.dataset.note) {
       carOf(t.dataset.note).note = t.value.trim();
       setDirty(true);
     } else if (t.dataset.fixed) {
@@ -193,16 +317,8 @@
       post('/api/vehicles/fleet/' + encodeURIComponent(fc.plate), { fixed_user: t.value }).then(function (j) {
         fc.fixed_user = j.car.fixed_user; fc.fixed_name = name(j.car.fixed_user);
         msg(fc.label + '의 평소 사용자를 ' + (fc.fixed_user ? fc.fixed_name : '없음') + '(으)로 바꿨어요.', 'ok');
-      }).catch(function (e) { msg(e.message, 'err'); t.value = fc.fixed_user || ''; });
+      }).catch(function (e2) { msg(e2.message, 'err'); t.value = fc.fixed_user || ''; });
     }
-  });
-  document.addEventListener('click', function (e) {
-    var rm = e.target.closest('[data-rm]');
-    if (!rm) return;
-    var c = carOf(rm.dataset.plate);
-    c.people.splice(c.people.indexOf(rm.dataset.rm), 1);
-    setDirty(true);
-    render();
   });
   $('vaSave').addEventListener('click', function () { save(false); });
   $('vaConfirm').addEventListener('click', function () { save(true); });

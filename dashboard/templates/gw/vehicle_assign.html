@@ -7,7 +7,8 @@
 {% endblock %}
 
 {% block content %}
-{# 차량 배정(11-20) — 다음 날 어느 차를 누가 가지고 나가는지. 규칙은 services/vehicle_assign.py #}
+{# 차량 배정(11-20) — 다음 날 어느 차를 누가 가지고 나가는지. 규칙은 services/vehicle_assign.py
+   왼쪽 사람 명단 → 오른쪽 차로 끌어 놓기(휴대폰은 사람 누르고 차 누르기) — 부장님 11-20 #}
 <div class="gw-page gw-va" id="vaPage">
   <div class="gw-page-head">
     <h1 class="gw-page-title">차량 배정</h1>
@@ -21,13 +22,22 @@
   <div class="gw-va-status" id="vaStatus" role="status" aria-live="polite"></div>
   <div class="gw-vh-msg" id="vaMsg" role="status" aria-live="polite"></div>
 
-  <div class="gw-va-todo" id="vaTodo" hidden></div>
+  <div class="gw-va-board" id="vaBoard">
+    <aside class="gw-va-staff" id="vaStaff" data-drop="out" hidden>
+      <div class="gw-va-staff-head">
+        <strong>사람</strong>
+        <span id="vaStaffCount"></span>
+      </div>
+      <p class="gw-va-staff-how" id="vaStaffHow"></p>
+      <div id="vaStaffList"></div>
+    </aside>
 
-  <h2 class="gw-va-sec">공용 차</h2>
-  <div class="gw-va-list" id="vaShared"><p class="gw-empty">불러오는 중…</p></div>
-
-  <h2 class="gw-va-sec" id="vaFixedHead" hidden>고정 차 <span class="gw-va-sec-sub">평소엔 정해진 사람이 타요. 차가 모자란 날만 빌려 쓰기로 넣어 주세요.</span></h2>
-  <div class="gw-va-list" id="vaFixed"></div>
+    <section class="gw-va-cars">
+      <div class="gw-va-list" id="vaShared"><p class="gw-empty">불러오는 중…</p></div>
+      <h2 class="gw-va-sec" id="vaFixedHead" hidden>고정 차 <span class="gw-va-sec-sub">평소엔 정해진 사람이 타요. 차가 모자란 날만 빌려 쓰기로 넣어 주세요.</span></h2>
+      <div class="gw-va-list" id="vaFixed"></div>
+    </section>
+  </div>
 
   <div class="gw-va-bar" id="vaBar" hidden>
     <button type="button" class="btn btn-outline-secondary" id="vaSave">저장만</button>
