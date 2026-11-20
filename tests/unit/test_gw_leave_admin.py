@@ -8,7 +8,7 @@ import pytest
 from dashboard.services import hr
 from dashboard.services import leave as lv
 from dashboard.services import leave_web
-from tests.unit.test_gw_leave_apply import (ADMIN, JW, STAFF, YG, _as, _next_workday,  # noqa: F401
+from test_gw_leave_apply import (ADMIN, JW, STAFF, YG, _as, _next_workday,  # noqa: F401
                                             client, slack)
 
 
@@ -69,7 +69,7 @@ def test_change_request_via_web_then_approve_cancels_original(client, slack):
 def test_others_cannot_edit(client, slack):
     _as(client, STAFF)
     rid = client.post('/api/leave/apply', json=_body(_next_workday(3))).get_json()['id']
-    from tests.unit.test_gw_leave_apply import OTHER
+    from test_gw_leave_apply import OTHER
     _as(client, OTHER)
     r = client.post(f'/api/leave/{rid}/edit', json=_body(_next_workday(4)))
     assert r.status_code == 400 and '본인 휴가만' in r.get_json()['message']

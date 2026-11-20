@@ -2,8 +2,8 @@
 import io
 
 from dashboard.services import leave as lv
-from tests.unit.test_gw_leave_admin import _pid, mgr  # noqa: F401
-from tests.unit.test_gw_leave_apply import ADMIN, STAFF, _as, _next_workday, client, slack  # noqa: F401
+from test_gw_leave_admin import _pid, mgr  # noqa: F401
+from test_gw_leave_apply import ADMIN, STAFF, _as, _next_workday, client, slack  # noqa: F401
 
 
 def test_adjust_with_applies_on_and_cancel(client, mgr):
@@ -100,7 +100,7 @@ def test_monthly_api_self_and_others(client, mgr):
     _as(client, STAFF)
     j = client.get('/api/leave/monthly').get_json()
     assert j['success'] and 'months' in j['monthly']
-    from tests.unit.test_gw_leave_apply import OTHER  # noqa: F401
+    from test_gw_leave_apply import OTHER  # noqa: F401
     other_pid = _pid('고광일')
     assert client.get(f'/api/leave/monthly?pid={other_pid}').status_code == 403
     _as(client, ADMIN)
@@ -120,7 +120,7 @@ def lp(mgr, monkeypatch):
 
 def test_promo_send_ack_plan_designate_web(client, mgr, lp):
     from dashboard.blueprints import slack_leave
-    from tests.unit.test_gw_leave_apply import JW
+    from test_gw_leave_apply import JW
     to = next(g['valid_to'] for g in lv.grants('박민우'))
     _as(client, STAFF)
     assert client.get('/api/leave/promotions').status_code == 403
