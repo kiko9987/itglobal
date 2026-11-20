@@ -126,6 +126,7 @@ def is_workday(d: date) -> bool:
 #   영업은 근무표가 잡힌 토요일만 근무일인데 그룹웨어엔 근무표가 없다 → 휴가의 첫날이나 마지막 날로 고른 토요일은
 #   근무 토요일로 보고 세고(쉬려고 고른 날), 기간 가운데 낀 토요일은 근무가 없던 날로 보고 세지 않는다.
 #   플렉스 기록과 같다(박민재 10-06~10-10 은 10-10 을 세어 4일, 강민석 08-14~08-18 은 08-15 를 안 세어 2일).
+#   기술영업은 그룹웨어 토요일 휴무표(sat_off)가 확정된 달이면 그 표를 따른다 — 쉬는 토요일은 빼고 근무 토요일은 셈.
 WORK_WEEKDAY, WORK_SAT, WORK_SAT_SCHEDULE = 'weekday', 'sat', 'sat_schedule'
 WORK_LABELS = {WORK_WEEKDAY: '월~금', WORK_SAT: '월~토 (토요일 근무)', WORK_SAT_SCHEDULE: '월~금 + 근무표 토요일'}
 
@@ -158,14 +159,24 @@ def work_pattern(name: str) -> str:
 
 
 def staff_workday(d: date, pattern: str = WORK_WEEKDAY, first: Optional[date] = None,
-                  last: Optional[date] = None) -> bool:
-    """그 사람에게 d 가 근무일인가. first·last = 휴가 첫날·마지막 날(영업 근무표 토요일 판단용)."""
+                  last: Optional[date] = None, plan: Optional[Dict[date, bool]] = None) -> bool:
+    """그 사람에게 d 가 근무일인가. first·last = 휴가 첫날·마지막 날(영업 근무표 토요일 판단용).
+    plan = 확정된 토요일 휴무표 {토요일: 근무하는 날인가}(sat_off.work_saturdays) — 있으면 그걸 따른다(11-20)."""
     wd = d.weekday()
     if wd == 6:
         return False
+    if wd == 5 and plan and d in plan:
+        return plan[d] and not _is_holiday(d)
     if wd == 5 and not (pattern == WORK_SAT or (pattern == WORK_SAT_SCHEDULE and d in (first, last))):
         return False
     return not _is_holiday(d)
+
+
+def _sat_plan(name: str, pattern: str, start: date, end: date) -> Dict[date, bool]:
+    if pattern != WORK_SAT_SCHEDULE or not name:
+        return {}
+    from dashboard.services import sat_off
+    return sat_off.work_saturdays(name, start, end)
 
 
 def count_days(ltype: str, start: date, end: Optional[date], name: str = '',
@@ -174,12 +185,13 @@ def count_days(ltype: str, start: date, end: Optional[date], name: str = '',
     name 이 없으면 회사 달력(월~금). span = 원래 휴가 기간(한 해치만 셀 때 영업 토요일을 원래 첫날·마지막 날로 판단)."""
     pattern = work_pattern(name) if name else WORK_WEEKDAY
     if ltype in HALF_TYPES:
-        return 0.5 if staff_workday(start, pattern, start, start) else 0.0
+        return 0.5 if staff_workday(start, pattern, start, start, _sat_plan(name, pattern, start, start)) else 0.0
     end = end or start
     first, last = span or (start, end)
+    plan = _sat_plan(name, pattern, start, end)
     n, d = 0, start
     while d <= end:
-        if staff_workday(d, pattern, first, last):
+        if staff_workday(d, pattern, first, last, plan):
             n += 1
         d += timedelta(days=1)
     return float(n)
@@ -339,6 +351,9 @@ def _conn():
             cols = {r[1] for r in conn.execute('PRAGMA table_info(leave_requests)')}
             if 'replaces' not in cols:
                 conn.execute('ALTER TABLE leave_requests ADD COLUMN replaces INTEGER')
+            from dashboard.services.sat_off import DDL as _SAT_OFF_DDL   # 토요일 휴무표(11-20) — 같은 DB
+            for ddl in _SAT_OFF_DDL:
+                conn.execute(ddl)
             conn.commit()
             _table_ready = True
         yield conn
