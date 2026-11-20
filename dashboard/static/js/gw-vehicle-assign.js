@@ -112,7 +112,9 @@
   function render() {
     $('vaShared').innerHTML = S.cars.filter(function (c) { return c.usage !== 'fixed'; }).map(card).join('') ||
       '<p class="gw-empty">공용 차가 없어요.</p>';
-    $('vaFixed').innerHTML = S.cars.filter(function (c) { return c.usage === 'fixed'; }).map(card).join('');
+    var fixedCars = S.cars.filter(function (c) { return c.usage === 'fixed'; });
+    $('vaFixed').innerHTML = fixedCars.map(card).join('');
+    $('vaFixedHead').hidden = !fixedCars.length;   // 지금은 고정 차 없음(파나메라·벤츠·랜드로버는 배정에서 뺌, 11-20)
     $('vaBar').hidden = !S.canEdit;
     $('vaPasteBox').hidden = !S.canEdit;
     $('vaConfirm').textContent = S.confirmed ? '고친 내용 저장 · 바뀐 사람에게 알림' : '확정하고 알리기';

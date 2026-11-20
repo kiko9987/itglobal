@@ -5,7 +5,9 @@
 
 - 차 기준으로 사람을 붙인다(한 차에 여러 명, 맨 앞 사람 = 운행기록부 '사용자').
 - 공용 차(레이·쏘렌토·포터·스파크·모닝·카니발)는 매일 배정(카니발은 평소 YG 차지만 목록엔 넣는다 — 부장님 11-20).
-  고정 차(파나메라=JW, 벤츠=김영숙, 랜드로버)는 평소 그 사람 차, 차가 모자란 날만 '빌려 쓰기'로 그날 배정을 넣는다.
+- 파나메라(JW)·벤츠(김영숙)·랜드로버는 현장에 쓰지 않아 배정 화면에서 아예 뺀다(usage='off', 부장님 11-20).
+  목록(vehicle_fleet)엔 남겨 두고 나중에 km 입력·차량 정보에서 쓴다. FIXED(평소 사용자 + 빌려 쓰기)는
+  지금 쓰는 차가 없지만 화면은 그대로 둔다.
 - 확정하면 탄 사람마다 슬랙 DM. 확정 뒤 고치면 바뀐 사람에게만 다시 DM.
 - /일정확정이 끝나면 배정하는 사람(설정 vehicle_assigners, 기본 SJ)에게 '내일 차량 배정해 주세요' DM.
 - 카톡에 쓰던 글을 그대로 붙여 넣으면 채워 준다. 어느 차인지 모호하면(그냥 '레이') 그 사람이 최근에 탄 차를
@@ -25,7 +27,7 @@ from dashboard.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-SHARED, FIXED = 'shared', 'fixed'
+SHARED, FIXED, OFF = 'shared', 'fixed', 'off'      # OFF = 배정 화면에 안 나옴(현장에 안 쓰는 차)
 
 # 법인 차량(11-20 U+커넥트 차량 등록 화면 + 공유 드라이브 ★법인 차량관리폴더 기준).
 # (번호판, 부르는 이름, 차종, 연료, 법인, 공용/고정, 고정 사용자, 운행일지 필요, U+ 단말)
@@ -41,9 +43,9 @@ _SEED = [
     ('53우1783', '스파크 1783', '스파크', '가솔린', '글로벌', SHARED, '', 1, 1),
     ('60거5484', '모닝 5484', '모닝', '가솔린', '글로벌', SHARED, '', 1, 1),
     ('143고9687', '카니발 9687', '카니발', '디젤', '글로벌', SHARED, 'YG', 0, 1),   # 평소 YG, 매일 배정 목록엔 넣음(11-20)
-    ('204두8988', '파나메라 8988', '파나메라', '', '글로벌', FIXED, 'JW', 1, 0),
-    ('260나7350', '벤츠 7350', '벤츠', '', '그룹', FIXED, '김영숙', 1, 0),
-    ('133가6633', '랜드로버 6633', '랜드로버', '디젤', '플랜트', FIXED, '', 1, 0),
+    ('204두8988', '파나메라 8988', '파나메라', '', '글로벌', OFF, 'JW', 1, 0),      # 현장 안 씀 — 배정에서 뺌
+    ('260나7350', '벤츠 7350', '벤츠', '', '그룹', OFF, '김영숙', 1, 0),
+    ('133가6633', '랜드로버 6633', '랜드로버', '디젤', '플랜트', OFF, '', 1, 0),
 ]
 
 _DDL = [
@@ -131,7 +133,9 @@ def can_assign(email: str) -> bool:
 
 # ── 차량·직원 ───────────────────────────────────────────────────────────
 def fleet(include_inactive: bool = False) -> List[Dict]:
-    q = 'SELECT * FROM vehicle_fleet' + ('' if include_inactive else ' WHERE active = 1') + ' ORDER BY sort_no, plate'
+    """배정할 차(운용 중 + 배정 화면에 나오는 차). include_inactive=True 면 뺀 차까지 전부."""
+    q = ('SELECT * FROM vehicle_fleet' + ('' if include_inactive else f" WHERE active = 1 AND usage != '{OFF}'")
+         + ' ORDER BY sort_no, plate')
     with _conn() as conn:
         return [dict(r) for r in conn.execute(q).fetchall()]
 
@@ -140,8 +144,8 @@ def update_car(plate: str, values: Dict, by: str) -> Dict:
     """공용/고정·고정 사용자·부르는 이름만 고친다."""
     allowed = {}
     if 'usage' in values:
-        if values['usage'] not in (SHARED, FIXED):
-            raise ValueError('공용 또는 고정만 고를 수 있어요.')
+        if values['usage'] not in (SHARED, FIXED, OFF):
+            raise ValueError('공용·고정·배정 안 함 중에서 골라 주세요.')
         allowed['usage'] = values['usage']
     if 'fixed_user' in values:
         allowed['fixed_user'] = (values.get('fixed_user') or '').strip()[:20]
