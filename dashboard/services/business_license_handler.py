@@ -1097,6 +1097,27 @@ def fetch_license_canonical(code: str) -> Optional[dict]:
     }
 
 
+def _current_code(rc, channel: str, thread_ts: str, code: str) -> str:
+    """스레드 연결에 남은 코드를 지금 코드로 (옛 번호 → 새 번호 연결을 따라감) + 연결도 고쳐 둠.
+
+    2026-11-20 R4297-YG: 11-16 번호 당기기(R4298→R4297) 뒤에도 스레드 연결이 옛 번호로 남아 있어,
+    대표님이 올린 사업자등록증을 없는 R4298-YG 폴더에 넣으려다 "폴더가 없다"로 세 번 실패했다.
+    폴더 경로를 넣은 뒤에도 같은 이유로 실패했다."""
+    try:
+        from dashboard.services.project_rekey import resolve_project_code
+        cur = resolve_project_code(code) or code
+    except Exception:
+        return code
+    if cur != code:
+        logger.info(f'[LICENSE] 스레드 연결이 옛 코드 {code} → 지금 {cur} 로 고침 ({channel}|{thread_ts})')
+        try:
+            ttl = rc.ttl(f'project_thread:{channel}|{thread_ts}')
+            rc.set(f'project_thread:{channel}|{thread_ts}', cur, ex=ttl if ttl and ttl > 0 else None)
+        except Exception:
+            pass
+    return cur
+
+
 def resolve_project_from_thread(channel: str, thread_ts: str, slack_bot_token: str = '') -> Optional[str]:
     """channel|thread_ts → 프로젝트 코드 (없으면 None).
 
@@ -1114,7 +1135,7 @@ def resolve_project_from_thread(channel: str, thread_ts: str, slack_bot_token: s
         if isinstance(v, bytes):
             v = v.decode('utf-8')
         if v:
-            return v
+            return _current_code(rc, channel, thread_ts, v)
     except Exception as exc:
         logger.warning(f'[LICENSE] 스레드→프로젝트 Redis 조회 실패: {exc}')
 
@@ -1143,7 +1164,8 @@ def resolve_project_from_thread(channel: str, thread_ts: str, slack_bot_token: s
         # Slack fallback text 는 백틱이 벗겨진 상태로 옴 → 백틱 옵셔널.
         m = re.search(r'`?([GRNP]\d{3,5}-[A-Z]{1,3})`?', root_text)
         if m:
-            code = m.group(1)
+            from dashboard.services.project_rekey import resolve_project_code
+            code = resolve_project_code(m.group(1)) or m.group(1)   # 카드 본문이 옛 번호일 수 있다
             logger.info(f'[LICENSE] 스레드→프로젝트 slack fallback 매칭: {code}')
             # Redis 에 다시 저장 (다음 첨부에서 slack API 재조회 방지, 30일 TTL)
             try:

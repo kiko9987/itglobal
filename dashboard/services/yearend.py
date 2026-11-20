@@ -157,7 +157,6 @@ def my_view(person: dict, year: Optional[int] = None) -> dict:
     docs = hr.documents(person['id'], tag=tag(year))
     return {
         'year': year, 'season': season(year), 'submission': _sub(year, person['id']),
-        'families': hr.families(person['id']),
         'simple_docs': [d for d in docs if d['doc_type'] == KIND_TYPES['simple']],
         'extra_docs': [d for d in docs if d['doc_type'] == KIND_TYPES['extra']],
         'result_docs': [d for d in docs if d['doc_type'] == KIND_TYPES['result']],

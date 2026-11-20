@@ -163,10 +163,12 @@ AREAS = [
     {
         'key': 'sales', 'label': '영업', 'icon': 'fas fa-briefcase',
         'items': [
+            # 순서(11-18 부장님): 자주 쓰는 프로젝트 → 일을 따오는 입구(리드·입찰) → 끝난 공사 글(시공사례) → 보고(통계)
             {'href': '/projects', 'label': '프로젝트', 'icon': 'fas fa-folder-open'},
             {'href': '/leads', 'label': '고객 리드', 'icon': 'fas fa-user-tie'},
-            {'href': '/stats', 'label': '매출통계', 'icon': 'fas fa-chart-bar'},
+            {'href': '/bids', 'label': '입찰 공고', 'icon': 'fas fa-gavel'},   # 나라장터(11-18)
             {'href': '/case-posts', 'label': '시공사례', 'icon': 'fas fa-camera', 'admin': True},
+            {'href': '/stats', 'label': '매출 통계', 'icon': 'fas fa-chart-bar'},
         ],
     },
     {
@@ -179,7 +181,7 @@ AREAS = [
         'key': 'leave', 'label': '휴가', 'icon': 'fas fa-umbrella-beach',
         'items': [
             {'href': '/leave', 'label': '내 휴가', 'icon': 'fas fa-calendar-check', 'field': True},
-            {'href': '/leave/team', 'label': '전사 현황', 'icon': 'fas fa-calendar-alt', 'leave_all': True},
+            {'href': '/leave/team', 'label': '전사 휴가 관리', 'icon': 'fas fa-calendar-alt', 'leave_all': True},
         ],
     },
     {

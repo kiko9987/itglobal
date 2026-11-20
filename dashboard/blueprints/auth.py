@@ -38,6 +38,20 @@ def login_page():
     return render_template('login.html', oauth_enabled=oauth_enabled)
 
 
+def _callback_uri() -> str:
+    """구글 로그인 복귀 주소 — 들어온 주소(pm·gw)에 맞는 것(2026-11-19 gw.itg-aircon.com 추가).
+
+    GOOGLE_OAUTH_REDIRECT_URIS(구글 콘솔에 등록한 목록) 중 지금 요청 host 와 같은 것을 쓴다. 로그인 시작과 복귀가
+    같은 주소여야 세션(oauth_state)이 이어진다 — gw 에서 시작했는데 pm 으로 돌아가면 상태 불일치로 실패.
+    목록에 없으면 예전처럼 GOOGLE_OAUTH_DEFAULT_REDIRECT_URI, 그것도 없으면 url_for."""
+    host = (request.host or '').lower()
+    for u in os.getenv('GOOGLE_OAUTH_REDIRECT_URIS', '').split(','):
+        u = u.strip()
+        if u and u.split('://', 1)[-1].split('/', 1)[0].lower() == host:
+            return u
+    return os.getenv('GOOGLE_OAUTH_DEFAULT_REDIRECT_URI', '').strip() or url_for('auth.google_callback', _external=True)
+
+
 @auth_bp.route('/auth/google')
 def google_login():
     """구글 OAuth 로그인 시작"""
@@ -46,10 +60,10 @@ def google_login():
             return redirect(url_for('auth.login_page', message='oauth_not_configured'))
 
         # 2026-07-08 진단: 실제 전송되는 redirect_uri를 로그로 확인 + .env override
-        _forced = os.getenv('GOOGLE_OAUTH_DEFAULT_REDIRECT_URI', '').strip()
+        # 2026-11-19: pm·gw 두 주소 — 들어온 주소에 맞는 복귀 주소(_callback_uri)
         _url_for = url_for('auth.google_callback', _external=True)
-        _effective = _forced or _url_for
-        logger.info(f"[OAuth] google_login: url_for={_url_for!r} env={_forced!r} effective={_effective!r}")
+        _effective = _callback_uri()
+        logger.info(f"[OAuth] google_login: url_for={_url_for!r} effective={_effective!r}")
 
         authorization_url, state = get_google_oauth().get_authorization_url(
             redirect_uri=_effective
@@ -93,10 +107,9 @@ def google_callback():
 
         # 사용자 정보 가져오기 (credentials도 함께)
         # 2026-07-08: callback 시점에도 .env override 사용 (ProxyFix가 https 인식 못 하는 케이스 대비)
-        _forced = os.getenv('GOOGLE_OAUTH_DEFAULT_REDIRECT_URI', '').strip()
         _url_for = url_for('auth.google_callback', _external=True)
-        _effective = _forced or _url_for
-        logger.info(f"[OAuth] callback: url_for={_url_for!r} env={_forced!r} effective={_effective!r}")
+        _effective = _callback_uri()
+        logger.info(f"[OAuth] callback: url_for={_url_for!r} effective={_effective!r}")
 
         try:
             user_info, credentials = get_google_oauth().get_user_info(

@@ -114,8 +114,19 @@ def api_card(pid):
     c = hr.card(pid, me)
     if not c:
         return jsonify({'success': False, 'message': '없는 구성원입니다.'}), 404
+    from dashboard.services import hr_requests as hq
+    mine = _my_person()
+    if mine and mine['id'] == pid:
+        c['can_self_edit'] = True                 # 연락처·비상연락망·서류 올리기는 본인이 바로(11-20)
+        c['self_doc_types'] = hq.SELF_DOC_TYPES
     if _hr_admin():
         c['access_log'] = hr.access_log(pid)
+        try:
+            from dashboard.services import hr_tasks as ht
+            c['tasks'] = [dict(t, title=ht.title(t), due_label=ht.due_label(t), guide=ht.KINDS[t['kind']][3])
+                          for t in ht.for_person(pid) if t['kind'] in ht.KINDS]
+        except Exception as e:
+            logger.warning(f'[HR] 할 일 불러오기 실패 #{pid}: {e}')
     # 경력·학력·가족·서류 — 여기까지 왔으면 본인 또는 인사카드 관리자
     c.update(hr.private_sections(pid))
     return jsonify({'success': True, 'person': c})
@@ -159,6 +170,28 @@ def api_doc_upload(pid):
         return _fail(e)
 
 
+@hr_bp.route('/api/hr/people/<int:pid>/certificate', methods=['POST'])
+@gw_page
+def api_certificate(pid):
+    """재직·경력증명서 바로 발급(11-20) — 인사카드 관리자만. 퇴직자·창구 요청용. PDF 를 돌려주고 인사카드 서류에도 남김."""
+    if not _hr_admin():
+        return jsonify({'success': False, 'message': '증명서 발급은 경영지원·대표만 할 수 있습니다.'}), 403
+    from flask import send_file
+    from dashboard.services import certificates as ct
+    body = request.get_json(silent=True) or {}
+    try:
+        res = ct.issue_pdf(pid, body.get('ctype', ''), (body.get('purpose') or '').strip()[:100], _me(),
+                           ssn=bool(body.get('ssn')), group_date=bool(body.get('group_date')))
+    except (ValueError, RuntimeError, LookupError) as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+    logger.info(f"[HR] 증명서 발급 #{pid} {res['doc_no']} by {_me()}")
+    resp = send_file(io.BytesIO(res['pdf']), mimetype='application/pdf', as_attachment=True,
+                     download_name=res['file_name'], max_age=0)
+    resp.headers['Cache-Control'] = 'no-store'
+    resp.headers['X-Doc-No'] = res['doc_no']
+    return resp
+
+
 @hr_bp.route('/api/hr/documents/<int:doc_id>', methods=['DELETE'])
 @gw_page
 def api_doc_delete(doc_id):
@@ -180,12 +213,112 @@ def api_family_ssn(fid):
         return _fail(e)
 
 
+# ── 본인 정보 변경 요청(11-20) — 내 정보에서 요청 → 경영지원 반영·반려 ─────────────
+def _dm(uids, text: str) -> None:
+    """전자결재 봇 DM(뒤에서) — 실패해도 화면은 그대로."""
+    import threading
+
+    def _bg():
+        try:
+            from dashboard.blueprints import slack_eapproval as se
+            c = se.eap_client()
+            if c:
+                for u in uids:
+                    se._notify(c, u, text)
+        except Exception as e:
+            logger.warning(f'[HR] 변경 요청 알림 실패: {e}')
+    threading.Thread(target=_bg, daemon=True).start()
+
+
+def _base_url() -> str:
+    import os
+    return ((os.getenv('GW_PUBLIC_URL') or '').strip() or 'https://pm.itg-aircon.com').rstrip('/')
+
+
+def _requester_id() -> str:
+    p = _my_person() or {}
+    return (_me() if not _is_field() else '') or p.get('name') or ''
+
+
+def _after_self_edit(row: dict) -> None:
+    from dashboard.services import certificates as ct
+    from dashboard.services import hr_requests as hq
+    _dm(ct.handler_ids(), f"✏️ {row['name']} 님이 내 정보에서 {row['kind_label']}을(를) 고쳤어요 — {hq.summary(row)}\n"
+                          f"보기: {_base_url()}/hr/people#{row['person_id']}")
+    logger.info(f"[HR] 본인 수정 #{row['person_id']} {row['name']} {row['kind']}")
+
+
+@hr_bp.route('/api/hr/me/<kind>', methods=['POST'])
+@gw_page
+def api_self_edit(kind):
+    """내 정보 직접 고치기(11-20) — 연락처·비상연락망·서류 올리기만. 나머지는 경영지원(update_person)."""
+    from dashboard.services import hr_requests as hq
+    me = _my_person()
+    if not me:
+        return jsonify({'success': False, 'message': '인사카드가 연결되지 않았어요. 경영지원에 문의해 주세요.'}), 403
+    try:
+        if kind == 'contact':
+            row = hq.update_info(me, request.get_json(silent=True) or {}, _requester_id())
+        elif kind == 'family':
+            row = hq.update_family(me, (request.get_json(silent=True) or {}).get('rows') or [], _requester_id())
+        elif kind == 'documents':
+            f = request.files.get('file')
+            if not f:
+                return jsonify({'success': False, 'message': '파일을 골라 주세요.'}), 400
+            row = hq.upload_doc(me, request.form.get('doc_type', ''), f.filename or '', f.read(), _requester_id())
+        else:
+            return jsonify({'success': False, 'message': '고칠 수 없는 항목이에요.'}), 404
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+    _after_self_edit(row)
+    return jsonify({'success': True})
+
+
+def _sync_tasks() -> None:
+    """입사일·퇴사일이 바뀌었을 수 있으니 입사·퇴사 할 일을 맞춘다(11-20) — 뒤에서, 실패해도 저장은 그대로."""
+    try:
+        from dashboard.blueprints.slack_hr_tasks import sync_async
+        sync_async()
+    except Exception as e:
+        logger.warning(f'[HR] 할 일 맞추기 시작 실패: {e}')
+
+
+@hr_bp.route('/api/hr/tasks/<int:tid>/done', methods=['POST'])
+@gw_page
+def api_task_done(tid):
+    """입사·퇴사 할 일 [완료] — 인사카드 관리자. 슬랙 DM 카드도 같이 닫힘으로 바꾼다."""
+    if not _hr_admin():
+        return jsonify({'success': False, 'message': '경영지원·대표만 처리할 수 있습니다.'}), 403
+    from dashboard.services import hr_tasks as ht
+    me = hr.find_by_email(_me()) or {}
+    row = ht.complete(tid, me.get('name') or _me())
+    cur = row or ht.get(tid)
+    if not cur:
+        return jsonify({'success': False, 'message': '없는 할 일입니다.'}), 404
+    if row:
+        import threading
+
+        def _bg():
+            try:
+                from dashboard.blueprints import slack_eapproval as se
+                from dashboard.blueprints.slack_hr_tasks import _refresh
+                c = se.eap_client()
+                if c:
+                    _refresh(c, row)
+            except Exception as e:
+                logger.warning(f'[HR] 할 일 슬랙 카드 고치기 실패 #{tid}: {e}')
+        threading.Thread(target=_bg, daemon=True).start()
+        logger.info(f'[HR] 할 일 완료 #{tid} by {_me()}')
+    return jsonify({'success': True, 'tasks': ht.for_person(cur['person_id'])})
+
+
 @hr_bp.route('/api/hr/people/<int:pid>', methods=['PUT'])
 @gw_page
 def api_update(pid):
     try:
         c = hr.update_person(pid, request.get_json(silent=True) or {}, _me())
         logger.info(f'[HR] 인사카드 수정 #{pid} by {_me()}')
+        _sync_tasks()
         return jsonify({'success': True, 'person': c})
     except Exception as e:
         return _fail(e)
@@ -197,6 +330,7 @@ def api_create():
     try:
         c = hr.create_person(request.get_json(silent=True) or {}, _me())
         logger.info(f'[HR] 구성원 추가 #{c["id"]} by {_me()}')
+        _sync_tasks()
         return jsonify({'success': True, 'person': c})
     except Exception as e:
         return _fail(e)
@@ -318,7 +452,13 @@ def api_leave_me():
     except Exception as e:
         logger.warning(f'[GW휴가] 신청 창 정보 실패: {e}', exc_info=True)
         form = {'can_apply': False, 'why': '휴가 신청 정보를 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.'}
-    return jsonify({'success': True, 'leave': leave_web.annotate(leave_view.summary(p), user), 'form': form})
+    summary = leave_web.annotate(leave_view.summary(p), user)
+    try:
+        summary['promotions'] = leave_web.promotions_for(user)   # 연차 사용 촉진 문서(11-18)
+    except Exception as e:
+        logger.warning(f'[GW휴가] 촉진 정보 실패: {e}', exc_info=True)
+        summary['promotions'] = []
+    return jsonify({'success': True, 'leave': summary, 'form': form})
 
 
 # ── 휴가(본인 신청·취소) — 슬랙 휴가 앱과 같은 장부·같은 알림 ──────────────
@@ -414,6 +554,64 @@ def api_leave_adjust(pid):
     return jsonify({'success': True, 'days': g['days']})
 
 
+@hr_bp.route('/api/leave/adjust-bulk', methods=['POST'])
+@gw_page
+def api_leave_adjust_bulk():
+    """전 직원 연차 부여·차감(플렉스 같은 표) — 모두 맞을 때만 한꺼번에 넣는다."""
+    from dashboard.services import leave_web
+    try:
+        made, errs = leave_web.adjust_bulk(session.get('user') or {}, request.get_json(silent=True) or {})
+    except Exception as e:
+        return _fail(e)
+    if errs:
+        msg = errs.pop('_', '') or '고칠 칸이 있어요. 빨간 글을 확인해 주세요.'
+        return jsonify({'success': False, 'message': msg, 'errors': errs}), 400
+    return jsonify({'success': True, 'count': len(made)})
+
+
+@hr_bp.route('/api/leave/person/<int:pid>/custom-grant', methods=['POST'])
+@gw_page
+def api_leave_custom_grant(pid):
+    """맞춤 휴가 부여(보건·난임 등 일수를 먼저 주면 직원이 신청) — 11-18."""
+    from dashboard.services import leave_web
+    p, name = _leave_person_name(pid)
+    if not name:
+        return jsonify({'success': False, 'message': '휴가 장부에 연결되지 않은 직원이에요.'}), 404
+    try:
+        g, err = leave_web.custom_grant(session.get('user') or {}, name, request.get_json(silent=True) or {})
+    except Exception as e:
+        return _fail(e)
+    if err:
+        return jsonify({'success': False, 'message': err}), 400
+    return jsonify({'success': True, 'id': g['id']})
+
+
+@hr_bp.route('/api/leave/custom-grant/<int:gid>/cancel', methods=['POST'])
+@gw_page
+def api_leave_custom_grant_cancel(gid):
+    from dashboard.services import leave_web
+    try:
+        msg = leave_web.cancel_custom_grant(session.get('user') or {}, gid)
+    except Exception as e:
+        return _fail(e)
+    if msg:
+        return jsonify({'success': False, 'message': msg}), 400
+    return jsonify({'success': True})
+
+
+@hr_bp.route('/api/leave/adjust/<int:gid>/cancel', methods=['POST'])
+@gw_page
+def api_leave_adjust_cancel(gid):
+    from dashboard.services import leave_web
+    try:
+        g, err = leave_web.cancel_adjust(session.get('user') or {}, gid)
+    except Exception as e:
+        return _fail(e)
+    if err:
+        return jsonify({'success': False, 'message': err}), 400
+    return jsonify({'success': True})
+
+
 @hr_bp.route('/api/leave/person/<int:pid>/register', methods=['POST'])
 @gw_page
 def api_leave_register(pid):
@@ -429,6 +627,23 @@ def api_leave_register(pid):
         msg = errs.pop('_', '') or next(iter(errs.values()))
         return jsonify({'success': False, 'message': msg, 'errors': errs}), 400
     return jsonify({'success': True, 'id': row['id'], 'days': row['days']})
+
+
+@hr_bp.route('/api/leave/person/<int:pid>/settlement', methods=['GET'])
+@gw_page
+def api_leave_settlement(pid):
+    """퇴직 정산(회계연도 기준 ↔ 입사일 기준 차이·미사용 연차) — 경영지원만, last_day=마지막 근무일."""
+    from dashboard.services import leave_web
+    p = hr.get_person(pid)
+    if not p:
+        return jsonify({'success': False, 'message': '없는 구성원입니다.'}), 404
+    try:
+        out = leave_web.settlement(session.get('user') or {}, p, request.args.get('last_day') or '')
+    except Exception as e:
+        return _fail(e)
+    if not out.get('ok'):
+        return jsonify({'success': False, 'message': out.get('why') or '계산하지 못했어요.'}), 400
+    return jsonify({'success': True, 'settlement': out})
 
 
 @hr_bp.route('/api/leave/person/<int:pid>', methods=['GET'])
@@ -456,7 +671,127 @@ def api_leave_team():
     from dashboard.services import leave_view
     if not _leave_all():
         return jsonify({'success': False, 'message': '전 직원 휴가 현황은 볼 수 없는 계정입니다.'}), 403
-    return jsonify({'success': True, 'people': leave_view.team()})
+    from dashboard.services import leave_web
+    return jsonify({'success': True, 'people': leave_view.team(),
+                    'can_manage': bool(leave_web.manager_sid(session.get('user') or {}))})
+
+
+@hr_bp.route('/api/leave/export', methods=['GET'])
+@gw_page
+def api_leave_export():
+    """엑셀 — kind=balance(보유 현황)|usage(사용 내역)|monthly(월별 연차 사용), year. 전 직원 휴가 열람자만(11-18)."""
+    from datetime import date as _date
+    from flask import send_file
+    from dashboard.services import leave_export
+    if not _leave_all():
+        return jsonify({'success': False, 'message': '전 직원 휴가는 내려받을 수 없는 계정입니다.'}), 403
+    kind = request.args.get('kind') or 'balance'
+    try:
+        year = int(request.args.get('year') or _date.today().year)
+        if not 2020 <= year <= 2100 or kind not in leave_export.KINDS:
+            raise ValueError
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'message': '내려받을 종류·연도를 다시 골라 주세요.'}), 400
+    try:
+        data, fname = leave_export.build(kind, year)
+    except Exception as e:
+        return _fail(e)
+    logger.info(f'[GW휴가] 엑셀 내려받기 {kind} {year} ({_me()})')
+    resp = send_file(io.BytesIO(data), as_attachment=True, download_name=fname, max_age=0,
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@hr_bp.route('/api/leave/monthly', methods=['GET'])
+@gw_page
+def api_leave_monthly():
+    """직원별 월별 연차 상세 — pid(없으면 본인), year. 본인 또는 전 직원 열람자."""
+    from datetime import date as _date
+    from dashboard.services import leave as lv
+    from dashboard.services import leave_view
+    mine = _my_person()
+    try:
+        pid = int(request.args.get('pid') or (mine or {}).get('id') or 0)
+        year = int(request.args.get('year') or _date.today().year)
+        if not 2020 <= year <= 2100:
+            raise ValueError
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'message': '연도를 다시 골라 주세요.'}), 400
+    if not _leave_all() and not (mine and mine['id'] == pid):
+        return jsonify({'success': False, 'message': '본인 휴가만 볼 수 있습니다.'}), 403
+    p = hr.get_person(pid)
+    if not p:
+        return jsonify({'success': False, 'message': '없는 구성원입니다.'}), 404
+    name = leave_view.leave_name(p)
+    if not name:
+        return jsonify({'success': True, 'monthly': {'year': year, 'months': [], 'opening': 0}})
+    return jsonify({'success': True, 'monthly': lv.monthly_detail(name, year)})
+
+
+@hr_bp.route('/api/leave/promotions', methods=['GET'])
+@gw_page
+def api_leave_promotions():
+    """연차 촉진 탭 — 전 직원 휴가 열람자만(처리 단추는 경영지원만)."""
+    from dashboard.services import leave_web
+    if not _leave_all():
+        return jsonify({'success': False, 'message': '연차 촉진 기록은 볼 수 없는 계정입니다.'}), 403
+    try:
+        return jsonify({'success': True, **leave_web.promo_list(session.get('user') or {})})
+    except Exception as e:
+        return _fail(e)
+
+
+@hr_bp.route('/api/leave/promotions/send', methods=['POST'])
+@gw_page
+def api_leave_promo_send():
+    from dashboard.services import leave_web
+    try:
+        rec, err = leave_web.promo_send(session.get('user') or {}, request.get_json(silent=True) or {})
+    except Exception as e:
+        return _fail(e)
+    if err:
+        return jsonify({'success': False, 'message': err}), 400
+    return jsonify({'success': True, 'id': rec['id']})
+
+
+@hr_bp.route('/api/leave/promotions/<int:pid>/designate', methods=['POST'])
+@gw_page
+def api_leave_promo_designate(pid):
+    from dashboard.services import leave_web
+    try:
+        rec, err = leave_web.promo_designate(session.get('user') or {}, pid, request.get_json(silent=True) or {})
+    except Exception as e:
+        return _fail(e)
+    if err:
+        return jsonify({'success': False, 'message': err}), 400
+    return jsonify({'success': True})
+
+
+@hr_bp.route('/api/leave/promotions/<int:pid>/ack', methods=['POST'])
+@gw_page
+def api_leave_promo_ack(pid):
+    from dashboard.services import leave_web
+    try:
+        msg = leave_web.promo_ack(session.get('user') or {}, pid)
+    except Exception as e:
+        return _fail(e)
+    if msg:
+        return jsonify({'success': False, 'message': msg}), 400
+    return jsonify({'success': True})
+
+
+@hr_bp.route('/api/leave/promotions/<int:pid>/plan', methods=['POST'])
+@gw_page
+def api_leave_promo_plan(pid):
+    from dashboard.services import leave_web
+    try:
+        rec, err = leave_web.promo_plan(session.get('user') or {}, pid, request.get_json(silent=True) or {})
+    except Exception as e:
+        return _fail(e)
+    if err:
+        return jsonify({'success': False, 'message': err}), 400
+    return jsonify({'success': True})
 
 
 @hr_bp.route('/api/leave/calendar', methods=['GET'])

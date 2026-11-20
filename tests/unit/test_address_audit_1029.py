@@ -379,6 +379,36 @@ def test_branch_and_coffee_signal_l04558():
     assert ar._strip_personal_name('1층 국면당 공세점') == '1층 국면당 공세점'
 
 
+def test_corp_mark_stripped_from_building_name_l04615(monkeypatch):
+    bld = {'road_address': {'building_name': '주식회사에이피로지스틱스'}}
+    monkeypatch.setattr(ar, '_kakao_search', lambda q: bld)
+    assert ar._strip_corp_building_name('인천 서해구 정서진로 47 주식회사에이피로지스틱스 퍼니랜드') == \
+        '인천 서해구 정서진로 47 에이피로지스틱스 퍼니랜드'
+    # 건물 주인 회사 자체 방문(뒤에 다른 상호 없음·본관/공장만)은 회사 표기 유지
+    monkeypatch.setattr(ar, '_kakao_search', lambda q: {'road_address': {'building_name': '(주)삼인'}})
+    assert ar._strip_corp_building_name('시흥 공단1대로195번길 38 (주)삼인') == '시흥 공단1대로195번길 38 (주)삼인'
+    monkeypatch.setattr(ar, '_kakao_search', lambda q: {'road_address': {'building_name': '(주)에이스테크'}})
+    assert ar._strip_corp_building_name('안산 단원구 산단로67번길 73 (주)에이스테크 본관') == \
+        '안산 단원구 산단로67번길 73 (주)에이스테크 본관'
+    # 카카오 건물명이 아닌 고객 상호의 (주)는 그대로
+    monkeypatch.setattr(ar, '_kakao_search', lambda q: {'road_address': {'building_name': '벽산디지털밸리6차'}})
+    assert ar._strip_corp_building_name('가산디지털1로 219 벽산디지털밸리6차 607호 (주)아키아카') == \
+        '가산디지털1로 219 벽산디지털밸리6차 607호 (주)아키아카'
+
+
+def test_planned_site_word_kept_l04599(monkeypatch):
+    # 원문 끝 다단어 상호 보존이 '예정지'까지 잘라 '(예정)'이 빠지던 것 (11-19)
+    monkeypatch.setattr(ar, '_enrich_with_poi', lambda v, t: v)
+    out = ar._enrich_verified_address(
+        '용인 처인구 원삼면 농촌파크로 199',
+        '처인구 원삼면 고당리 296-1 1층 2층 용인스크린 예정지', None)
+    assert out.endswith('용인스크린 예정지')
+    assert ar._mark_planned(out).endswith('용인스크린 (예정)')
+    out2 = ar._enrich_verified_address(
+        '강남구 테헤란로 207', '강남구 테헤란로 207 8층 사무실 설치 예정', None)
+    assert out2.endswith('8층 사무실')
+
+
 def test_planned_paren_glued_l04587():
     # '(골프연습장예정)' — '예정)'에서 잘려 '2층(골프연습장'이 되던 것
     assert ar._extract_building_tail('도봉구 도당로 141 진일빌딩 2층(골프연습장예정)') == \

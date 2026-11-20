@@ -211,6 +211,56 @@
   gap: 6px;
 }
 
+/* 입사·퇴사 할 일(11-20) — 인사카드 */
+.gw-tasks { list-style: none; padding: 0; margin: 0; }
+.gw-task { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid #e2e8f0;
+  border-radius: 8px; margin-bottom: 6px; background: #fff; }
+.gw-task.late { border-color: #f5c2c7; background: #fff8f8; }
+.gw-task.done { color: #64748b; background: #f8fafc; }
+.gw-task.done b { text-decoration: line-through; font-weight: 600; }
+.gw-task-main { flex: 1; min-width: 0; }
+.gw-task-due { font-size: 0.82rem; color: #475569; margin-left: 4px; }
+.gw-task.late .gw-task-due { color: #b42318; font-weight: 600; }
+.gw-task-guide { font-size: 0.84rem; color: #475569; margin-top: 3px; }
+@media (max-width: 767.98px) { .gw-task .btn { min-height: 44px; } }
+
+/* 본인 정보 변경 요청(11-20) */
+.gw-req-form { margin: 8px 0 12px; padding: 12px 14px; border: 1px solid #dbe3ec; border-radius: 10px; background: #f8fafc;
+  display: grid; grid-template-columns: 180px 1fr; gap: 10px; }
+.gw-req-form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.82rem; color: #475569; }
+.gw-req-form .gw-req-wide, .gw-req-form .gw-req-btns, .gw-req-form .gw-req-fams, .gw-req-form [data-fam-add] { grid-column: 1 / -1; }
+#hrReqFamForm { grid-template-columns: 1fr; }
+#hrReqFamForm [data-fam-add] { justify-self: start; }
+.gw-req-fam { display: grid; grid-template-columns: 1fr 1fr 1.2fr auto; gap: 6px; margin-bottom: 6px; }
+.gw-req-btns { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.gw-req-act { display: flex; gap: 6px; flex-shrink: 0; }
+@media (max-width: 767.98px) {
+  .gw-req-form { grid-template-columns: 1fr; }
+  .gw-req-fam { grid-template-columns: 1fr 1fr; }
+  .gw-req-form .btn, .gw-req-act .btn { min-height: 44px; }
+}
+
+/* 증명서 바로 발급(11-20) — 인사카드 머리 아래 펼침 */
+.gw-cert {
+  margin: 12px 0 4px;
+  padding: 14px 16px;
+  border: 1px solid #dbe3ec;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+.gw-cert-title { font-weight: 700; font-size: 0.95rem; margin-bottom: 10px; }
+.gw-cert-title .text-muted { font-weight: 400; font-size: 0.82rem; margin-left: 6px; }
+.gw-cert-grid { display: grid; grid-template-columns: 160px 160px 1fr; gap: 10px; }
+.gw-cert-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 0.82rem; color: #475569; }
+.gw-cert-check { display: block; margin-top: 10px; font-size: 0.88rem; }
+.gw-cert-check input { margin-right: 6px; }
+.gw-cert-actions { display: flex; gap: 6px; margin-top: 12px; }
+.gw-cert-msg { margin-top: 8px; font-size: 0.85rem; min-height: 1.2em; }
+@media (max-width: 767.98px) {
+  .gw-cert-grid { grid-template-columns: 1fr; }
+  .gw-cert-actions .btn { min-height: 44px; }
+}
+
 /* 소제목 / 항목 이름 / 값 — 글자 단계 3개로 나눔(11-10 KiKO: 소제목과 항목 구분이 어려움)
    소제목 = 15px 굵은 검정 + 위 구분선·넉넉한 간격, 항목 이름 = 13px 연한 회색, 값 = 14.5px 검정 약간 굵게 */
 .gw-sec-title {
@@ -757,6 +807,7 @@
 
 /* ── 휴가 ─────────────────────────────────────── */
 .gw-badge-reject { background: #fee2e2; color: #991b1b; }
+.gw-badge-wait { background: #fef3c7; color: #92400e; }   /* 확인 중(변경 요청 11-20) */
 
 .gw-stats {
   display: grid;
@@ -829,9 +880,22 @@
 }
 
 .gw-page select.gw-year-select,
-.modal select.gw-year-select {
+.modal select.gw-year-select,
+#lvPersonModal select.gw-year-select {
   width: 110px;
   flex-shrink: 0;
+}
+
+/* 제목 + 오른쪽 단추·연도 줄 — 제목 위 구분선이 제목 길이만큼 짧게 떠 있던 것·좁으면 글자가 세로로 꺾이던 것(11-19) */
+.gw-sec-head .gw-sec-title {
+  margin: 0;
+  padding-top: 0;
+  border-top: 0;
+  white-space: nowrap;
+}
+.gw-sec-head {
+  padding-top: 14px;
+  border-top: 1px solid #eeeff1;
 }
 
 .gw-table-wrap {
@@ -1747,6 +1811,17 @@ body.gw-shell .gw-stats .gw-stat {
   background: #fff;
 }
 body.gw-shell .gw-stats .gw-stat-main { border-color: #fdba74; background: #fff7ed; }
+/* 휴가 카드는 4개 — 공용 틀이 프로젝트 상태 칸(5칸) 기준이라 오른쪽 한 칸이 비던 것(11-19) */
+body.gw-shell .gw-stats.gw-lv-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 767.98px) {
+  body.gw-shell .gw-stats.gw-lv-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.gw-lv-apply-note { margin: 10px 0 4px; }
+.gw-lv-soon { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 999px;
+  background: #fff1e6; color: #c2410c; font-size: 12px; font-weight: 600; }
+.gw-lv-rec-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+.gw-lv-off-sw { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #475569; padding-left: 0; }
+.gw-lv-off-sw .form-check-input { float: none; margin: 0; }
 
 /* 신청·취소 창 — 공용 스타일(작은 화면에서 창 여백·버튼 세로 쌓기)을 이 두 창만 되돌림 */
 #lvApplyModal .modal-footer,
@@ -2308,7 +2383,18 @@ body.gw-drawer-open {
   margin-bottom: 16px;
   background: #fafbfc;
 }
-.gw-lv-adm-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.gw-lv-adm-btns { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+/* 직원별 창 경영지원 칸(11-19) — 현황 다음 한 줄, 기록은 접어 둠 */
+#lvPersonModal .gw-lv-adm { margin: 12px 0 4px; padding: 10px 12px; }
+.gw-lv-adm-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.gw-lv-adm-t { font-size: 13px; font-weight: 700; color: #475569; }
+.gw-lv-adm-more { color: #475569; }
+.gw-lv-adm-rec { margin-top: 8px; font-size: 13px; }
+.gw-lv-adm-rec summary { cursor: pointer; color: #475569; }
+.gw-lv-adm-rec-t { margin: 8px 0 4px; font-weight: 600; color: #334155; }
+.gw-lv-person-sub { font-size: 13px; font-weight: 400; color: #64748b; margin-left: 6px; }
+.gw-lv-act { white-space: nowrap; }
+.gw-lv-act .gw-lv-cancel + .gw-lv-cancel { margin-left: 6px; }
 .gw-lv-adm-form {
   border: 1px solid #e2e8f0;
   border-radius: 10px;
@@ -2318,3 +2404,376 @@ body.gw-drawer-open {
 }
 .gw-lv-adm-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
 .gw-lv-adm .gw-lv-upcoming { margin-top: 10px; }
+
+/* ── 휴가 관리 플렉스 맞추기(11-18): 일괄 조정·월별 상세·맞춤 휴가·촉진 ───────────── */
+.gw-lv-team-tools { display: flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
+/* 직원별 탭(11-19 부장님 '표가 너무 퍼짐') — 넓은 화면에서도 1400px 까지, 칸은 내용에 맞게 */
+.gw-page:has(#lvListPane) { max-width: 1400px; margin-left: auto; margin-right: auto; }   /* 제목·탭·표가 같은 폭으로 */
+.gw-lv-team-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 31px; margin-bottom: 8px; }
+.gw-lv-team-count { color: #64748b; font-size: 13px; }
+#lvTeamTable th:nth-child(1) { width: 15%; }
+#lvTeamTable th:nth-child(2) { width: 13%; }
+#lvTeamTable th:nth-child(3) { width: 11%; }
+#lvTeamTable th:nth-child(4) { width: 12%; }
+#lvTeamTable th:nth-child(5) { width: 10%; }
+#lvTeamTable th:nth-child(6) { width: 8%; }
+#lvTeamTable th:nth-child(7) { width: 7%; }
+#lvTeamTable th:nth-child(8), #lvTeamTable td:nth-child(8) { padding-left: 24px; }
+#lvTeamTable td:nth-child(4) { white-space: nowrap; }
+.gw-badge-flex { background: #f1f5f9; color: #475569; font-weight: 500; }
+.gw-lv-bulk-head { display: grid; grid-template-columns: 180px 1fr; gap: 10px; margin-bottom: 8px; }
+.gw-lv-bulk-table td { vertical-align: middle; }
+/* 일괄 조정 창은 .gw-page 밖(모달)이라 예전 사이트 글 칸 스타일(큰 패딩)이 붙어 칸 높이가 들쭉날쭉 → 맞춤(11-19) */
+#lvBulkModal .form-control-sm {
+  height: 31px;
+  min-height: 31px;
+  padding: 4px 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: left;
+  width: 100%;
+  max-width: none;
+  border-color: #8b95a5;
+}
+@media (max-width: 767.98px) {
+  #lvBulkModal .form-control-sm { font-size: 16px; height: 38px; min-height: 38px; }
+}
+.gw-lv-bulk-table input { min-width: 80px; }
+@media (max-width: 575.98px) {
+  .gw-lv-bulk-head { grid-template-columns: 1fr; }
+}
+.gw-lv-export { margin-left: auto; margin-right: 8px; }
+.gw-lv-export .dropdown-menu { min-width: 220px; }
+.gw-lv-monthly { margin: 12px 0 16px; }
+.gw-lv-monthly-body:not(:empty) { margin-top: 10px; }
+.gw-lv-monthly .gw-lv-monthly-year { width: auto; flex: 0 0 auto; }
+.gw-lv-monthly .gw-sec-title { white-space: nowrap; }
+.gw-lv-monthly-table td, .gw-lv-monthly-table th { white-space: nowrap; }
+.gw-lv-monthly-table tr.gw-lv-proj td { color: #64748b; }
+/* 연차 사용 촉진 */
+.gw-lv-promo {
+  border: 1px solid #f0c36d;
+  background: #fffaf0;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.gw-lv-promo-title { font-size: 1rem; font-weight: 600; margin: 0 0 8px; }
+.gw-lv-promo-title small { font-weight: 400; color: #64748b; }
+.gw-lv-promo-text { white-space: pre-line; line-height: 1.6; }
+.gw-lv-promo-des { margin-top: 10px; padding-top: 10px; border-top: 1px dashed #e5c07b; }
+.gw-lv-promo-meta { color: #64748b; font-size: .85rem; margin-top: 6px; }
+.gw-lv-promo-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.gw-lv-promo-btns:empty { display: none; }
+.gw-lv-pform { margin-top: 10px; max-width: 560px; }
+.gw-lv-pdate { display: grid; grid-template-columns: minmax(140px, 1fr) 120px auto; gap: 6px; align-items: center; margin-bottom: 6px; }
+.gw-lv-pfoot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.gw-lv-ptotal { color: #475569; font-size: .85rem; }
+.gw-lv-promo-table td { vertical-align: top; }
+@media (max-width: 575.98px) {
+  .gw-lv-pdate { grid-template-columns: 1fr 1fr; }
+  .gw-lv-pdate [data-pd-del] { grid-column: 1 / -1; justify-self: end; }
+}
+
+/* ── 입찰 공고(나라장터, 2026-11-18) ─────────────────────────────── */
+.gw-bd-rule {
+  margin: 0 0 10px;
+  color: #555d6d;
+  font-size: 13px;
+}
+
+.gw-bd-closed {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: #555d6d;
+  cursor: pointer;
+}
+
+.gw-bd-table td {
+  vertical-align: top;
+}
+
+.gw-bd-table .gw-bd-close,
+.gw-bd-table .gw-bd-nw {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.gw-bd-title {
+  font-weight: 600;
+  color: #1a1c20;
+  word-break: keep-all;
+}
+
+.gw-bd-sub {
+  margin-top: 2px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.gw-bd-miss {
+  margin-top: 2px;
+  color: #b45309;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.gw-bd-soon {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.gw-bd-closed-t {
+  color: #9ca3af;
+}
+
+.gw-bd-mark {
+  height: 32px;
+  font-size: 13px;
+}
+
+.gw-bd-by {
+  margin-top: 3px;
+  color: #6b7280;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.gw-bd-skip td {
+  opacity: 0.55;
+}
+
+.gw-badge-new { background: #fff1e8; color: #c2410c; }
+.gw-badge-nation { background: #eef2ff; color: #4338ca; }
+
+.gw-bd-foot {
+  margin: 8px 2px 0;
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .gw-ap-tabs { display: flex; flex-wrap: wrap; border-radius: 14px; }
+  .gw-bd-table { min-width: 760px; }
+}
+
+/* 입찰 공고 — 줄 펼치기(나라장터 공고 상세처럼 표, 맨 위엔 확인할 것) */
+.gw-bd-row {
+  cursor: pointer;
+}
+
+.gw-bd-row:hover td {
+  background: #f9fafb;
+}
+
+.gw-bd-row:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}
+
+.gw-bd-row.gw-bd-open td {
+  background: #eff6ff;
+}
+
+.gw-bd-detail > td {
+  padding: 0 !important;
+  background: #ffffff;
+  border-bottom: 2px solid #cbd5e1;
+}
+
+.gw-bd-acc {
+  padding: 14px 18px 16px;
+  /* 펼친 칸 내용이 표 열 너비 계산에 끼지 않게(11-18 부장님 — 열면 열 위치가 바뀌던 것):
+     폭 0 으로 셈에서 빠지고, 그려질 땐 칸 폭만큼 */
+  box-sizing: border-box;
+  width: 0;
+  min-width: 100%;
+}
+
+/* 펼쳐서 페이지가 길어지면 세로 스크롤바가 생기며 표 폭이 줄던 것 — 스크롤바 자리를 늘 비워 둠 */
+html:has(#bdPage) {
+  scrollbar-gutter: stable;
+}
+
+.gw-bd-slide {
+  animation: gwBdSlide 0.2s ease-out;
+}
+
+@keyframes gwBdSlide {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gw-bd-slide { animation: none; }
+}
+
+.gw-bd-acc-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.gw-bd-chks {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gw-bd-chk {
+  display: grid;
+  grid-template-columns: 18px 104px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.gw-bd-chk i { font-size: 14px; }
+.gw-bd-chk.ok i { color: #16a34a; }
+.gw-bd-chk.no i { color: #dc2626; }
+.gw-bd-chk.warn i { color: #d97706; }
+.gw-bd-chk.no .gw-bd-chk-t b { color: #b91c1c; }
+.gw-bd-chk.warn .gw-bd-chk-t b { color: #b45309; }
+
+.gw-bd-chk-l {
+  color: #4b5563;
+  font-weight: 600;
+}
+
+.gw-bd-chk-t {
+  min-width: 0;
+  color: #111827;
+  overflow-wrap: anywhere;
+}
+
+.gw-bd-acc-go {
+  flex-shrink: 0;
+}
+
+.gw-bd-sec {
+  margin: 16px 0 6px;
+  padding-left: 8px;
+  border-left: 3px solid #1f2937;
+  color: #111827;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.gw-bd-kv {
+  width: 100%;
+  border-collapse: collapse;
+  border-top: 2px solid #374151;
+  table-layout: fixed;
+  font-size: 13px;
+}
+
+.gw-bd-kv th,
+.gw-bd-kv td {
+  padding: 7px 10px;
+  border-bottom: 1px solid #e5e7eb;
+  vertical-align: top;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.gw-bd-kv col.k {
+  width: 130px;
+}
+
+.gw-bd-kv th {
+  background: #f3f4f6;
+  color: #374151;
+  font-weight: 600;
+}
+
+.gw-bd-kv td {
+  color: #111827;
+}
+
+.gw-bd-files {
+  margin: 0;
+  padding: 8px 10px 8px 28px;
+  border-top: 2px solid #374151;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 13px;
+}
+
+.gw-bd-files li + li {
+  margin-top: 3px;
+}
+
+.gw-bd-acc-foot {
+  margin-top: 10px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .gw-bd-acc-top { flex-direction: column; }
+  .gw-bd-chk { grid-template-columns: 18px 1fr; }
+  .gw-bd-chk-t { grid-column: 2; }
+  .gw-bd-kv, .gw-bd-kv tbody, .gw-bd-kv tr, .gw-bd-kv th, .gw-bd-kv td { display: block; width: auto; }
+  .gw-bd-kv th { border-bottom: 0; padding-bottom: 2px; }
+}
+
+.gw-bd-brief {
+  margin-top: 3px;
+  color: #b45309;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.gw-bd-brief.soon { color: #b91c1c; }
+.gw-bd-brief.gone { color: #b91c1c; }
+
+/* 휴가 화면 표 — 머리 줄(#f8fafc)이 페이지 바탕과 같아 구분이 안 되던 것(11-19 부장님):
+   표를 흰 카드(테두리)로 감싸고 머리 줄을 한 단계 진하게 */
+.gw-table-wrap:has(> .gw-leave-table),
+.gw-table-wrap:has(> .gw-lv-monthly-table),
+.gw-table-wrap:has(> .gw-lv-promo-table) {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+}
+.gw-leave-table th,
+.gw-lv-monthly-table th,
+.gw-lv-promo-table th {
+  background: #eef2f6;
+  color: #475569;
+  border-bottom: 1px solid #e2e8f0;
+}
+.gw-leave-table tbody tr:last-child td,
+.gw-lv-monthly-table tbody tr:last-child td,
+.gw-lv-promo-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* 내 휴가 — 통계 아래 내용을 흰 카드로(11-19). 카드 안 첫 제목은 위 구분선 없이, 표는 카드 안이라 테두리 겹치지 않게 */
+.gw-lv-body {
+  margin-top: 14px;
+  padding: 4px 20px 16px;
+}
+.gw-lv-body > .gw-sec-title:first-child,
+.gw-lv-body > .gw-sec-head:first-child {
+  border-top: 0;
+  margin-top: 12px;
+  padding-top: 0;
+}
+.gw-lv-body .gw-table-wrap:has(> .gw-leave-table),
+.gw-lv-body .gw-table-wrap:has(> .gw-lv-monthly-table) {
+  border: 0;
+  border-radius: 0;
+}
+@media (max-width: 767.98px) {
+  .gw-lv-body { padding: 2px 12px 12px; }
+}
+

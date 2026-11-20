@@ -783,8 +783,12 @@ def _pending_version_clear(code: str, version) -> None:
         pass
 
 
-def _check_optimistic_lock_update(manager, sheet_id, sheet_name, project_code, row_number, current_values, expected_version):
+def _check_optimistic_lock_update(manager, sheet_id, sheet_name, project_code, row_number, current_values,
+                                  expected_version, data=None):
     """Optimistic Lock 버전 검증
+
+    data 를 주면, 그 사이 올라간 버전이 시스템 기록뿐이고 화면이 그 칸을 안 건드렸을 때 통과시킨다
+    (services/system_version_bump — 2026-11-20 R4297-YG, 거래처명 자동 채우기가 저장한 사람 화면을 낡게 만듦).
 
     Returns:
         tuple: (new_version, error_response)
@@ -812,6 +816,12 @@ def _check_optimistic_lock_update(manager, sheet_id, sheet_name, project_code, r
         logger.warning(f"[OPTIMISTIC_LOCK] 다른 저장이 시트 반영 대기 중 — 충돌: {project_code} "
                        f"expected={expected_version}, pending={_pend}")
         current_version = _pend
+
+    # 그 사이 버전이 시스템 자동 기록으로만 올랐고 화면이 그 칸을 안 건드렸으면 통과 (2026-11-20)
+    if str(current_version) != str(expected_version) and data is not None:
+        from ..services.system_version_bump import rebase as _sys_rebase
+        if _sys_rebase(project_code, expected_version, current_version, data):
+            expected_version = current_version
 
     # 버전 불일치 → 409 Conflict
     if str(current_version) != str(expected_version):
@@ -1299,7 +1309,7 @@ def update_project(project_code):
         expected_version = data.get('_version')
         new_version, error_response = _check_optimistic_lock_update(
             manager, sheet_id, sheet_name, project_code, row_number,
-            current_values, expected_version
+            current_values, expected_version, data=data
         )
         if error_response:
             return error_response

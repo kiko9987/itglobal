@@ -83,6 +83,11 @@ def latest_summary(flex_dir: Path = FLEX_DIR) -> Optional[str]:
     return files[-1] if files else None
 
 
+def latest_promotion(flex_dir: Optional[Path] = None) -> Optional[str]:
+    files = sorted(glob.glob(str((flex_dir or FLEX_DIR) / '원본' / 'flex_promotion_*.json')))
+    return files[-1] if files else None
+
+
 def summary_left(path: str) -> Tuple[str, Dict[str, Optional[float]]]:
     """요약 엑셀 '구성원' 시트의 재직자 연차 잔여 → (칸 이름, {이름: 일수 또는 None(빈칸)})."""
     import openpyxl
@@ -196,6 +201,7 @@ def main(argv=None) -> int:
     ap.add_argument('--as-of', default=AS_OF.isoformat(), help='플렉스를 다시 받은 날(전환 날)')
     ap.add_argument('--summary', default='', help='플렉스 요약 엑셀(기본: 가장 최근 플렉스_요약_*.xlsx)')
     ap.add_argument('--allow-diff', action='store_true', help='잔여 대조가 달라도 쓰기(엑셀이 틀린 걸 확인했을 때만)')
+    ap.add_argument('--promotion', default='', help='플렉스 촉진 기록 JSON(기본: 원본 폴더의 가장 최근 flex_promotion_*.json)')
     a = ap.parse_args(argv)
     as_of = date.fromisoformat(a.as_of)
     apply = a.apply
@@ -275,6 +281,21 @@ def main(argv=None) -> int:
                                   "ON q.reason = 'flex:' || h.flex_event_id WHERE q.status IN ('wait_1','wait_2','approved') "
                                   "AND h.status NOT IN ('승인','등록')").fetchall():
                 print(f'   ⚠️ 장부 #{r[0]} {r[1]} {r[2]} — 플렉스에선 지금 {r[3]}. 장부에서 취소해 주세요')
+    # ④ 연차 촉진 기록(11-18) — 플렉스 촉진 문서(flex_promotion_YYYYMMDD.json, scripts/flex/flex_promotion_backup.js)
+    promo = a.promotion or latest_promotion()
+    print(f"\n④ 연차 촉진 기록 ← {os.path.basename(promo) if promo else '(파일 없음 — 건너뜀)'}")
+    if promo and os.path.exists(promo):
+        import json
+        from dashboard.services import leave_promo as lp
+        rows = lp.import_flex(promo, apply=apply)
+        for r in rows:
+            if r['grant_to'] < as_of.isoformat():
+                continue                     # 끝난 기간은 기록만(목록에선 생략)
+            plan = ', '.join(x['date'] for x in json.loads(r['plan_dates'])) or '-'
+            print(f"   {r['name']} ~{r['grant_to']} 촉구 {r['noticed_at'][:10]} {r['days']:g}일 · {r['note']} · "
+                  f"계획 {plan} · 지정 기한 {r['designate_due']}")
+        print(f'   전체 {len(rows)}줄(끝난 기간 포함)' + (' 넣음(이미 있는 문서는 그대로)' if apply else ''))
+
     print('\n' + ('장부에 썼습니다.' if apply else '미리 보기입니다. --apply 로 쓰기.'))
     return 0
 

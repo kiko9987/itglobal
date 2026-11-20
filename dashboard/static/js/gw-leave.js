@@ -97,7 +97,7 @@
   var editVals = {};
   function editBtn(e) {
     if (!e.edit || !e.edit_vals) return '';
-    editVals[e.id] = { mode: e.edit, vals: e.edit_vals, what: period(e) + ' · ' + e.type };
+    editVals[e.id] = { mode: e.edit, vals: e.edit_vals, what: period(e) + ' · ' + e.type, label: e.type };
     return '<button type="button" class="btn btn-outline-secondary btn-sm gw-lv-cancel gw-lv-edit" data-lv-edit="' + esc(e.id) + '">' +
       esc(e.edit_label) + '</button>';
   }
@@ -109,7 +109,7 @@
     if (!L.linked) {
       h += '<div class="gw-note mb-2">휴가 장부에 아직 연결되지 않아 남은 연차를 계산하지 못했어요. 지난 기록만 보여요.</div>';
     }
-    h += '<div class="gw-stats">' +
+    h += '<div class="gw-stats gw-lv-stats">' +
       '<div class="gw-stat gw-stat-main"><div class="k">남은 연차</div><div class="v">' + (L.balance == null ? '-' : days(L.balance)) + '</div></div>' +
       '<div class="gw-stat"><div class="k">' + L.year + '년 쓴 연차</div><div class="v">' + days(L.annual_used) + '</div></div>' +
       '<div class="gw-stat"><div class="k">' + L.year + '년 병가</div><div class="v">' + days(L.sick_used) + ' <small>/ ' + L.sick_limit + '일</small></div></div>' +
@@ -119,13 +119,39 @@
     if (L.pending && L.balance != null) {
       h += '<div class="gw-lv-note">남은 연차는 승인 대기 중인 휴가까지 미리 뺀 날수예요.</div>';
     }
+    if (opts.applyNote) {   // 신청 안내 — 통계 바로 아래(11-19 부장님: 소멸 정보와 기록 사이에 끼어 있던 것)
+      h += '<div class="gw-callout gw-lv-apply-note">' + opts.applyNote + '</div>';
+    }
+    if (opts.afterStats) h += opts.afterStats;   // 직원별 창: 경영지원 관리 단추(11-19 — 현황 다음에)
+
+    // 내 휴가: 통계 아래 내용은 흰 카드 하나로(11-19 부장님 — 다른 화면처럼). 통계 카드는 바탕 위에 그대로
+    if (opts.mine) h += '<div class="gw-card-wrap gw-lv-body">';
 
     if (L.grants && L.grants.length) {
       h += '<div class="gw-sec-title">언제까지 써야 하나요</div><ul class="gw-plain-list">';
       L.grants.forEach(function (g) {
-        h += '<li><strong>' + days(g.days) + '</strong> — ' + esc(g.valid_to.slice(0, 4)) + '년 ' + esc(md(g.valid_to)) + '까지</li>';
+        // 소멸이 60일 안이면 주황 'N일 남음'(11-19 — 연말에 몰려 사라지는 연차를 본인이 바로 알게)
+        var left = Math.round((new Date(g.valid_to + 'T00:00:00') - new Date(todayIso() + 'T00:00:00')) / 86400000) + 1;
+        h += '<li><strong>' + days(g.days) + '</strong> — ' + esc(g.valid_to.slice(0, 4)) + '년 ' + esc(md(g.valid_to)) + '까지' +
+          (left >= 0 && left <= 60 ? ' <span class="gw-lv-soon">' + left + '일 남음</span>' : '') + '</li>';
       });
       h += '</ul>';
+    }
+
+    if (L.custom && L.custom.length) {
+      h += '<div class="gw-sec-title">따로 받은 휴가</div><ul class="gw-plain-list">';
+      L.custom.forEach(function (c) {
+        h += '<li><strong>' + esc(c.label) + ' ' + days(c.left) + '</strong> 남음 — ' +
+          (c.valid_to === '9999-12-31' ? '기간 제한 없음' : esc(c.valid_to.slice(0, 4)) + '년 ' + esc(md(c.valid_to)) + '까지') + '</li>';
+      });
+      h += '</ul>';
+    }
+
+    // 월별 연차 상세(11-18, 플렉스 '연차 상세') — 눌렀을 때 불러옴
+    if (L.linked && L.person_id) {
+      h += '<div class="gw-lv-monthly" data-pid="' + esc(L.person_id) + '">' +
+        '<button type="button" class="btn btn-sm btn-outline-secondary" data-lv-monthly="' + esc(L.year) + '" aria-expanded="false">' +
+        '월별 연차 상세 보기</button><div class="gw-lv-monthly-body"></div></div>';
     }
 
     if (L.upcoming && L.upcoming.length) {
@@ -152,9 +178,7 @@
       }
     }
 
-    if (opts.applyNote) {
-      h += '<div class="gw-callout">' + opts.applyNote + '</div>';
-    } else if (!opts.hideApplyNote) {
+    if (!opts.applyNote && !opts.hideApplyNote) {
       h += '<div class="gw-callout"><i class="fab fa-slack me-1" aria-hidden="true"></i>휴가 신청·취소는 슬랙 <strong>휴가</strong> 앱에서 해요.</div>';
     }
 
@@ -163,40 +187,191 @@
     // 기록은 처음에 올해만 — 3년치 45줄이 휴대폰에 다 펼쳐지던 것(11-15 점검). 올해 기록이 없으면 전체
     var thisYear = String(L.year || '');
     var pickYear = years.length > 1 && years.indexOf(thisYear) !== -1 ? thisYear : '';
-    h += '<div class="gw-sec-head"><div class="gw-sec-title m-0">휴가 기록</div>' +
+    var offN = (L.entries || []).filter(function (e) { return e.status === '취소' || e.status === '반려'; }).length;
+    h += '<div class="gw-sec-head"><div class="gw-sec-title m-0">휴가 기록</div><div class="gw-lv-rec-tools">' +
+      (offN ? '<label class="form-check form-switch m-0 gw-lv-off-sw"><input type="checkbox" class="form-check-input gw-lv-show-off">' +
+        '<span class="form-check-label">취소·반려도 보기 (' + offN + '건)</span></label>' : '') +
       (years.length > 1 ? '<select class="form-select form-select-sm gw-year-select" aria-label="연도">' +
         '<option value="">전체</option>' + years.map(function (y) {
           return '<option value="' + y + '"' + (y === pickYear ? ' selected' : '') + '>' + y + '년</option>';
         }).join('') +
-        '</select>' : '') + '</div>';
-    var cols = opts.mine ? 6 : 5;
-    h += '<div class="gw-table-wrap"><table class="gw-table gw-leave-table' + (opts.mine ? ' gw-lv-mine-table' : '') + '"><thead><tr><th>기간</th><th>종류</th><th class="n">일수</th><th>상태</th><th>사유</th>' +
-      (opts.mine ? '<th><span class="visually-hidden">취소</span></th>' : '') + '</tr></thead><tbody>';
+        '</select>' : '') + '</div></div>';
+    var act = opts.mine ? cancelBtn : opts.rowAct;   // 줄 끝 단추 — 내 휴가: 본인 고치기·취소, 직원별 창: 경영지원 고치기·취소
+    var cols = act ? 6 : 5;
+    h += '<div class="gw-table-wrap"><table class="gw-table gw-leave-table' + (act ? ' gw-lv-mine-table' : '') + '"><thead><tr><th>기간</th><th>종류</th><th class="n">일수</th><th>상태</th><th>사유</th>' +
+      (act ? '<th><span class="visually-hidden">처리</span></th>' : '') + '</tr></thead><tbody>';
     if (!L.entries || !L.entries.length) {
       h += '<tr><td colspan="' + cols + '" class="gw-empty">기록이 없어요.</td></tr>';
     } else {
       L.entries.forEach(function (e) {
-        h += '<tr data-year="' + esc(e.start.slice(0, 4)) + '"' + (e.status === '취소' || e.status === '반려' ? ' class="muted"' : '') +
-          (pickYear && e.start.slice(0, 4) !== pickYear ? ' hidden' : '') + '>' +
+        var off = e.status === '취소' || e.status === '반려';   // 취소·반려는 처음엔 숨김(11-19)
+        h += '<tr data-year="' + esc(e.start.slice(0, 4)) + '"' + (off ? ' class="muted" data-off="1"' : '') +
+          ((pickYear && e.start.slice(0, 4) !== pickYear) || off ? ' hidden' : '') + '>' +
           '<td class="gw-lv-when">' + esc(period(e, true)) + '</td><td>' + esc(e.type) + '</td><td class="n">' + days(e.days) + '</td>' +
           '<td>' + statusBadge(e.status) + '</td><td class="gw-reason">' + esc(e.reason) + '</td>' +
-          (opts.mine ? '<td class="gw-lv-act">' + cancelBtn(e) + '</td>' : '') + '</tr>';
+          (act ? '<td class="gw-lv-act">' + act(e) + '</td>' : '') + '</tr>';
       });
     }
+    h += '<tr class="gw-lv-rec-none" hidden><td colspan="' + cols + '" class="gw-empty">보여 줄 기록이 없어요.</td></tr>';
     h += '</tbody></table></div>';
     h += '<div class="gw-note">2026년 11월 이전 기록은 예전 휴가 프로그램(플렉스)에서 옮겨 온 것이에요.</div>';
+    if (opts.mine) h += '</div>';
     return h;
+  }
+
+  function fmtSigned(x) {
+    if (!x) return '<span class="text-muted">-</span>';
+    return (x > 0 ? '+' : '−') + days(Math.abs(x));
+  }
+
+  function renderMonthly(d, year) {
+    var thisYear = new Date().getFullYear();
+    var h = '<div class="gw-sec-head"><div class="gw-sec-title m-0">월별 연차 상세</div>' +
+      '<select class="form-select form-select-sm gw-lv-monthly-year" aria-label="연도">' +
+      [thisYear - 1, thisYear, thisYear + 1].map(function (y) {
+        return '<option value="' + y + '"' + (y === Number(year) ? ' selected' : '') + '>' + y + '년</option>';
+      }).join('') + '</select></div>';
+    if (!d.months || !d.months.length) {
+      return h + '<div class="gw-note">이 해에는 휴가 장부 기록이 없어요. 2026년 12월 전 기록은 아래 휴가 기록(플렉스)을 봐 주세요.</div>';
+    }
+    h += '<div class="gw-table-wrap"><table class="gw-table gw-lv-monthly-table"><thead><tr><th>달</th>' +
+      '<th class="n">부여</th><th class="n">조정</th><th class="n">사용</th><th class="n">소멸</th><th class="n">잔여</th></tr></thead><tbody>';
+    h += '<tr class="muted"><td>시작</td><td colspan="4"></td><td class="n">' + days(d.opening) + '</td></tr>';
+    d.months.forEach(function (m) {
+      h += '<tr' + (m.projected ? ' class="gw-lv-proj"' : '') + '><td>' + m.month + '월' + (m.projected ? ' <small class="text-muted">예상</small>' : '') + '</td>' +
+        '<td class="n">' + (m.grant ? '+' + days(m.grant) : '<span class="text-muted">-</span>') + '</td>' +
+        '<td class="n">' + fmtSigned(m.adjust) + '</td>' +
+        '<td class="n">' + (m.used ? '−' + days(m.used) : '<span class="text-muted">-</span>') + '</td>' +
+        '<td class="n">' + (m.expired ? '−' + days(m.expired) : '<span class="text-muted">-</span>') + '</td>' +
+        '<td class="n"><strong>' + days(m.left) + '</strong></td></tr>';
+    });
+    h += '</tbody></table></div><div class="gw-note">사용은 휴가 첫날이 든 달에 빠져요(승인 대기 포함). 잔여는 그달 말 기준이고, 예상은 지금 잡힌 휴가만 반영해요.</div>';
+    return h;
+  }
+
+  function loadMonthly(box, year) {
+    var body = box.querySelector('.gw-lv-monthly-body');
+    body.innerHTML = '<div class="gw-empty">불러오는 중…</div>';
+    api('/api/leave/monthly?pid=' + encodeURIComponent(box.getAttribute('data-pid')) + '&year=' + encodeURIComponent(year)).then(function (j) {
+      body.innerHTML = renderMonthly(j.monthly || {}, year);
+    }).catch(function (e) {
+      body.innerHTML = '<div class="gw-empty">' + esc(e.message) + '</div>';
+    });
+  }
+
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-lv-monthly]');
+    if (!b) return;
+    var box = b.closest('.gw-lv-monthly');
+    var open = b.getAttribute('aria-expanded') === 'true';
+    b.setAttribute('aria-expanded', String(!open));
+    b.textContent = open ? '월별 연차 상세 보기' : '월별 연차 상세 닫기';
+    if (open) { box.querySelector('.gw-lv-monthly-body').innerHTML = ''; return; }
+    loadMonthly(box, b.getAttribute('data-lv-monthly'));
+  });
+  document.addEventListener('change', function (ev) {
+    if (!ev.target.classList || !ev.target.classList.contains('gw-lv-monthly-year')) return;
+    loadMonthly(ev.target.closest('.gw-lv-monthly'), ev.target.value);
+  });
+
+  // ── 연차 촉진 날짜 고르기(계획·지정 공용, 11-18) ──
+  function promoDateRow() {
+    return '<div class="gw-lv-pdate"><input type="date" class="form-control form-control-sm" aria-label="날짜" data-pd="date">' +
+      '<select class="form-select form-select-sm" aria-label="종일·반차" data-pd="half"><option value="">종일</option>' +
+      '<option value="am">오전 반차</option><option value="pm">오후 반차</option></select>' +
+      '<button type="button" class="btn btn-link btn-sm" data-pd-del aria-label="이 날짜 빼기">빼기</button></div>';
+  }
+
+  function promoForm(id, kind, left, min, max) {
+    return '<form class="gw-lv-form gw-lv-pform" data-pform="' + esc(kind) + '" data-id="' + esc(id) + '" data-left="' + esc(left) + '" novalidate>' +
+      '<div class="gw-lv-pdates" data-min="' + esc(min) + '" data-max="' + esc(max) + '">' + promoDateRow() + '</div>' +
+      '<div class="gw-lv-pfoot"><button type="button" class="btn btn-sm btn-outline-secondary" data-pd-add>+ 날짜 더하기</button>' +
+      '<span class="gw-lv-ptotal" aria-live="polite"></span></div>' +
+      '<div class="gw-lv-err" role="alert" data-pmsg></div>' +
+      '<div class="gw-lv-adm-actions"><button type="button" class="btn btn-sm btn-link" data-pd-close>닫기</button>' +
+      '<button type="submit" class="btn btn-sm btn-primary">' + (kind === 'plan' ? '계획 내기' : '지정하고 알리기') + '</button></div></form>';
+  }
+
+  function promoItems(f) {
+    var items = [];
+    f.querySelectorAll('.gw-lv-pdate').forEach(function (row) {
+      var d = row.querySelector('[data-pd="date"]').value;
+      if (d) items.push({ date: d, half: row.querySelector('[data-pd="half"]').value });
+    });
+    return items;
+  }
+
+  function promoTotal(f) {
+    var t = promoItems(f).reduce(function (a, it) { return a + (it.half ? 0.5 : 1); }, 0);
+    var el = f.querySelector('.gw-lv-ptotal');
+    el.textContent = '고른 날: ' + days(t) + ' / 안 쓴 연차 ' + days(Number(f.getAttribute('data-left')));
+    return t;
+  }
+
+  function promoLimits(f) {
+    var box = f.querySelector('.gw-lv-pdates');
+    f.querySelectorAll('[data-pd="date"]').forEach(function (i) { i.min = box.getAttribute('data-min'); i.max = box.getAttribute('data-max'); });
+  }
+
+  // 양식 안 단추(더하기·빼기·닫기)와 합계 — 문서 전체에서 한 번
+  document.addEventListener('click', function (ev) {
+    var f = ev.target.closest('.gw-lv-pform');
+    if (!f) return;
+    if (ev.target.closest('[data-pd-add]')) {
+      f.querySelector('.gw-lv-pdates').insertAdjacentHTML('beforeend', promoDateRow());
+      promoLimits(f);
+      var all = f.querySelectorAll('[data-pd="date"]');
+      all[all.length - 1].focus();
+    } else if (ev.target.closest('[data-pd-del]')) {
+      var rows = f.querySelectorAll('.gw-lv-pdate');
+      if (rows.length > 1) ev.target.closest('.gw-lv-pdate').remove();
+      else { rows[0].querySelector('[data-pd="date"]').value = ''; }
+      promoTotal(f);
+    } else if (ev.target.closest('[data-pd-close]')) {
+      f.remove();
+    }
+  });
+  document.addEventListener('change', function (ev) {
+    var f = ev.target.closest && ev.target.closest('.gw-lv-pform');
+    if (f) promoTotal(f);
+  });
+
+  function promoSubmit(f, done) {
+    var msg = f.querySelector('[data-pmsg]');
+    msg.textContent = '';
+    var items = promoItems(f);
+    if (!items.length) { msg.textContent = '날짜를 하나 이상 골라 주세요.'; return; }
+    if (promoTotal(f) > Number(f.getAttribute('data-left')) + 1e-9) { msg.textContent = '안 쓴 연차보다 많이 골랐어요.'; return; }
+    var kind = f.getAttribute('data-pform'), id = f.getAttribute('data-id');
+    var btn = f.querySelector('[type="submit"]');
+    btn.disabled = true;
+    api('/api/leave/promotions/' + encodeURIComponent(id) + '/' + (kind === 'plan' ? 'plan' : 'designate'),
+      { method: 'POST', body: { items: items } }).then(function () {
+      done(kind === 'plan' ? '사용 계획을 냈어요. 고른 날짜는 휴가 신청으로 들어가 승인을 기다려요.'
+        : '사용일을 지정했어요. 본인에게 지정 통보가 가요.');
+    }).catch(function (e) { msg.textContent = e.message; btn.disabled = false; });
+  }
+
+  function md0(iso) { return iso ? iso.slice(0, 4) + '년 ' + md(iso) : ''; }
+  function pdates(list) {
+    return (list || []).map(function (d) { return md(d.date) + (d.half === 'am' ? ' 오전' : d.half === 'pm' ? ' 오후' : ''); }).join(', ');
   }
 
   function bindYearFilter(root) {
     var sel = root.querySelector('.gw-year-select');
-    if (!sel) return;
-    sel.addEventListener('change', function () {
-      var y = sel.value;
+    var sw = root.querySelector('.gw-lv-show-off');
+    function apply() {
+      var y = sel ? sel.value : '', showOff = !!(sw && sw.checked), shown = 0;
       root.querySelectorAll('.gw-leave-table tbody tr[data-year]').forEach(function (tr) {
-        tr.hidden = !!y && tr.getAttribute('data-year') !== y;
+        tr.hidden = (!!y && tr.getAttribute('data-year') !== y) || (!showOff && tr.getAttribute('data-off') === '1');
+        if (!tr.hidden) shown++;
       });
-    });
+      var none = root.querySelector('.gw-lv-rec-none');
+      if (none) none.hidden = shown > 0 || !root.querySelector('.gw-leave-table tbody tr[data-year]');
+    }
+    if (sel) sel.addEventListener('change', apply);
+    if (sw) sw.addEventListener('change', apply);
+    apply();
   }
 
   // ── 내 휴가 ────────────────────────────────────────────────
@@ -225,12 +400,59 @@
         var note = form.can_apply
           ? '신청하면 승인하는 분께 바로 알림이 가요. 결과는 아래 휴가 기록과 위쪽 <i class="fas fa-bell" aria-hidden="true"></i> 알림에서 볼 수 있어요.'
           : '<i class="fas fa-info-circle me-1" aria-hidden="true"></i>' + esc(form.why || '지금은 휴가를 신청할 수 없어요.');
-        mine.innerHTML = renderSummary(j.leave, { mine: true, applyNote: note });
+        mine.innerHTML = renderPromos(j.leave.promotions || []) + renderSummary(j.leave, { mine: true, applyNote: note });
         bindYearFilter(mine);
       }).catch(function (e) {
         mine.innerHTML = '<div class="gw-empty">' + esc(e.message) + '</div>';
       });
     }
+
+    // ── 연차 사용 촉진(11-18) — 회사가 보낸 서면 촉구·지정 통보. [받았어요]·[사용 계획 내기] ──
+    function renderPromos(list) {
+      if (!list.length) return '';
+      return list.map(function (p) {
+        var h = '<section class="gw-lv-promo" aria-labelledby="lvPromo' + p.id + '"><h2 class="gw-lv-promo-title" id="lvPromo' + p.id + '">' +
+          '<i class="fas fa-envelope-open-text me-1" aria-hidden="true"></i>연차 사용 촉진 안내 <small>(근로기준법 제61조)</small></h2>' +
+          '<div class="gw-lv-promo-text">' + esc(p.notice_text) + '</div>' +
+          '<div class="gw-lv-promo-meta">보낸 날 ' + esc(p.noticed_at.slice(0, 10)) + ' · ' + esc(p.state_label) +
+          (p.ack_at ? ' · 받음 ' + esc(p.ack_at.slice(0, 16)) : '') + '</div>';
+        if (p.plan_dates.length) h += '<div class="gw-lv-promo-meta">낸 계획: ' + esc(pdates(p.plan_dates)) + '</div>';
+        if (p.designate_text) h += '<div class="gw-lv-promo-text gw-lv-promo-des"><strong>사용 시기 지정 통보</strong>\n' + esc(p.designate_text) + '</div>';
+        h += '<div class="gw-lv-promo-btns">' +
+          (p.can_ack ? '<button type="button" class="btn btn-sm btn-outline-secondary" data-promo-ack="' + esc(p.id) + '">받았어요</button>' : '') +
+          (p.can_plan ? '<button type="button" class="btn btn-sm btn-primary" data-promo-plan="' + esc(p.id) + '" data-left="' + esc(p.left) +
+            '" data-max="' + esc(p.grant_to) + '">사용 계획 내기</button>' : '') + '</div><div data-promo-slot="' + esc(p.id) + '"></div></section>';
+        return h;
+      }).join('');
+    }
+
+    mine.addEventListener('click', function (ev) {
+      var a = ev.target.closest('[data-promo-ack]');
+      if (a) {
+        a.disabled = true;
+        api('/api/leave/promotions/' + encodeURIComponent(a.getAttribute('data-promo-ack')) + '/ack', { method: 'POST' })
+          .then(function () { showFlash('받은 것으로 남겼어요.', 'ok'); load(); })
+          .catch(function (e) { a.disabled = false; showFlash(e.message, 'err'); });
+        return;
+      }
+      var b = ev.target.closest('[data-promo-plan]');
+      if (!b) return;
+      var id = b.getAttribute('data-promo-plan');
+      var slot = mine.querySelector('[data-promo-slot="' + id + '"]');
+      if (slot.querySelector('form')) return;
+      slot.innerHTML = '<p class="gw-lv-left mb-2">쓸 날짜를 고르세요. 고른 날짜는 휴가 신청으로 들어가 승인을 받아요. 일부만 정해도 돼요.</p>' +
+        promoForm(id, 'plan', b.getAttribute('data-left'), todayIso(), b.getAttribute('data-max'));
+      var f = slot.querySelector('form');
+      promoLimits(f);
+      promoTotal(f);
+      f.querySelector('[data-pd="date"]').focus();
+    });
+    mine.addEventListener('submit', function (ev) {
+      var f = ev.target.closest('.gw-lv-pform');
+      if (!f) return;
+      ev.preventDefault();
+      promoSubmit(f, function (msg) { showFlash(msg, 'ok'); load(); });
+    });
 
     // ── 신청 창 ──
     var modalEl = document.getElementById('lvApplyModal');
@@ -345,6 +567,10 @@
       f.reset();
       fillTypes();
       var v = ed.vals;
+      // 맞춤 휴가를 다 잡은 신청은 신청 창 목록에 그 종류가 없다 — 고칠 땐 넣어 둔다
+      if (v.type && !Array.prototype.some.call(typeSel.options, function (o) { return o.value === v.type; })) {
+        typeSel.insertAdjacentHTML('beforeend', '<option value="' + esc(v.type) + '">' + esc(ed.label || v.type) + '</option>');
+      }
       selectIfThere(typeSel, v.type);
       selectIfThere(subSel, v.sub);
       syncType();
@@ -479,9 +705,11 @@
   if (CFG.mode !== 'team') return;
 
   // ── 전사 현황: 탭 ───────────────────────────────────────────
-  var tabs = { cal: document.getElementById('lvTabCal'), list: document.getElementById('lvTabList') };
-  var panes = { cal: document.getElementById('lvCalPane'), list: document.getElementById('lvListPane') };
-  var listLoaded = false;
+  var tabs = { cal: document.getElementById('lvTabCal'), list: document.getElementById('lvTabList'), promo: document.getElementById('lvTabPromo') };
+  var panes = { cal: document.getElementById('lvCalPane'), list: document.getElementById('lvListPane'), promo: document.getElementById('lvPromoPane') };
+  if (!tabs.promo) { delete tabs.promo; delete panes.promo; }
+  var tabKeys = Object.keys(tabs);
+  var listLoaded = false, promoLoaded = false;
 
   function showTab(key) {
     Object.keys(tabs).forEach(function (k) {
@@ -491,17 +719,106 @@
     });
     try { localStorage.setItem('gw.leave.tab', key); } catch (e) { /* 무시 */ }
     if (key === 'list' && !listLoaded) loadTeam();
+    if (key === 'promo' && !promoLoaded) loadPromo();
   }
-  tabs.cal.addEventListener('click', function () { showTab('cal'); });
-  tabs.list.addEventListener('click', function () { showTab('list'); });
+  tabKeys.forEach(function (k) { tabs[k].addEventListener('click', function () { showTab(k); }); });
   tabs.cal.parentElement.addEventListener('keydown', function (e) {
     if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(e.key) === -1) return;
     e.preventDefault();
-    var next = (e.key === 'Home') ? 'cal' : (e.key === 'End') ? 'list'
-      : (tabs.cal.getAttribute('aria-selected') === 'true' ? 'list' : 'cal');   // 탭이 둘이라 좌우 모두 바꿈
+    var cur = tabKeys.filter(function (k) { return tabs[k].getAttribute('aria-selected') === 'true'; })[0] || 'cal';
+    var i = tabKeys.indexOf(cur);
+    var next = e.key === 'Home' ? tabKeys[0] : e.key === 'End' ? tabKeys[tabKeys.length - 1]
+      : tabKeys[(i + (e.key === 'ArrowRight' ? 1 : tabKeys.length - 1)) % tabKeys.length];
     showTab(next);
     tabs[next].focus();
   });
+
+  // ── 연차 촉진 탭(11-18) — 보낼 사람·기록(플렉스 포함)·사용일 지정 ──
+  var promoEl = document.getElementById('lvPromo');
+  var promoAll = false;
+  function loadPromo(note) {
+    if (!promoEl) return;
+    if (!note) promoEl.innerHTML = '<div class="gw-empty">불러오는 중…</div>';
+    api('/api/leave/promotions').then(function (j) {
+      promoLoaded = true;
+      var h = note ? '<div class="gw-lv-flash ok" role="status">' + esc(note) + '</div>' : '';
+      h += '<div class="gw-note mb-2">회사가 서면으로 사용을 권했는데도 안 쓴 연차는 보상하지 않아도 돼요(근로기준법 제61조). ' +
+        '촉구는 ' + (j.auto ? '정해진 날 아침에 자동으로 보내요' : '경영지원이 [촉구 보내기]로 보내요') +
+        (j.enabled ? '' : ' — 휴가 기능을 켜는 날(플렉스 옮긴 날)부터 돌아요') + '.</div>';
+      var cands = j.candidates || [];
+      if (cands.length) {
+        h += '<div class="gw-sec-title">촉구를 보낼 사람</div><ul class="gw-lv-upcoming">';
+        cands.forEach(function (c) {
+          h += '<li><div class="gw-lv-up-main"><div class="gw-lv-up-when">' + esc(c.name) + ' — 안 쓴 연차 ' + days(c.left) + '</div>' +
+            '<div class="gw-lv-up-sub">' + esc(md0(c.grant_to)) + '까지 쓰는 연차 · 보낼 기간 ' + esc(md(c.notice_from)) + ' ~ ' + esc(md(c.notice_to)) +
+            (c.missed ? ' <span class="gw-badge gw-badge-reject">보낼 기간 지남</span>' : '') + '</div></div>' +
+            (j.can_manage ? '<button type="button" class="btn btn-sm btn-outline-secondary gw-lv-cancel" data-promo-send="' + esc(c.name) +
+              '" data-kind="' + esc(c.kind) + '" data-to="' + esc(c.grant_to) + '" data-missed="' + (c.missed ? '1' : '') + '">촉구 보내기</button>' : '') + '</li>';
+        });
+        h += '</ul>';
+      }
+      var rows = (j.rows || []).filter(function (r) { return promoAll || ['done', 'cancelled'].indexOf(r.state) === -1; });
+      h += '<div class="gw-sec-head"><div class="gw-sec-title m-0">촉진 기록</div>' +
+        '<label class="form-check form-switch m-0"><input type="checkbox" class="form-check-input" id="lvPromoAll"' + (promoAll ? ' checked' : '') + '>' +
+        '<span class="form-check-label">끝난 기록도 보기</span></label></div>';
+      h += '<div class="gw-table-wrap"><table class="gw-table gw-lv-promo-table"><thead><tr><th>이름</th><th>대상 연차</th><th>촉구</th>' +
+        '<th class="n">안 쓴 연차</th><th>계획</th><th>지정</th><th>상태</th><th><span class="visually-hidden">처리</span></th></tr></thead><tbody>';
+      if (!rows.length) h += '<tr><td colspan="8" class="gw-empty">진행 중인 촉진이 없어요.</td></tr>';
+      rows.forEach(function (r) {
+        var canDes = j.can_manage && ['need_designate', 'late', 'planned'].indexOf(r.state) !== -1 && r.left > 0 && r.plan_due < todayIso();
+        h += '<tr data-promo-row="' + esc(r.id) + '"><td><strong>' + esc(r.name) + '</strong>' + (r.source === 'flex' ? ' <span class="gw-badge gw-badge-resigned">플렉스</span>' : '') + '</td>' +
+          '<td>' + esc(md0(r.grant_to)) + '까지<div class="text-muted small">' + esc(r.kind_label) + '</div></td>' +
+          '<td>' + esc(r.noticed_at.slice(0, 10)) + (r.ack_at ? '<div class="text-muted small">받음 ' + esc(r.ack_at.slice(0, 10)) + '</div>' : '') + '</td>' +
+          '<td class="n">' + days(r.days) + '<div class="text-muted small">지금 ' + days(r.left) + '</div></td>' +
+          '<td>' + (r.plan_dates.length ? esc(pdates(r.plan_dates)) : '<span class="text-muted">기한 ' + esc(r.plan_due ? md(r.plan_due) : '-') + '</span>') + '</td>' +
+          '<td>' + (r.designated_dates.length ? esc(pdates(r.designated_dates)) : '<span class="text-muted">기한 ' + esc(r.designate_due ? md(r.designate_due) : '-') + '</span>') + '</td>' +
+          '<td>' + esc(r.state_label) + '</td>' +
+          '<td>' + (canDes ? '<button type="button" class="btn btn-sm btn-outline-primary" data-promo-des="' + esc(r.id) + '" data-left="' + esc(r.left) + '" data-max="' + esc(r.grant_to) +
+            '" data-plan="' + esc(pdates(r.plan_dates)) + '">사용일 지정</button>' : '') + '</td></tr>';
+      });
+      h += '</tbody></table></div><div id="lvPromoSlot"></div>';
+      promoEl.innerHTML = h;
+    }).catch(function (e) { promoEl.innerHTML = '<div class="gw-empty">' + esc(e.message) + '</div>'; });
+  }
+  if (promoEl) {
+    promoEl.addEventListener('change', function (ev) {
+      if (ev.target.id === 'lvPromoAll') { promoAll = ev.target.checked; loadPromo(); }
+    });
+    promoEl.addEventListener('click', function (ev) {
+      var s1 = ev.target.closest('[data-promo-send]');
+      if (s1) {
+        var nm = s1.getAttribute('data-promo-send');
+        var warn = s1.getAttribute('data-missed') ? '\n보낼 기간이 지나 법 효과(보상 면제)가 없을 수 있어요.' : '';
+        if (!window.confirm(nm + ' 님께 연차 사용 촉구를 보낼까요? 본인에게 슬랙 DM 과 그룹웨어 안내가 가요.' + warn)) return;
+        s1.disabled = true;
+        api('/api/leave/promotions/send', { method: 'POST', body: { name: nm, kind: s1.getAttribute('data-kind'), grant_to: s1.getAttribute('data-to') } })
+          .then(function () { loadPromo(nm + ' 님께 촉구를 보냈어요.'); })
+          .catch(function (e) { s1.disabled = false; window.alert(e.message); });
+        return;
+      }
+      var d = ev.target.closest('[data-promo-des]');
+      if (!d) return;
+      var id = d.getAttribute('data-promo-des');
+      var row = promoEl.querySelector('[data-promo-row="' + id + '"]');
+      var slot = document.getElementById('lvPromoSlot');
+      var tom = new Date(); tom.setDate(tom.getDate() + 1);
+      var tIso = tom.getFullYear() + '-' + pad(tom.getMonth() + 1) + '-' + pad(tom.getDate());
+      slot.innerHTML = '<div class="gw-lv-adm"><div class="gw-sec-title m-0">' + esc(row.querySelector('strong').textContent) + ' 님 사용일 지정</div>' +
+        '<p class="gw-lv-left my-2">안 쓴 연차의 사용 날짜를 회사가 정해요. 승인된 휴가로 바로 들어가고, 본인에게 지정 통보(서면)가 가요.' +
+        (d.getAttribute('data-plan') ? '<br>직원이 낸 계획: <strong>' + esc(d.getAttribute('data-plan')) + '</strong> — 이 날짜는 직원이 신청하게 두고 나머지만 지정해 주세요.' : '') + '</p>' +
+        promoForm(id, 'designate', d.getAttribute('data-left'), tIso, d.getAttribute('data-max')) + '</div>';
+      var f = slot.querySelector('form');
+      promoLimits(f);
+      promoTotal(f);
+      f.querySelector('[data-pd="date"]').focus();
+    });
+    promoEl.addEventListener('submit', function (ev) {
+      var f = ev.target.closest('.gw-lv-pform');
+      if (!f) return;
+      ev.preventDefault();
+      promoSubmit(f, function (msg) { loadPromo(msg); });
+    });
+  }
 
   // ── 달력 ───────────────────────────────────────────────────
   var calEl = document.getElementById('lvCal');
@@ -613,13 +930,21 @@
     api('/api/leave/team').then(function (j) {
       listLoaded = true;
       var rows = j.people || [];
+      teamRows = rows;
+      var tools = document.getElementById('lvTeamTools');
+      if (tools) tools.hidden = !j.can_manage;
+      var cnt = document.getElementById('lvTeamCount');
+      if (cnt) cnt.textContent = '재직 ' + rows.length + '명';
       tbody.innerHTML = rows.map(function (p) {
         var nxt = p.next ? esc(period(p.next)) + (p.next.status === '대기' ? ' <span class="gw-badge gw-badge-leave">승인 대기</span>' : '') : '<span class="text-muted">-</span>';
         // 줄 전체가 누르는 자리 — 화면 읽기엔 '단추'로(Enter·Space 로 열림, 아래 keydown)
-        return '<tr tabindex="0" role="button" aria-label="' + esc(p.name + ' 휴가 열기') + '" data-id="' + esc(p.person_id) + '" data-name="' + esc(p.name) + '">' +
+        var sub = [p.department, p.hire_date ? '입사 ' + p.hire_date : ''].filter(Boolean).join(' · ');
+        return '<tr tabindex="0" role="button" aria-label="' + esc(p.name + ' 휴가 열기') + '" data-id="' + esc(p.person_id) + '" data-name="' + esc(p.name) + '" data-sub="' + esc(sub) + '">' +
           '<td><strong>' + esc(p.name) + '</strong>' + (p.access === 'field' ? ' <span class="gw-badge gw-badge-field">' + esc(p.job_role || '현장') + '</span>' : '') + '</td>' +
           '<td>' + esc(p.department) + '</td><td>' + esc(p.hire_date) + '</td>' +
-          '<td class="n">' + (p.linked ? days(p.balance) : '<span class="text-muted" title="휴가 장부에 없음">-</span>') + '</td>' +
+          '<td class="n">' + (p.linked ? days(p.balance) +
+            (p.on_flex ? ' <span class="gw-badge gw-badge-flex" title="12/2 전환 전까지는 플렉스로 신청해요. 플렉스 잔여가 기준이에요.">플렉스</span>' : '')
+            : '<span class="text-muted" title="휴가 장부에 넣지 않은 분이에요">장부 제외</span>') + '</td>' +
           '<td class="n">' + days(p.annual_used) + '</td><td class="n">' + days(p.sick_used) + '</td>' +
           '<td class="n">' + (p.pending ? '<strong>' + p.pending + '</strong>' : '0') + '</td><td>' + nxt + '</td></tr>';
       }).join('') || '<tr><td colspan="8" class="gw-empty">재직자가 없어요.</td></tr>';
@@ -630,6 +955,75 @@
 
   var modalEl = document.getElementById('lvPersonModal');
   var bodyEl = document.getElementById('lvPersonBody');
+
+  // ── 전 직원 연차 부여·차감(11-18, 플렉스 [연차 조정] 표) — 적은 사람만, 모두 맞을 때만 한꺼번에 ──
+  var teamRows = [];
+  var bulkEl = document.getElementById('lvBulkModal');
+  function openBulk() {
+    if (!bulkEl) return;
+    var f = document.getElementById('lvBulkForm');
+    // 안내·칸 이름은 템플릿과 같은 글 — 재시작 전에도 바로 보이게 여기서도 넣음(11-19 부장님:
+    //   '늘리면 2'가 2만 되는 것처럼, '공통 사유'가 일괄만 되는 것처럼 읽혀 고침)
+    var hint = bulkEl.querySelector('.gw-lv-left');
+    if (hint) hint.innerHTML = '사람마다 일수와 사유를 따로 적어요. 한 명만 적어도 돼요. 늘리면 1, 2.5처럼, 빼면 -1, -0.5처럼 적어요(0.5일 단위). 적은 사람만 반영되고, 본인에게 알림이 가요. 날짜가 있는 휴가는 직원별 창의 <strong>휴가 등록</strong>으로 넣어 주세요.';
+    var rl = bulkEl.querySelector('label[for="lvBulkReason"]');
+    if (rl) rl.textContent = '같은 사유 한 번에 (선택)';
+    f.reason.placeholder = '줄마다 사유를 비운 사람에게 들어가요';
+    f.reset();
+    f.applies_on.value = todayIso();
+    document.getElementById('lvBulkMsg').textContent = '';
+    document.getElementById('lvBulkRows').innerHTML = teamRows.filter(function (p) { return p.linked; }).map(function (p) {
+      return '<tr data-pid="' + esc(p.person_id) + '"><td>' + esc(p.name) + '<div class="gw-lv-err" data-err="' + esc(p.person_id) + '"></div></td>' +
+        '<td class="n">' + days(p.balance) + '</td>' +
+        '<td><input type="number" step="0.5" min="-30" max="30" class="form-control form-control-sm" placeholder="예: 1, -0.5" aria-label="' + esc(p.name) + ' 조정 일수" data-k="days"></td>' +
+        '<td><input type="text" maxlength="200" class="form-control form-control-sm" aria-label="' + esc(p.name) + ' 사유" placeholder="사유" data-k="reason"></td></tr>';
+    }).join('');
+    bulkCount();
+    if (window.bootstrap) { returnFocusOnHide(bulkEl); window.bootstrap.Modal.getOrCreateInstance(bulkEl).show(); }
+  }
+  // 적은 사람 수를 단추에 — 한 명만 해도 되는 게 바로 보이게(11-19)
+  function bulkCount() {
+    var n = 0;
+    document.querySelectorAll('#lvBulkRows [data-k="days"]').forEach(function (i) {
+      if (i.value.trim() && Number(i.value) !== 0) n++;
+    });
+    var go = document.querySelector('#lvBulkForm [type="submit"]');
+    if (go) go.textContent = n ? n + '명 적용하기' : '적용하기';
+  }
+  var bulkRowsEl = document.getElementById('lvBulkRows');
+  if (bulkRowsEl) bulkRowsEl.addEventListener('input', bulkCount);
+  var bulkBtn = document.getElementById('lvBulkBtn');
+  if (bulkBtn) bulkBtn.addEventListener('click', openBulk);
+  var bulkForm = document.getElementById('lvBulkForm');
+  if (bulkForm) bulkForm.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var f = bulkForm, msg = document.getElementById('lvBulkMsg');
+    f.querySelectorAll('[data-err]').forEach(function (el) { el.textContent = ''; });
+    msg.textContent = '';
+    var items = [];
+    f.querySelectorAll('#lvBulkRows tr[data-pid]').forEach(function (tr) {
+      var d = tr.querySelector('[data-k="days"]').value.trim();
+      if (d && Number(d) !== 0) items.push({ person_id: tr.getAttribute('data-pid'), days: d, reason: tr.querySelector('[data-k="reason"]').value.trim() });
+    });
+    if (!items.length) { msg.textContent = '조정할 일수를 한 명 이상 적어 주세요.'; return; }
+    var need = items.filter(function (it) { return !it.reason; }).length;
+    if (need && !f.reason.value.trim()) { msg.textContent = '사유를 적어 주세요. 줄마다 적거나, 위의 "같은 사유 한 번에"에 적으면 돼요.'; f.reason.focus(); return; }
+    var btn = f.querySelector('[type="submit"]');
+    btn.disabled = true;
+    api('/api/leave/adjust-bulk', { method: 'POST', body: { items: items, reason: f.reason.value.trim(), applies_on: f.applies_on.value } }).then(function (j) {
+      if (window.bootstrap) window.bootstrap.Modal.getOrCreateInstance(bulkEl).hide();
+      var fl = document.getElementById('lvTeamFlash');
+      if (fl) { fl.textContent = j.count + '명 연차를 조정했어요. 본인에게 알림이 가요.'; fl.hidden = false; }
+      loadTeam();
+    }).catch(function (e) {
+      var any = false;
+      Object.keys(e.fields || {}).forEach(function (k) {
+        var box = f.querySelector('[data-err="' + k + '"]');
+        if (box) { box.textContent = e.fields[k]; any = true; }
+      });
+      msg.textContent = e.message + (any ? '' : '');
+    }).then(function () { btn.disabled = false; });
+  });
 
   // ── 경영지원 칸(11-18): 연차 조정·관리자 부여 휴가 등록·고치기·취소 — 플렉스 관리자 기능 맞추기 ──
   var adm = null;        // 서버가 준 경영지원 정보(admin)
@@ -646,31 +1040,65 @@
     if (!adm || !adm.can) return adm && adm.why ? '<div class="gw-note">' + esc(adm.why) + '</div>' : '';
     admEntries = {};
     (L.entries || []).forEach(function (e) { if (e.source === 'slack') admEntries[e.id] = e; });
-    var h = '<div class="gw-lv-adm"><div class="gw-sec-head"><div class="gw-sec-title m-0">휴가 관리</div>' +
-      '<div class="gw-lv-adm-btns"><button type="button" class="btn btn-sm btn-outline-secondary" data-adm="adjust">연차 조정</button>' +
-      '<button type="button" class="btn btn-sm btn-outline-secondary" data-adm="register">휴가 등록</button></div></div>' +
+    // 11-19 부장님 'UI/UX 손봐야' — 현황 다음 한 줄 단추, 고치기·취소는 휴가 기록 표의 그 줄에, 기록은 접어 둠
+    var h = '<div class="gw-lv-adm" id="lvAdmBox"><div class="gw-lv-adm-bar"><span class="gw-lv-adm-t">경영지원 관리</span>' +
+      '<div class="gw-lv-adm-btns"><button type="button" class="btn btn-sm btn-outline-secondary" data-adm="register">휴가 등록</button>' +
+      '<button type="button" class="btn btn-sm btn-outline-secondary" data-adm="adjust">연차 조정</button>' +
+      '<button type="button" class="btn btn-sm btn-outline-secondary" data-adm="custom">맞춤 휴가 부여</button>' +
+      '<button type="button" class="btn btn-sm btn-link gw-lv-adm-more" data-adm="settle">퇴직 정산</button></div></div>' +
       '<div id="lvAdmForm"></div><div class="gw-lv-err" id="lvAdmMsg" role="alert"></div>';
-    var ids = (adm.editable || []).filter(function (id) { return admEntries[id]; });
-    if (ids.length) {
-      h += '<ul class="gw-lv-upcoming">';
-      ids.sort(function (a, b) { return admEntries[a].start < admEntries[b].start ? -1 : 1; });
-      ids.forEach(function (id) {
-        var e = admEntries[id];
-        h += '<li><div class="gw-lv-up-main"><div class="gw-lv-up-when">' + esc(period(e)) + '</div>' +
-          '<div class="gw-lv-up-sub">' + esc(e.type) + ' · ' + days(e.days) + ' ' + statusBadge(e.status) + '</div></div>' +
-          '<button type="button" class="btn btn-outline-secondary btn-sm gw-lv-cancel" data-adm="edit" data-id="' + esc(id) + '">고치기</button>' +
-          '<button type="button" class="btn btn-outline-danger btn-sm gw-lv-cancel" data-adm="cancel" data-id="' + esc(id) + '">취소</button></li>';
-      });
-      h += '</ul>';
-    } else {
-      h += '<div class="gw-note">고치거나 취소할 승인 대기·승인 휴가가 없어요.</div>';
-    }
-    if (adm.adjustments && adm.adjustments.length) {
-      h += '<div class="gw-sec-title">연차 조정 기록</div><ul class="gw-plain-list">' + adm.adjustments.map(function (a) {
-        return '<li>' + esc(a.at.slice(0, 10)) + ' · ' + esc(a.note) + ' <span class="text-muted">(' + esc(a.valid_to) + '까지)</span></li>';
+    var rec = '';
+    if (adm.custom_grants && adm.custom_grants.length) {
+      rec += '<div class="gw-lv-adm-rec-t">맞춤 휴가 부여</div><ul class="gw-plain-list">' + adm.custom_grants.map(function (g) {
+        var span = (g.valid_to ? esc(g.valid_from) + ' ~ ' + esc(g.valid_to) : esc(g.valid_from) + '부터 언제든');
+        return '<li' + (g.cancelled ? ' class="text-muted"' : '') + '>' + esc(g.at) + ' · <strong>' + esc(g.label) + ' ' + days(g.days) + '</strong>' +
+          (g.cancelled ? ' (취소)' : ' — 쓴 ' + days(g.used) + ' · 남은 ' + days(g.left)) +
+          ' <span class="text-muted">(' + span + (g.by ? ', ' + esc(g.by) : '') + ')</span>' +
+          (g.note ? ' · ' + esc(g.note) : '') +
+          (g.cancelled ? '' : ' <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-adm="customcancel" data-id="' + esc(g.id) + '">부여 취소</button>') + '</li>';
       }).join('') + '</ul>';
     }
+    if (adm.adjustments && adm.adjustments.length) {
+      rec += '<div class="gw-lv-adm-rec-t">연차 조정</div><ul class="gw-plain-list">' + adm.adjustments.map(function (a) {
+        var span = (a.valid_from && a.valid_from !== a.at.slice(0, 10) ? esc(a.valid_from) + '부터 ' : '') + esc(a.valid_to) + '까지';
+        return '<li' + (a.cancelled ? ' class="text-muted"' : '') + '>' + esc(a.at.slice(0, 10)) + ' · ' + esc(a.note) +
+          (a.cancelled ? '' : ' <span class="text-muted">(' + span + ')</span> <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-adm="adjcancel" data-id="' + esc(a.id) + '">조정 취소</button>') + '</li>';
+      }).join('') + '</ul>';
+    }
+    var n = (adm.custom_grants || []).length + (adm.adjustments || []).length;
+    if (n) h += '<details class="gw-lv-adm-rec"><summary>조정·부여 기록 ' + n + '건</summary>' + rec + '</details>';
     return h + '</div>';
+  }
+
+  function renderSettle(s) {
+    var list = function (rows) {
+      return rows.length ? '<ul class="gw-plain-list">' + rows.map(function (r) {
+        return '<li>' + esc(r.from) + ' · ' + days(r.days) + (r.note ? ' <span class="text-muted">(' + esc(r.note) + ')</span>' : '') + '</li>';
+      }).join('') + '</ul>' : '<div class="gw-note">없음</div>';
+    };
+    var h = '<div class="gw-lv-settle">';
+    h += '<div class="gw-stats"><div class="gw-stat gw-stat-main"><div class="k">미사용 연차(수당)</div><div class="v">' + days(s.unused) + '</div></div>' +
+      '<div class="gw-stat gw-stat-main"><div class="k">회계연도 차액(수당)</div><div class="v">' + days(s.short) + '</div></div>' +
+      '<div class="gw-stat"><div class="k">입사일 기준(2027~)</div><div class="v">' + days(s.basis_total) + '</div></div>' +
+      '<div class="gw-stat"><div class="k">실제 준 연차(2027~)</div><div class="v">' + days(s.actual_total) + '</div></div></div>';
+    if (s.before_fiscal) h += '<div class="gw-note">2027년 전에 그만두면 회계연도 차액은 없어요(그때까지는 입사일 기준).</div>';
+    else if (!s.short) h += '<div class="gw-note">입사일 기준보다 모자라지 않아 차액 정산이 없어요. 더 준 연차를 깎지는 않아요.</div>';
+    h += '<div class="gw-sec-title">입사일 기준이었다면 받았을 연차(2027-01-01 뒤)</div>' + list(s.basis);
+    h += '<div class="gw-sec-title">실제 준 연차(2027-01-01 뒤)</div>' + list(s.actual);
+    if (s.later && s.later.length) {
+      h += '<div class="gw-lv-err">마지막 근무일 뒤로 잡힌 휴가가 있어요. 먼저 취소해 주세요: ' +
+        s.later.map(function (r) { return esc(r.what); }).join(', ') + '</div>';
+    }
+    h += '<div class="gw-note">근거: 고용노동부 근기 68207-620·근로개선정책과-5352(퇴직 때 입사일 기준에 모자란 일수 정산), ' +
+      '대법원 2021다227100(1년 근로 다음 날 연차 발생 — 그 전에 그만두면 그 해 몫 없음).</div>';
+    return h + '</div>';
+  }
+
+  // 휴가 기록 표 줄 끝 — 경영지원이 고칠 수 있는 줄(승인 대기·승인)만
+  function admRowAct(e) {
+    if (!adm || !adm.can || e.source !== 'slack' || (adm.editable || []).indexOf(e.id) === -1) return '';
+    return '<button type="button" class="btn btn-outline-secondary btn-sm gw-lv-cancel" data-adm="edit" data-id="' + esc(e.id) + '">고치기</button>' +
+      '<button type="button" class="btn btn-outline-danger btn-sm gw-lv-cancel" data-adm="cancel" data-id="' + esc(e.id) + '">취소</button>';
   }
 
   function admField(id, label, input, hint) {
@@ -683,9 +1111,22 @@
     document.getElementById('lvAdmMsg').textContent = '';
     var h = '<form class="gw-lv-form gw-lv-adm-form" id="lvAdmF" data-kind="' + kind + '"' + (id ? ' data-id="' + esc(id) + '"' : '') + ' novalidate>';
     if (kind === 'adjust') {
-      h += admField('lvAdmDays', '조정 일수', '<input type="number" step="0.5" min="-30" max="30" class="form-control" id="lvAdmDays" name="days" required>',
-        '늘리려면 2, 빼려면 -1 처럼 적어요. 0.5일 단위예요. 지금 쓸 수 있는 연차와 같은 날 소멸해요.') +
+      h += '<p class="gw-lv-left mb-2">날짜가 있는 휴가(병원·반차 등)는 조정 말고 <strong>휴가 등록</strong>으로 넣어 주세요. 그래야 휴가 기록과 일정에 남아요.</p>' +
+        admField('lvAdmDays', '조정 일수', '<input type="number" step="0.5" min="-30" max="30" class="form-control" id="lvAdmDays" name="days" placeholder="예: 1, -0.5" required>',
+        '늘리면 1, 2.5처럼, 빼면 -1, -0.5처럼 적어요(0.5일 단위). 적용일에 쓸 수 있는 연차와 같은 날 소멸해요.') +
+        admField('lvAdmOn', '적용일', '<input type="date" class="form-control" id="lvAdmOn" name="applies_on" value="' + todayIso() + '">', '이날부터 남은 연차에 반영돼요.') +
         admField('lvAdmReason', '사유', '<input type="text" class="form-control" id="lvAdmReason" name="reason" maxlength="200" required placeholder="예: 보상 연차, 결근 차감">');
+    } else if (kind === 'settle') {
+      h += '<p class="gw-lv-left mb-2">마지막 근무일을 고르면 그날 기준 미사용 연차와, 회계연도 기준이라 입사일 기준보다 모자란 연차(수당 정산)를 계산해요.</p>' +
+        admField('lvAdmLast', '마지막 근무일', '<input type="date" class="form-control" id="lvAdmLast" name="last_day" required>') +
+        '<div id="lvSettleOut"></div>';
+    } else if (kind === 'custom') {
+      h += '<p class="gw-lv-left mb-2">보건·난임 치료 같은 휴가를 일수로 먼저 줘요. 직원은 휴가 신청 창에서 그 종류를 골라 신청하고, 보통 승인 절차를 거쳐요.</p>' +
+        admField('lvAdmType', '휴가 종류', '<select class="form-select" id="lvAdmType" name="type">' + optList(adm.admin_types, '') + '</select>') +
+        admField('lvAdmDays', '일수', '<input type="number" step="0.5" min="0.5" max="120" class="form-control" id="lvAdmDays" name="days" required>', '0.5일 단위예요.') +
+        admField('lvAdmFrom', '쓸 수 있는 첫날', '<input type="date" class="form-control" id="lvAdmFrom" name="valid_from" value="' + todayIso() + '">') +
+        admField('lvAdmTo', '쓸 수 있는 마지막 날', '<input type="date" class="form-control" id="lvAdmTo" name="valid_to">', '비우면 기간 제한 없이 써요.') +
+        admField('lvAdmReason', '메모', '<input type="text" class="form-control" id="lvAdmReason" name="reason" maxlength="200" placeholder="예: 진단서 받음">', '본인에게 가는 알림에 같이 보여요.');
     } else {
       var v = id ? (adm.rows || {})[String(id)] || {} : {};
       var types = adm.types;   // 휴가 관리: 모든 종류 등록(11-18 부장님 — 경영지원 관리 기능)
@@ -701,7 +1142,7 @@
           kind === 'register' ? '본인·승인하는 분께 알림이 가고, 회사 휴가 일정에 올라가요.' : '상태는 그대로 두고 고쳐요. 본인에게 알림이 가요.');
     }
     h += '<div class="gw-lv-adm-actions"><button type="button" class="btn btn-sm btn-link" data-adm="close">닫기</button>' +
-      '<button type="submit" class="btn btn-sm btn-primary">' + ({ adjust: '조정', register: '등록', edit: '고치기' }[kind]) + '</button></div></form>';
+      '<button type="submit" class="btn btn-sm btn-primary">' + ({ adjust: '조정', register: '등록', edit: '고치기', custom: '부여', settle: '계산' }[kind]) + '</button></div></form>';
     box.innerHTML = h;
     var f = document.getElementById('lvAdmF');
     function sync() {
@@ -714,17 +1155,31 @@
     if (f.type) f.type.addEventListener('change', sync);
     sync();
     var first = f.querySelector('select, input');
-    if (first) first.focus();
+    try { box.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { /* 무시 */ }
+    if (first) first.focus({ preventScroll: true });
   }
 
   function admSubmit(f) {
     var kind = f.getAttribute('data-kind'), id = f.getAttribute('data-id');
     var msg = document.getElementById('lvAdmMsg');
     var body, url;
+    if (kind === 'settle') {
+      if (!f.last_day.value) { msg.textContent = '마지막 근무일을 골라 주세요.'; return; }
+      var out = document.getElementById('lvSettleOut');
+      out.innerHTML = '<div class="gw-empty">계산하는 중…</div>';
+      api('/api/leave/person/' + admPid + '/settlement?last_day=' + encodeURIComponent(f.last_day.value)).then(function (j) {
+        out.innerHTML = renderSettle(j.settlement);
+      }).catch(function (e) { out.innerHTML = ''; msg.textContent = e.message; });
+      return;
+    }
     if (kind === 'adjust') {
-      body = { days: f.days.value, reason: f.reason.value.trim() };
+      body = { days: f.days.value, reason: f.reason.value.trim(), applies_on: f.applies_on.value };
       if (!body.days || !body.reason) { msg.textContent = '일수와 사유를 적어 주세요.'; return; }
       url = '/api/leave/person/' + admPid + '/adjust';
+    } else if (kind === 'custom') {
+      body = { type: f.type.value, days: f.days.value, valid_from: f.valid_from.value, valid_to: f.valid_to.value, note: f.reason.value.trim() };
+      if (!body.days) { msg.textContent = '일수를 적어 주세요.'; return; }
+      url = '/api/leave/person/' + admPid + '/custom-grant';
     } else {
       var t = f.type.value, half = (adm.half_types || []).indexOf(t) !== -1;
       body = { type: t, sub: t === adm.event ? f.sub.value : '', start: f.start.value, end: half ? '' : (f.end.value || f.start.value), reason: f.reason.value.trim() };
@@ -734,7 +1189,7 @@
     var btn = f.querySelector('[type="submit"]');
     btn.disabled = true;
     api(url, { method: 'POST', body: body }).then(function () {
-      reloadPerson({ adjust: '연차를 조정했어요.', register: '휴가를 등록했어요.', edit: '휴가를 고쳤어요.' }[kind]);
+      reloadPerson({ adjust: '연차를 조정했어요.', register: '휴가를 등록했어요.', edit: '휴가를 고쳤어요.', custom: '맞춤 휴가를 부여했어요. 본인에게 알림이 가요.' }[kind]);
     }).catch(function (e) {
       msg.textContent = e.message;
       btn.disabled = false;
@@ -751,12 +1206,29 @@
     });
   }
 
+  function admAdjCancel(id) {
+    if (!window.confirm('이 연차 조정을 취소할까요? 기록은 남고, 본인에게 알림이 가요.')) return;
+    api('/api/leave/adjust/' + encodeURIComponent(id) + '/cancel', { method: 'POST' }).then(function () {
+      reloadPerson('연차 조정을 취소했어요.');
+    }).catch(function (err) {
+      document.getElementById('lvAdmMsg').textContent = err.message;
+    });
+  }
+
   bodyEl.addEventListener('click', function (ev) {
     var b = ev.target.closest('[data-adm]');
     if (!b || !adm) return;
     var k = b.getAttribute('data-adm');
     if (k === 'close') { document.getElementById('lvAdmForm').innerHTML = ''; return; }
     if (k === 'cancel') { admCancel(b.getAttribute('data-id')); return; }
+    if (k === 'adjcancel') { admAdjCancel(b.getAttribute('data-id')); return; }
+    if (k === 'customcancel') {
+      if (!window.confirm('이 맞춤 휴가 부여를 취소할까요? 기록은 남아요.')) return;
+      api('/api/leave/custom-grant/' + encodeURIComponent(b.getAttribute('data-id')) + '/cancel', { method: 'POST' }).then(function () {
+        reloadPerson('맞춤 휴가 부여를 취소했어요.');
+      }).catch(function (err) { document.getElementById('lvAdmMsg').textContent = err.message; });
+      return;
+    }
     openAdmForm(k, b.getAttribute('data-id'));
   });
   bodyEl.addEventListener('submit', function (ev) {
@@ -771,16 +1243,20 @@
     loadTeam();
   }
 
-  function openPerson(id, name, note) {
+  var curSub = '';
+  function openPerson(id, name, note, sub) {
     admPid = id;
     curName = name;
-    document.getElementById('lvPersonTitle').textContent = name + ' 휴가';
+    if (sub !== undefined) curSub = sub;
+    var t = document.getElementById('lvPersonTitle');
+    t.textContent = name + ' 휴가';
+    if (curSub) t.insertAdjacentHTML('beforeend', ' <small class="gw-lv-person-sub">' + esc(curSub) + '</small>');
     if (!note) bodyEl.innerHTML = '<div class="gw-empty">불러오는 중…</div>';
     if (window.bootstrap && !note) { returnFocusOnHide(modalEl); window.bootstrap.Modal.getOrCreateInstance(modalEl).show(); }
     api('/api/leave/person/' + id).then(function (j) {
       adm = j.admin || { can: false };
       bodyEl.innerHTML = (note ? '<div class="gw-lv-flash ok" role="status">' + esc(note) + '</div>' : '') +
-        renderAdmin(j.leave) + renderSummary(j.leave, { hideApplyNote: true });
+        renderSummary(j.leave, { hideApplyNote: true, afterStats: renderAdmin(j.leave), rowAct: adm && adm.can ? admRowAct : null });
       bindYearFilter(bodyEl);
     }).catch(function (e) {
       bodyEl.innerHTML = '<div class="gw-empty">' + esc(e.message) + '</div>';
@@ -789,16 +1265,38 @@
 
   tbody.addEventListener('click', function (e) {
     var tr = e.target.closest('tr[data-id]');
-    if (tr) openPerson(tr.getAttribute('data-id'), tr.getAttribute('data-name'));
+    if (tr) openPerson(tr.getAttribute('data-id'), tr.getAttribute('data-name'), '', tr.getAttribute('data-sub') || '');
   });
   tbody.addEventListener('keydown', function (e) {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     var tr = e.target.closest('tr[data-id]');
-    if (tr) { e.preventDefault(); openPerson(tr.getAttribute('data-id'), tr.getAttribute('data-name')); }
+    if (tr) { e.preventDefault(); openPerson(tr.getAttribute('data-id'), tr.getAttribute('data-name'), '', tr.getAttribute('data-sub') || ''); }
   });
+
+  // 이름(11-19 부장님): 전사 현황 → 전사 휴가 관리, 연차 부여·차감 → 연차 일괄 조정. 템플릿·메뉴도 같게(재시작 뒤)
+  (function () {
+    var h1 = document.querySelector('.gw-page-title');
+    if (h1 && h1.textContent.trim() === '휴가 전사 현황') h1.textContent = '전사 휴가 관리';
+    var bb = document.getElementById('lvBulkBtn');
+    if (bb) bb.textContent = '연차 일괄 조정';
+    var bt = document.getElementById('lvBulkTitle');
+    if (bt) bt.textContent = '연차 일괄 조정';
+  })();
+
+  var xl = document.getElementById('lvExport');
+  if (xl) {
+    var xy = document.getElementById('lvExportYear');
+    var ty = new Date().getFullYear();
+    xy.innerHTML = [ty - 2, ty - 1, ty].map(function (y) { return '<option value="' + y + '"' + (y === ty ? ' selected' : '') + '>' + y + '년</option>'; }).join('');
+    xl.addEventListener('click', function (ev) {
+      var a = ev.target.closest('[data-xl]');
+      if (!a) return;
+      a.href = '/api/leave/export?kind=' + a.getAttribute('data-xl') + '&year=' + encodeURIComponent(xy.value);
+    });
+  }
 
   var saved = 'cal';
   try { saved = localStorage.getItem('gw.leave.tab') || 'cal'; } catch (e) { /* 무시 */ }
   loadCal();
-  showTab(saved === 'list' ? 'list' : 'cal');
+  showTab(tabs[saved] ? saved : 'cal');
 })();

@@ -179,3 +179,90 @@ def test_invariant_offsite_stale(tmp_path):
         (tmp_path / kind / 'x').write_text('1')
     vs = ic.check_backup_fresh({'backup_root': tmp_path, 'now_ts': now, 'offsite_enabled': True})
     assert [v['title'] for v in vs] == ['offsite']
+
+
+# ── 서류 백업·큰 폴더 한 번 올리기 (2026-11-20 플렉스 해지 전) ──────────────────────────────────
+class _SizedDrive(_FakeDrive):
+    def create(self, body=None, media_body=None, **kw):
+        def run():
+            self.n += 1
+            data = media_body.getbytes(0, media_body.size())
+            self.uploaded.append((body, data))
+            fid = f'new{self.n}'
+            self.files_[fid] = {'id': fid, 'name': body['name'], 'size': str(len(data))}
+            return {'id': fid, 'size': str(len(data))}
+        return _Req(run)
+
+
+def _docs(root: Path):
+    (root / 'instance' / 'hr_docs' / '1').mkdir(parents=True)
+    (root / 'instance' / 'hr_docs' / '1' / 'a.pdf').write_bytes(b'%PDF' * 50)
+    (root / 'instance' / 'flex_export').mkdir(parents=True)
+    (root / 'instance' / 'flex_export' / 'x.json').write_text('{}', encoding='utf-8')
+
+
+def test_upload_docs_only_when_changed(tmp_path, monkeypatch):
+    _docs(tmp_path)
+    monkeypatch.setenv('BACKUP_ENCRYPT_PASSWORD', PW)
+    monkeypatch.delenv('GW_HR_DOCS_DIR', raising=False)
+    monkeypatch.delenv('OFFSITE_BACKUP_FOLDER_ID', raising=False)
+    old = [{'id': f'd{i}', 'name': f'itg-docs-202610{i:02d}.itgbak'} for i in range(1, 31)]   # 30벌
+    old += [{'id': 'b1', 'name': 'itg-backup-20261001.itgbak'}]                              # 매일분은 손대지 않음
+    drv = _SizedDrive(old)
+    res = ob.upload_docs(tmp_path, tmp_path / 'backup', svc=drv, today=date(2026, 11, 20))
+    assert res.startswith('OK: itg-docs-20261120.itgbak (서류 2개')
+    body, data = drv.uploaded[0]
+    out = tmp_path / 'r.itgbak'
+    out.write_bytes(data)
+    names = ob.restore(str(out), str(tmp_path / 'out'), PW)
+    assert sorted(names) == ['flex_export/x.json', 'hr_docs/1/a.pdf']
+    assert (tmp_path / 'out' / 'hr_docs' / '1' / 'a.pdf').read_bytes() == b'%PDF' * 50
+    assert drv.trashed == ['d1']                                  # 새 것 + 앞선 29벌 = 30벌(가장 옛 것만)
+    # 그대로면 건너뜀, 바뀌면 다시
+    assert ob.upload_docs(tmp_path, tmp_path / 'backup', svc=drv).startswith('skip: 바뀐 서류 없음')
+    (tmp_path / 'instance' / 'hr_docs' / '1' / 'b.pdf').write_bytes(b'new')
+    assert ob.upload_docs(tmp_path, tmp_path / 'backup', svc=drv, today=date(2026, 11, 21)).startswith('OK')
+
+
+def test_upload_docs_skips_without_password_or_files(tmp_path, monkeypatch):
+    monkeypatch.delenv('BACKUP_ENCRYPT_PASSWORD', raising=False)
+    assert ob.upload_docs(tmp_path, tmp_path, svc=object()).startswith('skip')
+    monkeypatch.setenv('BACKUP_ENCRYPT_PASSWORD', PW)
+    monkeypatch.delenv('GW_HR_DOCS_DIR', raising=False)
+    assert ob.upload_docs(tmp_path, tmp_path, svc=object()) == 'skip: 서류 없음'
+
+
+def test_upload_archive_volumes_resume_and_restore(tmp_path, monkeypatch):
+    src = tmp_path / 'flex_export_20261106'
+    (src / '원본').mkdir(parents=True)
+    (src / '원본' / 'big.zip').write_bytes(b'Z' * 500)          # limit 보다 큼 → 혼자
+    (src / 'a.txt').write_bytes(b'A' * 100)
+    (src / 'b.txt').write_bytes(b'B' * 100)
+    (src / 'c.txt').write_bytes(b'C' * 100)
+    monkeypatch.setenv('BACKUP_ENCRYPT_PASSWORD', PW)
+    monkeypatch.delenv('OFFSITE_BACKUP_FOLDER_ID', raising=False)
+    drv = _SizedDrive()
+    res = ob.upload_archive(src, 'flex-archive-20261120', svc=drv, limit=250, log=lambda *_: None)
+    assert [r[0] for r in res] == ['flex-archive-20261120-01of03.itgbak', 'flex-archive-20261120-02of03.itgbak',
+                                   'flex-archive-20261120-03of03.itgbak']
+    assert sum(r[2] for r in res) == 4
+    out = tmp_path / 'out'
+    for i, (body, data) in enumerate(drv.uploaded):
+        f = tmp_path / f'v{i}.itgbak'
+        f.write_bytes(data)
+        ob.restore(str(f), str(out), PW)
+    assert (out / 'flex_export_20261106' / '원본' / 'big.zip').read_bytes() == b'Z' * 500
+    assert (out / 'flex_export_20261106' / 'c.txt').read_bytes() == b'C' * 100
+    # 다시 돌리면 이미 올라간 조각은 건너뜀
+    res2 = ob.upload_archive(src, 'flex-archive-20261120', svc=drv, limit=250, log=lambda *_: None)
+    assert [r[3] for r in res2] == ['skip', 'skip', 'skip'] and len(drv.uploaded) == 3
+
+
+def test_backup_daily_docs_failure_counts():
+    spec = importlib.util.spec_from_file_location(
+        'backup_daily', Path(__file__).resolve().parents[2] / 'scripts' / 'backup_daily.py')
+    bd = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bd)
+    ok = {'users_db': 'OK: a', 'redis': 'OK: b', 'secrets': 'OK: c', 'offsite': 'OK: x'}
+    assert bd.failed_items(dict(ok, offsite_docs='skip: 바뀐 서류 없음 (3개)')) == []
+    assert bd.failed_items(dict(ok, offsite_docs='실패: X: y')) == ['offsite_docs: 실패: X: y']

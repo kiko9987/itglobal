@@ -112,7 +112,7 @@ def _leave_waiting(uid: str) -> List[dict]:
         ph = ','.join('?' * len(leave.OPEN))
         rows = [dict(r) for r in conn.execute(
             f'SELECT * FROM leave_requests WHERE status IN ({ph}) ORDER BY id', leave.OPEN).fetchall()]
-    return [r for r in rows if leave.current_approver(r) == uid]
+    return [r for r in rows if uid in leave.actors(r)]       # 대결 포함(11-20)
 
 
 def _leave_link(row: dict, uid: str) -> str:
@@ -177,6 +177,30 @@ def todos(person: Optional[dict], slack_id: str, field: bool, hr_admin: bool,
                             'action': '현황 보기', 'href': '/yearend/admin'})
     except Exception as e:
         logger.warning(f'[GW-HOME] 연말정산 할 일 실패: {e}')
+    # 4-2) 입사·퇴사 할 일(11-20) — 경영지원·대표: 기한 7일 안이거나 지난 열린 일
+    if hr_admin and not field:
+        try:
+            from dashboard.services import hr_tasks as ht
+            rows = ht.reminder_rows(within=7)
+            if rows:
+                late = [r for r in rows if r['due_date'] < date.today().isoformat()]
+                names = ', '.join(dict.fromkeys(f"{r['name']} {ht.title(r)}" for r in rows[:3]))
+                out.append({'id': 'hr-tasks', 'sig': ','.join(str(r['id']) for r in rows),
+                            'tone': 'warn' if late else 'act', 'icon': 'fas fa-user-check',
+                            'title': f'입사·퇴사 할 일 {len(rows)}건' + (f' (기한 지남 {len(late)}건)' if late else ''),
+                            'desc': names + (' 외' if len(rows) > 3 else ''),
+                            'action': '인사카드 열기', 'href': f"/hr/people#{rows[0]['person_id']}"})
+        except Exception as e:
+            logger.warning(f'[GW-HOME] 입사·퇴사 할 일 실패: {e}')
+    # 5) 나라장터 입찰 공고(11-18) — 마감 전 '들어갈 수 있는 공고'가 있을 때만 한 줄
+    if not field:
+        from dashboard.services import g2b_bids
+        n, sig = g2b_bids.home_summary()
+        if n:
+            out.append({'id': 'g2b-bids', 'sig': sig, 'tone': 'info', 'icon': 'fas fa-gavel',
+                        'title': f'마감 전 입찰 공고 {n}건',
+                        'desc': '경기·김포 업체가 지금 면허로 들어갈 수 있는 나라장터 공고예요.',
+                        'action': '공고 보기', 'href': '/bids'})
     return out
 
 

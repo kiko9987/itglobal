@@ -51,7 +51,7 @@ def test_flow_issue_once_and_cards(db):
     h = ct.card_blocks(row, 'handler')
     def act(bl):
         return next(b for b in bl if b['type'] == 'actions')
-    assert [e['action_id'] for e in act(h)['elements']] == [ct.A_ISSUE, ct.A_REJECT]
+    assert [e['action_id'] for e in act(h)['elements']] == [ct.A_AUTO, ct.A_ISSUE, ct.A_REJECT]
     assert [e['action_id'] for e in act(ct.card_blocks(row, 'requester'))['elements']] == [ct.A_CANCEL]
     assert '○○은행' in ct.card_text(row) and '부' not in ct.card_text(row).split('받는 방법')[1].split('\n')[0]
     done = ct.finish(row['id'], ct.ISSUED, '황샛별', '', ['재직증명서.pdf'])

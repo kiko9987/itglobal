@@ -525,6 +525,19 @@ def start_scheduler():
             replace_existing=True,
         )
         jobs.append('연차 자동 발생 매일 07:30')
+        # 연차 사용 촉진(11-18) — 연차가 생긴 뒤(07:30)에 본다. 주말에도 돈다(법 기간 10일은 달력 날짜)
+        _scheduler.add_job(
+            _safe_leave_promotion,
+            'cron',
+            hour=8, minute=10,
+            id='leave_promotion_daily',
+            replace_existing=True,
+        )
+        jobs.append('연차 사용 촉진 매일 08:10')
+    # 2026-11-20 입사·퇴사 할 일(플렉스 「할 일」 대체) — 인사카드 맞추기 + 평일 기한 다가온 일 경영지원 DM
+    if os.getenv('SLACK_EAPPROVAL_BOT_TOKEN', '').strip():
+        _scheduler.add_job(_safe_hr_tasks, 'cron', hour=9, minute=0, id='hr_tasks_daily', replace_existing=True)
+        jobs.append('입사·퇴사 할 일 매일 09:00')
     # 2026-11-06 시공팀 출퇴근 — 세콤 ERP 내보내기(매시 5분 C:\S1) 파일을 10분마다 장부로.
     #   누락 묻기(매일 08:30 본인 DM)·월말 정산(매달 1일 09:10 경영지원 DM)은 ATTENDANCE_ENABLED 뒤에만
     _scheduler.add_job(
@@ -585,6 +598,27 @@ def start_scheduler():
             replace_existing=True,
         )
         jobs.append('거래처 신규 증분 매일 07:00')
+
+    # 2026-11-18 나라장터 입찰 공고 — 하루 세 번 모으고, 평일 08:30 새 공고 있을 때만 부장님 DM 한 통.
+    #   G2B_SERVICE_KEY 있을 때만. 화면은 그룹웨어 /bids.
+    if os.getenv('G2B_SERVICE_KEY', '').strip():
+        _scheduler.add_job(
+            _safe_g2b_collect,
+            'cron',
+            hour='7,12,16', minute=20,
+            id='g2b_collect',
+            replace_existing=True,
+        )
+        _scheduler.add_job(
+            _safe_g2b_digest,
+            'cron',
+            hour=8, minute=30,
+            id='g2b_morning_digest',
+            replace_existing=True,
+        )
+        import threading as _th_g2b
+        _th_g2b.Timer(120, _safe_g2b_bootstrap).start()
+        jobs.append('나라장터 공고 모으기 07:20·12:20·16:20 + 평일 08:30 새 공고 DM')
 
     # 2026-10-22 거래처 탭 캐시 10분마다 — 새 줄이 다음 날 아침까지 반영 안 되던 문제.
     #   (원래 07:00 국세청 증분에 묶여 있었음. 캐시는 시트 읽기뿐이라 국세청 키와 무관하게 등록.)
@@ -1111,6 +1145,24 @@ def _safe_leave_accrual():
         logger.error(f'[SCHED] 연차 자동 발생 실패: {exc}', exc_info=True)
 
 
+def _safe_leave_promotion():
+    """연차 사용 촉진 (매일 08:10) — 촉구 보내기·계획 기한 알림·지정 필요 경영지원 알림."""
+    try:
+        from dashboard.blueprints.slack_leave import run_promotion
+        run_promotion()
+    except Exception as exc:
+        logger.error(f'[SCHED] 연차 사용 촉진 실패: {exc}', exc_info=True)
+
+
+def _safe_hr_tasks():
+    """입사·퇴사 할 일 (매일 09:00) — 새 할 일 DM + 평일 기한 알림."""
+    try:
+        from dashboard.blueprints.slack_hr_tasks import run_daily
+        run_daily()
+    except Exception as exc:
+        logger.error(f'[SCHED] 입사·퇴사 할 일 실패: {exc}', exc_info=True)
+
+
 def _safe_attendance_ingest():
     """세콤 출퇴근 파일 → 장부 (10분마다, 새 줄만)."""
     try:
@@ -1203,6 +1255,33 @@ def _safe_partner_status_refresh():
             )
     except Exception as exc:
         logger.error(f'[SCHED] 거래처 상태 갱신 실패: {exc}', exc_info=True)
+
+
+# 나라장터 오류 글은 _safe_err 로 — requests 오류가 인증키 든 주소를 통째로 담는다(11-18)
+def _safe_g2b_collect():
+    from dashboard.services import g2b_bids
+    try:
+        g2b_bids.collect(days=2)
+    except Exception as e:
+        logger.error(f'[SCHED] 나라장터 공고 모으기 실패: {g2b_bids._safe_err(e)}')
+
+
+def _safe_g2b_digest():
+    from dashboard.services import g2b_bids
+    try:
+        g2b_bids.collect(days=2)          # 07:20 이후 올라온 것까지 담아서
+        r = g2b_bids.send_morning_digest()
+        logger.info(f'[SCHED] 나라장터 아침 알림 — {r}')
+    except Exception as e:
+        logger.error(f'[SCHED] 나라장터 아침 알림 실패: {g2b_bids._safe_err(e)}')
+
+
+def _safe_g2b_bootstrap():
+    from dashboard.services import g2b_bids
+    try:
+        g2b_bids.maybe_bootstrap()
+    except Exception as e:
+        logger.warning(f'[SCHED] 나라장터 첫 채우기 실패: {g2b_bids._safe_err(e)}')
 
 
 def _safe_partner_status_fill_new():

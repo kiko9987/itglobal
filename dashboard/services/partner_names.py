@@ -225,6 +225,10 @@ def promote_previous(codes: List[str], name: str, why: str = '', editor: str = '
                 except ValueError:
                     pass
             ver = str(max(vers or [0]) + 1)
+            # 시스템이 올린 버전임을 남긴다 — 방금 사업자명을 저장한 사람의 화면이 이 버전 때문에 다음 저장에서
+            #   '다른 사용자가 먼저 수정' 충돌이 나지 않게(거래처명을 안 건드렸으면 통과, 2026-11-20 R4297-YG)
+            from dashboard.services.system_version_bump import record as _sysbump
+            _sysbump(code, ver, {'거래처명': (old, name)})
             change = {'field_name': '거래처명', 'old_value': old, 'new_value': name}
             enqueue('project_update_sheet', {
                 'sheet_id': sid, 'sheet_name': sn, 'row_number': row,

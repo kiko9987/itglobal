@@ -96,10 +96,15 @@
       fieldBadge(p) + '</h2>' +
       '<div class="gw-card-org">' + (org(p) || '<span class="text-muted">소속 없음</span>') + '</div></div>';
     if (p.can_edit && CFG.mode !== 'me') {   // 수정은 구성원 화면에서(내 정보엔 수정 창이 없음)
-      h += '<div class="gw-card-actions"><button type="button" class="btn btn-sm btn-outline-secondary" id="hrEditBtn">' +
+      h += '<div class="gw-card-actions">' +
+        '<button type="button" class="btn btn-sm btn-outline-secondary" id="hrCertBtn" aria-expanded="false" aria-controls="hrCertPanel">' +
+        '<i class="fas fa-file-signature me-1" aria-hidden="true"></i>증명서 발급</button>' +
+        '<button type="button" class="btn btn-sm btn-outline-secondary" id="hrEditBtn">' +
         '<i class="fas fa-pen me-1" aria-hidden="true"></i>수정</button></div>';
     }
     h += '</div>';
+    if (p.can_edit && CFG.mode !== 'me') h += '<div class="gw-cert" id="hrCertPanel" hidden></div>';
+    h += tasksHtml(p);     // 입사·퇴사 할 일은 맨 위(11-20)
 
     h += '<div class="gw-sec-title">근무</div><dl class="gw-dl">' +
       dd('입사일', p.hire_date) +
@@ -109,7 +114,10 @@
       dd('직무', p.job_role) +
       '</dl>';
 
-    h += '<div class="gw-sec-title">연락처</div><dl class="gw-dl">' +
+    var selfMode = CFG.mode === 'me' && p.can_self_edit;
+    h += (selfMode
+      ? '<div class="gw-sec-head"><div class="gw-sec-title">연락처</div>' + reqBtn(p, 'info', '고치기') + '</div><div id="hrReq-info"></div>'
+      : '<div class="gw-sec-title">연락처</div>') + '<dl class="gw-dl">' +
       dd('회사 메일', p.work_email) + dd('개인 메일', p.personal_email) + dd('전화', phone(p.phone)) +
       dd('주소', p.address, { wide: true }) + '</dl>';
 
@@ -160,7 +168,7 @@
     }
 
     if (p.access_log && p.access_log.length) {
-      var labels = { edit: '수정', create: '추가', doc_upload: '서류 업로드', doc_delete: '서류 삭제' };
+      var labels = { edit: '수정', create: '추가', doc_upload: '서류 업로드', doc_delete: '서류 삭제', cert_issue: '증명서 발급', self_edit: '본인 수정' };
       h += '<details class="mt-3"><summary class="gw-log">수정 기록 ' + p.access_log.length + '건</summary><ul class="gw-log mt-1">';
       p.access_log.forEach(function (l) {
         h += '<li>' + esc(l.at) + ' · ' + esc(l.viewer_email) + ' · ' + esc(labels[l.action] || l.action) +
@@ -174,9 +182,201 @@
 
     var editBtn = document.getElementById('hrEditBtn');
     if (editBtn) editBtn.addEventListener('click', function () { openEdit(p); });
+    bindRequests(p);
+    cardEl.querySelectorAll('[data-task-done]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        b.disabled = true;
+        api('/api/hr/tasks/' + b.getAttribute('data-task-done') + '/done', { method: 'POST' })
+          .then(function () { return loadCard(p.id); })
+          .catch(function (e) { b.disabled = false; window.alert(e.message); });
+      });
+    });
+    var certBtn = document.getElementById('hrCertBtn');
+    if (certBtn) certBtn.addEventListener('click', function () { toggleCert(p, certBtn); });
     bindSsnToggles();
     bindPrivate(p);
     if (document.getElementById('hrDevices')) loadDevices(p);
+  }
+
+  function tasksHtml(p) {
+    var h = '';
+    // 입사·퇴사 할 일(11-20) — 경영지원·대표. 슬랙 DM 카드와 같은 일, 여기서 닫으면 슬랙도 닫힘
+    var tasks = p.tasks || [];
+    if (tasks.length && CFG.mode !== 'me') {
+      h += '<div class="gw-sec-title">입사·퇴사 할 일</div><ul class="gw-tasks">';
+      tasks.forEach(function (t) {
+        var done = t.status === 'done';
+        h += '<li class="gw-task' + (done ? ' done' : (/지남/.test(t.due_label || '') ? ' late' : '')) + '">' +
+          '<div class="gw-task-main"><b>' + esc(t.title) + '</b> <span class="gw-task-due">' +
+          (done ? '완료 · ' + esc(t.done_by || '') + ' · ' + esc((t.done_at || '').slice(0, 10)) : esc(t.due_label || '')) + '</span>' +
+          (done ? '' : '<div class="gw-task-guide">' + esc(t.guide || '') + '</div>') + '</div>' +
+          (done || !p.can_edit ? '' : '<button type="button" class="btn btn-sm btn-outline-primary" data-task-done="' + t.id + '" aria-label="' + esc(t.title) + ' 완료">완료</button>') +
+          '</li>';
+      });
+      h += '</ul>';
+    }
+    return h;
+  }
+
+  // ── 내 정보 직접 고치기(11-20) — 연락처·비상연락망·서류 올리기는 본인이 바로(부장님: 본인 정보는 본인이) ──
+  function reqBtn(p, kind, label) {
+    return '<button type="button" class="btn btn-sm btn-outline-secondary" data-req-open="' + kind + '">' + label + '</button>';
+  }
+  function reqPost(url, body) {
+    return api(url, { method: 'POST', body: body });
+  }
+  function openInfoForm(p, box, btn) {
+    box.innerHTML = '<form class="gw-req-form" id="hrReqInfoForm">' +
+      '<label>전화<input type="tel" class="form-control form-control-sm" name="phone" maxlength="20" value="' + esc(p.phone || '') + '"></label>' +
+      '<label>개인 메일<input type="email" class="form-control form-control-sm" name="personal_email" maxlength="120" value="' + esc(p.personal_email || '') + '"></label>' +
+      '<label class="gw-req-wide">주소<input type="text" class="form-control form-control-sm" name="address" maxlength="200" value="' + esc(p.address || '') + '"></label>' +
+      '<div class="gw-req-btns"><button type="submit" class="btn btn-sm btn-primary">저장</button><button type="button" class="btn btn-sm btn-outline-secondary" data-req-close>닫기</button>' +
+      '<span class="gw-form-error" role="alert"></span></div></form>';
+    var f = box.querySelector('form');
+    f.elements.phone.focus();
+    f.querySelector('[data-req-close]').addEventListener('click', function () { box.innerHTML = ''; btn.focus(); });
+    f.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var err = f.querySelector('.gw-form-error'), sb = f.querySelector('button[type=submit]');
+      sb.disabled = true; err.textContent = '';
+      reqPost('/api/hr/me/contact', { phone: f.elements.phone.value, personal_email: f.elements.personal_email.value, address: f.elements.address.value })
+        .then(function () { return loadCard(p.id); })
+        .catch(function (x) { err.textContent = x.message; sb.disabled = false; });
+    });
+  }
+  function famRow(x) {
+    return '<div class="gw-req-fam"' + (x.id ? ' data-id="' + x.id + '"' : '') + '>' +
+      '<input type="text" class="form-control form-control-sm" placeholder="이름" aria-label="이름" maxlength="30" value="' + esc(x.name || '') + '">' +
+      '<input type="text" class="form-control form-control-sm" placeholder="관계 (예: 배우자)" aria-label="관계" maxlength="20" value="' + esc(x.relation || '') + '">' +
+      '<input type="tel" class="form-control form-control-sm" placeholder="연락처" aria-label="연락처" maxlength="20" value="' + esc(x.phone || '') + '">' +
+      '<button type="button" class="btn btn-sm btn-outline-danger" data-fam-del aria-label="이 줄 빼기">빼기</button></div>';
+  }
+  function openFamilyForm(p, box, btn) {
+    var rows = (p.families || []).map(function (f) { return { id: f.id, name: f.name, relation: f.relation, phone: f.phone }; });
+    if (!rows.length) rows.push({});
+    box.innerHTML = '<form class="gw-req-form" id="hrReqFamForm"><div class="gw-req-fams">' + rows.map(famRow).join('') + '</div>' +
+      '<button type="button" class="btn btn-sm btn-outline-secondary" data-fam-add>+ 사람 추가</button>' +
+      '<div class="gw-req-btns"><button type="submit" class="btn btn-sm btn-primary">저장</button><button type="button" class="btn btn-sm btn-outline-secondary" data-req-close>닫기</button>' +
+      '<span class="gw-form-error" role="alert"></span></div></form>';
+    var f = box.querySelector('form'), list = f.querySelector('.gw-req-fams');
+    function bindDel() {
+      list.querySelectorAll('[data-fam-del]').forEach(function (b) { b.onclick = function () { b.parentElement.remove(); }; });
+    }
+    bindDel();
+    list.querySelector('input').focus();
+    f.querySelector('[data-fam-add]').addEventListener('click', function () {
+      list.insertAdjacentHTML('beforeend', famRow({})); bindDel();
+      list.lastElementChild.querySelector('input').focus();
+    });
+    f.querySelector('[data-req-close]').addEventListener('click', function () { box.innerHTML = ''; btn.focus(); });
+    f.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var err = f.querySelector('.gw-form-error'), sb = f.querySelector('button[type=submit]');
+      var out = Array.prototype.map.call(list.querySelectorAll('.gw-req-fam'), function (r) {
+        var i = r.querySelectorAll('input');
+        var o = { name: i[0].value, relation: i[1].value, phone: i[2].value };
+        if (r.getAttribute('data-id')) o.id = parseInt(r.getAttribute('data-id'), 10);
+        return o;
+      });
+      sb.disabled = true; err.textContent = '';
+      reqPost('/api/hr/me/family', { rows: out })
+        .then(function () { return loadCard(p.id); })
+        .catch(function (x) { err.textContent = x.message; sb.disabled = false; });
+    });
+  }
+  function bindRequests(p) {
+    cardEl.querySelectorAll('[data-req-open]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var kind = b.getAttribute('data-req-open'), box = document.getElementById('hrReq-' + kind);
+        if (!box) return;
+        if (box.innerHTML) { box.innerHTML = ''; return; }
+        (kind === 'info' ? openInfoForm : openFamilyForm)(p, box, b);
+      });
+    });
+    var sf = document.getElementById('hrSelfDocForm');
+    if (sf) {
+      sf.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var err = document.getElementById('hrSelfDocError'), file = sf.elements.file.files[0];
+        if (!file) { err.textContent = '파일을 골라 주세요.'; return; }
+        if (file.size > 8 * 1024 * 1024) { err.textContent = '8MB까지 올릴 수 있어요.'; return; }
+        var sb = sf.querySelector('button[type=submit]');
+        sb.disabled = true; err.textContent = '';
+        fetch('/api/hr/me/documents', { method: 'POST', body: new FormData(sf), credentials: 'same-origin' })
+          .then(function (r) { return r.json().then(function (j) { if (!r.ok || !j.success) throw new Error(j.message || '올리지 못했어요.'); return j; }); })
+          .then(function () { return loadCard(p.id); })
+          .catch(function (x) { err.textContent = x.message; sb.disabled = false; });
+      });
+    }
+  }
+
+  // ── 증명서 바로 발급(11-20) — 인사카드 관리자. 퇴직자·창구 요청용(직원 신청은 슬랙 전자결재 [📜 증명서 신청]) ──
+  var CERT_PURPOSES = ['금융기관 제출', '관공서 제출', '회사·학교 제출', '기타'];
+  function toggleCert(p, btn) {
+    var panel = document.getElementById('hrCertPanel');
+    if (!panel) return;
+    if (!panel.hidden) { panel.hidden = true; btn.setAttribute('aria-expanded', 'false'); return; }
+    var resigned = p.status === '퇴사';
+    var groupDiff = p.group_hire_date && p.group_hire_date !== p.hire_date;
+    panel.innerHTML =
+      '<div class="gw-cert-title">증명서 발급 <span class="text-muted">직인이 찍힌 PDF를 만들고 아래 서류에도 남겨요</span></div>' +
+      '<div class="gw-cert-grid">' +
+      '<label>종류<select class="form-select form-select-sm" id="hrCertType">' +
+      (resigned ? '' : '<option>재직증명서</option>') + '<option>경력증명서</option></select></label>' +
+      '<label>용도<select class="form-select form-select-sm" id="hrCertPurpose">' +
+      CERT_PURPOSES.map(function (x) { return '<option>' + x + '</option>'; }).join('') + '</select></label>' +
+      '<label class="gw-cert-wide"><span>제출처 <span class="text-muted">(선택)</span></span><input type="text" class="form-control form-control-sm" id="hrCertDest" maxlength="60" placeholder="예: ○○은행 대출, ○○구청"></label>' +
+      '</div>' +
+      '<label class="gw-cert-check"><input type="checkbox" id="hrCertSsn"' + (p.has_ssn ? '' : ' disabled') + '> 주민등록번호 전체 넣기' +
+      (p.has_ssn ? '' : ' <span class="text-muted">(인사카드에 없음)</span>') + '</label>' +
+      (groupDiff ? '<label class="gw-cert-check"><input type="checkbox" id="hrCertGroup"> 재직 기간을 그룹 입사일(' + esc(p.group_hire_date) + ')부터</label>' : '') +
+      '<div class="gw-cert-actions"><button type="button" class="btn btn-sm btn-primary" id="hrCertGo">PDF 만들기</button>' +
+      '<button type="button" class="btn btn-sm btn-outline-secondary" id="hrCertClose">닫기</button></div>' +
+      '<div class="gw-cert-msg" id="hrCertMsg" role="status"></div>';
+    panel.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    document.getElementById('hrCertType').focus();
+    document.getElementById('hrCertClose').addEventListener('click', function () {
+      panel.hidden = true; btn.setAttribute('aria-expanded', 'false'); btn.focus();
+    });
+    document.getElementById('hrCertGo').addEventListener('click', function () {
+      var go = this, msg = document.getElementById('hrCertMsg');
+      var dest = document.getElementById('hrCertDest').value.trim();
+      var purpose = document.getElementById('hrCertPurpose').value + (dest ? ' (' + dest + ')' : '');
+      var g = document.getElementById('hrCertGroup');
+      go.disabled = true;
+      msg.className = 'gw-cert-msg';
+      msg.textContent = '만드는 중…';
+      fetch('/api/hr/people/' + p.id + '/certificate', {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ctype: document.getElementById('hrCertType').value, purpose: purpose,
+                               ssn: document.getElementById('hrCertSsn').checked, group_date: !!(g && g.checked) })
+      }).then(function (r) {
+        if (!r.ok) return r.json().catch(function () { return {}; }).then(function (j) { throw new Error(j.message || ('발급하지 못했어요 (' + r.status + ')')); });
+        var no = r.headers.get('X-Doc-No') || '';
+        var cd = r.headers.get('Content-Disposition') || '';
+        var m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+        var name = m ? decodeURIComponent(m[1]) : '증명서.pdf';
+        return r.blob().then(function (b) {
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(b); a.download = name;
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(function () { URL.revokeObjectURL(a.href); }, 10000);
+          return no;
+        });
+      }).then(function (no) {
+        return loadCard(p.id).then(function () {
+          var again = document.getElementById('hrCertBtn');
+          if (again) again.focus();
+          var sr = document.getElementById('hrCardSr');
+          if (sr) sr.textContent = '증명서를 발급했어요. 발급번호 ' + no + ', 아래 서류에 남겼어요.';
+        });
+      }).catch(function (e) {
+        go.disabled = false;
+        msg.className = 'gw-cert-msg text-danger';
+        msg.textContent = e.message;
+      });
+    });
   }
 
   // 창을 JS 로 열면 닫힌 뒤 포커스가 여는 단추로 돌아가지 않음(부트스트랩은 data-bs 로 열 때만) → 직접 되돌림
@@ -264,7 +464,7 @@
     });
   }
 
-  // ── 경력·학력·가족·서류(본인·인사카드 관리자만 서버가 보내 줌) ─────────────
+  // ── 경력·학력·비상연락망·서류(본인·인사카드 관리자만 서버가 보내 줌) ─────────────
   function period2(a, b) {
     if (!a && !b) return '';
     return esc(a || '') + ' ~ ' + esc(b || '');
@@ -298,14 +498,23 @@
             '</td><td>' + esc(e.graduate_type) + '</td><td>' + period2(e.begin_date, e.end_date) + '</td></tr>';
         }));
     }
+    // 가족 = 비상연락망(11-19 부장님: 플렉스에 연락용으로 올린 것 — 공제 대상 아님). 공제는 연말정산 화면에서 따로 받는다.
+    // 주민번호는 플렉스에 넣어 둔 사람이 있을 때만 칸을 보인다.
+    var selfFam = CFG.mode === 'me' && p.can_self_edit;
+    if (selfFam && !(p.families && p.families.length)) {
+      h += '<div class="gw-sec-head"><div class="gw-sec-title">비상연락망</div>' + reqBtn(p, 'family', '등록하기') + '</div>' +
+        '<div id="hrReq-family"></div><div class="gw-log">등록된 비상연락망이 없어요. 급할 때 연락할 가족을 알려 주세요.</div>';
+    }
     if (p.families && p.families.length) {
-      h += '<div class="gw-sec-title">가족 · 공제 대상</div>' + table(['이름', '관계', '연락처', '주민등록번호', '공제 관계', '기본공제', '자녀공제', '건보 피부양'],
+      var famSsn = p.families.some(function (f) { return f.has_ssn; });
+      h += (selfFam ? '<div class="gw-sec-head"><div class="gw-sec-title">비상연락망</div>' + reqBtn(p, 'family', '고치기') + '</div><div id="hrReq-family"></div>'
+                    : '<div class="gw-sec-title">비상연락망</div>') +
+        '<p class="text-muted small mb-2">급할 때 연락할 가족이에요. 연말정산 부양가족 공제는 1월 연말정산 화면에서 따로 받아요.</p>' +
+        table(['이름', '관계', '연락처'].concat(famSsn ? ['주민등록번호'] : []),
         p.families.map(function (f) {
           var ssn = f.has_ssn ? '<span class="gw-ssn-val">' + esc(f.ssn_masked) + '</span>' + (p.can_reveal_ssn ? ' <button type="button" class="btn btn-sm btn-outline-secondary gw-ssn-btn" data-ssn-url="/api/hr/families/' + f.id + '/ssn" data-what="' + esc(f.name) + ' 주민등록번호" aria-label="' + esc(f.name) + ' 주민등록번호 전체 보기">전체 보기</button>' : '') : '';
-          var yn = function (b) { return b ? '<span class="gw-badge gw-badge-active">예</span>' : '<span class="text-muted">-</span>'; };
-          return '<tr><td>' + esc(f.name) + '</td><td>' + esc(f.relation) + '</td><td>' + esc(phone(f.phone)) +
-            '</td><td data-fam-cell="' + f.id + '">' + ssn + '</td><td>' + esc(f.deduction_relation) + '</td><td>' + yn(f.default_deduction) +
-            '</td><td>' + yn(f.child_deduction) + '</td><td>' + yn(f.health_dependent) + '</td></tr>';
+          return '<tr><td>' + esc(f.name) + '</td><td>' + esc(f.relation) + '</td><td>' + esc(phone(f.phone)) + '</td>' +
+            (famSsn ? '<td data-fam-cell="' + f.id + '">' + ssn + '</td>' : '') + '</tr>';
         }));
     }
     var docs = p.documents || [];
@@ -332,6 +541,16 @@
           '<button type="submit" class="btn btn-sm btn-outline-primary">업로드</button>' +
           '<span class="gw-form-error" id="hrDocError" role="alert"></span></form>';
       }
+    }
+    if (CFG.mode === 'me' && p.self_doc_types) {
+      if (!docs.length && !p.can_edit) h += '<div class="gw-sec-title">서류</div>';
+            h += '<form class="gw-doc-upload" id="hrSelfDocForm">' +
+        '<select class="form-select form-select-sm" name="doc_type" aria-label="올릴 서류 종류">' +
+        p.self_doc_types.map(function (t) { return '<option>' + esc(t) + '</option>'; }).join('') + '</select>' +
+        '<input type="file" class="form-control form-control-sm" name="file" aria-label="올릴 파일" required>' +
+        '<button type="submit" class="btn btn-sm btn-outline-primary">서류 올리기</button>' +
+        '<span class="gw-form-error" id="hrSelfDocError" role="alert"></span></form>' +
+        '<div class="gw-log">올리면 바로 위 서류 목록에 들어가요. 잘못 올렸으면 경영지원에 지워 달라고 해 주세요.</div>';
     }
     return h;
   }

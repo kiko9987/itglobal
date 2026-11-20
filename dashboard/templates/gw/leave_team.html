@@ -1,6 +1,6 @@
 {% extends "modern_base.html" %}
 
-{% block title %}휴가 전사 현황 - 아이티글로벌그룹{% endblock %}
+{% block title %}전사 휴가 관리 - 아이티글로벌그룹{% endblock %}
 
 {% block additional_css %}
 <link rel="stylesheet" href="{{ gw_asset('css/gw-pages.css') }}">
@@ -9,10 +9,24 @@
 {% block content %}
 <div class="gw-page">
   <div class="gw-page-head">
-    <h1 class="gw-page-title">휴가 전사 현황</h1>
+    <h1 class="gw-page-title">전사 휴가 관리</h1>
+    {# 엑셀 내려받기(11-18, 플렉스 보유 현황·사용 내역·월별 연차 사용) #}
+    <div class="gw-lv-export dropdown" id="lvExport">
+      <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+        <i class="fas fa-file-excel me-1" aria-hidden="true"></i>엑셀
+      </button>
+      <div class="dropdown-menu dropdown-menu-end p-2">
+        <label class="form-label small mb-1" for="lvExportYear">연도(사용 내역·월별)</label>
+        <select class="form-select form-select-sm mb-2" id="lvExportYear"></select>
+        <a class="dropdown-item" data-xl="balance" href="/api/leave/export?kind=balance">보유 현황(오늘 기준)</a>
+        <a class="dropdown-item" data-xl="usage" href="/api/leave/export?kind=usage">휴가 사용 내역</a>
+        <a class="dropdown-item" data-xl="monthly" href="/api/leave/export?kind=monthly">월별 연차 사용</a>
+      </div>
+    </div>
     <div class="gw-seg" role="tablist" aria-label="보기">
       <button type="button" role="tab" class="gw-seg-btn" id="lvTabCal" aria-selected="true" aria-controls="lvCalPane">달력</button>
       <button type="button" role="tab" class="gw-seg-btn" id="lvTabList" aria-selected="false" aria-controls="lvListPane">직원별</button>
+      <button type="button" role="tab" class="gw-seg-btn" id="lvTabPromo" aria-selected="false" aria-controls="lvPromoPane">연차 촉진</button>
     </div>
   </div>
 
@@ -29,12 +43,25 @@
   </section>
 
   <section id="lvListPane" role="tabpanel" aria-labelledby="lvTabList" hidden>
+    {# 경영지원만(서버 can_manage) — 전 직원 연차 부여·차감 표(11-18, 플렉스 [연차 조정]) #}
+    <div class="gw-lv-team-head">
+      <span class="gw-lv-team-count" id="lvTeamCount"></span>
+      <div class="gw-lv-team-tools" id="lvTeamTools" hidden>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="lvBulkBtn">연차 일괄 조정</button>
+      </div>
+    </div>
+    <div class="gw-lv-flash ok" id="lvTeamFlash" role="status" hidden></div>
     <div class="gw-panel gw-table-wrap">
       <table class="gw-table gw-table-click" id="lvTeamTable">
         <thead><tr><th>이름</th><th>부서</th><th>입사일</th><th class="n">남은 연차</th><th class="n">올해 쓴 연차</th><th class="n">병가</th><th class="n">대기</th><th>다음 휴가</th></tr></thead>
         <tbody><tr><td colspan="8" class="gw-empty">불러오는 중…</td></tr></tbody>
       </table>
     </div>
+  </section>
+
+  {# 연차 사용 촉진(11-18, 근로기준법 61조) — 보낼 사람·기록·사용일 지정 #}
+  <section id="lvPromoPane" role="tabpanel" aria-labelledby="lvTabPromo" hidden>
+    <div id="lvPromo"></div>
   </section>
 </div>
 
@@ -60,6 +87,37 @@
       </div>
       <div class="modal-body" id="lvPersonBody"></div>
     </div>
+  </div>
+</div>
+
+<div class="modal fade" id="lvBulkModal" tabindex="-1" aria-labelledby="lvBulkTitle" aria-hidden="true" data-bs-backdrop="static">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <form class="modal-content" id="lvBulkForm" novalidate>
+      <div class="modal-header">
+        <h2 class="modal-title fs-5" id="lvBulkTitle">연차 일괄 조정</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
+      </div>
+      <div class="modal-body">
+        <p class="gw-lv-left mb-2" id="lvBulkHint">사람마다 일수와 사유를 따로 적어요. 한 명만 적어도 돼요. 늘리면 1, 2.5처럼, 빼면 -1, -0.5처럼 적어요(0.5일 단위). 적은 사람만 반영되고, 본인에게 알림이 가요. 날짜가 있는 휴가는 직원별 창의 <strong>휴가 등록</strong>으로 넣어 주세요.</p>
+        <div class="gw-lv-bulk-head">
+          <div class="gw-lv-field"><label class="form-label" for="lvBulkOn">적용일</label>
+            <input type="date" class="form-control form-control-sm" id="lvBulkOn" name="applies_on"></div>
+          <div class="gw-lv-field"><label class="form-label" for="lvBulkReason">같은 사유 한 번에 (선택)</label>
+            <input type="text" class="form-control form-control-sm" id="lvBulkReason" name="reason" maxlength="200" placeholder="줄마다 사유를 비운 사람에게 들어가요"></div>
+        </div>
+        <div class="gw-table-wrap">
+          <table class="gw-table gw-lv-bulk-table">
+            <thead><tr><th>이름</th><th class="n">남은 연차</th><th>조정 일수</th><th>사유</th></tr></thead>
+            <tbody id="lvBulkRows"></tbody>
+          </table>
+        </div>
+        <div class="gw-lv-err" id="lvBulkMsg" role="alert"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-link" data-bs-dismiss="modal">닫기</button>
+        <button type="submit" class="btn btn-primary" id="lvBulkGo">적용하기</button>
+      </div>
+    </form>
   </div>
 </div>
 {% endblock %}

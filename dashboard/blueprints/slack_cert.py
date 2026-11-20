@@ -8,6 +8,8 @@ from dashboard.services import certificates as ct
 
 logger = logging.getLogger(__name__)
 _LOG = '[SLACK/증명서]'
+_AUTO_BUSY = set()                 # 바로 발급 두 번 눌림 막기(같은 신청을 동시에 두 번 만들지 않게)
+_AUTO_LOCK = threading.Lock()
 
 
 def _se():
@@ -86,8 +88,74 @@ def issue(client, rid: int, uid: str, files: list, note: str) -> str:
     return ''
 
 
+def auto_issue(client, rid: int, uid: str) -> str:
+    """[📄 바로 발급] — 인사카드로 직인 PDF 를 만들어 신청자 DM 으로(11-20). 문제가 있으면 경영지원에게 보낼 문구."""
+    from dashboard.services import hr
+    se = _se()
+    row = ct.get(rid)
+    if not row or row['status'] != ct.PENDING:
+        return '이미 처리된 신청이에요.'
+    person = hr.find_by_slack(row['requester_id'])
+    if not person:
+        return f"{row['requester_name']} 님 인사카드에 슬랙 연결이 없어 바로 발급을 못 해요. [📎 파일 올려 발급]을 써 주세요."
+    me = hr.find_by_slack(uid) or {}
+    by = (me.get('login_email') or me.get('work_email') or se._name(uid) or uid).strip()
+    opts = ct.request_opts(row)
+    try:
+        res = ct.issue_pdf(person['id'], row['ctype'], opts['purpose'], by, ssn=opts['ssn'], request_id=rid)
+    except (ValueError, RuntimeError, LookupError) as exc:
+        return str(exc)
+    ch = client.conversations_open(users=row['requester_id'])['channel']['id']
+    client.files_upload_v2(channel=ch, file_uploads=[{'content': res['pdf'], 'filename': res['file_name'],
+                                                      'title': res['file_name']}],
+                           initial_comment=f"📜 {row['ctype']}가 발급됐어요. ({row['purpose']}) · 발급번호 {res['doc_no']}")
+    original = (row.get('receive') or '').startswith('직인')
+    if original:   # 원본을 원한 신청 — 경영지원이 뽑아 줄 수 있게 같은 파일을 경영지원 DM 에도
+        try:
+            hch = client.conversations_open(users=uid)['channel']['id']
+            client.files_upload_v2(channel=hch, file_uploads=[{'content': res['pdf'], 'filename': res['file_name'],
+                                                               'title': res['file_name']}],
+                                   initial_comment=f"🖨 {row['requester_name']} 님이 원본({row.get('copies') or 1}부)을 원해요. 뽑아서 전해 주세요.")
+        except Exception as exc:
+            logger.warning(f'{_LOG} 원본용 파일 전달 실패 (#{rid}): {exc}')
+    new = ct.finish(rid, ct.ISSUED, se._name(uid), f"바로 발급 {res['doc_no']}", [res['file_name']])
+    if new:
+        _refresh(client, new)
+        if original:
+            se._notify(client, new['requester_id'], f"📜 원본은 경영지원에서 받아 가세요.")
+    logger.info(f"{_LOG} 바로 발급 #{rid} {row['requester_name']} {row['ctype']} {res['doc_no']} by {by}")
+    return ''
+
+
 def register_cert_handlers(app) -> None:
     se = _se()
+
+    @app.action(ct.A_AUTO)
+    def handle_cert_auto(ack, body, client):
+        ack()
+        rid = _guard(body, client)
+        if not rid:
+            return
+        uid = body['user']['id']
+
+        with _AUTO_LOCK:
+            if rid in _AUTO_BUSY:
+                return
+            _AUTO_BUSY.add(rid)
+
+        def _bg():
+            c = se.eap_client()
+            try:
+                msg = auto_issue(c, rid, uid)
+            except Exception as exc:
+                logger.error(f'{_LOG} 바로 발급 실패 (#{rid}): {exc}', exc_info=True, extra={'force_alert': True})
+                msg = '바로 발급 중 오류가 났어요. 다시 누르거나 [📎 파일 올려 발급]을 써 주세요.'
+            finally:
+                with _AUTO_LOCK:
+                    _AUTO_BUSY.discard(rid)
+            if msg:
+                se._notify(c, uid, f'⚠️ {msg}')
+        threading.Thread(target=_bg, daemon=True).start()
 
     @app.action(ct.A_OPEN)
     def handle_cert_open(ack, body, client):

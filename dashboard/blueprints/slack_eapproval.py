@@ -2565,6 +2565,8 @@ def register_eapproval_handlers(app) -> None:
     _register_form_handlers(app)
     from dashboard.blueprints.slack_cert import register_cert_handlers
     register_cert_handlers(app)   # 증명서 신청(11-06) — DM 만
+    from dashboard.blueprints.slack_hr_tasks import register_hr_task_handlers
+    register_hr_task_handlers(app)   # 입사·퇴사 할 일(11-20) — 경영지원 DM [✅ 완료]
 
     def _open_form_from(body, client, form_key):
         try:

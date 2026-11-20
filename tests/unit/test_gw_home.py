@@ -20,7 +20,10 @@ KIKO, JW, SB, MW = 'U04UL2ZLJAX', 'U051ENK8AAY', 'U0BHC2JV7U5', 'UMW'
 def db(tmp_path, monkeypatch):
     from dashboard.utils.user_database import UserDatabase
     d = UserDatabase(db_path=str(tmp_path / 'users.db'))
-    for mod in (gw, hr, gw_login, lv, leave_view, ea):
+    # g2b_bids(나라장터, 11-18)도 — 빠져 있으면 홈 할 일이 운영 DB(instance/users.db)의 실제 공고를 읽어
+    #   '마감 전 입찰 공고 N건' 줄이 끼어 테스트가 날마다 결과가 달라졌다(11-19 발견)
+    from dashboard.services import g2b_bids
+    for mod in (gw, hr, gw_login, lv, leave_view, ea, g2b_bids):
         monkeypatch.setattr(mod, '_db', lambda: d)
         if hasattr(mod, '_table_ready'):
             monkeypatch.setattr(mod, '_table_ready', False)
@@ -265,6 +268,16 @@ def test_todos_approval_leave_yearend(db, monkeypatch):
     ye.set_status(me['id'], 2026, ye.RETURNED, 'kiko@itg-aircon.com', '등본 누락')
     back = [x for x in gw_home.todos(me, MW, False, False) if x['id'] == 'ye-mine'][0]
     assert back['tone'] == 'warn' and back['desc'].startswith('등본 누락')
+
+
+def test_todos_g2b_bids_office_only(db, monkeypatch):
+    """나라장터 입찰 공고(11-18) — 마감 전 공고가 있으면 사무실 직원 홈에 한 줄, 현장 계정엔 없음."""
+    from dashboard.services import g2b_bids
+    assert g2b_bids.home_summary()[0] == 0        # 임시 DB — 운영 공고를 읽지 않는다
+    monkeypatch.setattr(g2b_bids, 'home_summary', lambda: (3, 'sig1'))
+    bid = [x for x in gw_home.todos(None, MW, False, False) if x['id'] == 'g2b-bids']
+    assert bid and bid[0]['title'] == '마감 전 입찰 공고 3건' and bid[0]['href'] == '/bids'
+    assert not [x for x in gw_home.todos(None, MW, True, False) if x['id'] == 'g2b-bids']   # 현장 세션은 아님
 
 
 def test_sales_counts(monkeypatch):

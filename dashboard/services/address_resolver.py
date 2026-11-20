@@ -1645,6 +1645,41 @@ def _strip_redundant_legal_dong(addr: str) -> str:
     return stripped or addr
 
 
+_CORP_MARK_RE = re.compile(r'^(?:주식회사|\(주\)|㈜)\s*|\s*(?:주식회사|\(주\)|㈜)$')
+
+
+def _strip_corp_building_name(addr: str) -> str:
+    """그 번지의 카카오 건물명이 '주식회사○○'처럼 법인 표기를 달고 있으면 표기만 뗌.
+
+    2026-11-19 L-04615 (KiKO): 정서진로 47 건물명 '주식회사에이피로지스틱스'(물류센터)가 고객
+    상호 '퍼니랜드' 앞에 붙어 고객 회사처럼 읽힘. 건물은 회사가 아니므로 '에이피로지스틱스'로.
+    카카오 건물명과 같은 이름일 때만 — 고객이 적은 다른 회사 표기('(주)삼인')는 그대로.
+    """
+    if not addr:
+        return addr
+    m_road = re.search(r'[가-힣\d]+(?:로|길)\s*\d+(?:-\d+)?', addr)
+    if not m_road:
+        return addr
+    doc = _kakao_search(m_road.group(0)) or {}
+    bn = ((doc.get('road_address') or {}).get('building_name') or '').strip()
+    core = _CORP_MARK_RE.sub('', bn).strip()
+    if not bn or core == bn or len(core) < 2:
+        return addr
+    pat = r'\s*'.join(re.escape(c) for c in bn.replace(' ', ''))
+    m = re.search(pat, addr)
+    if not m:
+        return addr
+    # 건물명 뒤에 '다른 상호'가 이어질 때만 — 건물 주인 회사 ≠ 방문 고객(세 든 업체). 건물명으로
+    #   끝나거나 본관·본사·공장·층/호만 오면 그 회사 자체 방문이라 회사 표기 유지
+    #   ('(주)삼인' L-03716, '(주)에이스테크 본관' L-04009, '에스티팜(주) 시화공장' L-03358).
+    nxt = addr[m.end():].split()
+    if not nxt or re.match(
+            r'(?:[A-Za-z]?\d|지하|지상|본관|본사|별관|신관|사옥|공장|제\d|연구소|창고|'
+            r'.*(?:공장|센터|관|동|층|호|점)$)', nxt[0]):
+        return addr
+    return re.sub(r'\s+', ' ', addr[:m.start()] + core + addr[m.end():]).strip()
+
+
 def _strip_redundant_jibun(addr: str) -> str:
     """도로명주소에 딸려온 구 지번(번지)을 제거 — 카카오 jibun 본번-부번과 정확 일치할 때만.
 
@@ -1946,8 +1981,10 @@ def _enrich_verified_address(
         from dashboard.services.lead_helpers import _mask_stop_exempt
         _ptoks = _phrase.split()
         for _pi, _pt in enumerate(_ptoks):
+            # '예정'은 홀로 쓴 낱말('설치 예정')만 절단 — '예정지'·'○○예정'은 장소 표시라
+            #   _mark_planned 가 '(예정)'으로 바꿈 (2026-11-19 L-04599 '용인스크린 예정지'의 '예정지'가 잘림)
             if any(_sw in _mask_stop_exempt(_pt) for _sw in _TAIL_STOP_WORDS
-                   if _sw != '사무실' and not (_sw == '예정' and not _pt.startswith('예정'))):
+                   if _sw != '사무실' and not (_sw == '예정' and _pt != '예정')):
                 _ptoks = _ptoks[:_pi]
                 break
         _phrase = ' '.join(_ptoks)
@@ -3320,6 +3357,7 @@ def resolve_address(
         addr = _append_missing_bare_name(addr, text)  # 빠진 한 단어 상호 (EPS코리아)
         # tail 부착 후 후처리 (인접 유사 단어 dedup 등, 2026-07-22 ETC-b626fb)
         addr = _post_normalize_display(addr)
+        addr = _strip_corp_building_name(addr)  # 건물명의 '주식회사' 표기 (L-04615)
         addr = _mark_planned(addr)  # 'X예정지/X예정' → 'X (예정)' (L-03600)
         return (addr, level)
 
@@ -3338,6 +3376,7 @@ def resolve_address(
         addr = _strip_redundant_jibun(addr)
         addr = _enrich_building_by_road(addr)
         addr = _post_normalize_display(addr)
+        addr = _strip_corp_building_name(addr)
         addr = _mark_planned(addr)
         return (addr, 'verified')
 
@@ -3349,6 +3388,7 @@ def resolve_address(
         addr = _enrich_verified_address(poi_road, text, regex_addr)
         addr = _strip_redundant_legal_dong(addr)
         addr = _post_normalize_display(addr)
+        addr = _strip_corp_building_name(addr)
         addr = _mark_planned(addr)
         return (addr, 'verified')
 
