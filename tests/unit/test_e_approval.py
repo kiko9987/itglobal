@@ -1767,7 +1767,7 @@ def test_invoice_preview_on_card_and_dm(se, monkeypatch):
     img = [b for b in card if b.get('type') == 'image']
     assert img == [{'type': 'image', 'slack_file': {'id': 'FIMG'}, 'alt_text': '계산서 미리보기'}]
     assert 'image_url' not in json.dumps(card)                          # 공개 링크 안 씀
-    assert any(b.get('type') == 'image' for b in se.render(row, 'approver')[1])   # DM 에도
+    assert not any(b.get('type') == 'image' for b in se.render(row, 'approver')[1])   # DM 엔 없음(원본 카드에서 봄)
     assert not any(b.get('type') == 'image' for b in se.render(row, 'all', preview=False)[1])
     # 창 첨부는 이미 미리보기가 있으면 안 바꿈
     se._fake.files_upload_v2 = lambda **kw: {'files': [{'id': 'FX', 'name': 'x.png'}]}
