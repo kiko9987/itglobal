@@ -269,19 +269,25 @@ def _cash_title_initial(name: str) -> str:
 
 # 직접 적은 전달 체인 '(MW>SB)'·'MW→SB'·'MW->대표님' — 받은 사람 > 최종 수령자.
 # 2026-10-07 SB '2,600,000원 현금수령 (MW>SB)' 가 '현금 수령 (SB)' 로만 변환돼 MW 유실 계기.
+# 2026-11-20 SB '현금수령(SJ>SB>YG)' 가 'SJ → SB' 로 잘려 YG 유실 → 단계 수 제한 없이 전부 잡는다.
 _CASH_CHAIN_TOKEN = r'(?:[A-Za-z]{2,4}|박실장님|박실장|실장님|대표님|대표)'
+_CASH_CHAIN_SEP = r'\s*(?:->|=>|→|>)\s*'
 _CASH_CHAIN_RE = re.compile(
-    rf'(?<![A-Za-z])({_CASH_CHAIN_TOKEN})\s*(?:->|=>|→|>)\s*({_CASH_CHAIN_TOKEN})(?![A-Za-z])')
+    rf'(?<![A-Za-z]){_CASH_CHAIN_TOKEN}(?:{_CASH_CHAIN_SEP}{_CASH_CHAIN_TOKEN})+(?![A-Za-z])')
 
 
 def _extract_cash_chain(text: str) -> str:
-    """'MW>SB' → 'MW → SB' (직함은 이니셜로). 없거나 양쪽 같으면 ''."""
+    """'MW>SB' → 'MW → SB', 'SJ>SB>YG' → 'SJ → SB → YG' (직함은 이니셜로).
+    연달아 같은 사람은 하나로. 없거나 한 사람뿐이면 ''."""
     m = _CASH_CHAIN_RE.search(text or '')
     if not m:
         return ''
-    a = _cash_title_initial(m.group(1)).upper()
-    b = _cash_title_initial(m.group(2)).upper()
-    return f'{a} → {b}' if a != b else ''
+    people = []
+    for tok in re.split(_CASH_CHAIN_SEP, m.group(0)):
+        p = _cash_title_initial(tok.strip()).upper()
+        if p and (not people or people[-1] != p):
+            people.append(p)
+    return ' → '.join(people) if len(people) >= 2 else ''
 
 
 def _extract_cash_delivered_to(text: str) -> str:

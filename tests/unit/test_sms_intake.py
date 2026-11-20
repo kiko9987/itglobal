@@ -312,8 +312,18 @@ class TestCashDetectAndNormalize:
         # 같은 사람끼리면 체인 아님 → 기존 규칙(올린 사람)
         assert normalize_cash_layout('현금 100만원 (SB>SB)', default_receiver='SB') \
             == f'{today}\n입금 1,000,000원\n현금 수령 (SB)'
+        # 세 단계 이상 (2026-11-20 SB '현금수령(SJ>SB>YG)' 가 'SJ → SB' 로 잘린 계기)
+        sb3 = '황샛별\n2026-11-20\n3,600,000원\n현금수령(SJ>SB>YG)'
+        assert normalize_cash_layout(sb3, default_receiver='SB') \
+            == '2026/11/20\n입금 3,600,000원\n현금 수령 (SJ → SB → YG)'
+        assert normalize_cash_layout('현금 100만원 TH → 박실장 → 대표님', default_receiver='SB') \
+            == f'{today}\n입금 1,000,000원\n현금 수령 (TH → JW → YG)'
+        assert normalize_cash_layout('현금 100만원 (SJ>SB>SB>YG)', default_receiver='SB') \
+            == f'{today}\n입금 1,000,000원\n현금 수령 (SJ → SB → YG)'
         # 변환 결과가 파서로 그대로 읽힘
         from dashboard.services.sms_intake import parse_preview
+        pv3 = parse_preview(normalize_cash_layout(sb3, default_receiver='SB'))
+        assert pv3['amount'] == 3_600_000 and pv3['partner'] == '현금 수령 (SJ → SB → YG)'
         pv = parse_preview(normalize_cash_layout(sb, default_receiver='SB'))
         assert pv['amount'] == 2_600_000 and pv['partner'] == '현금 수령 (MW → SB)'
         assert pv['date_md'] == '10/07'
