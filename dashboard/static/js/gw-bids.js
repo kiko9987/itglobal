@@ -57,7 +57,59 @@
   }
 
 
-  var state = { tab: 'eligible', q: '', closed: false, seq: 0, items: {}, open: '', anim: false };
+  var state = { tab: 'eligible', q: '', closed: false, seq: 0, items: {}, open: '', anim: false,
+    rows: [], area: '', showSkip: false, folded: {}, enabled: true };
+
+  // ── 마감일 묶음(11-20 부장님: 쭉 나열되면 보기 힘듦) ──
+  function dayStart(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+  function groupOf(it) {
+    var d = new Date(String(it.close_at || '').replace(' ', 'T'));
+    if (isNaN(d)) return { key: 'z', label: '마감 일시 없음' };
+    if (d < new Date()) return { key: '0', label: '마감 지남' };
+    var today = dayStart(new Date());
+    var days = Math.round((dayStart(d) - today) / 86400000);
+    if (days === 0) return { key: '1', label: '오늘 마감' };
+    if (days === 1) return { key: '2', label: '내일 마감' };
+    if (days <= 7) {   // 일주일 안은 날짜별(금요일에 '다음 주' 하나로 묶으면 24건이 몰림)
+      var ymd = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+      return { key: '3' + ymd, label: (d.getMonth() + 1) + '/' + d.getDate() + '(' + WD[d.getDay()] + ') 마감' };
+    }
+    return { key: '5', label: '그 이후' };
+  }
+  function render() {
+    var all = state.rows;
+    var skipped = all.filter(function (it) { return it.mark === 'skip'; }).length;
+    var rows = all.filter(function (it) {
+      return (!state.area || it.area === state.area) && (state.showSkip || it.mark !== 'skip');
+    });
+    $('bdSkipCnt').textContent = skipped ? '(' + skipped + ')' : '';
+    $('bdCount').textContent = rows.length === all.length ? rows.length + '건' : rows.length + '건 / 전체 ' + all.length + '건';
+    if (!rows.length) {
+      $('bdRows').innerHTML = '<tr><td colspan="6" class="gw-empty">' + (!state.enabled ? '나라장터 연결 키가 서버에 없어요.'
+        : all.length ? '고른 조건에 맞는 공고가 없어요.'
+        : state.tab === 'eligible' ? '지금 들어갈 수 있는 마감 전 공고가 없어요.' : '입찰 불가능한 마감 전 공고가 없어요.') + '</td></tr>';
+      return;
+    }
+    var groups = [], byKey = {};
+    rows.forEach(function (it) {
+      var g = groupOf(it);
+      if (!byKey[g.key]) { byKey[g.key] = { key: g.key, label: g.label, items: [] }; groups.push(byKey[g.key]); }
+      byKey[g.key].items.push(it);
+    });
+    groups.sort(function (a, b) { return a.key < b.key ? -1 : 1; });
+    $('bdRows').innerHTML = groups.map(function (g) {
+      var folded = !!state.folded[g.key];
+      return '<tr class="gw-bd-grp' + (g.key === '1' || g.key === '2' ? ' urgent' : '') + '"><td colspan="6">' +
+        '<button type="button" class="gw-bd-grp-btn" data-grp="' + g.key + '" aria-expanded="' + (folded ? 'false' : 'true') + '">' +
+        '<i class="fas fa-chevron-' + (folded ? 'right' : 'down') + ' me-2" aria-hidden="true"></i>' + esc(g.label) +
+        ' <b>' + g.items.length + '건</b></button></td></tr>' +
+        (folded ? '' : g.items.map(row).join(''));
+    }).join('');
+    if (state.open) {   // 표시를 바꿔 다시 그려도 펼친 줄은 그대로(애니메이션 없이)
+      var tr = $('bdRows').querySelector('tr.gw-bd-row[data-no="' + CSS.escape(state.open) + '"]');
+      if (tr) openDetail(tr, false);
+    }
+  }
 
   function row(it) {
     var sel = '<select class="gw-chip-select gw-bd-mark" data-no="' + esc(it.bid_no) + '" aria-label="' + esc(it.title) + ' 표시">' +
@@ -217,19 +269,12 @@
         '지금 면허(' + (j.held || []).join(', ') + ')로 참가 가능, 실적제한·사전심사(PQ)·지명경쟁·4억 이상 적격심사 없음.' +
         (j.planned && j.planned.length ? ' 준비 중인 면허: ' + j.planned.join(', ') + '.' : '');
       state.held = j.held || [];
-      var rows = j.items || [];
+      state.enabled = !!j.enabled;
+      state.rows = j.items || [];
       state.items = {};
-      rows.forEach(function (it) { state.items[it.bid_no] = it; });
+      state.rows.forEach(function (it) { state.items[it.bid_no] = it; });
       if (state.open && !state.items[state.open]) state.open = '';
-      $('bdCount').textContent = rows.length + '건';
-      $('bdRows').innerHTML = rows.length ? rows.map(row).join('') :
-        '<tr><td colspan="6" class="gw-empty">' + (j.enabled ? (state.tab === 'eligible'
-          ? '지금 들어갈 수 있는 마감 전 공고가 없어요.' : '입찰 불가능한 마감 전 공고가 없어요.')
-          : '나라장터 연결 키가 서버에 없어요.') + '</td></tr>';
-      if (state.open) {   // 표시를 바꿔 다시 그려도 펼친 줄은 그대로(애니메이션 없이)
-        var tr = $('bdRows').querySelector('tr.gw-bd-row[data-no="' + CSS.escape(state.open) + '"]');
-        if (tr) openDetail(tr, false);
-      }
+      render();
       $('bdFoot').textContent = j.last_collect ? '마지막으로 모은 때: ' + j.last_collect + ' (하루 세 번 07:20·12:20·16:20)' : '';
     }).catch(function (e) {
       if (my !== state.seq) return;
@@ -256,7 +301,18 @@
     qt = setTimeout(function () { state.q = v; load(); }, 250);
   });
   $('bdClosed').addEventListener('change', function () { state.closed = this.checked; load(); });
+  $('bdArea').addEventListener('change', function () { state.area = this.value; render(); });
+  $('bdSkip').addEventListener('change', function () { state.showSkip = this.checked; render(); });
   $('bdRows').addEventListener('click', function (ev) {
+    var gb = ev.target.closest('button.gw-bd-grp-btn');   // 묶음 머리줄 = 접기·펴기
+    if (gb) {
+      var k = gb.getAttribute('data-grp');
+      state.folded[k] = !state.folded[k];
+      render();
+      var again = $('bdRows').querySelector('button.gw-bd-grp-btn[data-grp="' + k + '"]');
+      if (again) again.focus();
+      return;
+    }
     if (ev.target.closest('a, button, select, input, label, .gw-bd-detail')) return;   // 링크·표시 칸은 펼치기 제외
     var tr = ev.target.closest('tr.gw-bd-row');
     if (!tr) return;

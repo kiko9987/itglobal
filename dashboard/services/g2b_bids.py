@@ -535,12 +535,34 @@ def maybe_bootstrap() -> None:
 
 
 # ── 화면용 ────────────────────────────────────────────────────────────
+# 지역 고르기(11-20 부장님 — 목록이 길어 지역으로 좁혀 보기). 공사는 공사현장, 없으면 수요·공고기관 이름으로.
+#   이름에 지역이 없는 기관(대학·공기업 일부)은 '기타'. 순서가 중요: '전남광주'는 호남, '경기'는 '경북'보다 먼저 볼 필요 없음(글자 다름)
+AREAS = (
+    ('수도권', ('서울', '경기', '인천')),
+    ('충청', ('대전', '세종', '충북', '충남', '충청')),
+    ('호남', ('광주', '전북', '전남', '전라')),
+    ('영남', ('부산', '대구', '울산', '경북', '경남', '경상')),
+    ('강원·제주', ('강원', '제주')),
+)
+
+
+def area_of(*names: str) -> str:
+    for name in names:
+        n = name or ''
+        for area, words in AREAS:
+            if any(w in n for w in words):
+                return area
+    return '기타'
+
+
+
 def _view(r: dict, now_s: str) -> dict:
     files = sort_files(json.loads(r.get('files') or '[]'))   # 정렬 전에 저장된 줄도
     groups = json.loads(r.get('license_groups') or '[]')
     regions = json.loads(r.get('regions') or '[]')
     return {
         'bid_kind': r.get('kind') or '공사',   # 공사 / 물품(구매·설치)
+        'area': area_of(r.get('site_region') or '', r.get('demand_org') or '', r.get('org') or ''),
         # 펼친 '확인할 것' 판정용 — 지역·면허 각각 되는지
         'region_ok': region_ok(regions), 'nationwide': not regions,
         'license_ok': license_status(groups, held_licenses())[0],

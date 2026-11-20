@@ -26,6 +26,11 @@
 
   <div class="gw-ap-filters">
     <input type="search" class="gw-chip-search" id="bdQ" placeholder="공고명·발주기관" aria-label="검색" autocomplete="off">
+    <select class="gw-chip-select" id="bdArea" aria-label="지역">
+      <option value="">지역 전체</option>
+      <option>수도권</option><option>충청</option><option>호남</option><option>영남</option><option>강원·제주</option><option>기타</option>
+    </select>
+    <label class="gw-bd-closed"><input type="checkbox" id="bdSkip"> '안 함' 공고도 보기 <span id="bdSkipCnt"></span></label>
     <label class="gw-bd-closed"><input type="checkbox" id="bdClosed"> 마감 지난 공고도 보기</label>
     <span class="gw-ap-count" id="bdCount" aria-live="polite"></span>
   </div>

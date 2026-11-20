@@ -2794,3 +2794,35 @@ html:has(#bdPage) {
   .gw-lv-body { padding: 2px 12px 12px; }
 }
 
+
+/* 입찰 공고 — 마감일 묶음 머리줄(11-20) */
+.gw-bd-grp td {
+  padding: 0 !important;
+  background: #f3f4f6;
+  border-top: 1px solid #e5e7eb;
+}
+
+.gw-bd-grp-btn {
+  width: 100%;
+  padding: 7px 12px;
+  border: 0;
+  background: transparent;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
+}
+
+.gw-bd-grp-btn b {
+  margin-left: 4px;
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.gw-bd-grp.urgent td { background: #fef2f2; }
+.gw-bd-grp.urgent .gw-bd-grp-btn { color: #b91c1c; }
+
+.gw-bd-grp-btn:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}

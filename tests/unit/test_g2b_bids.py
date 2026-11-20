@@ -413,3 +413,14 @@ def test_old_rows_default_to_construction(tmp_path, monkeypatch):
     monkeypatch.setattr(g, '_table_ready', False)
     with g._conn() as conn:
         assert conn.execute("SELECT kind FROM g2b_bids WHERE bid_no='X1'").fetchone()[0] == '공사'
+
+
+def test_area_of_for_area_filter():
+    assert g.area_of('', '경기도교육청 경기도포천교육지원청') == '수도권'
+    assert g.area_of('', '서울교통공사') == '수도권'
+    assert g.area_of('경기도 광주시', '') == '수도권'                     # '광주'보다 '경기'가 먼저
+    assert g.area_of('', '전남광주통합특별시교육청순천만생태문화교육원') == '호남'
+    assert g.area_of('', '대전광역시교육청', '조달청 대전지방조달청') == '충청'
+    assert g.area_of('', '경상남도교육청 경상남도남해교육지원청') == '영남'
+    assert g.area_of('', '계명대학교', '계명대학교') == '기타'
+    assert g.area_of('경기도 용인시 처인구', '부산광역시교육청') == '수도권'   # 공사현장이 먼저
