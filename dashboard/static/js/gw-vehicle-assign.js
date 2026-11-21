@@ -47,7 +47,7 @@
   var TOUCH = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);   // 휴대폰: 끌기 대신 누르기
   var S = { day: '', cars: [], staff: [], names: {}, canEdit: false, confirmed: false, dirty: false,
             visits: {}, places: {}, teams: [], picked: null, seq: 0, focus: null,
-            openPlaces: {}, placeTries: 0, placeTimer: null,
+            placeTries: 0, placeTimer: null,
             off: {}, half: {}, schedule: [] };
   // picked = 'YM' 또는 팀 'YM,LSH' · places = {이니셜: [{label, addr}]} 그날 갈 곳(차 카드)
   // off = {이니셜: 까닭} 그날 종일 쉬는 사람, half = 반차(그룹웨어 휴가·토요일 휴무표, 11-21)
@@ -111,24 +111,18 @@
     });
     return out;
   }
-  // 차 카드 = 그 차에 탄 사람들이 갈 곳(동 단위로 묶음). 펼치면 주소와 누가 가는지
+  // 차 카드 = 그 차에 탄 사람들이 갈 곳(동 단위로 묶은 한 줄). 주소·연락처·담당자는 위 '방문 일정' 칸에서 본다
+  //   (펼치면 주소마다 같은 이름이 되풀이돼 너무 길었음 — 11-21 부장님)
   function carPlaces(c) {
-    var byAddr = {}, addrs = [];
+    var seen = {}, list = [];
     c.people.forEach(function (code) {
       (S.places[code] || []).forEach(function (p) {
-        if (!byAddr[p.addr]) { byAddr[p.addr] = { label: p.label, who: [] }; addrs.push(p.addr); }
-        byAddr[p.addr].who.push(name(code));
+        if (!seen[p.addr]) { seen[p.addr] = 1; list.push(p); }
       });
     });
-    if (!addrs.length) return '';
-    var sum = groupLabels(addrs.map(function (a) { return byAddr[a]; }))
-      .map(function (g) { return g.label + (g.n > 1 ? ' ' + g.n + '곳' : ''); }).join(' · ');
-    var open = S.openPlaces[c.plate] ? ' open' : '';
-    return '<details class="gw-va-places" data-places="' + esc(c.plate) + '"' + open + '>' +
-      '<summary><i class="fas fa-location-dot" aria-hidden="true"></i><span>' + esc(sum) + '</span><i class="fas fa-chevron-down gw-va-fold" aria-hidden="true"></i></summary>' +
-      '<ul>' + addrs.map(function (a) {
-        return '<li>' + esc(a) + ' <span>— ' + esc(byAddr[a].who.join(', ')) + '</span></li>';
-      }).join('') + '</ul></details>';
+    if (!list.length) return '';
+    var sum = groupLabels(list).map(function (g) { return g.label + (g.n > 1 ? ' ' + g.n + '곳' : ''); }).join(' · ');
+    return '<div class="gw-va-places"><i class="fas fa-location-dot" aria-hidden="true"></i><span>' + esc(sum) + '</span></div>';
   }
   function person(code, extra) {   // 왼쪽 명단 한 사람
     var at = whereIs(code);
@@ -338,7 +332,7 @@
       if (my !== S.seq) return;
       S.day = j.day; S.cars = j.cars; S.staff = j.staff; S.canEdit = !!j.can_edit;
       S.confirmed = !!j.confirmed_at; S.picked = null;
-      S.names = {}; S.visits = {}; S.places = {}; S.openPlaces = {}; S.off = {}; S.half = {};
+      S.names = {}; S.visits = {}; S.places = {}; S.off = {}; S.half = {};
       j.staff.forEach(function (p) { S.names[p.code] = p.name; });
       (j.off || []).forEach(function (o) { S.off[o.code] = o.why; });
       (j.half || []).forEach(function (o) { S.half[o.code] = o.why; });
@@ -372,9 +366,7 @@
         if (!D && !(inBoard && act.matches('input, select'))) {
           if (inBoard && act.dataset.team) focusAfter('[data-team="' + cssq(act.dataset.team) + '"]');
           else if (inBoard && act.closest('.gw-va-chip[data-person]') && act.matches('.gw-va-cname')) focusAfter(chipSel(act.closest('.gw-va-chip').dataset.person));
-          else if (inBoard && act.dataset.person) focusAfter(staffSel(act.dataset.person));
-          else if (inBoard && act.matches('summary')) focusAfter('[data-places="' + cssq(act.parentNode.dataset.places) + '"] summary');
-          render();
+          else if (inBoard && act.dataset.person) focusAfter(staffSel(act.dataset.person));          render();
         }
         placesLater(j.resolving);
       }).catch(function () { /* 다음에 불러올 때 */ });
@@ -528,11 +520,6 @@
       pick(S.picked, was && was.closest && (was.closest('[data-team]') || was.closest('.gw-va-chip')) ? was : null);
     }
   });
-  // 펼친 갈 곳은 다시 그려도 펼친 채로
-  document.addEventListener('toggle', function (e) {
-    var d = e.target;
-    if (d && d.dataset && d.dataset.places) S.openPlaces[d.dataset.places] = d.open;
-  }, true);
   // 방문 일정 칸을 직접 접고 펼친 것만 기억(다시 그릴 때 코드로 여닫는 것은 빼고)
   document.addEventListener('click', function (e) {
     var s = e.target.closest && e.target.closest('#vaSched > summary');

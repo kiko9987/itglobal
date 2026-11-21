@@ -3067,17 +3067,9 @@ html:has(#bdPage) {
 .gw-va-none { color: #64748b; font-size: 0.86rem; }
 .gw-va-notetext { color: #475569; font-size: 0.84rem; }
 /* 갈 곳 — 그 차에 탄 사람들의 그날 방문지(동 단위). 펼치면 주소·누가 가는지(11-21 부장님) */
-.gw-va-places { margin-top: -2px; color: #475569; font-size: 0.84rem; }
-.gw-va-places summary { display: flex; align-items: flex-start; gap: 6px; min-height: 24px; padding: 2px 4px; margin: 0 -4px; border-radius: 6px; cursor: pointer; list-style: none; }
-.gw-va-places summary::-webkit-details-marker { display: none; }
-.gw-va-places .gw-va-fold { margin-left: auto; font-size: 0.75rem; transition: transform .15s; }
-.gw-va-places[open] .gw-va-fold { transform: rotate(180deg); }
-.gw-va-places summary:hover { background: #f2f3f6; }
-.gw-va-places summary:focus-visible { outline: 2px solid #2a3038; outline-offset: 0; }
-.gw-va-places summary i { color: #64748b; line-height: 1.6; }
-.gw-va-places summary span { min-width: 0; overflow-wrap: anywhere; }
-.gw-va-places ul { list-style: none; margin: 4px 0 0; padding: 0 0 0 20px; display: flex; flex-direction: column; gap: 2px; }
-.gw-va-places li span { color: #64748b; white-space: nowrap; }
+.gw-va-places { display: flex; align-items: flex-start; gap: 6px; margin-top: -2px; color: #475569; font-size: 0.84rem; }
+.gw-va-places i { color: #64748b; line-height: 1.6; }
+.gw-va-places span { min-width: 0; overflow-wrap: anywhere; }
 /* 그날 방문 일정 칸(차 목록 위) — 캔버스1과 같은 묶음, 맨 위에 휴무(11-21 부장님) */
 .gw-va-sched { border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; margin-bottom: 12px; }
 .gw-va-sched > summary { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; min-height: 44px; padding: 8px 14px; cursor: pointer; list-style: none; border-radius: 12px; }
@@ -3180,8 +3172,6 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
   .gw-va-teambtn { min-height: 44px; padding: 4px 14px; }
   .gw-va-team { flex-direction: row; flex-wrap: wrap; align-items: center; }
   .gw-va-where { margin-left: 0; }
-  .gw-va-places summary { min-height: 44px; align-items: center; }
-  .gw-va-places summary i { line-height: 1; }
   .gw-va-sbody { max-height: none; }
   .gw-va-swho { margin-left: 0; width: 100%; }
 }
