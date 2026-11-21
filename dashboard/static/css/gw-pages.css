@@ -3067,6 +3067,10 @@ html:has(#bdPage) {
 .gw-va-none { color: #64748b; font-size: 0.86rem; }
 .gw-va-notetext { color: #475569; font-size: 0.84rem; }
 /* 갈 곳 — 그 차에 탄 사람들의 그날 방문지(동 단위). 펼치면 주소·누가 가는지(11-21 부장님) */
+/* 운전할 사람 고르기(2명 이상 탄 차) */
+.gw-va-driver { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 0.84rem; color: #475569; }
+.gw-va-driver span { font-weight: 600; color: #1a1c20; }
+.gw-va-driver select { flex: 0 1 180px; width: auto; min-width: 0; }
 .gw-va-places { display: flex; align-items: flex-start; gap: 6px; margin-top: -2px; color: #475569; font-size: 0.84rem; }
 .gw-va-places i { color: #64748b; line-height: 1.6; }
 .gw-va-places span { min-width: 0; overflow-wrap: anywhere; }

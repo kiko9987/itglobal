@@ -178,8 +178,8 @@
     how.textContent = S.picked
       ? keyName(S.picked) + ' 님을 넣을 차에서 [여기에 … 넣기]를 누르세요.' + (anyPlaced(S.picked) ? ' 명단 빈 곳을 누르면 차에서 빠져요.' : '') +
         (TOUCH ? '' : ' Esc 를 누르면 취소돼요.')
-      : (TOUCH ? '이름이나 팀의 [함께]를 누른 뒤 넣을 차를 누르세요. 차에서 맨 앞 사람이 운전해요.'
-         : '이름이나 팀의 [함께]를 끌어 차에 놓으세요. 누른 뒤 차를 눌러도 돼요. 차에서 맨 앞 사람이 운전하고, 사람 위에 놓으면 그 앞자리로 가요.');
+      : (TOUCH ? '이름이나 팀의 [함께]를 누른 뒤 넣을 차를 누르세요. 운전할 사람은 차마다 [운전] 칸에서 골라요.'
+         : '이름이나 팀의 [함께]를 끌어 차에 놓으세요. 누른 뒤 차를 눌러도 돼요. 운전할 사람은 차마다 [운전] 칸에서 골라요.');
     $('vaStaffCount').textContent = nTeam ? '방문 있는데 차 없음 ' + nTeam + '명' : '';
     $('vaStaffCount').className = nTeam ? 'gw-va-warn' : '';
   }
@@ -222,6 +222,13 @@
       people = '<span class="gw-va-none">' + (S.canEdit ? '여기에 사람을 놓으세요'
         : (c.usage === 'fixed' ? '평소대로' : '배정 없음')) + '</span>';
     }
+    // 운전할 사람 고르기 — 고르면 그 사람이 맨 앞(=운전, 운행기록부 '사용자')으로 간다(11-21 부장님: 맨 앞 자동이라 정하기 어려웠음)
+    var driver = S.canEdit && c.people.length > 1
+      ? '<label class="gw-va-driver"><span>운전</span><select class="form-select form-select-sm" data-driver="' + esc(c.plate) +
+        '" aria-label="' + esc(c.label) + ' 운전할 사람">' + c.people.map(function (p, i) {
+          return '<option value="' + esc(p) + '"' + (i === 0 ? ' selected' : '') + '>' + esc(name(p)) + '</option>';
+        }).join('') + '</select></label>'
+      : '';
     var note = S.canEdit && (c.people.length || c.note)
       ? '<input type="text" class="form-control form-control-sm gw-va-note" maxlength="60" placeholder="메모(예: 열쇠는 사무실)" data-note="' +
         esc(c.plate) + '" value="' + esc(c.note || '') + '" aria-label="' + esc(c.label) + ' 메모" autocomplete="off">'
@@ -229,7 +236,7 @@
     var drop = S.canEdit ? ' data-drop="car"' : '';
     return '<div class="gw-va-card' + (S.picked ? ' can-drop' : '') + '" data-plate="' + esc(c.plate) + '"' + drop + '>' +
       '<div class="gw-va-car"><strong>' + esc(c.label) + '</strong><span>' + esc(sub) + '</span>' + fixed + '</div>' +
-      carPlaces(c) + '<div class="gw-va-people">' + people + put + '</div>' + note + '</div>';
+      carPlaces(c) + '<div class="gw-va-people">' + people + put + '</div>' + driver + note + '</div>';
   }
   // ── 그날 방문 일정 칸(차 목록 위, 11-21 부장님) ──
   // 캔버스1(봇 자동)과 같은 묶음·표시를 리드 시트에서 바로 그린다. 줄마다 /일정확정으로 들어간 영업 담당자.
@@ -535,6 +542,16 @@
     if (t.dataset.note) {
       carOf(t.dataset.note).note = t.value.trim();
       setDirty(true);
+    } else if (t.dataset.driver) {               // 운전할 사람을 맨 앞으로
+      var dc = carOf(t.dataset.driver);
+      var at = dc.people.indexOf(t.value);
+      if (at > 0) {
+        dc.people.splice(at, 1);
+        dc.people.unshift(t.value);
+        setDirty(true);
+        focusAfter('[data-driver="' + cssq(dc.plate) + '"]');
+        render();
+      }
     } else if (t.dataset.fixed) {
       var fc = carOf(t.dataset.fixed);
       post('/api/vehicles/fleet/' + encodeURIComponent(fc.plate), { fixed_user: t.value }).then(function (j) {
