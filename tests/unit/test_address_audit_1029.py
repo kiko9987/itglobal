@@ -441,5 +441,19 @@ def test_visit_modal_keeps_typed_tail():
     assert K('김포 통진읍 율마로 339-43', '김포 통진읍 율마로 339-43') == '김포 통진읍 율마로 339-43'
 
 
+@pytest.mark.parametrize('raw, expected', [
+    # L-04637: '동'→'종' 오타 + 번지 사이 밑줄
+    ('수원시 정자종 878 _9 현대프라자 2층', '수원시 정자동 878-9 현대프라자 2층'),
+    ('강남구 역삼동 123_4', '강남구 역삼동 123-4'),
+    # 시·구·군 다음이 아니거나 번지가 안 따라오면 그대로
+    ('세종 123', '세종 123'),
+    ('수원시 정자종합상가 2층', '수원시 정자종합상가 2층'),
+    ('수원시 보신각종 앞', '수원시 보신각종 앞'),
+    ('파일_2 첨부', '파일_2 첨부'),
+])
+def test_dong_typo_and_underscore_l04637(raw, expected):
+    assert N(raw) == expected
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
