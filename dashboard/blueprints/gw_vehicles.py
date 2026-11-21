@@ -112,6 +112,7 @@ def page_assign():
 @gw_page
 def api_assign_get():
     day = _day()
+    leads: list = []
     try:        # 일정확정 결과(리드 시트 방문 예정일·영업 담당자) — 못 읽어도 배정은 할 수 있게
         leads = _leads()
         visitors, teams = va.visitors(day, leads), va.teams(day, leads)
@@ -122,6 +123,16 @@ def api_assign_get():
     except Exception as e:
         logger.warning(f'[차량배정] 방문 일정 읽기 실패: {e}')
         visitors, teams, resolving = [], [], False
+    try:        # 그날 방문 일정 칸(캔버스1과 같은 묶음, 시트에서 바로)
+        schedule = va.day_schedule(day, leads)
+    except Exception as e:
+        logger.warning(f'[차량배정] 방문 일정 칸 실패: {e}', exc_info=True)
+        schedule = []
+    try:        # 그날 쉬는 사람(그룹웨어 휴가·토요일 휴무표)
+        off = va.day_off(day)
+    except Exception as e:
+        logger.warning(f'[차량배정] 휴가 읽기 실패: {e}')
+        off = {'off': [], 'half': []}
     try:
         view = va.day_view(day, teams)
         people = va.staff()
@@ -136,7 +147,8 @@ def api_assign_get():
         view['confirmed_name'] = (p or {}).get('name') or view['confirmed_by']
     return jsonify({'success': True, **view, 'day_label': va.day_label(day),
                     'staff': [{'code': p['code'], 'name': p['name']} for p in people], 'visitors': visitors, 'teams': teams,
-                    'resolving': resolving, 'can_edit': _can_assign(), 'can_see_log': _hr_admin()})
+                    'resolving': resolving, 'schedule': schedule, 'off': off['off'], 'half': off['half'],
+                    'can_edit': _can_assign(), 'can_see_log': _hr_admin()})
 
 
 @gw_vehicles_bp.route('/api/vehicles/assign', methods=['POST'])

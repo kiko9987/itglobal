@@ -118,6 +118,47 @@ def test_visitor_places_use_found_dong(db):
     assert vl.unresolved(leads, '2026-11-21', '2026-11-21') == []
 
 
+def test_day_off_from_groupware_leave_and_saturday(db, monkeypatch):
+    """그날 쉬는 사람 = 그룹웨어 휴가(승인) + 토요일 휴무표 — 캔버스 아님(11-21 부장님). 반차는 따로, 명단 밖 사람은 뺌."""
+    from dashboard.services import leave_view, sat_off
+    monkeypatch.setattr(leave_view, 'off_on', lambda d: [
+        {'name': '김가람', 'type': '연차', 'half': ''},
+        {'name': '이나래', 'type': '연차', 'half': '오전'},
+        {'name': '외부인', 'type': '연차', 'half': ''}])
+    monkeypatch.setattr(sat_off, 'picks', lambda m: {'2026-11-21': ['박다솜', '김가람']})
+    monkeypatch.setattr(sat_off, 'month_row', lambda m: {'status': sat_off.CONFIRMED})
+    sat = va.day_off('2026-11-21')
+    assert sat['off'] == [{'code': 'YM', 'name': '김가람', 'why': '연차'},          # 휴가가 토요 휴무보다 먼저
+                          {'code': 'MJ', 'name': '박다솜', 'why': '토요 휴무'}]
+    assert sat['half'] == [{'code': 'LSH', 'name': '이나래', 'why': '오전 반차'}]
+    monkeypatch.setattr(sat_off, 'month_row', lambda m: {'status': sat_off.OPEN})
+    assert va.day_off('2026-11-21')['off'][1]['why'] == '토요 휴무(확정 전)'
+    assert [o['code'] for o in va.day_off('2026-11-20')['off']] == ['YM']        # 평일엔 휴무표 안 봄
+
+
+def test_day_schedule_like_canvas1(db):
+    """그날 방문 일정 칸 = 캔버스1과 같은 묶음(기타·거래처·온라인)·표시, 기간 방문은 걸친 날 모두, 가지 않은 리드는 뺌."""
+    def lead(no, day, platform, who='', status='방문 예약', **kw):
+        d = {'리드 No': no, '방문 예정일': day, '플랫폼': platform, '영업 담당자': who, '상태': status,
+             '고객 연락처': '010-1234-5678', '방문 주소': '부천 길주로 1 상가', '상담 내용': '에어컨 2대'}
+        d.update(kw)
+        return d
+    leads = [lead('L-1', '2026-11-21', '당근', '김가람'),
+             lead('L-2', '2026-11-20~22', '거래처', '서준, 한별', status='공사 확정'),
+             lead('ETC-a1', '2026-11-21', '기타', **{'본인 방문 여부': '본인 방문 필수'}),
+             lead('L-3', '2026-11-21', '홈페이지', '오늘', status='유선 상담'),           # 가지 않음
+             lead('L-4', '2026-11-22', '홈페이지', '오늘'),                              # 다른 날
+             lead('L-5', '2026-11-21', '전화', '-', **{'고객 연락처': '/'})]
+    s = va.day_schedule('2026-11-21', leads)
+    assert [g['cat'] for g in s] == ['기타', '거래처', '온라인 방문']
+    etc, partner, online = (g['items'] for g in s)
+    assert etc[0]['lead_no'] == 'ETC-a1' and etc[0]['marks'] == ['본인 방문 필수'] and etc[0]['who'] == []
+    assert partner[0]['marks'] == ['공사확정'] and partner[0]['who'] == ['서준', '한별'] and partner[0]['date'] == '11월 20~22일'
+    assert [i['lead_no'] for i in online] == ['L-1', 'L-5']
+    assert online[0]['marks'] == ['당근'] and online[0]['phone'] == '010-1234-5678' and online[0]['text'] == '에어컨 2대'
+    assert online[1]['phone'] == '' and online[1]['who'] == []                     # '/'·'-' 는 빈칸
+
+
 def test_save_confirm_and_change_dms(db):
     sent = db
     with pytest.raises(ValueError):
@@ -194,6 +235,7 @@ def test_routes_view_for_all_edit_for_assigner(db, monkeypatch):
     monkeypatch.setattr(bp, 'render_template', lambda name: name)
     from tests.unit.test_vehicle_log import _lead
     monkeypatch.setattr(bp, '_leads', lambda: [_lead('L-1', '2026-11-21', '부천 길주로 1', '서준')])
+    monkeypatch.setattr(va, 'day_off', lambda d: {'off': [{'code': 'JK', 'name': '강해', 'why': '연차'}], 'half': []})   # 휴가 DB 안 읽게
     resolve = []
     monkeypatch.setattr(bp, '_resolve_later', lambda s, e: resolve.append((s, e)))   # 행안부 부르지 않게
     app = Flask(__name__)
@@ -208,6 +250,8 @@ def test_routes_view_for_all_edit_for_assigner(db, monkeypatch):
                                   'places': [{'label': '부천', 'addr': '부천 길주로 1'}]}]
         assert j['teams'] == [{'members': ['TH'], 'visits': 1}]
         assert j['resolving'] and resolve == [('2026-11-21', '2026-11-21')]   # 동은 뒤에서 찾고 화면이 다시 받아 감
+        assert j['off'] == [{'code': 'JK', 'name': '강해', 'why': '연차'}] and j['half'] == []
+        assert [g['cat'] for g in j['schedule']] == ['온라인 방문'] and j['schedule'][0]['items'][0]['who'] == ['서준']
         assert cl.get('/vehicles/assign').get_data(as_text=True) == 'gw/vehicle_assign.html'
         assert cl.post('/api/vehicles/assign', json={'day': '2026-11-21', 'rows': []}).status_code == 403
         with cl.session_transaction() as s:
@@ -238,6 +282,7 @@ def test_dev_preview_only_kiko(db, monkeypatch):
     monkeypatch.setattr(bp, 'render_template', lambda name: name)
     monkeypatch.setattr(hr_bp, 'render_template', lambda name: name)
     monkeypatch.setattr(bp, '_leads', lambda: [])
+    monkeypatch.setattr(va, 'day_off', lambda d: {'off': [], 'half': []})
     app = Flask(__name__)
     app.secret_key = 'x'
     app.register_blueprint(bp.gw_vehicles_bp)
@@ -266,3 +311,10 @@ def test_menu():
     items = {it['href']: it for a in gw.AREAS for it in a['items']}
     assert items['/vehicles/assign'].get('field') and not items['/vehicles/assign'].get('hr_admin')
     assert items['/vehicles'].get('hr_admin')
+
+
+def test_latest_note_skips_header_only_rounds():
+    """상담 내용은 마지막 회차만 — '방문 완료' 머리말만 붙은 회차는 건너뜀(11-21 실제 모양)."""
+    assert va._latest_note('데코타일 2장 픽업 / 비용 없음 ──── [11.17 09:18 MJ · 방문 완료]') == '데코타일 2장 픽업 / 비용 없음'
+    assert va._latest_note('[11.10 10:00 SJ · 방문 예약] 첫 상담 ─── [11.12 11:00 YM · 재상담] 두번째') == '두번째'
+    assert va._latest_note('') == ''

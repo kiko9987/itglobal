@@ -404,6 +404,92 @@ def visitors(day: str, leads: Iterable[dict]) -> List[Dict]:
             for n, c in sorted(count.items())]
 
 
+def day_off(day: str) -> Dict[str, List[Dict]]:
+    """그날 쉬는 사람 — 그룹웨어 휴가(승인된 것)와 토요일 휴무표(11-21 부장님: 캔버스 말고 그룹웨어에서).
+    {'off': [{code, name, why}], 'half': [{code, name, why}]} — 종일은 명단에서 '휴무'로 빼고, 반차는 이름 옆 꼬리표만.
+    배정 명단(staff)에 없는 사람은 뺀다."""
+    from dashboard.services import leave_view, sat_off
+    by_name = {p['name']: p['code'] for p in staff()}
+    d = date.fromisoformat(day)
+    off: Dict[str, Dict] = {}
+    half: Dict[str, Dict] = {}
+    for e in leave_view.off_on(d):
+        code = by_name.get(e['name'])
+        if not code:
+            continue
+        if e.get('half'):
+            half.setdefault(code, {'code': code, 'name': e['name'], 'why': f"{e['half']} 반차"})
+        else:
+            off[code] = {'code': code, 'name': e['name'], 'why': e.get('type') or '휴가'}
+    if d.weekday() == 5:
+        month = day[:7]
+        sure = sat_off.month_row(month).get('status') == sat_off.CONFIRMED
+        for name in sat_off.picks(month).get(day, []):
+            code = by_name.get(name)
+            if code and code not in off:
+                off[code] = {'code': code, 'name': name, 'why': '토요 휴무' + ('' if sure else '(확정 전)')}
+    half = {c: v for c, v in half.items() if c not in off}
+    return {'off': sorted(off.values(), key=lambda x: x['name']), 'half': sorted(half.values(), key=lambda x: x['name'])}
+
+
+_NOTE_SEP = re.compile(r'\s*─{2,}\s*')
+_NOTE_HEAD = re.compile(r'^\[[^\]]{0,60}\]\s*')
+
+
+def _latest_note(text: str) -> str:
+    """상담 내용(K열)의 마지막 내용 — '내용 ─── [11.17 09:18 MJ · 방문 완료] 다음 내용' 처럼 쌓인다.
+    머리말([…])만 있고 내용이 빈 회차(방문 완료 표시 등)는 건너뛴다."""
+    parts = [_NOTE_HEAD.sub('', p).strip() for p in _NOTE_SEP.split(str(text or '').strip())]
+    parts = [p for p in parts if p]
+    return parts[-1] if parts else ''
+
+
+_SCHED_CATS = ('기타', '거래처', '온라인 방문')
+_SCHED_TITLES = {'기타': '기타 (AS·계약서 작성 등)', '거래처': '거래처', '온라인 방문': '온라인 방문'}
+
+
+def day_schedule(day: str, leads: Iterable[dict]) -> List[Dict]:
+    """그날 방문 일정 — 캔버스1(봇 자동, visit_canvas_sync)과 같은 묶음·표시, 시트에서 바로 그린다(11-21 부장님).
+    캔버스1은 오늘 이후·방문 완료 전만 싣지만, 여기는 고른 날짜에 걸친 방문을 다 보여 준다(지난 날 포함).
+    가지 않은 리드(유선·부재·취소·보류)는 뺀다. 줄마다 영업 담당자(/일정확정이 넣은 값, 없으면 '')를 붙인다.
+    [{'cat', 'title', 'items': [{lead_no, date, phone, addr, text, who, marks:[...]}]}]"""
+    from dashboard.services import vehicle_log as vl
+    from dashboard.services import visit_assignment_sync as vas
+    from dashboard.services import visit_canvas_sync as vcs
+    d = date.fromisoformat(day)
+    buckets: Dict[str, List[Tuple[tuple, Dict]]] = {c: [] for c in _SCHED_CATS}
+    for lead in leads:
+        vd = lead.get('방문 예정일')
+        st, en = vas._parse_visit_date_start(vd), vas._parse_visit_date_end(vd)
+        if not st or not (st <= d <= (en if en and en >= st else st)):
+            continue
+        status = str(lead.get('상태') or '').strip()
+        if any(w in status for w in vl._NOT_VISITED):
+            continue
+        cat = vcs._categorize(lead) or '온라인 방문'
+        raw_phone = str(lead.get('고객 연락처') or '').strip()
+        text = re.sub(r'\s*\n\s*', ' ', _latest_note(str(lead.get('상담 내용') or lead.get('문의 내용') or '')))
+        who = [w.strip() for w in re.split(r'[,/·\s]+', str(lead.get('영업 담당자') or '')) if vl._HAS_NAME.search(w)]
+        marks = []
+        if status == '공사 확정':
+            marks.append('공사확정')
+        if '본인 방문 필수' in str(lead.get('본인 방문 여부') or ''):
+            marks.append('본인 방문 필수')
+        if str(lead.get('플랫폼') or '').strip() == '당근':
+            marks.append('당근')
+        item = {'lead_no': str(lead.get('리드 No') or '').strip(), 'date': vcs._fmt_visit_date(vd),
+                'phone': raw_phone if re.search(r'\d', raw_phone) else '',
+                'addr': re.sub(r'\s*\n\s*', ' ', str(lead.get('방문 주소') or '').strip()),
+                'text': text[:200] + ('…' if len(text) > 200 else ''), 'who': who, 'marks': marks}
+        buckets[cat].append((vcs._visit_date_sort_key(vd), item))
+    out = []
+    for c in _SCHED_CATS:
+        if buckets[c]:
+            items = [it for _, it in sorted(buckets[c], key=lambda x: (x[0], x[1]['lead_no']))]
+            out.append({'cat': c, 'title': _SCHED_TITLES[c], 'items': items})
+    return out
+
+
 # ── 슬랙 ────────────────────────────────────────────────────────────────
 _WEEK = '월화수목금토일'
 

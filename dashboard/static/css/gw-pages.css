@@ -3078,6 +3078,40 @@ html:has(#bdPage) {
 .gw-va-places summary span { min-width: 0; overflow-wrap: anywhere; }
 .gw-va-places ul { list-style: none; margin: 4px 0 0; padding: 0 0 0 20px; display: flex; flex-direction: column; gap: 2px; }
 .gw-va-places li span { color: #64748b; white-space: nowrap; }
+/* 그날 방문 일정 칸(차 목록 위) — 캔버스1과 같은 묶음, 맨 위에 휴무(11-21 부장님) */
+.gw-va-sched { border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; margin-bottom: 12px; }
+.gw-va-sched > summary { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; min-height: 44px; padding: 8px 14px; cursor: pointer; list-style: none; border-radius: 12px; }
+.gw-va-sched > summary::-webkit-details-marker { display: none; }
+.gw-va-sched > summary:hover { background: #f7f8f9; }
+.gw-va-sched > summary:focus-visible { outline: 2px solid #2a3038; outline-offset: 2px; }
+.gw-va-sched > summary > i:first-child { color: #64748b; }
+.gw-va-stitle { font-weight: 700; color: #1a1c20; }
+.gw-va-ssum { color: #475569; font-size: 0.84rem; }
+.gw-va-sched .gw-va-fold { margin-left: auto; color: #64748b; font-size: 0.75rem; transition: transform .15s; }
+.gw-va-sched[open] > summary .gw-va-fold { transform: rotate(180deg); }
+.gw-va-sbody { border-top: 1px solid #eef0f3; padding: 10px 14px 12px; max-height: 420px; overflow-y: auto; }
+.gw-va-soff { margin: 0 0 10px; padding: 8px 10px; background: #f8fafc; border-radius: 8px; font-size: 0.86rem; color: #1a1c20; }
+.gw-va-soff strong { color: #475569; margin-right: 2px; }
+.gw-va-sgroup + .gw-va-sgroup { margin-top: 12px; }
+.gw-va-sgroup h3 { font-size: 0.82rem; font-weight: 700; color: #475569; margin: 0 0 6px; }
+.gw-va-sgroup h3 span { color: #64748b; font-weight: 400; }
+.gw-va-sgroup ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.gw-va-sitem { padding: 8px 0; border-top: 1px solid #f1f2f4; font-size: 0.86rem; }
+.gw-va-sitem:first-child { border-top: 0; padding-top: 2px; }
+.gw-va-sline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.gw-va-sline a { color: #1a1c20; text-decoration: none; }
+.gw-va-sline a:hover { text-decoration: underline; }
+.gw-va-sno { color: #64748b; font-size: 0.78rem; }
+.gw-va-swho { margin-left: auto; font-weight: 600; color: #1a1c20; }
+.gw-va-swho.none { color: #c2410c; font-weight: 600; }
+.gw-va-smark { display: inline-block; padding: 0 7px; border-radius: 999px; background: #f2f3f6; color: #2a3038; font-size: 0.74rem; font-weight: 600; line-height: 1.6; }
+.gw-va-saddr { color: #1a1c20; margin-top: 2px; overflow-wrap: anywhere; }
+.gw-va-stext { color: #475569; margin-top: 2px; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.gw-va-sempty { color: #64748b; margin: 0; font-size: 0.86rem; }
+/* 명단 — 휴가 꼬리표, 휴무 묶음은 흐리게(넣을 수는 있음) */
+.gw-va-leave { color: #475569; background: #f2f3f6; border-radius: 999px; padding: 0 6px; font-size: 0.72rem; }
+.gw-va-group.off .gw-va-person { color: #475569; background: #f8fafc; border-style: dashed; }
+.gw-va-person.picked .gw-va-leave { background: #ffffff; color: #2a3038; }
 .gw-va-bar { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 10px 0; margin-top: 16px; background: linear-gradient(to top, #f8fafc 70%, rgba(248,250,252,0)); }
 .gw-va-date { cursor: pointer; caret-color: transparent; }   /* 달력으로만 고르는 칸(11-17 결정) */
 @media (max-width: 767.98px) {
@@ -3148,4 +3182,6 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
   .gw-va-where { margin-left: 0; }
   .gw-va-places summary { min-height: 44px; align-items: center; }
   .gw-va-places summary i { line-height: 1; }
+  .gw-va-sbody { max-height: none; }
+  .gw-va-swho { margin-left: 0; width: 100%; }
 }

@@ -47,7 +47,10 @@
   var TOUCH = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);   // 휴대폰: 끌기 대신 누르기
   var S = { day: '', cars: [], staff: [], names: {}, canEdit: false, confirmed: false, dirty: false,
             visits: {}, places: {}, teams: [], picked: null, seq: 0, focus: null,
-            openPlaces: {}, placeTries: 0, placeTimer: null };   // places = {이니셜: [{label, addr}]} 그날 갈 곳   // picked = 'YM' 또는 팀 'YM,LSH'
+            openPlaces: {}, placeTries: 0, placeTimer: null,
+            off: {}, half: {}, schedule: [] };
+  // picked = 'YM' 또는 팀 'YM,LSH' · places = {이니셜: [{label, addr}]} 그날 갈 곳(차 카드)
+  // off = {이니셜: 까닭} 그날 종일 쉬는 사람, half = 반차(그룹웨어 휴가·토요일 휴무표, 11-21)
 
   function name(code) { return S.names[code] || code; }
   function carOf(plate) { return S.cars.filter(function (c) { return c.plate === plate; })[0]; }
@@ -84,7 +87,7 @@
   function chipSel(code) { return '.gw-va-chip[data-person="' + cssq(code) + '"] .gw-va-cname'; }
   function onlyOne(key) { return keyCodes(key)[0]; }
   function staffNoCar() {             // 방문은 있는데 아직 차 없는 사람
-    return Object.keys(S.visits).filter(function (c) { return S.names[c] && !whereIs(c); }).map(name);
+    return Object.keys(S.visits).filter(function (c) { return S.names[c] && !S.off[c] && !whereIs(c); }).map(name);
   }
   function riders() {
     var n = 0;
@@ -93,13 +96,12 @@
   }
 
   // ── 그리기 ──
-  // 명단 이름 옆 = 방문 수와 갈 곳(첫 곳 + 외 n), 상세 주소는 마우스를 올리면(11-21 부장님)
+  // 명단 이름 옆 = 방문 수와 휴가 꼬리표. 어디 가는지는 위 '그날 방문 일정' 칸과 차 카드에서 본다(11-21 부장님)
   function visitTag(code) {
     var n = S.visits[code];
-    if (!n) return '';
-    var g = groupLabels(S.places[code] || []);
-    var where = g.length ? ' · ' + g[0].label + (g[0].n > 1 ? ' ' + g[0].n + '곳' : '') + (g.length > 1 ? ' 외 ' + (g.length - 1) : '') : '';
-    return '<small class="gw-va-visit">방문 ' + n + esc(where) + '</small>';
+    var tag = n ? '<small class="gw-va-visit">방문 ' + n + '</small>' : '';
+    var leave = S.off[code] || S.half[code];
+    return tag + (leave ? '<small class="gw-va-leave">' + esc(leave) + '</small>' : '');
   }
   function groupLabels(list) {   // 같은 동(구)끼리 묶기 — [{label, n}] 처음 나온 순서대로
     var at = {}, out = [];
@@ -108,10 +110,6 @@
       out[at[p.label]].n++;
     });
     return out;
-  }
-  function placeTitle(code) {
-    var pl = S.places[code] || [];
-    return pl.length ? ' title="' + esc(pl.map(function (p) { return p.addr; }).join(' / ')) + '"' : '';
   }
   // 차 카드 = 그 차에 탄 사람들이 갈 곳(동 단위로 묶음). 펼치면 주소와 누가 가는지
   function carPlaces(c) {
@@ -136,7 +134,7 @@
     var at = whereIs(code);
     var cls = 'gw-va-person' + (at ? ' placed' : '') + (S.picked === code ? ' picked' : '');
     return '<button type="button" class="' + cls + '" data-person="' + esc(code) + '"' +
-      (S.picked === code ? ' aria-pressed="true"' : ' aria-pressed="false"') + placeTitle(code) + '>' +
+      (S.picked === code ? ' aria-pressed="true"' : ' aria-pressed="false"') + '>' +
       '<span class="gw-va-pname">' + esc(name(code)) + '</span>' + visitTag(code) +
       (at ? '<small class="gw-va-where">' + esc(at.label) + '</small>' : '') + (extra || '') + '</button>';
   }
@@ -146,7 +144,9 @@
     panel.hidden = !S.canEdit;
     if (!S.canEdit) return;
     var codes = S.staff.map(function (p) { return p.code; });
-    var free = codes.filter(function (c) { return !whereIs(c); });
+    // 그날 종일 쉬는 사람(그룹웨어 휴가·토요일 휴무표)은 '차 없음'에서 빼 '휴무'로 따로 — 차에 넣었으면 '배정됨'에 남는다
+    var offList = codes.filter(function (c) { return S.off[c] && !whereIs(c); });
+    var free = codes.filter(function (c) { return !whereIs(c) && !S.off[c]; });
     // 일정확정 팀(그날 방문을 같이 가는 사람) 중 아직 차 없는 사람이 있는 팀
     var inTeam = {};
     var teams = S.teams.map(function (t) {
@@ -177,7 +177,8 @@
       (teams.length ? '<div class="gw-va-group need"><div class="gw-va-gtitle">일정확정 팀 · 차 없음 <span>' + nTeam + '</span></div>' +
         '<div class="gw-va-plist">' + teams.map(teamBox).join('') + '</div></div>' : '') +
       group('차 없음', freeOther) +
-      group('배정됨', placed, 'done');
+      group('배정됨', placed, 'done') +
+      group('휴무', offList, 'off');
     var how = $('vaStaffHow');
     how.className = 'gw-va-staff-how' + (S.picked ? ' picking' : '');
     how.textContent = S.picked
@@ -236,6 +237,63 @@
       '<div class="gw-va-car"><strong>' + esc(c.label) + '</strong><span>' + esc(sub) + '</span>' + fixed + '</div>' +
       carPlaces(c) + '<div class="gw-va-people">' + people + put + '</div>' + note + '</div>';
   }
+  // ── 그날 방문 일정 칸(차 목록 위, 11-21 부장님) ──
+  // 캔버스1(봇 자동)과 같은 묶음·표시를 리드 시트에서 바로 그린다. 줄마다 /일정확정으로 들어간 영업 담당자.
+  // 맨 위 한 줄 = 그날 쉬는 사람(그룹웨어 휴가·토요일 휴무표). 펼침 상태는 이 브라우저에 기억(PC 펼침·휴대폰 접힘이 기본)
+  var SCHED_KEY = 'gw.va.schedOpen';
+  function schedOpenPref() {
+    try { var v = localStorage.getItem(SCHED_KEY); if (v === '1' || v === '0') return v === '1'; } catch (e) { /* 무시 */ }
+    return !(window.matchMedia && window.matchMedia('(max-width: 767.98px)').matches);
+  }
+  function schedEl() {
+    var el = $('vaSched');
+    if (el) return el;
+    var host = document.querySelector('.gw-va-cars');     // 서버 재시작 전 옛 화면엔 칸이 없어 만들어 넣는다
+    if (!host) return null;
+    el = document.createElement('details');
+    el.className = 'gw-va-sched';
+    el.id = 'vaSched';
+    host.insertBefore(el, host.firstChild);
+    return el;
+  }
+  function schedItem(it) {
+    var marks = it.marks.map(function (m) { return '<span class="gw-va-smark">' + esc(m) + '</span>'; }).join('');
+    var who = it.who.length
+      ? '<span class="gw-va-swho">' + esc(it.who.join(', ')) + '</span>'
+      : '<span class="gw-va-swho none">배분 전</span>';
+    var phone = it.phone
+      ? '<a href="tel:' + esc(it.phone.replace(/[^\d+]/g, '')) + '">' + esc(it.phone) + '</a>' : '';
+    return '<li class="gw-va-sitem">' +
+      '<div class="gw-va-sline">' + marks + '<strong>' + esc(it.date) + '</strong>' + (phone ? '<span>' + phone + '</span>' : '') +
+        (it.lead_no ? '<span class="gw-va-sno">' + esc(it.lead_no) + '</span>' : '') + who + '</div>' +
+      (it.addr ? '<div class="gw-va-saddr">' + esc(it.addr) + '</div>' : '') +
+      (it.text ? '<div class="gw-va-stext">' + esc(it.text) + '</div>' : '') + '</li>';
+  }
+  function schedPanel(j) {
+    var el = schedEl();
+    if (!el) return;
+    var n = S.schedule.reduce(function (a, g) { return a + g.items.length; }, 0);
+    var todo = S.schedule.reduce(function (a, g) { return a + g.items.filter(function (it) { return !it.who.length; }).length; }, 0);
+    var offs = (j.off || []).map(function (o) { return o.name + '(' + o.why + ')'; });
+    var halves = (j.half || []).map(function (o) { return o.name + '(' + o.why + ')'; });
+    var sum = '방문 ' + n + '건' + (todo ? ' · 배분 전 ' + todo + '건' : '') + (offs.length ? ' · 휴무 ' + offs.length + '명' : '');
+    var leave = (offs.length || halves.length)
+      ? '<p class="gw-va-soff">' + (offs.length ? '<strong>휴무</strong> ' + esc(offs.join(', ')) : '') +
+        (offs.length && halves.length ? ' · ' : '') + (halves.length ? '<strong>반차</strong> ' + esc(halves.join(', ')) : '') + '</p>'
+      : '';
+    var body = S.schedule.map(function (g) {
+      return '<div class="gw-va-sgroup"><h3>' + esc(g.title) + ' <span>' + g.items.length + '</span></h3>' +
+        '<ul>' + g.items.map(schedItem).join('') + '</ul></div>';
+    }).join('') || '<p class="gw-va-sempty">이날 방문 일정이 없어요.</p>';
+    var wasOpen = el.dataset.ready ? el.open : schedOpenPref();
+    el.innerHTML = '<summary><i class="fas fa-calendar-day" aria-hidden="true"></i><span class="gw-va-stitle">' +
+      esc(j.day_label || '') + ' 방문 일정</span><span class="gw-va-ssum">' + esc(sum) + '</span>' +
+      '<i class="fas fa-chevron-down gw-va-fold" aria-hidden="true"></i></summary>' +
+      '<div class="gw-va-sbody">' + leave + body + '</div>';
+    el.open = wasOpen;
+    el.hidden = false;
+    el.dataset.ready = '1';
+  }
   function render() {
     $('vaShared').innerHTML = S.cars.filter(function (c) { return c.usage !== 'fixed'; }).map(card).join('') ||
       '<p class="gw-empty">공용 차가 없어요.</p>';
@@ -279,8 +337,12 @@
       if (my !== S.seq) return;
       S.day = j.day; S.cars = j.cars; S.staff = j.staff; S.canEdit = !!j.can_edit;
       S.confirmed = !!j.confirmed_at; S.picked = null;
-      S.names = {}; S.visits = {}; S.places = {}; S.openPlaces = {};
+      S.names = {}; S.visits = {}; S.places = {}; S.openPlaces = {}; S.off = {}; S.half = {};
       j.staff.forEach(function (p) { S.names[p.code] = p.name; });
+      (j.off || []).forEach(function (o) { S.off[o.code] = o.why; });
+      (j.half || []).forEach(function (o) { S.half[o.code] = o.why; });
+      S.schedule = j.schedule || [];
+      schedPanel(j);
       (j.visitors || []).forEach(function (v) { S.visits[v.code] = v.visits; S.places[v.code] = v.places || []; });
       S.teams = j.teams || [];
       S.dirty = !!(j.draft_kind && S.canEdit && j.cars.some(function (c) { return c.people.length; }));
@@ -470,6 +532,14 @@
     var d = e.target;
     if (d && d.dataset && d.dataset.places) S.openPlaces[d.dataset.places] = d.open;
   }, true);
+  // 방문 일정 칸을 직접 접고 펼친 것만 기억(다시 그릴 때 코드로 여닫는 것은 빼고)
+  document.addEventListener('click', function (e) {
+    var s = e.target.closest && e.target.closest('#vaSched > summary');
+    if (!s) return;
+    setTimeout(function () {
+      try { localStorage.setItem(SCHED_KEY, s.parentNode.open ? '1' : '0'); } catch (er) { /* 무시 */ }
+    }, 0);
+  });
   document.addEventListener('change', function (e) {
     var t = e.target;
     if (t.dataset.note) {
