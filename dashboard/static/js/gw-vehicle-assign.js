@@ -153,6 +153,10 @@
       left.forEach(function (m) { inTeam[m] = 1; });
       return { left: left, visits: t.visits };
     }).filter(function (t) { return t.left.length; });
+    // 함께 가는 팀(2명 이상)을 먼저, 혼자 가는 사람은 그 아래(혼자가 팀 사이에 끼어 있던 것, 11-21 부장님)
+    //   같은 쪽 안에서는 서버 순서(방문 많은 순) 그대로
+    teams = teams.filter(function (t) { return t.left.length > 1; })
+      .concat(teams.filter(function (t) { return t.left.length === 1; }));
     var freeOther = free.filter(function (c) { return !inTeam[c]; });
     var placed = codes.filter(function (c) { return whereIs(c); });
     function group(title, list, cls) {
