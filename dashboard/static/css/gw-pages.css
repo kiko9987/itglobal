@@ -3096,7 +3096,8 @@ html:has(#bdPage) {
 .gw-va-sno { color: #64748b; font-size: 0.78rem; }
 .gw-va-swho { margin-left: auto; font-weight: 600; color: #1a1c20; }
 .gw-va-swho.none { color: #c2410c; font-weight: 600; }
-.gw-va-smark { display: inline-block; padding: 0 7px; border-radius: 999px; background: #f2f3f6; color: #2a3038; font-size: 0.74rem; font-weight: 600; line-height: 1.6; }
+.gw-va-smark { display: inline-block; padding: 0 7px; border: 1px solid #2a3038; border-radius: 999px; background: #2a3038; color: #ffffff; font-size: 0.74rem; font-weight: 600; line-height: 1.6; }
+.gw-va-smark.plat { background: #fff; border-color: #cbd0d8; color: #475569; font-weight: 500; }
 .gw-va-saddr { color: #1a1c20; margin-top: 2px; overflow-wrap: anywhere; }
 .gw-va-stext { color: #475569; margin-top: 2px; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .gw-va-sempty { color: #64748b; margin: 0; font-size: 0.86rem; }

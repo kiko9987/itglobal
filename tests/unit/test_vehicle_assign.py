@@ -152,10 +152,10 @@ def test_day_schedule_like_canvas1(db):
     s = va.day_schedule('2026-11-21', leads)
     assert [g['cat'] for g in s] == ['기타', '거래처', '온라인 방문']
     etc, partner, online = (g['items'] for g in s)
-    assert etc[0]['lead_no'] == 'ETC-a1' and etc[0]['marks'] == ['본인 방문 필수'] and etc[0]['who'] == []
-    assert partner[0]['marks'] == ['공사확정'] and partner[0]['who'] == ['서준', '한별'] and partner[0]['date'] == '11월 20~22일'
+    assert etc[0]['lead_no'] == 'ETC-a1' and etc[0]['marks'] == ['본인 방문 필수'] and etc[0]['platform'] == '기타' and etc[0]['who'] == []
+    assert partner[0]['marks'] == ['공사확정'] and partner[0]['platform'] == '거래처' and partner[0]['who'] == ['서준', '한별'] and partner[0]['date'] == '11월 20~22일'
     assert [i['lead_no'] for i in online] == ['L-1', 'L-5']
-    assert online[0]['marks'] == ['당근'] and online[0]['phone'] == '010-1234-5678' and online[0]['text'] == '에어컨 2대'
+    assert online[0]['marks'] == [] and online[0]['platform'] == '당근' and online[1]['platform'] == '전화' and online[0]['phone'] == '010-1234-5678' and online[0]['text'] == '에어컨 2대'
     assert online[1]['phone'] == '' and online[1]['who'] == []                     # '/'·'-' 는 빈칸
 
 

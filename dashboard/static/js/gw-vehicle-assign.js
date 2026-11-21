@@ -251,7 +251,9 @@
     return el;
   }
   function schedItem(it) {
-    var marks = it.marks.map(function (m) { return '<span class="gw-va-smark">' + esc(m) + '</span>'; }).join('');
+    // 플랫폼 꼬리표(줄마다, 테두리만) + 본인 방문 필수·공사확정(채움) — 11-21 부장님
+    var marks = (it.platform ? '<span class="gw-va-smark plat">' + esc(it.platform) + '</span>' : '') +
+      it.marks.map(function (m) { return '<span class="gw-va-smark">' + esc(m) + '</span>'; }).join('');
     var who = it.who.length
       ? '<span class="gw-va-swho">' + esc(it.who.join(', ')) + '</span>'
       : '<span class="gw-va-swho none">배분 전</span>';

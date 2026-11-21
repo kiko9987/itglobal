@@ -475,9 +475,9 @@ def day_schedule(day: str, leads: Iterable[dict]) -> List[Dict]:
             marks.append('공사확정')
         if '본인 방문 필수' in str(lead.get('본인 방문 여부') or ''):
             marks.append('본인 방문 필수')
-        if str(lead.get('플랫폼') or '').strip() == '당근':
-            marks.append('당근')
-        item = {'lead_no': str(lead.get('리드 No') or '').strip(), 'date': vcs._fmt_visit_date(vd),
+        # 플랫폼은 줄마다 꼬리표로(당근만 붙이던 것 → 모두, 11-21 부장님). 기타 방문(ETC-)은 '기타'
+        platform = str(lead.get('플랫폼') or '').strip() or ('기타' if cat == '기타' else '')
+        item = {'lead_no': str(lead.get('리드 No') or '').strip(), 'date': vcs._fmt_visit_date(vd), 'platform': platform,
                 'phone': raw_phone if re.search(r'\d', raw_phone) else '',
                 'addr': re.sub(r'\s*\n\s*', ' ', str(lead.get('방문 주소') or '').strip()),
                 'text': text[:200] + ('…' if len(text) > 200 else ''), 'who': who, 'marks': marks}
