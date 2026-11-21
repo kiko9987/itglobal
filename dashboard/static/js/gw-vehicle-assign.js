@@ -272,6 +272,7 @@
   function schedPanel(j) {
     var el = schedEl();
     if (!el) return;
+    if (!('schedule' in j)) { el.hidden = true; return; }   // 서버 재시작 전(일정 칸 자료 없음) — '방문 0건'으로 보이지 않게
     var n = S.schedule.reduce(function (a, g) { return a + g.items.length; }, 0);
     var todo = S.schedule.reduce(function (a, g) { return a + g.items.filter(function (it) { return !it.who.length; }).length; }, 0);
     var offs = (j.off || []).map(function (o) { return o.name + '(' + o.why + ')'; });
