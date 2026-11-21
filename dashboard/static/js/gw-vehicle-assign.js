@@ -48,7 +48,8 @@
   var S = { day: '', cars: [], staff: [], names: {}, canEdit: false, confirmed: false, dirty: false,
             visits: {}, places: {}, teams: [], picked: null, seq: 0, focus: null,
             placeTries: 0, placeTimer: null,
-            off: {}, half: {}, schedule: [] };
+            off: {}, half: {}, online: {}, schedule: [] };
+  // online = {이니셜: '온라인 당번(오전)'} 그날 사무실 문의 당번(/일정확정 때 캔버스2 '온라인' 섹션, 11-21)
   // picked = 'YM' 또는 팀 'YM,LSH' · places = {이니셜: [{label, addr}]} 그날 갈 곳(차 카드)
   // off = {이니셜: 까닭} 그날 종일 쉬는 사람, half = 반차(그룹웨어 휴가·토요일 휴무표, 11-21)
 
@@ -101,7 +102,9 @@
     var n = S.visits[code];
     var tag = n ? '<small class="gw-va-visit">방문 ' + n + '</small>' : '';
     var leave = S.off[code] || S.half[code];
-    return tag + (leave ? '<small class="gw-va-leave">' + esc(leave) + '</small>' : '');
+    var duty = S.online[code];
+    return tag + (leave ? '<small class="gw-va-leave">' + esc(leave) + '</small>' : '') +
+      (duty ? '<small class="gw-va-leave">' + esc(duty + (n ? '·방문 후' : '')) + '</small>' : '');
   }
   function groupLabels(list) {   // 같은 동(구)끼리 묶기 — [{label, n}] 처음 나온 순서대로
     var at = {}, out = [];
@@ -140,7 +143,9 @@
     var codes = S.staff.map(function (p) { return p.code; });
     // 그날 종일 쉬는 사람(그룹웨어 휴가·토요일 휴무표)은 '차 없음'에서 빼 '휴무'로 따로 — 차에 넣었으면 '배정됨'에 남는다
     var offList = codes.filter(function (c) { return S.off[c] && !whereIs(c); });
-    var free = codes.filter(function (c) { return !whereIs(c) && !S.off[c]; });
+    // 온라인 당번은 사무실에 남아 차가 필요 없다 — 방문도 있는 겸업(방문 다녀와 합류)만 명단에 남긴다
+    var dutyList = codes.filter(function (c) { return S.online[c] && !S.visits[c] && !S.off[c] && !whereIs(c); });
+    var free = codes.filter(function (c) { return !whereIs(c) && !S.off[c] && dutyList.indexOf(c) === -1; });
     // 일정확정 팀(그날 방문을 같이 가는 사람) 중 아직 차 없는 사람이 있는 팀
     var inTeam = {};
     var teams = S.teams.map(function (t) {
@@ -172,6 +177,7 @@
         '<div class="gw-va-plist">' + teams.map(teamBox).join('') + '</div></div>' : '') +
       group('차 없음', freeOther) +
       group('배정됨', placed, 'done') +
+      group('온라인 당번', dutyList, 'off') +
       group('휴무', offList, 'off');
     var how = $('vaStaffHow');
     how.className = 'gw-va-staff-how' + (S.picked ? ' picking' : '');
@@ -280,11 +286,13 @@
     var todo = S.schedule.reduce(function (a, g) { return a + g.items.filter(function (it) { return !it.who.length; }).length; }, 0);
     var offs = (j.off || []).map(function (o) { return o.name + '(' + o.why + ')'; });
     var halves = (j.half || []).map(function (o) { return o.name + '(' + o.why + ')'; });
+    var duties = (j.online || []).map(function (o) { return o.name + (o.shift ? '(' + o.shift + ')' : ''); });
     var sum = '방문 ' + n + '건' + (todo ? ' · 배분 전 ' + todo + '건' : '') + (offs.length ? ' · 휴무 ' + offs.length + '명' : '');
-    var leave = (offs.length || halves.length)
-      ? '<p class="gw-va-soff">' + (offs.length ? '<strong>휴무</strong> ' + esc(offs.join(', ')) : '') +
-        (offs.length && halves.length ? ' · ' : '') + (halves.length ? '<strong>반차</strong> ' + esc(halves.join(', ')) : '') + '</p>'
-      : '';
+    var bits = [];
+    if (offs.length) bits.push('<strong>휴무</strong> ' + esc(offs.join(', ')));
+    if (halves.length) bits.push('<strong>반차</strong> ' + esc(halves.join(', ')));
+    if (duties.length) bits.push('<strong>온라인 당번</strong> ' + esc(duties.join(', ')));
+    var leave = bits.length ? '<p class="gw-va-soff">' + bits.join(' · ') + '</p>' : '';
     var body = S.schedule.map(function (g) {
       return '<div class="gw-va-sgroup"><h3>' + esc(g.title) + ' <span>' + g.items.length + '</span></h3>' +
         '<ul>' + g.items.map(schedItem).join('') + '</ul></div>';
@@ -341,10 +349,11 @@
       if (my !== S.seq) return;
       S.day = j.day; S.cars = j.cars; S.staff = j.staff; S.canEdit = !!j.can_edit;
       S.confirmed = !!j.confirmed_at; S.picked = null;
-      S.names = {}; S.visits = {}; S.places = {}; S.off = {}; S.half = {};
+      S.names = {}; S.visits = {}; S.places = {}; S.off = {}; S.half = {}; S.online = {};
       j.staff.forEach(function (p) { S.names[p.code] = p.name; });
       (j.off || []).forEach(function (o) { S.off[o.code] = o.why; });
       (j.half || []).forEach(function (o) { S.half[o.code] = o.why; });
+      (j.online || []).forEach(function (o) { S.online[o.code] = '온라인 당번' + (o.shift ? '(' + o.shift + ')' : ''); });
       S.schedule = j.schedule || [];
       schedPanel(j);
       (j.visitors || []).forEach(function (v) { S.visits[v.code] = v.visits; S.places[v.code] = v.places || []; });

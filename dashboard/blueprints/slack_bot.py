@@ -3730,6 +3730,13 @@ def _register_visit_handlers(app):
                     except Exception as _aexc:
                         logger.warning(f"[일정확정] 누락 점검 실패(발송은 정상): {_aexc}", exc_info=True)
                     # 2026-11-20 다음 날 차량 배정 요청 — 배정 담당자(SJ)에게 DM(이미 확정·요청했으면 안 보냄)
+                    # 2026-11-21 그날 온라인 당번 저장 — 차량 배정 명단에서 빼려고(사무실에 남는 문의 당번)
+                    try:
+                        from dashboard.services.vehicle_assign import record_online_duty
+                        record_online_duty((result.get('dm') or {}).get('target_date'),
+                                           result.get('online_duty') or [], result.get('online_duty_shifts') or {})
+                    except Exception as _oexc:
+                        logger.warning(f"[일정확정] 온라인 당번 저장 실패(차량 배정): {_oexc}", exc_info=True)
                     try:
                         from dashboard.services.vehicle_assign import request_assignment
                         request_assignment((result.get('dm') or {}).get('target_date'))

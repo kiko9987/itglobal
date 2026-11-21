@@ -3153,7 +3153,9 @@ html:has(#bdPage) {
 .gw-va-teambtn.picked small, .gw-va-chip.picked .gw-va-x { color: #ffffff; }
 .gw-va-chip.picked .gw-va-lead { background: #ffffff; color: #2a3038; }
 .gw-va-person:focus-visible, .gw-va-teambtn:focus-visible { outline: 2px solid #2a3038; outline-offset: 2px; }
-.gw-va-pname { font-weight: 600; }
+.gw-va-pname { font-weight: 600; white-space: nowrap; }
+.gw-va-person { flex-wrap: wrap; }   /* 꼬리표(방문·휴가·당번)가 많으면 이름은 그대로 두고 다음 줄로(11-21) */
+.gw-va-person small { white-space: nowrap; }
 .gw-va-team { border: 1px dashed #fdba74; border-radius: 12px; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
 
 /* [함께] — 주황 채움 단추 대신 흰 바탕(주황은 「만들기」 하나). 팀 상자의 주황 점선이 '차 없음' 상태를 말한다 */

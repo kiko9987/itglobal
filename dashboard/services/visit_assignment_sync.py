@@ -659,6 +659,7 @@ def _commit_locked() -> Dict:
             'list_missing': list_missing,
             'dm': dm_result,
             'online_duty': online_duty,
+            'online_duty_shifts': online_duty_shifts,   # 차량 배정이 당번을 명단에서 빼는 데 씀(11-21)
             'off_duty': off_duty,
             'duplicates': parsed_full.get('duplicates', []),     # 예전엔 확정 결과에 빠져 경고가 안 나왔음
             'unreadable': parsed_full.get('unreadable', []),

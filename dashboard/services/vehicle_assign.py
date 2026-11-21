@@ -105,6 +105,10 @@ def _conn():
         if not _table_ready:
             for ddl in _DDL:
                 conn.execute(ddl)
+            # 온라인 당번(캔버스2 '온라인' 섹션, /일정확정 때 저장 — 11-21)
+            cols = {r[1] for r in conn.execute('PRAGMA table_info(vehicle_assign_day)').fetchall()}
+            if 'online_duty' not in cols:
+                conn.execute('ALTER TABLE vehicle_assign_day ADD COLUMN online_duty TEXT')
             for i, s in enumerate(_SEED):
                 conn.execute('INSERT OR IGNORE INTO vehicle_fleet (plate, label, model, fuel, corp, usage, fixed_user, '
                              'needs_log, uplus, active, sort_no, updated_by, updated_at) '
@@ -430,6 +434,31 @@ def day_off(day: str) -> Dict[str, List[Dict]]:
                 off[code] = {'code': code, 'name': name, 'why': '토요 휴무' + ('' if sure else '(확정 전)')}
     half = {c: v for c, v in half.items() if c not in off}
     return {'off': sorted(off.values(), key=lambda x: x['name']), 'half': sorted(half.values(), key=lambda x: x['name'])}
+
+
+def record_online_duty(day: Optional[str], codes: Iterable[str], shifts: Optional[Dict[str, str]] = None) -> bool:
+    """/일정확정 때 그날 온라인 당번(캔버스2 '온라인' 섹션 — 사무실에 남는 문의 당번)을 저장(11-21 부장님).
+    다시 확정하면 덮어쓴다. 배정 화면은 이 사람들을 '차 없음'에서 빼고, 방문도 있는 겸업이면 꼬리표만 붙인다."""
+    day = day if day and valid_day(day) else next_workday()     # 방문 DM 이 없던 날도(request_assignment 와 같은 기준)
+    shifts = shifts or {}
+    rows = [{'code': c, 'shift': shifts.get(c, '')} for c in dict.fromkeys(codes or []) if c]
+    with _conn() as conn:
+        conn.execute('INSERT INTO vehicle_assign_day (day, online_duty) VALUES (?,?) '
+                     'ON CONFLICT(day) DO UPDATE SET online_duty = excluded.online_duty',
+                     (day, json.dumps(rows, ensure_ascii=False)))
+    return True
+
+
+def online_duty(day: str) -> List[Dict]:
+    """그날 온라인 당번 [{code, name, shift}] — /일정확정 전이면 []. 배정 명단에 없는 사람은 뺀다."""
+    raw = (_day_info(day) or {}).get('online_duty')
+    try:
+        rows = json.loads(raw) if raw else []
+    except ValueError:
+        rows = []
+    names = {p['code']: p['name'] for p in staff()}
+    return [{'code': r['code'], 'name': names[r['code']], 'shift': r.get('shift') or ''}
+            for r in rows if r.get('code') in names]
 
 
 _NOTE_SEP = re.compile(r'\s*─{2,}\s*')

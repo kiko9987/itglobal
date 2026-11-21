@@ -318,3 +318,16 @@ def test_latest_note_skips_header_only_rounds():
     assert va._latest_note('데코타일 2장 픽업 / 비용 없음 ──── [11.17 09:18 MJ · 방문 완료]') == '데코타일 2장 픽업 / 비용 없음'
     assert va._latest_note('[11.10 10:00 SJ · 방문 예약] 첫 상담 ─── [11.12 11:00 YM · 재상담] 두번째') == '두번째'
     assert va._latest_note('') == ''
+
+
+def test_online_duty_saved_at_schedule_confirm(db):
+    """/일정확정 때 캔버스2 '온라인' 당번을 그날에 저장 — 배정 명단에서 뺀다(11-21 부장님). 다시 확정하면 덮어씀."""
+    assert va.online_duty('2026-11-23') == []                                      # 확정 전
+    assert va.record_online_duty('2026-11-23', ['JK', 'SD', 'JK', 'MJ'], {'MJ': '오전'})
+    assert va.online_duty('2026-11-23') == [{'code': 'JK', 'name': '강해', 'shift': ''},
+                                            {'code': 'MJ', 'name': '박다솜', 'shift': '오전'}]   # 명단 밖(SD)은 뺌
+    va.save_day('2026-11-23', [{'plate': '237허5358', 'people': ['TH']}], ASSIGNER, confirm=True)
+    assert [o['code'] for o in va.online_duty('2026-11-23')] == ['JK', 'MJ']       # 배정 확정이 당번을 지우지 않음
+    va.record_online_duty('2026-11-23', ['YG'])
+    assert [o['code'] for o in va.online_duty('2026-11-23')] == ['YG']
+    assert va.day_view('2026-11-23')['confirmed_at']                               # 당번 저장이 확정을 지우지 않음

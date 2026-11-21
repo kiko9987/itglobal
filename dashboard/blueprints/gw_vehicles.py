@@ -133,6 +133,11 @@ def api_assign_get():
     except Exception as e:
         logger.warning(f'[차량배정] 휴가 읽기 실패: {e}')
         off = {'off': [], 'half': []}
+    try:        # 그날 온라인 문의 당번(/일정확정 때 캔버스2 '온라인' 섹션에서 저장)
+        online = va.online_duty(day)
+    except Exception as e:
+        logger.warning(f'[차량배정] 온라인 당번 읽기 실패: {e}')
+        online = []
     try:
         view = va.day_view(day, teams)
         people = va.staff()
@@ -147,7 +152,7 @@ def api_assign_get():
         view['confirmed_name'] = (p or {}).get('name') or view['confirmed_by']
     return jsonify({'success': True, **view, 'day_label': va.day_label(day),
                     'staff': [{'code': p['code'], 'name': p['name']} for p in people], 'visitors': visitors, 'teams': teams,
-                    'resolving': resolving, 'schedule': schedule, 'off': off['off'], 'half': off['half'],
+                    'resolving': resolving, 'schedule': schedule, 'off': off['off'], 'half': off['half'], 'online': online,
                     'can_edit': _can_assign(), 'can_see_log': _hr_admin()})
 
 
