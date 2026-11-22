@@ -33,19 +33,18 @@
   <section class="gw-vp" id="vpPlan" role="tabpanel" aria-labelledby="vpTabPlan" hidden>
     <div class="gw-va-status" id="vpStatus"></div>
     <div class="gw-vp-info" id="vpInfo"></div>
+    {# 차량 배정과 같은 모양 — 왼쪽 사람(같이 가는 조합은 [함께]) → 오른쪽 캔버스1 현장에 끌어 놓기(11-22 부장님) #}
     <div class="gw-vp-board" id="vpBoard">
-      <aside class="gw-vp-left" id="vpLeftBox" data-drop="left">
-        <h2 class="gw-vp-h">배정 안 된 방문 <span id="vpLeftCount"></span></h2>
-        <p class="gw-vp-how" id="vpHow"></p>
-        <div class="gw-vp-list" id="vpLeft"></div>
+      <aside class="gw-va-staff gw-vp-people" id="vpPeopleBox" aria-label="사람">
+        <div class="gw-va-staff-head"><strong>사람</strong><span id="vpPeopleCount"></span></div>
+        <p class="gw-va-staff-how" id="vpHow"></p>
+        <div id="vpPeople"></div>
       </aside>
-      <div class="gw-vp-right">
-        <div class="gw-vp-teams" id="vpTeams"></div>
-        <div class="gw-vp-add" id="vpAddRow">
-          <button type="button" class="btn btn-outline-secondary" id="vpAddTeam"><i class="fas fa-plus" aria-hidden="true"></i> 새 팀</button>
-          <p class="gw-vp-free" id="vpFree"></p>
-        </div>
-      </div>
+      <section class="gw-vp-sites" aria-label="현장">
+        <div class="gw-vp-sitehead"><h2 class="gw-vp-h">현장 <span id="vpSiteCount"></span></h2>
+          <label class="gw-vp-only"><input type="checkbox" id="vpOnlyLeft"> 사람 없는 현장만</label></div>
+        <div id="vpSites"></div>
+      </section>
     </div>
     <section class="gw-vp-duty" id="vpDuty" aria-label="온라인 당번"></section>
     <ul class="gw-vp-warns" id="vpWarns" aria-label="확정 전 확인할 것"></ul>

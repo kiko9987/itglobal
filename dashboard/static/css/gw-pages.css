@@ -3260,7 +3260,7 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
 }
 .gw-vt-car small { color: #64748b; font-size: 0.8rem; }
 
-/* ── ① 방문 일정(11-22 부장님) — 차량 배정 화면 위 단계. 왼쪽 배정 안 된 방문, 오른쪽 팀 칸 ───────────── */
+/* ── ① 방문 일정(11-22 부장님) — 차량 배정 화면 위 단계. 왼쪽 사람, 오른쪽 캔버스1 현장 ───────────── */
 .gw-vp-steps { display: flex; align-items: center; gap: 6px; margin: 0 0 12px; border-bottom: 1px solid #e5e7eb; }
 .gw-vp-step { border: 0; border-bottom: 3px solid transparent; background: transparent; color: #475569; font-weight: 600; font-size: 0.95rem; padding: 8px 6px 7px; min-height: 44px; cursor: pointer; }
 .gw-vp-step[aria-selected="true"] { color: #1a1c20; border-bottom-color: #2a3038; }
@@ -3270,45 +3270,21 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
 .gw-vp-info:empty { display: none; }
 .gw-vp-h { font-size: 0.95rem; font-weight: 700; margin: 0 0 6px; }
 .gw-vp-h span { color: #64748b; font-weight: 400; }
-.gw-vp-board { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 14px; align-items: start; }
-.gw-vp-left { position: sticky; top: 8px; max-height: calc(100vh - 140px); overflow: auto; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; padding: 12px; }
-.gw-vp-left.can-drop { border-style: dashed; border-color: #8b95a5; }
-.gw-vp-how { color: #475569; font-size: 0.8rem; margin: 0 0 8px; }
-.gw-vp-how .btn-link { padding: 0 2px; font-size: 0.8rem; vertical-align: baseline; }
-.gw-vp-list { display: flex; flex-direction: column; gap: 6px; }
-.gw-vp-visit { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; border: 1px solid #dcdee3; background: #fff; border-radius: 8px; padding: 7px 10px; font-size: 0.86rem; color: #1a1c20; }
-button.gw-vp-visit { cursor: grab; }
-button.gw-vp-visit:hover { border-color: #b9bdc6; background: #f7f8f9; }
-.gw-vp-visit.picked { border-color: #2a3038; box-shadow: inset 0 0 0 2px #2a3038; background: #f2f3f6; }
-.gw-vp-visit:focus-visible { outline: 2px solid #2a3038; outline-offset: 2px; }
+.gw-vp-board { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 14px; align-items: start; }
+.gw-vp-people { display: block; }
+.gw-vp-sitehead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; margin-bottom: 6px; }
+.gw-vp-only { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 0.84rem; color: #1a1c20; }
+.gw-vp-sitelist { margin-bottom: 12px; }
+.gw-vp-site { gap: 6px; }
+.gw-vp-site.need { border-color: #fdba74; background: #fffbf5; }
+.gw-vp-memobtn { align-self: flex-start; padding: 0; font-size: 0.8rem; }
+.gw-vp-same { align-self: flex-start; }
 .gw-vp-vtop { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
 .gw-vp-vaddr { overflow-wrap: anywhere; }
 .gw-vp-vtext { color: #475569; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.gw-vp-teams { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 10px; }
-.gw-vp-team { min-width: 0; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
-.gw-vp-team.can-drop { border-style: dashed; border-color: #8b95a5; }
-.gw-vp-team.over, .gw-vp-left.over { border-color: #2a3038; background: #f2f3f6; }
-.gw-vp-team.bad { border-color: #dc2626; }
-.gw-vp-thead { display: flex; align-items: flex-start; gap: 8px; }
-.gw-vp-thead .gw-va-people { flex: 1 1 auto; }
-.gw-vp-tcount { color: #64748b; font-size: 0.84rem; white-space: nowrap; padding-top: 5px; }
-.gw-vp-ttools { display: flex; align-items: center; gap: 6px; }
-.gw-vp-addp { flex: 0 1 220px; width: auto; min-width: 0; }
-.gw-vp-tdel { margin-left: auto; color: #64748b; font-size: 0.8rem; white-space: nowrap; }
-.gw-vp-tlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.gw-vp-visit.in { flex-direction: row; align-items: flex-start; gap: 8px; cursor: grab; }
-.gw-vp-no { flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%; background: #2a3038; color: #fff; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; margin-top: 1px; }
-.gw-vp-vmain { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.gw-vp-vacts { flex: 0 0 auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px; max-width: 150px; }
-.gw-vp-ic, .gw-vp-tx { border: 1px solid #dcdee3; background: #fff; color: #1a1c20; border-radius: 6px; min-width: 30px; height: 30px; font-size: 0.78rem; padding: 0 6px; cursor: pointer; }
-.gw-vp-ic:disabled { opacity: 0.35; cursor: default; }
-.gw-vp-tx.on { background: #2a3038; border-color: #2a3038; color: #fff; }
-.gw-vp-tempty { color: #64748b; font-size: 0.84rem; margin: 0; }
 .gw-vp-memo { display: flex; flex-direction: column; gap: 3px; margin: 0; font-size: 0.8rem; color: #475569; }
 .gw-vp-memo small { color: #64748b; }
 .gw-vp-memotext { margin: 0; font-size: 0.86rem; color: #1a1c20; background: #f8fafc; border-radius: 8px; padding: 6px 10px; }
-.gw-vp-add { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; }
-.gw-vp-free { margin: 0; color: #475569; font-size: 0.84rem; }
 .gw-vp-duty { margin-top: 16px; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; padding: 12px; }
 .gw-vp-drow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
 .gw-vp-shift { width: auto; min-height: 26px; padding-top: 0; padding-bottom: 0; font-size: 0.8rem; }
@@ -3323,18 +3299,12 @@ button.gw-vp-visit:hover { border-color: #b9bdc6; background: #f7f8f9; }
 .gw-vp-next { margin-left: 6px; }
 @media (max-width: 767.98px) {
   .gw-vp-board { grid-template-columns: minmax(0, 1fr); }
-  .gw-vp-left { position: static; max-height: none; }
-  .gw-vp-visit.in { flex-wrap: wrap; }
-  .gw-vp-vacts { max-width: none; width: 100%; justify-content: flex-start; }
-  .gw-vp-ic, .gw-vp-tx { min-width: 44px; height: 44px; font-size: 0.86rem; }
-  .gw-vp-addp, .gw-vp-addduty, .gw-vp-shift { min-height: 44px; font-size: 16px; max-width: none; }
-  .gw-vp-addp { flex: 1 1 auto; }
+  .gw-vp-memobtn, .gw-vp-same, .gw-vp-only, .gw-vp-people .gw-va-staff-how .btn-link { min-height: 44px; }
   .gw-vp-memo input { min-height: 44px; font-size: 16px; }
-  .gw-vp-tdel { min-height: 44px; }
-  .gw-vp-add .btn { min-height: 44px; }
+  .gw-vp-addduty, .gw-vp-shift { min-height: 44px; font-size: 16px; max-width: none; }
   .gw-vp-shared { min-height: 44px; }
   .gw-vp-shared input { width: 20px; height: 20px; }
 }
-.gw-vp-gtitle { font-size: 0.8rem; font-weight: 600; color: #475569; margin: 6px 0 0; }
+.gw-vp-gtitle { font-size: 0.86rem; font-weight: 700; color: #1a1c20; margin: 4px 0 6px; }
 .gw-vp-gtitle:first-child { margin-top: 0; }
 .gw-vp-gtitle span { color: #64748b; font-weight: 400; }

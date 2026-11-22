@@ -7,7 +7,8 @@
 - 현장은 캔버스1과 같은 기준(visit_canvas_sync.visit_open + 그날에 걸친 방문)으로 띄우고, 사람은 처음부터 배정한다
   (11-22 부장님: 시트 영업 담당자 = 캔버스2 결과라 그걸로 팀을 미리 묶으면 안 됨). 온라인 당번도 비워 두고 시작.
 - 휴무·반차는 그룹웨어 휴가·토요 휴무표에서(캔버스2 '휴무' 칸 대신).
-- 팀 메모는 담당자 DM 에 함께 간다(캔버스2를 내리면 메모 볼 곳이 DM 뿐).
+- 화면은 차량 배정과 같은 모양 — 왼쪽 사람 → 오른쪽 현장(캔버스1)에 끌어 놓기. 같이 가는 조합은 [함께] 묶음(11-22 부장님).
+- 현장 메모는 담당자 DM 의 그 현장 줄 아래에 간다(캔버스2를 내리면 메모 볼 곳이 DM 뿐).
 - 바꾸는 동안 슬랙 /일정확정도 그대로 둔다. 그룹웨어에서 확정한 날은 /일정확정이 막는다(덮어쓰기 방지).
 - 확정은 30초쯤 걸려 뒤에서 돌리고, 화면은 상태를 다시 물어 본다(run_state).
 """
@@ -25,7 +26,7 @@ from dashboard.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-MAX_TEAMS = 40
+MAX_SITES = 300
 MEMO_MAX = 200
 SHIFTS = ('', '오전', '오후')
 _RUN_STALE = timedelta(minutes=5)     # 서버 재시작으로 끊긴 확정은 이만큼 지나면 '끊김'으로 본다
@@ -131,7 +132,7 @@ def people(vs: List[Dict]) -> List[Dict]:
 
 def _empty_plan() -> Dict:
     """저장한 일정이 없는 날 — 모든 현장이 '배정 안 된 방문'에서 시작(시트 담당자·캔버스2 당번은 쓰지 않음)."""
-    return {'teams': [], 'online': [], 'online_shared': False}
+    return {'sites': {}, 'online': [], 'online_shared': False}
 
 
 # ── 저장된 일정 ─────────────────────────────────────────────────────────
@@ -149,36 +150,42 @@ def _loads(raw: Optional[str]) -> Optional[Dict]:
 
 
 def clean_plan(raw: Dict, visit_nos: Iterable[str], codes: Iterable[str], strict: bool = True) -> Dict:
-    """화면에서 온 일정을 다듬는다. strict=False 면 모르는 방문·사람은 조용히 뺀다(불러올 때)."""
+    """화면에서 온 일정을 다듬는다. strict=False 면 모르는 현장·사람은 조용히 뺀다(불러올 때).
+    plan = {'sites': {리드 No: {'members': [이니셜], 'memo'}}(현장 순서 = 캔버스1 순서), 'online', 'online_shared'}"""
     if not isinstance(raw, dict):
         raise ValueError('일정 내용을 읽지 못했어요.')
-    visit_nos, codes = set(visit_nos), set(codes)
-    teams_in = raw.get('teams') or []
-    if not isinstance(teams_in, list) or len(teams_in) > MAX_TEAMS:
-        raise ValueError('팀이 너무 많아요.')
-    seen_leads: set = set()
-    teams = []
-    for t in teams_in:
-        if not isinstance(t, dict):
+    order = list(visit_nos)
+    known, codes = set(order), set(codes)
+    sites_in = raw.get('sites')
+    if sites_in is None and isinstance(raw.get('teams'), list):      # 11-22 첫 판(팀 칸) 저장분
+        sites_in = {}
+        for t in raw['teams']:
+            if isinstance(t, dict):
+                for n in t.get('leads') or []:
+                    sites_in.setdefault(str(n), {'members': t.get('members') or [], 'memo': t.get('memo') or ''})
+    if sites_in is None:
+        sites_in = {}
+    if not isinstance(sites_in, dict) or len(sites_in) > MAX_SITES:
+        raise ValueError('일정 내용을 읽지 못했어요.')
+    got: Dict[str, Dict] = {}
+    for n, v in sites_in.items():
+        n = str(n or '').strip()
+        if n not in known:
+            if strict and n:
+                raise ValueError('그사이 방문 일정이 바뀐 건이 있어요. 새로 고친 뒤 다시 해 주세요.')
             continue
+        v = v if isinstance(v, dict) else {}
         members = []
-        for c in t.get('members') or []:
+        for c in v.get('members') or []:
             c = str(c or '').strip().upper()
             if c in codes and c not in members:
                 members.append(c)
             elif c and c not in codes and strict:
-                raise ValueError(f'명단에 없는 사람({c})이 팀에 있어요. 새로 고친 뒤 다시 해 주세요.')
-        leads = []
-        for n in t.get('leads') or []:
-            n = str(n or '').strip()
-            if n in visit_nos and n not in seen_leads:
-                seen_leads.add(n)
-                leads.append(n)
-            elif n and n not in visit_nos and strict:
-                raise ValueError('그사이 방문 일정이 바뀐 건이 있어요. 새로 고친 뒤 다시 해 주세요.')
-        memo = re.sub(r'\s+', ' ', str(t.get('memo') or '')).strip()[:MEMO_MAX]
-        if members or leads or memo:
-            teams.append({'members': members, 'leads': leads, 'memo': memo})
+                raise ValueError(f'명단에 없는 사람({c})이 있어요. 새로 고친 뒤 다시 해 주세요.')
+        memo = re.sub(r'\s+', ' ', str(v.get('memo') or '')).strip()[:MEMO_MAX]
+        if members or memo:
+            got[n] = {'members': members, 'memo': memo}
+    sites = {n: got[n] for n in order if n in got}
     online = []
     for o in raw.get('online') or []:
         if not isinstance(o, dict):
@@ -187,7 +194,11 @@ def clean_plan(raw: Dict, visit_nos: Iterable[str], codes: Iterable[str], strict
         shift = str(o.get('shift') or '').strip()
         if c in codes and all(x['code'] != c for x in online):
             online.append({'code': c, 'shift': shift if shift in SHIFTS else ''})
-    return {'teams': teams, 'online': online, 'online_shared': bool(raw.get('online_shared')) and not online}
+    return {'sites': sites, 'online': online, 'online_shared': bool(raw.get('online_shared')) and not online}
+
+
+def _staffed(plan: Dict) -> Dict[str, Dict]:
+    return {n: v for n, v in plan['sites'].items() if v['members']}
 
 
 def editable(day: str, today: Optional[date] = None) -> bool:
@@ -196,36 +207,26 @@ def editable(day: str, today: Optional[date] = None) -> bool:
 
 
 def warnings(plan: Dict, vs: List[Dict], off: Dict[str, List[Dict]], names: Dict[str, str]) -> List[Dict]:
-    """확정 전 점검 — level 'error' 는 확정을 막고, 'warn' 은 확인만 받는다."""
+    """확정 전 점검 — 모두 확인만 받는다(level 'warn')."""
     out: List[Dict] = []
-    by_no = {v['lead_no']: v for v in vs}
-    placed = {n for t in plan['teams'] for n in t['leads']}
-    left = [v for v in vs if v['lead_no'] not in placed]
+    staffed = _staffed(plan)
+    left = [v for v in vs if v['lead_no'] not in staffed]
     if left:
         out.append({'level': 'warn', 'kind': 'left',
-                    'text': f'배정 안 된 방문 {len(left)}건 — 담당 DM 이 가지 않아요.'})
-    for i, t in enumerate(plan['teams']):
-        if t['leads'] and not t['members']:
-            out.append({'level': 'error', 'kind': 'nobody', 'team': i,
-                        'text': f'사람을 넣지 않은 팀에 방문 {len(t["leads"])}건이 있어요.'})
+                    'text': f'사람을 넣지 않은 현장 {len(left)}건 — 담당 DM 이 가지 않아요.'})
     offs = {o['code']: o['why'] for o in off.get('off', [])}
-    count: Dict[str, int] = {}
-    for i, t in enumerate(plan['teams']):
-        for c in t['members']:
-            count[c] = count.get(c, 0) + 1
-            if c in offs:
-                out.append({'level': 'warn', 'kind': 'off', 'team': i,
+    warned = set()
+    for v in vs:
+        members = (staffed.get(v['lead_no']) or {}).get('members') or []
+        for c in members:
+            if c in offs and c not in warned:
+                warned.add(c)
+                out.append({'level': 'warn', 'kind': 'off', 'lead': v['lead_no'],
                             'text': f'{names.get(c, c)}님은 이날 {offs[c]}예요.'})
-        for n in t['leads']:
-            v = by_no.get(n) or {}
-            if v.get('owner') and v['owner'] not in t['members']:
-                out.append({'level': 'warn', 'kind': 'owner', 'team': i,
-                            'text': f'본인 방문 필수 건({(v.get("addr") or n)[:30]})인데 상담한 '
-                                    f'{names.get(v["owner"], v["owner"])}님이 팀에 없어요.'})
-    for c, n in count.items():
-        if n > 1:
-            out.append({'level': 'warn', 'kind': 'twice',
-                        'text': f'{names.get(c, c)}님이 팀 {n}곳에 들어가 있어요.'})
+        if members and v.get('owner') and v['owner'] not in members:
+            out.append({'level': 'warn', 'kind': 'owner', 'lead': v['lead_no'],
+                        'text': f'본인 방문 필수 현장({(v.get("addr") or v["lead_no"])[:30]})인데 상담한 '
+                                f'{names.get(v["owner"], v["owner"])}님이 없어요.'})
     for o in plan['online']:
         if o['code'] in offs:
             out.append({'level': 'warn', 'kind': 'off',
@@ -258,9 +259,9 @@ def load(day: str, leads: Iterable[dict], me: str = '') -> Dict:
     saved = _loads((row or {}).get('plan'))
     dropped = 0
     if saved:
-        before = sum(len(t.get('leads') or []) for t in saved.get('teams') or [])
         plan = clean_plan(saved, [v['lead_no'] for v in vs], names, strict=False)
-        dropped = before - sum(len(t['leads']) for t in plan['teams'])   # 그사이 날짜가 바뀌거나 취소된 방문
+        before = len(saved.get('sites') or {}) if isinstance(saved.get('sites'), dict) else len(plan['sites'])
+        dropped = max(0, before - len(plan['sites']))       # 그사이 날짜가 바뀌거나 취소된 현장
         source = 'saved'
     else:
         plan = _empty_plan()
@@ -303,8 +304,8 @@ def start_confirm(day: str, raw: Dict, by: str, leads: Iterable[dict],
     errs = [w for w in warnings(plan, vs, va.day_off(day), names) if w['level'] == 'error']
     if errs:
         raise ValueError(errs[0]['text'])
-    if not any(t['leads'] and t['members'] for t in plan['teams']):
-        raise ValueError('팀에 넣은 방문이 없어요.')
+    if not _staffed(plan):
+        raise ValueError('사람을 넣은 현장이 없어요.')
     with _run_lock:
         st = _state(_row(day))
         if st['state'] == 'running':
@@ -319,18 +320,15 @@ def start_confirm(day: str, raw: Dict, by: str, leads: Iterable[dict],
 
 def build_parsed(day: str, plan: Dict, leads: Iterable[dict]) -> Dict:
     """일정 → visit_assignment_sync 가 받는 배정 모양(parse_assignment_canvas_full 과 같음).
-    방문 순서 = 팀 순서 → 팀 안 순서(DM 번호가 이 순서)."""
+    현장 순서 = 캔버스1 순서(DM 번호가 이 순서). 현장 메모는 DM 의 그 현장 줄 아래에."""
     by_no = {str(l.get('리드 No') or '').strip(): l for l in leads}
     assignments = []
-    for t in plan['teams']:
-        if not t['members']:
-            continue
-        for n in t['leads']:
-            lead = by_no.get(n)
-            if lead is None:
-                raise ValueError(f'리드 {n} 를 시트에서 찾지 못했어요. 새로 고친 뒤 다시 해 주세요.')
-            assignments.append({'lead': lead, 'lead_no': n, 'phone': '', 'phone_digits': '',
-                                'assign': list(t['members']), 'original': None, 'raw': '', 'memo': t['memo']})
+    for n, v in _staffed(plan).items():
+        lead = by_no.get(n)
+        if lead is None:
+            raise ValueError(f'리드 {n} 를 시트에서 찾지 못했어요. 새로 고친 뒤 다시 해 주세요.')
+        assignments.append({'lead': lead, 'lead_no': n, 'phone': '', 'phone_digits': '',
+                            'assign': list(v['members']), 'original': None, 'raw': '', 'memo': v['memo']})
     off = va.day_off(day)
     return {
         'assignments': assignments,
@@ -430,15 +428,14 @@ def confirmed_upcoming_day() -> Optional[Dict]:
 
 
 def confirmed_teams(day: str) -> Optional[List[Dict]]:
-    """그룹웨어에서 확정한 날의 팀 — 차량 배정이 시트(캐시)보다 먼저 쓴다. 없으면 None.
-    [{'members', 'visits', 'big'}] (va.teams 와 같은 모양)"""
-    row = _row(day)
-    plan = _loads((row or {}).get('confirmed_plan'))
-    if not plan:
+    """그룹웨어에서 확정한 날의 팀(같이 가는 사람 묶음) — 차량 배정이 시트(캐시)보다 먼저 쓴다. 없으면 None.
+    [{'members', 'visits', 'big'}] (va.teams 와 같은 모양·같은 묶는 규칙)"""
+    from collections import Counter
+    plan = _loads((_row(day) or {}).get('confirmed_plan'))
+    if not plan or not isinstance(plan.get('sites'), dict):
         return None
-    out = []
-    for t in plan.get('teams') or []:
-        if t.get('members') and t.get('leads'):
-            out.append({'members': list(t['members']), 'visits': len(t['leads']),
-                        'big': len(t['members']) >= va.BIG_TEAM})
-    return out
+    combos: Counter = Counter()
+    for v in plan['sites'].values():
+        if v.get('members'):
+            combos[tuple(v['members'])] += 1
+    return va.teams_from_combos(combos)

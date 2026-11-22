@@ -797,6 +797,11 @@ def teams(day: str, leads: Iterable[dict]) -> List[Dict]:
         codes = tuple(dict.fromkeys(by_name[n] for n in v['who'] if n in by_name))
         if codes:
             combos[codes] += 1
+    return teams_from_combos(combos)
+
+
+def teams_from_combos(combos) -> List[Dict]:
+    """조합별 방문 수(Counter{(이니셜,...): n}) → 팀. 한 사람이 두 조합에 걸치면 방문 많은 조합 → 작은 조합 순으로 먼저."""
     taken: set = set()
     out: Dict[tuple, int] = {}
     for combo, n in sorted(combos.items(), key=lambda kv: (-kv[1], len(kv[0]), kv[0])):

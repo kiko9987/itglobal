@@ -1,5 +1,6 @@
 /* ① 방문 일정 (2026-11-22 부장님) — 슬랙 캔버스2 + /일정확정 대신 그룹웨어에서 다음 날 방문을 팀에 나눠 넣고 확정한다.
-   왼쪽 '배정 안 된 방문' → 오른쪽 팀 칸으로 끌어 놓기. 휴대폰·키보드는 방문을 누르고(고르기) → 팀의 [여기로 옮기기].
+   차량 배정과 같은 모양(11-22 부장님): 왼쪽 사람·[함께] 조합 → 오른쪽 캔버스1 현장으로 끌어 놓기.
+   휴대폰·키보드는 사람을 누르고(고르기) → 현장의 [여기에 넣기]. 사람 없는 현장은 [위 현장과 같게]로 빠르게.
    [임시 저장]은 DM 없이 저장, [일정 확정]은 /일정확정과 같은 처리(시트·슬랙 List·담당자/당번 DM·캔버스1)를 뒤에서 돌린다.
    날짜는 gw-vehicle-assign.js 가 고르고 'va:day' 로 알려 준다. 서버에서 온 글자는 모두 esc() 로만 넣는다. */
 (function () {
@@ -80,12 +81,12 @@
   });
 
   // ── 자료 ──
-  function team(i) { return P.plan.teams[i]; }
-  function teamOf(no) {
-    for (var i = 0; i < P.plan.teams.length; i++) if (P.plan.teams[i].leads.indexOf(no) !== -1) return i;
-    return -1;
-  }
-  function leftVisits() { return P.data.visits.filter(function (v) { return teamOf(v.lead_no) === -1; }); }
+  // P.plan.sites = {리드 No: {members: [이니셜], memo}} · P.picked = 'YM' 또는 조합 'YM,LSH'(차량 배정과 같은 고르기)
+  function siteOf(no) { return P.plan.sites[no] || null; }
+  function membersOf(no) { var s = siteOf(no); return s ? s.members : []; }
+  function ensure(no) { if (!P.plan.sites[no]) P.plan.sites[no] = { members: [], memo: '' }; return P.plan.sites[no]; }
+  function tidy(no) { var s = siteOf(no); if (s && !s.members.length && !s.memo) delete P.plan.sites[no]; }
+  function keyCodes(key) { return String(key || '').split(',').filter(Boolean); }
   function offWhy(code) {
     var o = (P.data.off || []).filter(function (x) { return x.code === code; })[0];
     return o ? o.why : '';
@@ -95,31 +96,40 @@
     return o ? o.why : '';
   }
   function name(code) { return P.names[code] || code; }
-  function teamName(t) { return t.members.length ? t.members.map(name).join(' + ') : '사람을 넣어 주세요'; }
-  function inTeams(code) { return P.plan.teams.filter(function (t) { return t.members.indexOf(code) !== -1; }).length; }
+  function keyName(key) { return keyCodes(key).map(name).join(' + '); }
+  function siteCount(code) {
+    return P.data.visits.filter(function (v) { return membersOf(v.lead_no).indexOf(code) !== -1; }).length;
+  }
   function isDuty(code) { return P.plan.online.some(function (o) { return o.code === code; }); }
+  function emptySites() { return P.data.visits.filter(function (v) { return !membersOf(v.lead_no).length; }); }
+  // 같이 가는 조합(두 명 이상 현장) — 왼쪽 [함께] 단추로 한 번에 다른 현장에 넣는다
+  function combos() {
+    var seen = {}, out = [];
+    P.data.visits.forEach(function (v) {
+      var m = membersOf(v.lead_no);
+      if (m.length < 2) return;
+      var k = m.join(',');
+      if (!seen[k]) { seen[k] = { key: k, n: 0 }; out.push(seen[k]); }
+      seen[k].n++;
+    });
+    return out;
+  }
 
   // 확정 전 점검 — 서버(visit_plan.warnings)와 같은 규칙. 확정할 때 서버가 다시 본다
   function warnings() {
-    var out = [], offs = {};
+    var out = [], offs = {}, warned = {};
     (P.data.off || []).forEach(function (o) { offs[o.code] = o.why; });
-    var left = leftVisits();
-    if (left.length) out.push({ level: 'warn', text: '배정 안 된 방문 ' + left.length + '건 — 담당 DM 이 가지 않아요.' });
-    var count = {};
-    P.plan.teams.forEach(function (t, i) {
-      if (t.leads.length && !t.members.length) out.push({ level: 'error', team: i, text: '사람을 넣지 않은 팀에 방문 ' + t.leads.length + '건이 있어요.' });
-      t.members.forEach(function (c) {
-        count[c] = (count[c] || 0) + 1;
-        if (offs[c]) out.push({ level: 'warn', team: i, text: name(c) + '님은 이날 ' + offs[c] + '예요.' });
+    var left = emptySites();
+    if (left.length) out.push({ level: 'warn', text: '사람을 넣지 않은 현장 ' + left.length + '건 — 담당 DM 이 가지 않아요.' });
+    P.data.visits.forEach(function (v) {
+      var m = membersOf(v.lead_no);
+      m.forEach(function (c) {
+        if (offs[c] && !warned[c]) { warned[c] = 1; out.push({ level: 'warn', lead: v.lead_no, text: name(c) + '님은 이날 ' + offs[c] + '예요.' }); }
       });
-      t.leads.forEach(function (n) {
-        var v = P.byNo[n] || {};
-        if (v.owner && t.members.indexOf(v.owner) === -1) {
-          out.push({ level: 'warn', team: i, text: '본인 방문 필수 건(' + String(v.addr || n).slice(0, 30) + ')인데 상담한 ' + name(v.owner) + '님이 팀에 없어요.' });
-        }
-      });
+      if (m.length && v.owner && m.indexOf(v.owner) === -1) {
+        out.push({ level: 'warn', lead: v.lead_no, text: '본인 방문 필수 현장(' + String(v.addr || v.lead_no).slice(0, 30) + ')인데 상담한 ' + name(v.owner) + '님이 없어요.' });
+      }
     });
-    Object.keys(count).forEach(function (c) { if (count[c] > 1) out.push({ level: 'warn', text: name(c) + '님이 팀 ' + count[c] + '곳에 들어가 있어요.' }); });
     P.plan.online.forEach(function (o) { if (offs[o.code]) out.push({ level: 'warn', text: '온라인 당번 ' + name(o.code) + '님은 이날 ' + offs[o.code] + '예요.' }); });
     return out;
   }
@@ -129,68 +139,65 @@
     return (v.platform ? '<span class="gw-va-smark plat">' + esc(v.platform) + '</span>' : '') +
       v.marks.map(function (m) { return '<span class="gw-va-smark">' + esc(m) + '</span>'; }).join('');
   }
-  function visitBody(v) {
-    return '<span class="gw-vp-vtop">' + marks(v) + '<strong>' + esc(v.date) + '</strong>' +
-      '<span class="gw-va-sno">' + esc(v.lead_no) + '</span></span>' +
-      (v.addr ? '<span class="gw-vp-vaddr">' + esc(v.addr) + '</span>' : '') +
-      (v.text ? '<span class="gw-vp-vtext">' + esc(v.text) + '</span>' : '');
-  }
-  function leftCard(v) {
-    var on = P.picked === v.lead_no;
-    if (!P.canEdit) return '<div class="gw-vp-visit">' + visitBody(v) + '</div>';
-    return '<button type="button" class="gw-vp-visit' + (on ? ' picked' : '') + '" draggable="true" data-lead="' + esc(v.lead_no) +
-      '" data-act="pick" aria-pressed="' + (on ? 'true' : 'false') + '">' + visitBody(v) + '</button>';
-  }
-  function teamVisit(v, i, k, n) {
-    var on = P.picked === v.lead_no;
-    var acts = P.canEdit ? '<span class="gw-vp-vacts">' +
-      '<button type="button" class="gw-vp-ic" data-act="up" data-lead="' + esc(v.lead_no) + '"' + (k === 0 ? ' disabled' : '') + ' aria-label="' + esc(v.lead_no) + ' 위로"><i class="fas fa-arrow-up" aria-hidden="true"></i></button>' +
-      '<button type="button" class="gw-vp-ic" data-act="down" data-lead="' + esc(v.lead_no) + '"' + (k === n - 1 ? ' disabled' : '') + ' aria-label="' + esc(v.lead_no) + ' 아래로"><i class="fas fa-arrow-down" aria-hidden="true"></i></button>' +
-      '<button type="button" class="gw-vp-tx' + (on ? ' on' : '') + '" data-act="pick" data-lead="' + esc(v.lead_no) + '" aria-pressed="' + (on ? 'true' : 'false') + '">옮기기</button>' +
-      '<button type="button" class="gw-vp-tx" data-act="out" data-lead="' + esc(v.lead_no) + '">빼기</button></span>' : '';
-    return '<li class="gw-vp-visit in' + (on ? ' picked' : '') + '"' + (P.canEdit ? ' draggable="true"' : '') + ' data-lead="' + esc(v.lead_no) + '">' +
-      '<span class="gw-vp-no" aria-hidden="true">' + (k + 1) + '</span><span class="gw-vp-vmain">' + visitBody(v) + '</span>' + acts + '</li>';
-  }
   function personTag(c) {
     var why = offWhy(c) || halfWhy(c);
     return why ? ' <small class="gw-va-leave">' + esc(why) + '</small>' : '';
   }
-  function addPersonSelect(i, t) {
-    var opts = P.data.people.filter(function (p) { return t.members.indexOf(p.code) === -1; }).map(function (p) {
-      var bits = [];
-      if (offWhy(p.code)) bits.push(offWhy(p.code));
-      else if (halfWhy(p.code)) bits.push(halfWhy(p.code));
-      if (inTeams(p.code)) bits.push('다른 팀');
-      if (isDuty(p.code)) bits.push('온라인 당번');
-      return { free: !inTeams(p.code) && !offWhy(p.code), html: '<option value="' + esc(p.code) + '">' + esc(p.name) + (bits.length ? ' (' + esc(bits.join(', ')) + ')' : '') + '</option>' };
-    });
-    var free = opts.filter(function (o) { return o.free; }).map(function (o) { return o.html; }).join('');
-    var rest = opts.filter(function (o) { return !o.free; }).map(function (o) { return o.html; }).join('');
-    return '<select class="form-select form-select-sm gw-vp-addp" data-team="' + i + '" aria-label="' + esc(teamName(t)) + ' 팀에 사람 넣기">' +
-      '<option value="">+ 사람 넣기</option>' + (free ? '<optgroup label="팀 없는 사람">' + free + '</optgroup>' : '') +
-      (rest ? '<optgroup label="그 밖의 사람">' + rest + '</optgroup>' : '') + '</select>';
+  function personBtn(p) {
+    var n = siteCount(p.code), on = P.picked === p.code;
+    var tags = (n ? '<small class="gw-va-visit">현장 ' + n + '</small>' : '') + personTag(p.code) +
+      (isDuty(p.code) ? ' <small class="gw-va-leave">온라인 당번</small>' : '');
+    if (!P.canEdit) return '<div class="gw-va-person">' + '<span class="gw-va-pname">' + esc(p.name) + '</span>' + tags + '</div>';
+    return '<button type="button" class="gw-va-person' + (on ? ' picked' : '') + (n ? ' placed' : '') + '" draggable="true" data-pick="' + esc(p.code) +
+      '" aria-pressed="' + (on ? 'true' : 'false') + '"><span class="gw-va-pname">' + esc(p.name) + '</span>' + tags + '</button>';
   }
-  function teamCard(t, i, ws) {
-    var bad = ws.filter(function (w) { return w.team === i; });
-    var vs = t.leads.map(function (n) { return P.byNo[n]; }).filter(Boolean);
-    var chips = t.members.map(function (c) {
+  function peoplePanel() {
+    var ppl = P.data.people;
+    var off = ppl.filter(function (p) { return offWhy(p.code); });
+    var free = ppl.filter(function (p) { return !offWhy(p.code) && !siteCount(p.code); });
+    var busy = ppl.filter(function (p) { return !offWhy(p.code) && siteCount(p.code); });
+    var html = '';
+    var cs = combos();
+    if (cs.length && P.canEdit) {
+      html += '<div class="gw-va-group"><div class="gw-va-gtitle">함께 가는 조합 <span>' + cs.length + '</span></div><div class="gw-va-plist">' +
+        cs.map(function (c) {
+          var on = P.picked === c.key;
+          return '<button type="button" class="gw-va-teambtn' + (on ? ' picked' : '') + '" draggable="true" data-pick="' + esc(c.key) +
+            '" aria-pressed="' + (on ? 'true' : 'false') + '"><i class="fas fa-people-group" aria-hidden="true"></i> ' + esc(keyName(c.key)) +
+            ' <small>현장 ' + c.n + '</small></button>';
+        }).join('') + '</div></div>';
+    }
+    [['현장 없음', free], ['현장 있음', busy], ['휴무', off]].forEach(function (g) {
+      if (!g[1].length) return;
+      html += '<div class="gw-va-group"><div class="gw-va-gtitle">' + esc(g[0]) + ' <span>' + g[1].length + '</span></div>' +
+        '<div class="gw-va-plist">' + g[1].map(personBtn).join('') + '</div></div>';
+    });
+    return html;
+  }
+  function siteCard(v, prev) {
+    var no = v.lead_no, s = siteOf(no) || { members: [], memo: '' }, m = s.members;
+    var chips = m.map(function (c) {
       return '<span class="gw-va-chip"><span class="gw-va-cname">' + esc(name(c)) + '</span>' + personTag(c) +
-        (P.canEdit ? '<button type="button" class="gw-va-x" data-act="rmp" data-team="' + i + '" data-code="' + esc(c) + '" aria-label="' + esc(name(c)) + ' 빼기">×</button>' : '') + '</span>';
+        (P.canEdit ? '<button type="button" class="gw-va-x" data-act="rmp" data-lead="' + esc(no) + '" data-code="' + esc(c) + '" aria-label="' + esc(name(c)) + ' 빼기">×</button>' : '') + '</span>';
     }).join('');
-    var put = P.canEdit && P.picked && teamOf(P.picked) !== i
-      ? '<button type="button" class="btn btn-sm btn-outline-secondary gw-va-put" data-act="put" data-team="' + i + '">여기로 옮기기</button>' : '';
-    var memo = P.canEdit
-      ? '<label class="gw-vp-memo"><span>메모 <small>담당자 DM 에 함께 가요</small></span><input type="text" class="form-control form-control-sm" maxlength="200" data-act="memo" data-team="' + i + '" value="' + esc(t.memo) + '"></label>'
-      : (t.memo ? '<p class="gw-vp-memotext"><i class="fas fa-note-sticky" aria-hidden="true"></i> ' + esc(t.memo) + '</p>' : '');
-    return '<section class="gw-vp-team' + (bad.some(function (w) { return w.level === 'error'; }) ? ' bad' : '') + (P.picked && P.canEdit ? ' can-drop' : '') +
-      '" data-drop="team" data-team="' + i + '" aria-label="' + esc(teamName(t)) + ' 팀">' +
-      '<div class="gw-vp-thead"><div class="gw-va-people">' + (chips || '<span class="gw-va-none">사람을 넣어 주세요</span>') + '</div>' +
-      '<span class="gw-vp-tcount">' + vs.length + '건</span></div>' +
-      (P.canEdit ? '<div class="gw-vp-ttools">' + addPersonSelect(i, t) +
-        '<button type="button" class="btn btn-sm btn-link gw-vp-tdel" data-act="deltm" data-team="' + i + '">팀 지우기</button></div>' : '') +
-      put + '<ol class="gw-vp-tlist">' + vs.map(function (v, k) { return teamVisit(v, i, k, vs.length); }).join('') + '</ol>' +
-      (!vs.length ? '<p class="gw-vp-tempty">' + (P.canEdit ? '방문을 끌어 놓거나 [여기로 옮기기]를 눌러 주세요.' : '방문 없음') + '</p>' : '') +
-      memo + '</section>';
+    var acts = '';
+    if (P.canEdit) {
+      var add = P.picked ? keyCodes(P.picked).filter(function (c) { return m.indexOf(c) === -1; }) : [];
+      if (add.length) acts += '<button type="button" class="btn btn-sm btn-outline-secondary gw-va-put" data-act="put" data-lead="' + esc(no) + '">여기에 ' + esc(add.map(name).join(' + ')) + ' 넣기</button>';
+      var pm = prev ? membersOf(prev.lead_no) : [];
+      if (!m.length && pm.length && !P.picked) acts += '<button type="button" class="btn btn-sm btn-outline-secondary gw-vp-same" data-act="same" data-lead="' + esc(no) + '" data-from="' + esc(prev.lead_no) + '">위 현장과 같게(' + esc(pm.map(name).join(' + ')) + ')</button>';
+      acts += P.memoOpen[no] || s.memo
+        ? '<label class="gw-vp-memo"><span>현장 메모 <small>담당자 DM 에 함께 가요</small></span><input type="text" class="form-control form-control-sm" maxlength="200" data-act="memo" data-lead="' + esc(no) + '" value="' + esc(s.memo) + '"></label>'
+        : '<button type="button" class="btn btn-sm btn-link gw-vp-memobtn" data-act="memoopen" data-lead="' + esc(no) + '">메모 쓰기</button>';
+    } else if (s.memo) {
+      acts = '<p class="gw-vp-memotext"><i class="fas fa-note-sticky" aria-hidden="true"></i> ' + esc(s.memo) + '</p>';
+    }
+    return '<section class="gw-va-card gw-vp-site' + (m.length ? '' : ' need') + (P.picked && P.canEdit ? ' can-drop' : '') + '" data-drop="site" data-lead="' + esc(no) + '" aria-label="' + esc(v.addr || no) + '">' +
+      '<div class="gw-vp-vtop">' + marks(v) + '<strong>' + esc(v.date) + '</strong><span class="gw-va-sno">' + esc(no) + '</span></div>' +
+      (v.addr ? '<div class="gw-vp-vaddr">' + esc(v.addr) + '</div>' : '') +
+      (v.text ? '<div class="gw-vp-vtext">' + esc(v.text) + '</div>' : '') +
+      '<div class="gw-va-people">' + (chips || '<span class="gw-va-none">' + (P.canEdit ? '여기에 사람을 놓으세요' : '사람 없음') + '</span>') + '</div>' +
+      acts + '</section>';
   }
   function dutyPanel() {
     var rows = P.plan.online.map(function (o, k) {
@@ -218,12 +225,8 @@
       (halves.length ? ' · <strong>반차</strong> ' + esc(halves.join(', ')) : '') + ' <small>그룹웨어 휴가·토요 휴무표에서 자동</small></p>';
     return '<h2 class="gw-vp-h">온라인 당번</h2><div class="gw-vp-drow">' + rows + none + add + '</div>' + leave;
   }
-  function freeLine() {
-    var free = P.data.people.filter(function (p) { return !inTeams(p.code) && !isDuty(p.code) && !offWhy(p.code); });
-    return free.length ? '팀 없는 사람: ' + free.map(function (p) { return p.name + (halfWhy(p.code) ? '(' + halfWhy(p.code) + ')' : ''); }).join(', ') : '';
-  }
   function status() {
-    var d = P.data, parts = ['<strong>' + esc(d.day_label) + ' 방문 ' + d.visits.length + '건</strong>'];
+    var d = P.data, parts = ['<strong>' + esc(d.day_label) + ' 현장 ' + d.visits.length + '건</strong>'];
     if (d.confirmed_at) {
       parts.push('<span class="gw-badge gw-badge-ok">확정</span> <span class="gw-va-when">' + esc(d.confirmed_at.slice(5, 16)) +
         (d.confirmed_name ? ' · ' + esc(d.confirmed_name) : '') + '</span>');
@@ -232,8 +235,7 @@
     }
     if (d.saved_at && !d.confirmed_at) parts.push('<span class="gw-va-when">임시 저장 ' + esc(d.saved_at.slice(11, 16)) + (d.saved_name ? ' · ' + esc(d.saved_name) : '') + ' · DM 아직 안 보냄</span>');
     var notes = [];
-    if (P.canEdit && d.source === 'empty' && d.visits.length) notes.push('캔버스1 현장이 모두 왼쪽에 있어요. [새 팀]으로 팀을 만들고 사람과 현장을 넣어 주세요.');
-    if (d.dropped) notes.push('저장한 뒤 날짜가 바뀌거나 취소된 방문 ' + d.dropped + '건은 팀에서 뺐어요.');
+    if (d.dropped) notes.push('저장한 뒤 날짜가 바뀌거나 취소된 현장 ' + d.dropped + '건은 뺐어요.');
     if (d.changed_since_confirm || (d.confirmed_at && P.dirty)) notes.push('확정한 뒤 고친 내용이 있어요. 다시 확정해야 담당자 DM 이 바뀌어요.');
     if (!d.editable) notes.push('오늘과 지난 날 일정은 고칠 수 없어요.');
     else if (!P.canEdit) notes.push('방문 일정은 일정 담당자만 고칠 수 있어요.');
@@ -242,34 +244,34 @@
   }
   function render() {
     var ws = warnings();
-    var left = leftVisits();
-    $('vpLeftCount').textContent = left.length + '건';
-    // 캔버스1과 같은 묶음(기타·거래처·온라인 방문) 제목 아래에
+    var empty = emptySites().length;
+    $('vpPeopleCount').textContent = P.data.people.length + '명';
+    $('vpPeople').innerHTML = peoplePanel();
+    $('vpHow').innerHTML = P.canEdit
+      ? (P.picked ? esc(keyName(P.picked)) + ' 고름 — 넣을 현장에서 [여기에 넣기]를 눌러 주세요. <button type="button" class="btn btn-sm btn-link" data-act="unpick">고르기 취소</button>'
+        : '이름이나 [함께] 조합을 오른쪽 현장으로 끌어 놓으세요. 누른 뒤 현장의 [여기에 넣기]를 눌러도 돼요.')
+      : '';
+    $('vpSiteCount').textContent = P.data.visits.length + '건' + (empty ? ' · 사람 없는 현장 ' + empty + '건' : '');
+    var only = $('vpOnlyLeft').checked;
+    // 캔버스1과 같은 묶음(기타·거래처·온라인 방문) 제목 아래에, 캔버스1 순서대로
     var groups = [];
-    left.forEach(function (v) {
+    P.data.visits.forEach(function (v, i) {
       var g = groups.filter(function (x) { return x.title === v.title; })[0];
       if (!g) { g = { title: v.title, items: [] }; groups.push(g); }
-      g.items.push(v);
+      g.items.push({ v: v, prev: i ? P.data.visits[i - 1] : null });
     });
-    $('vpLeft').innerHTML = groups.map(function (g) {
-      return '<h3 class="gw-vp-gtitle">' + esc(g.title) + ' <span>' + g.items.length + '</span></h3>' + g.items.map(leftCard).join('');
-    }).join('') ||
-      '<p class="gw-va-sempty">' + (P.data.visits.length ? '모든 방문을 팀에 넣었어요.' : '이날 방문 일정이 없어요.') + '</p>';
-    $('vpLeftBox').classList.toggle('can-drop', !!(P.picked && P.canEdit && teamOf(P.picked) !== -1));
-    $('vpHow').innerHTML = P.canEdit
-      ? (P.picked ? '고른 방문을 넣을 팀에서 [여기로 옮기기]를 눌러 주세요. <button type="button" class="btn btn-sm btn-link" data-act="unpick">고르기 취소</button>' +
-        (teamOf(P.picked) !== -1 ? ' <button type="button" class="btn btn-sm btn-outline-secondary gw-va-put" data-act="put" data-team="-1">배정 안 됨으로</button>' : '')
-        : '방문 카드를 오른쪽 팀으로 끌어 놓거나, 눌러서 고른 뒤 팀에서 [여기로 옮기기]를 눌러 주세요.')
-      : '';
-    $('vpTeams').innerHTML = P.plan.teams.map(function (t, i) { return teamCard(t, i, ws); }).join('') ||
-      '<p class="gw-va-sempty">아직 팀이 없어요.' + (P.canEdit ? ' [새 팀]을 눌러 만들어 주세요.' : '') + '</p>';
-    $('vpAddTeam').hidden = !P.canEdit;
-    $('vpFree').textContent = freeLine();
+    $('vpSites').innerHTML = groups.map(function (g) {
+      var items = g.items.filter(function (x) { return !only || !membersOf(x.v.lead_no).length; });
+      if (!items.length) return '';
+      return '<h3 class="gw-vp-gtitle">' + esc(g.title) + ' <span>' + g.items.length + '</span></h3><div class="gw-va-list gw-vp-sitelist">' +
+        items.map(function (x) { return siteCard(x.v, x.prev && x.prev.title === g.title ? x.prev : null); }).join('') + '</div>';
+    }).join('') || '<p class="gw-va-sempty">' + (P.data.visits.length ? '사람 없는 현장이 없어요.' : '이날 방문 일정이 없어요.') + '</p>';
     $('vpDuty').innerHTML = dutyPanel();
     $('vpWarns').innerHTML = ws.map(function (w) {
       return '<li class="' + (w.level === 'error' ? 'err' : 'warn') + '"><i class="fas ' + (w.level === 'error' ? 'fa-circle-xmark' : 'fa-triangle-exclamation') +
         '" aria-hidden="true"></i> ' + esc(w.text) + '</li>';
     }).join('');
+    $('vpBoard').classList.toggle('editing', P.canEdit);
     $('vpBar').hidden = !P.canEdit;
     $('vpConfirm').textContent = P.data.confirmed_at ? '다시 확정 · 바뀐 사람에게 DM' : '일정 확정 · DM 보내기';
     setDirty(P.dirty);
@@ -283,46 +285,42 @@
 
   // ── 고치기 ──
   function changed(focusSel) { setDirty(true); P.focus = focusSel || null; render(); }
-  function moveTo(no, ti) {                  // ti = -1 이면 배정 안 됨으로
-    var from = teamOf(no);
-    if (from === ti) return;
-    if (from !== -1) team(from).leads.splice(team(from).leads.indexOf(no), 1);
-    if (ti !== -1) team(ti).leads.push(no);
+  function putOn(no, key) {
+    var s = ensure(no), add = keyCodes(key).filter(function (c) { return s.members.indexOf(c) === -1; });
+    add.forEach(function (c) { s.members.push(c); });
     P.picked = null;
-    changed(ti === -1 ? '#vpLeft [data-lead="' + cssq(no) + '"]' : '.gw-vp-team[data-team="' + ti + '"] [data-act="pick"][data-lead="' + cssq(no) + '"]');
-    say(ti === -1 ? '배정 안 됨으로 옮겼어요.' : teamName(team(ti)) + ' 팀으로 옮겼어요.', 'info');
+    var v = P.byNo[no] || {};
+    changed('[data-drop="site"][data-lead="' + cssq(no) + '"] .gw-va-x');
+    say(add.length ? keyName(add.join(',')) + ' → ' + String(v.addr || no).slice(0, 24) + ' 넣었어요.' : '이미 들어가 있어요.', 'info');
   }
+  P.memoOpen = {};
+  $('vpOnlyLeft').addEventListener('change', function () { render(); });
   root.addEventListener('click', function (e) {
-    var b = e.target.closest('[data-act]');
+    var b = e.target.closest('[data-act], [data-pick]');
     if (!b || b.disabled || !P.canEdit) return;
-    var act = b.getAttribute('data-act');
-    var no = b.getAttribute('data-lead');
-    var ti = parseInt(b.getAttribute('data-team'), 10);
-    if (act === 'pick') {
-      P.picked = P.picked === no ? null : no;
-      P.focus = (teamOf(no) === -1 ? '#vpLeft' : '.gw-vp-team') + ' [data-act="pick"][data-lead="' + cssq(no) + '"]';
+    var pick = b.getAttribute('data-pick');
+    if (pick) {
+      P.picked = P.picked === pick ? null : pick;
+      P.focus = '[data-pick="' + cssq(pick) + '"]';
       render();
-    } else if (act === 'unpick') {
+      return;
+    }
+    var act = b.getAttribute('data-act'), no = b.getAttribute('data-lead');
+    if (act === 'unpick') {
       P.picked = null; render();
     } else if (act === 'put') {
-      if (P.picked) moveTo(P.picked, ti);
-    } else if (act === 'out') {
-      moveTo(no, -1);
-    } else if (act === 'up' || act === 'down') {
-      var t = team(teamOf(no)), k = t.leads.indexOf(no), j = act === 'up' ? k - 1 : k + 1;
-      if (j < 0 || j >= t.leads.length) return;
-      t.leads.splice(k, 1); t.leads.splice(j, 0, no);
-      changed('.gw-vp-team [data-act="' + act + '"][data-lead="' + cssq(no) + '"]');
+      if (P.picked) putOn(no, P.picked);
+    } else if (act === 'same') {
+      putOn(no, membersOf(b.getAttribute('data-from')).join(','));
     } else if (act === 'rmp') {
-      var tm = team(ti), c = b.getAttribute('data-code');
-      tm.members.splice(tm.members.indexOf(c), 1);
-      changed('.gw-vp-addp[data-team="' + ti + '"]');
-    } else if (act === 'deltm') {
-      var dt = team(ti);
-      if (dt.leads.length && !window.confirm(teamName(dt) + ' 팀을 지울까요?\n방문 ' + dt.leads.length + '건은 배정 안 됨으로 돌아가요.')) return;
-      P.plan.teams.splice(ti, 1);
-      P.picked = null;
-      changed('#vpAddTeam');
+      var s = ensure(no), c = b.getAttribute('data-code');
+      s.members.splice(s.members.indexOf(c), 1);
+      tidy(no);
+      changed('[data-drop="site"][data-lead="' + cssq(no) + '"] .gw-va-x, [data-drop="site"][data-lead="' + cssq(no) + '"] button');
+    } else if (act === 'memoopen') {
+      P.memoOpen[no] = true;
+      P.focus = 'input[data-act="memo"][data-lead="' + cssq(no) + '"]';
+      render();
     } else if (act === 'rmduty') {
       P.plan.online.splice(parseInt(b.getAttribute('data-k'), 10), 1);
       changed('.gw-vp-addduty');
@@ -332,11 +330,7 @@
     var el = e.target;
     if (!P.canEdit) return;
     var act = el.getAttribute('data-act');
-    if (el.classList.contains('gw-vp-addp') && el.value) {
-      var ti = parseInt(el.getAttribute('data-team'), 10);
-      team(ti).members.push(el.value);
-      changed('.gw-vp-addp[data-team="' + ti + '"]');
-    } else if (act === 'addduty' && el.value) {
+    if (act === 'addduty' && el.value) {
       P.plan.online.push({ code: el.value, shift: '' });
       P.plan.online_shared = false;
       changed('.gw-vp-addduty');
@@ -351,30 +345,34 @@
   root.addEventListener('input', function (e) {
     var el = e.target;
     if (P.canEdit && el.getAttribute('data-act') === 'memo') {
-      team(parseInt(el.getAttribute('data-team'), 10)).memo = el.value;
+      var no = el.getAttribute('data-lead');
+      ensure(no).memo = el.value;
       setDirty(true);
       $('vpTabPlanSt').textContent = P.data.confirmed_at ? '· 고친 내용 있음' : '· 확정 전';
+    }
+  });
+  root.addEventListener('focusout', function (e) {       // 비운 메모 칸은 닫고, 사람·메모 없는 현장은 지운다
+    var el = e.target;
+    if (el.getAttribute && el.getAttribute('data-act') === 'memo') {
+      var no = el.getAttribute('data-lead');
+      if (!el.value.trim()) { delete P.memoOpen[no]; tidy(no); }
     }
   });
   root.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && P.picked) { P.picked = null; render(); }
   });
-  $('vpAddTeam').addEventListener('click', function () {
-    P.plan.teams.push({ members: [], leads: [], memo: '' });
-    changed('.gw-vp-addp[data-team="' + (P.plan.teams.length - 1) + '"]');
-  });
 
-  // 끌어 놓기(마우스) — 놓을 곳: 팀 칸·왼쪽 '배정 안 된 방문'
-  var dragNo = null;
+  // 끌어 놓기(마우스) — 사람·[함께] 조합 → 현장
+  var dragKey = null;
   root.addEventListener('dragstart', function (e) {
-    var el = e.target.closest && e.target.closest('[data-lead][draggable="true"]');
+    var el = e.target.closest && e.target.closest('[data-pick][draggable="true"]');
     if (!el || !P.canEdit) return;
-    dragNo = el.getAttribute('data-lead');
-    try { e.dataTransfer.setData('text/plain', dragNo); e.dataTransfer.effectAllowed = 'move'; } catch (er) { /* 무시 */ }
+    dragKey = el.getAttribute('data-pick');
+    try { e.dataTransfer.setData('text/plain', dragKey); e.dataTransfer.effectAllowed = 'copy'; } catch (er) { /* 무시 */ }
   });
-  function dropZone(e) { return e.target.closest && e.target.closest('[data-drop]'); }
+  function dropZone(e) { return e.target.closest && e.target.closest('[data-drop="site"]'); }
   root.addEventListener('dragover', function (e) {
-    if (!dragNo) return;
+    if (!dragKey) return;
     var z = dropZone(e);
     if (!z) return;
     e.preventDefault();
@@ -387,15 +385,15 @@
   });
   root.addEventListener('drop', function (e) {
     var z = dropZone(e);
-    if (!dragNo || !z) return;
+    if (!dragKey || !z) return;
     e.preventDefault();
-    var no = dragNo;
-    dragNo = null;
+    var key = dragKey;
+    dragKey = null;
     z.classList.remove('over');
-    moveTo(no, z.getAttribute('data-drop') === 'left' ? -1 : parseInt(z.getAttribute('data-team'), 10));
+    putOn(z.getAttribute('data-lead'), key);
   });
   root.addEventListener('dragend', function () {
-    dragNo = null;
+    dragKey = null;
     root.querySelectorAll('.over').forEach(function (x) { x.classList.remove('over'); });
   });
 
@@ -408,6 +406,7 @@
     j.people.forEach(function (p) { P.names[p.code] = p.name; });
     j.visits.forEach(function (v) { P.byNo[v.lead_no] = v; });
     P.picked = null;
+    P.memoOpen = {};
   }
   function load(day, keepMsg) {
     var my = ++P.seq;
@@ -445,7 +444,7 @@
   document.addEventListener('va:day', function (e) { onDay(e.detail); });
 
   function body() { return { day: P.day, plan: P.plan }; }
-  function lock(on) { ['vpSave', 'vpConfirm', 'vpAddTeam'].forEach(function (id) { if ($(id)) $(id).disabled = on; }); }
+  function lock(on) { ['vpSave', 'vpConfirm'].forEach(function (id) { if ($(id)) $(id).disabled = on; }); }
 
   $('vpSave').addEventListener('click', function () {
     lock(true);
@@ -459,12 +458,12 @@
     var ws = warnings();
     var err = ws.filter(function (w) { return w.level === 'error'; })[0];
     if (err) { say(err.text, 'err'); return; }
-    var placed = P.plan.teams.filter(function (t) { return t.members.length && t.leads.length; });
-    if (!placed.length) { say('팀에 넣은 방문이 없어요.', 'err'); return; }
+    var placed = P.data.visits.filter(function (v) { return membersOf(v.lead_no).length; });
+    if (!placed.length) { say('사람을 넣은 현장이 없어요.', 'err'); return; }
     var people = {};
-    placed.forEach(function (t) { t.members.forEach(function (c) { people[c] = 1; }); });
+    placed.forEach(function (v) { membersOf(v.lead_no).forEach(function (c) { people[c] = 1; }); });
     var lines = [P.data.day_label + ' 방문 일정을 ' + (P.data.confirmed_at ? '다시 ' : '') + '확정할까요?',
-      '팀 ' + placed.length + '곳 · 담당자 ' + Object.keys(people).length + '명' +
+      '현장 ' + placed.length + '곳 · 담당자 ' + Object.keys(people).length + '명' +
       (P.data.confirmed_at ? ' — 바뀐 사람에게만 DM 이 가요.' : '에게 DM 이 가요.')];
     if (ws.length) {
       lines.push('', '확인할 것:');
