@@ -3299,6 +3299,8 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
 }
 .gw-vp-row[draggable="true"], .gw-vp-inrow[draggable="true"] { cursor: grab; }
 .gw-vp-inrow.on { border-color: #2a3038; background: #f2f3f6; }
+.gw-vp-board.editing .gw-vp-inrow { cursor: pointer; user-select: none; }
+.gw-vp-board.editing .gw-vp-inrow:hover { border-color: #b9bdc6; }
 .gw-vp-no { flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%; background: #2a3038; color: #fff; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; margin-top: 1px; }
 .gw-vp-rmain { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .gw-vp-racts { flex: 0 0 auto; display: flex; gap: 2px; }

@@ -343,6 +343,13 @@
     changed('.gw-vp-course[data-ci="' + ci + '"] [data-act="memo"]');
   });
   root.addEventListener('click', function (e) {
+    // 현장 목록 줄은 아무 곳이나 눌러도 체크(11-22 부장님) — [새 코스로] 단추·체크 칸 자체는 그대로
+    var inrow = P.canEdit && e.target.closest('.gw-vp-inrow');
+    if (inrow && !e.target.closest('button, input, a, select')) {
+      var cb = inrow.querySelector('[data-act="check"]');
+      if (cb) { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change', { bubbles: true })); }
+      return;
+    }
     var b = e.target.closest('[data-act], [data-pick]');
     if (!b || b.disabled || !P.canEdit) return;
     if (b.matches('input')) return;                          // 체크·이름·메모 칸은 change/input 에서
