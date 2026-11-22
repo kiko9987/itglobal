@@ -263,9 +263,10 @@
       ? '<span class="gw-va-none">' + (P.plan.online_shared ? '전원이 나눠서 받기' : '정하지 않음') + '</span>' : '';
     var offs = (P.data.off || []).map(function (o) { return o.name + '(' + o.why + ')'; });
     var halves = (P.data.half || []).map(function (o) { return o.name + '(' + o.why + ')'; });
-    var leave = '<p class="gw-vp-leave"><strong>휴무</strong> ' + esc(offs.join(', ') || '없음') +
-      (halves.length ? ' · <strong>반차</strong> ' + esc(halves.join(', ')) : '') + ' <small>그룹웨어 휴가·토요 휴무표에서 자동</small></p>';
-    return '<h2 class="gw-vp-h">온라인 당번</h2><div class="gw-vp-drow">' + rows + none + add + '</div>' + leave;
+    // 한 줄로(11-23 부장님: 당번 칸이 너무 컸음) — 제목·당번·넣기 왼쪽, 휴무는 오른쪽 끝
+    var leave = '<span class="gw-vp-leave" title="그룹웨어 휴가·토요 휴무표에서 자동"><strong>휴무</strong> ' + esc(offs.join(', ') || '없음') +
+      (halves.length ? ' · <strong>반차</strong> ' + esc(halves.join(', ')) : '') + '</span>';
+    return '<div class="gw-vp-drow"><h2 class="gw-vp-h">온라인 당번</h2>' + rows + none + add + leave + '</div>';
   }
   function status() {
     var d = P.data, parts = ['<strong>' + esc(d.day_label) + ' 현장 ' + d.visits.length + '건</strong>'];

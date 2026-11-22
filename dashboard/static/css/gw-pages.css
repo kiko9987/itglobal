@@ -3348,13 +3348,14 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
 .gw-vp-memo { display: flex; flex-direction: column; gap: 3px; margin: 0; font-size: 0.8rem; color: #475569; }
 .gw-vp-memo small { color: #64748b; }
 .gw-vp-memotext { margin: 0; font-size: 0.86rem; color: #1a1c20; background: #f8fafc; border-radius: 8px; padding: 6px 10px; }
-.gw-vp-duty { margin-top: 16px; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; padding: 12px; }
-.gw-vp-drow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
-.gw-vp-shift { width: auto; min-height: 26px; padding-top: 0; padding-bottom: 0; font-size: 0.8rem; }
-.gw-vp-addduty { width: auto; max-width: 200px; }
+.gw-vp-duty { margin-top: 12px; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; padding: 8px 12px; }
+.gw-vp-drow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.gw-vp-drow > .gw-vp-h { margin: 0 4px 0 0; }
+/* .gw-page .form-select-sm 이 폭을 100% 로 덮어써서 당번 칸이 화면 끝까지 늘어났음(11-23) */
+.gw-page .gw-vp-duty .gw-vp-shift { width: auto; height: 26px; min-height: 26px; padding-top: 0; padding-bottom: 0; font-size: 0.8rem; }
+.gw-page .gw-vp-duty .gw-vp-addduty { flex: 0 0 auto; width: 150px; max-width: 150px; }
 .gw-vp-shared { display: inline-flex; align-items: center; gap: 6px; font-size: 0.86rem; color: #1a1c20; margin: 0; }
-.gw-vp-leave { margin: 8px 0 0; font-size: 0.86rem; color: #1a1c20; }
-.gw-vp-leave small { color: #64748b; }
+.gw-vp-leave { margin-left: auto; font-size: 0.86rem; color: #1a1c20; }
 .gw-vp-warns { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 0.86rem; }
 .gw-vp-warns:empty { display: none; }
 .gw-vp-warns li.warn { color: #9a3412; }
@@ -3376,8 +3377,10 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
   .gw-vp-newc { margin-left: auto; }
   .gw-vp-memo { flex-direction: column !important; align-items: stretch; }
   .gw-vp-memo input { min-height: 44px; font-size: 16px; }
-  .gw-vp-addduty, .gw-vp-shift { min-height: 44px; font-size: 16px; max-width: none; }
+  .gw-page .gw-vp-duty .gw-vp-addduty, .gw-page .gw-vp-duty .gw-vp-shift { height: 44px; min-height: 44px; font-size: 16px; }
+  .gw-page .gw-vp-duty .gw-vp-addduty { width: 170px; max-width: 170px; }
   .gw-vp-shared { min-height: 44px; }
+  .gw-vp-leave { margin-left: 0; flex: 1 1 100%; }
   .gw-vp-shared input { width: 20px; height: 20px; }
 }
 .gw-vp-gtitle { font-size: 0.86rem; font-weight: 700; color: #1a1c20; margin: 4px 0 6px; }
