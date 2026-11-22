@@ -1,4 +1,4 @@
-"""그룹웨어 방문 일정(2026-11-22) — 시트 담당자로 팀 미리 묶기, 일정 다듬기·점검, 확정(뒤에서 돎)과
+"""그룹웨어 방문 일정(2026-11-22) — 캔버스1 현장에서 시작해 코스로 묶고 사람 넣기, 일정 다듬기·점검, 확정(뒤에서 돎)과
 /일정확정 본체 공용(리드 직접 연결·팀 메모 DM·DM 대상일 고정). 이름·번호는 모두 가짜."""
 from datetime import date, timedelta
 
@@ -49,48 +49,53 @@ def test_starts_empty_from_canvas1(db):
     extra = [{**_lead('L-8'), '상태': '방문 완료'}, {**_lead('L-9'), '상태': '유선 상담'},
              {**_lead('L-10'), '상담 내용': '실측 ─── [11.20 09:00 YM · 방문 완료]'}]
     data = vp.load(DAY, LEADS + extra, 'p@example.com')
-    assert data['source'] == 'empty' and data['plan'] == {'sites': {}, 'online': [], 'online_shared': False}
+    assert data['source'] == 'empty' and data['plan'] == {'courses': [], 'online': [], 'online_shared': False}
     assert [v['lead_no'] for v in data['visits']] == ['L-1', 'L-2', 'L-3', 'L-4', 'L-5']   # 캔버스1 기준만
     assert all('who' not in v for v in data['visits'])
     assert next(v for v in data['visits'] if v['lead_no'] == 'L-5')['owner'] == 'JK'
     assert [w['kind'] for w in data['warnings']] == ['left']
+    l1 = data['visits'][0]
+    assert l1['place'] == '가상 L-1로' or l1['region'] == '가상'     # 지역 꼬리표(가짜 주소라 시 이름만)
+    assert l1['region'] == '가상'
 
 
 def test_clean_plan_rules():
     codes, nos = ['YM', 'TH'], ['L-1', 'L-2']
-    raw = {'sites': {'L-2': {'members': ['TH']}, 'L-1': {'members': ['ym', 'YM'], 'memo': '  평택\n끝나고  '},
-                     'L-3x': {}},
+    raw = {'courses': [{'name': '  평택  라인 ', 'members': ['ym', 'YM'], 'leads': ['L-2', 'L-1', 'L-1'], 'memo': '  평택\n끝나고  '},
+                       {'members': ['TH'], 'leads': ['L-1']}, {'members': [], 'leads': []}],
            'online': [{'code': 'TH', 'shift': '오후'}, {'code': 'TH'}, {'code': 'YM', 'shift': '밤'}],
            'online_shared': True}
-    with pytest.raises(ValueError, match='바뀐 건'):
-        vp.clean_plan(raw, nos, codes)
-    del raw['sites']['L-3x']
-    raw['sites']['L-1x'] = {'members': []}
-    p = vp.clean_plan(raw, nos, codes, strict=False)
-    assert list(p['sites']) == ['L-1', 'L-2']                                    # 캔버스1 순서로
-    assert p['sites']['L-1'] == {'members': ['YM'], 'memo': '평택 끝나고'}
+    p = vp.clean_plan(raw, nos, codes)
+    assert p['courses'] == [{'name': '평택 라인', 'members': ['YM'], 'leads': ['L-2', 'L-1'], 'memo': '평택 끝나고'},
+                            {'name': '', 'members': ['TH'], 'leads': [], 'memo': ''}]   # 한 현장은 한 코스에만, 가는 순서 그대로
     assert p['online'] == [{'code': 'TH', 'shift': '오후'}, {'code': 'YM', 'shift': ''}]
     assert p['online_shared'] is False                                            # 당번이 있으면 공용 아님
+    with pytest.raises(ValueError, match='바뀐 건'):
+        vp.clean_plan({'courses': [{'members': ['YM'], 'leads': ['L-9']}]}, nos, codes)
     with pytest.raises(ValueError, match='명단에 없는'):
-        vp.clean_plan({'sites': {'L-1': {'members': ['ZZ']}}}, nos, codes)
-    assert vp.clean_plan({'sites': {'L-1': {'members': ['ZZ']}}}, nos, codes, strict=False)['sites'] == {}
-    # 첫 판(팀 칸) 저장분도 읽는다
-    old = vp.clean_plan({'teams': [{'members': ['TH'], 'leads': ['L-2'], 'memo': 'm'}]}, nos, codes)
-    assert old['sites'] == {'L-2': {'members': ['TH'], 'memo': 'm'}}
+        vp.clean_plan({'courses': [{'members': ['ZZ'], 'leads': []}]}, nos, codes)
+    assert vp.clean_plan({'courses': [{'members': ['ZZ'], 'leads': ['L-9']}]}, nos, codes, strict=False)['courses'] == []
+    # 앞 판 저장분(팀 칸·현장별 사람)도 코스로 읽는다
+    assert vp.clean_plan({'teams': [{'members': ['TH'], 'leads': ['L-2'], 'memo': 'm'}]}, nos, codes)['courses'] == \
+        [{'name': '', 'members': ['TH'], 'leads': ['L-2'], 'memo': 'm'}]
+    old = vp.clean_plan({'sites': {'L-1': {'members': ['YM']}, 'L-2': {'members': ['YM'], 'memo': 'x'}}}, nos, codes)
+    assert old['courses'] == [{'name': '', 'members': ['YM'], 'leads': ['L-1', 'L-2'], 'memo': 'x'}]
 
 
 def test_warnings(db):
     vs = vp.visits(DAY, LEADS)
     names = {p['code']: p['name'] for p in STAFF}
-    plan = {'sites': {'L-1': {'members': [], 'memo': '메모만'}, 'L-5': {'members': ['SJ', 'YM'], 'memo': ''},
-                      'L-2': {'members': ['YM', 'SJ'], 'memo': ''}, 'L-3': {'members': ['YM'], 'memo': ''}},
+    plan = {'courses': [{'name': '', 'members': [], 'leads': ['L-1'], 'memo': ''},
+                        {'name': '고덕', 'members': ['SJ', 'YM'], 'leads': ['L-5'], 'memo': ''},
+                        {'name': '', 'members': ['YM'], 'leads': ['L-2', 'L-3'], 'memo': ''}],
             'online': [{'code': 'SJ', 'shift': ''}], 'online_shared': False}
     ws = vp.warnings(plan, vs, va.day_off(DAY), names)
-    kinds = [w['kind'] for w in ws]
-    assert kinds[0] == 'left' and '2건' in ws[0]['text']          # L-1(메모만)·L-4
-    assert kinds.count('owner') == 1                               # 본인 방문 필수 L-5 인데 강해 없음
-    assert kinds.count('off') == 2                                 # 현장에(한 번만), 온라인 당번에 연차인 오늘
-    assert all(w['level'] == 'warn' for w in ws)
+    by = {w['kind']: w for w in ws}
+    assert '2건' in by['left']['text']                              # L-1(사람 없는 코스)·L-4(코스 없음)
+    assert by['nobody']['text'] == '코스 1에 사람을 넣지 않았어요(현장 1건).'
+    assert by['owner']['text'].startswith('고덕의 본인 방문 필수 현장')
+    assert [w['kind'] for w in ws].count('off') == 2                # 코스에도, 온라인 당번에도 연차인 오늘
+    assert 'twice' in by and all(w['level'] == 'warn' for w in ws)
 
 
 def test_editable_only_future():
@@ -100,17 +105,18 @@ def test_editable_only_future():
 
 
 def test_build_parsed_order_memo_off(db):
-    plan = {'sites': {'L-1': {'members': ['YM', 'LSH'], 'memo': ''}, 'L-2': {'members': [], 'memo': '사람 없음'},
-                      'L-3': {'members': ['TH'], 'memo': '먼저'}},
+    plan = {'courses': [{'name': '', 'members': ['TH'], 'leads': ['L-3'], 'memo': '먼저'},
+                        {'name': '', 'members': [], 'leads': ['L-4'], 'memo': ''},
+                        {'name': '', 'members': ['YM', 'LSH'], 'leads': ['L-2', 'L-1'], 'memo': ''}],
             'online': [{'code': 'JK', 'shift': '오전'}, {'code': 'TH', 'shift': ''}], 'online_shared': False}
     p = vp.build_parsed(DAY, plan, LEADS)
-    assert [a['lead_no'] for a in p['assignments']] == ['L-1', 'L-3']           # 사람 없는 현장은 빠짐
-    assert p['assignments'][1]['memo'] == '먼저' and p['assignments'][0]['assign'] == ['YM', 'LSH']
-    assert p['assignments'][1]['lead']['리드 No'] == 'L-3'
+    assert [a['lead_no'] for a in p['assignments']] == ['L-3', 'L-2', 'L-1']   # 코스 순서 → 가는 순서, 사람 없는 코스 빠짐
+    assert p['assignments'][0]['memo'] == '먼저' and p['assignments'][1]['assign'] == ['YM', 'LSH']
+    assert p['assignments'][0]['lead']['리드 No'] == 'L-3'
     assert p['online_duty'] == ['JK', 'TH'] and p['online_duty_shifts'] == {'JK': '오전'}
     assert p['off_duty'] == ['SJ']
     with pytest.raises(ValueError, match='찾지 못했'):
-        vp.build_parsed(DAY, plan, LEADS[:1])
+        vp.build_parsed(DAY, plan, LEADS[:2])
 
 
 class _NowThread:
@@ -133,12 +139,12 @@ def test_confirm_runs_and_locks_slack(db, monkeypatch):
     monkeypatch.setattr(vp, '_audit', lambda res, by: [])
     monkeypatch.setattr(va, 'request_assignment', lambda day=None: seen.setdefault('req', day))
     monkeypatch.setattr(va, 'next_workday', lambda today=None: DAY)
-    plan = {'sites': {'L-1': {'members': ['YM', 'LSH'], 'memo': '오전 먼저'}, 'L-2': {'members': ['YM', 'LSH'], 'memo': ''},
-                      'L-3': {'members': ['TH'], 'memo': ''}},
+    plan = {'courses': [{'name': '', 'members': ['YM', 'LSH'], 'leads': ['L-1', 'L-2'], 'memo': '오전 먼저'},
+                        {'name': '', 'members': ['TH'], 'leads': ['L-3'], 'memo': ''}],
             'online': [{'code': 'JK', 'shift': '오후'}], 'online_shared': False}
     assert vp.confirmed_upcoming_day() is None
-    with pytest.raises(ValueError, match='사람을 넣은 현장이 없어요'):
-        vp.start_confirm(DAY, {'sites': {'L-1': {'members': [], 'memo': 'x'}}}, 'p@example.com', LEADS, lambda: LEADS)
+    with pytest.raises(ValueError, match='코스가 없어요'):
+        vp.start_confirm(DAY, {'courses': [{'members': [], 'leads': ['L-1']}]}, 'p@example.com', LEADS, lambda: LEADS)
     assert vp.start_confirm(DAY, plan, 'p@example.com', LEADS, lambda: LEADS) == {'state': 'running'}
     assert seen['target'] == date.fromisoformat(DAY) and seen['req'] == DAY
     st = vp.run_state(DAY)
@@ -149,14 +155,14 @@ def test_confirm_runs_and_locks_slack(db, monkeypatch):
     assert vp.confirmed_upcoming_day() == {'day': DAY, 'label': va.day_label(DAY), 'by': '박기획'}
     data = vp.load(DAY, LEADS, 'p@example.com')
     assert data['source'] == 'saved' and data['confirmed_name'] == '박기획' and not data['changed_since_confirm']
-    vp.save(DAY, {**plan, 'sites': {'L-3': {'members': ['TH']}}}, 'p@example.com', LEADS)
+    vp.save(DAY, {**plan, 'courses': plan['courses'][:1]}, 'p@example.com', LEADS)
     assert vp.load(DAY, LEADS, 'p@example.com')['changed_since_confirm'] is True
 
 
 def test_confirm_failure_kept(db, monkeypatch):
     monkeypatch.setattr(vas, 'commit_plan', lambda parsed, target_date=None: {'ok': False, 'reason': '⏳ 처리 중입니다.'})
     monkeypatch.setattr(vp.threading, 'Thread', _NowThread)
-    plan = {'sites': {'L-3': {'members': ['TH']}}, 'online': [], 'online_shared': False}
+    plan = {'courses': [{'members': ['TH'], 'leads': ['L-3']}], 'online': [], 'online_shared': False}
     vp.start_confirm(DAY, plan, 'p@example.com', LEADS, lambda: LEADS)
     st = vp.run_state(DAY)
     assert st['state'] == 'failed' and st['result']['message'] == '처리 중입니다.'
@@ -165,7 +171,7 @@ def test_confirm_failure_kept(db, monkeypatch):
 
 def test_save_rejects_today(db):
     with pytest.raises(ValueError, match='오늘과 지난'):
-        vp.save(date.today().isoformat(), {'sites': {}}, 'p@example.com', LEADS)
+        vp.save(date.today().isoformat(), {'courses': []}, 'p@example.com', LEADS)
 
 
 def test_planner_permission():
@@ -239,8 +245,8 @@ def test_memo_in_dm_and_resend_on_memo_change(monkeypatch):
     r = run('평택 끝나고 <!here>')
     assert r['target_date'] == target.isoformat()
     ym = [p for p in fc.posted if p['channel'] == 'U_ym']
-    assert len(ym) == 1 and '>   :memo: 메모 : 평택 끝나고 &lt;!here&gt;' in ym[0]['text']
-    assert ym[0]['text'].index('L-1') < ym[0]['text'].index(':memo:')             # 그 현장 줄 아래
+    assert len(ym) == 1 and '>:memo: 메모 : 평택 끝나고 &lt;!here&gt;' in ym[0]['text']
+    assert ym[0]['text'].index(':memo:') < ym[0]['text'].index('L-1')             # 코스 메모는 위쪽에 한 번
     run('평택 끝나고 <!here>')
     assert len([p for p in fc.posted if p['channel'] == 'U_ym']) == 1           # 같으면 다시 안 보냄
     run('오산 먼저')
@@ -285,7 +291,7 @@ def test_plan_routes_permission(db, monkeypatch):
     app = Flask(__name__)
     app.secret_key = 'x'
     app.register_blueprint(bp.gw_vehicles_bp)
-    plan = {'sites': {'L-3': {'members': ['TH'], 'memo': ''}}, 'online': [], 'online_shared': False}
+    plan = {'courses': [{'members': ['TH'], 'leads': ['L-3'], 'memo': ''}], 'online': [], 'online_shared': False}
     with app.test_client() as cl:
         with cl.session_transaction() as s:
             s['user'] = {'email': 'staff@example.com', 'permission_level': 'user'}
@@ -298,7 +304,7 @@ def test_plan_routes_permission(db, monkeypatch):
         assert cl.get(f'/api/vehicles/plan?day={DAY}').get_json()['can_edit'] is True
         r = cl.post('/api/vehicles/plan', json={'day': DAY, 'plan': plan}).get_json()
         assert r['success'] and r['source'] == 'saved' and r['saved_name'] == '박기획'
-        bad = cl.post('/api/vehicles/plan', json={'day': DAY, 'plan': {'sites': {'L-99': {'members': ['TH']}}}})
+        bad = cl.post('/api/vehicles/plan', json={'day': DAY, 'plan': {'courses': [{'members': ['TH'], 'leads': ['L-99']}]}})
         assert bad.status_code == 400
         assert cl.post('/api/vehicles/plan/confirm', json={'day': DAY, 'plan': plan}).get_json()['run'] == {'state': 'running'}
         assert cl.get(f'/api/vehicles/plan/state?day={DAY}').get_json()['run']['state'] == 'done'

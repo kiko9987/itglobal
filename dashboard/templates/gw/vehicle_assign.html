@@ -33,18 +33,29 @@
   <section class="gw-vp" id="vpPlan" role="tabpanel" aria-labelledby="vpTabPlan" hidden>
     <div class="gw-va-status" id="vpStatus"></div>
     <div class="gw-vp-info" id="vpInfo"></div>
-    {# 차량 배정과 같은 모양 — 왼쪽 사람(같이 가는 조합은 [함께]) → 오른쪽 캔버스1 현장에 끌어 놓기(11-22 부장님) #}
+    {# 차량 배정과 같은 모양(11-22 부장님): 왼쪽 사람 → 위 코스 카드(= 차 카드). 아래 현장 목록(캔버스1)을 지역끼리 모아
+       하나씩 또는 체크해서 위 코스로 올린다. JW 가 메모장에서 하던 순서 — 코스 묶기 → 사람 넣기 → 넣었다 뺐다 #}
     <div class="gw-vp-board" id="vpBoard">
       <aside class="gw-va-staff gw-vp-people" id="vpPeopleBox" aria-label="사람">
         <div class="gw-va-staff-head"><strong>사람</strong><span id="vpPeopleCount"></span></div>
-        <p class="gw-va-staff-how" id="vpHow"></p>
+        <p class="gw-va-staff-how" id="vpPeopleHow"></p>
         <div id="vpPeople"></div>
       </aside>
-      <section class="gw-vp-sites" aria-label="현장">
-        <div class="gw-vp-sitehead"><h2 class="gw-vp-h">현장 <span id="vpSiteCount"></span></h2>
-          <label class="gw-vp-only"><input type="checkbox" id="vpOnlyLeft"> 사람 없는 현장만</label></div>
-        <div id="vpSites"></div>
-      </section>
+      <div class="gw-vp-main">
+        <div class="gw-vp-sitehead">
+          <h2 class="gw-vp-h">코스 <span id="vpCourseCount"></span></h2>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="vpAddCourse"><i class="fas fa-plus" aria-hidden="true"></i> 코스 만들기</button>
+        </div>
+        <div class="gw-va-list gw-vp-courses" id="vpCourses"></div>
+        <section class="gw-vp-inbox" id="vpInbox" data-drop="inbox" aria-label="코스에 안 넣은 현장">
+          <div class="gw-vp-sitehead">
+            <h2 class="gw-vp-h">현장 목록 <span id="vpInboxCount"></span></h2>
+            <p class="gw-vp-how" id="vpHow"></p>
+          </div>
+          <div class="gw-vp-selbar" id="vpSelBar" hidden></div>
+          <div id="vpInList"></div>
+        </section>
+      </div>
     </div>
     <section class="gw-vp-duty" id="vpDuty" aria-label="온라인 당번"></section>
     <ul class="gw-vp-warns" id="vpWarns" aria-label="확정 전 확인할 것"></ul>

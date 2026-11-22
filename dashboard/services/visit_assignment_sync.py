@@ -548,7 +548,7 @@ def commit() -> Dict:
 
 def commit_plan(parsed_full: Dict, target_date=None) -> Dict:
     """그룹웨어 방문 일정 확정(2026-11-22 부장님) — 캔버스 대신 화면에서 짠 배정으로 같은 처리를 한다.
-    parsed_full 은 parse_assignment_canvas_full 과 같은 모양이고 배정마다 'lead'(시트 행)·'memo'(현장 메모)가 붙는다.
+    parsed_full 은 parse_assignment_canvas_full 과 같은 모양이고 배정마다 'lead'(시트 행)·'memo'(코스 메모)가 붙는다.
     연타 가드를 /일정확정과 함께 써서 슬랙·그룹웨어가 동시에 돌지 않는다."""
     def run():
         with _ASSIGN_LOCK:
@@ -1291,15 +1291,15 @@ def _send_dms_for_next_visit(assignments: List[Dict],
 
     # 현재 배정 — 매니저별 lead 리스트
     current_by_mgr: Dict[str, List[Tuple[str, Dict]]] = defaultdict(list)
-    # 현장 메모(그룹웨어 방문 일정, 11-22) — DM 의 그 현장 줄 아래에. 캔버스 배정엔 없음('')
-    memo_by_lead: Dict[str, str] = {}
+    # 코스 메모(그룹웨어 방문 일정, 11-22) — 매니저별로 모아 DM 위쪽에 한 번. 캔버스 배정엔 없음('')
+    memo_by_mgr: Dict[str, List[str]] = defaultdict(list)
     for p, lead in filtered:
         lno = str(lead.get('리드 No') or '').strip()
         _memo = _dm_safe(p.get('memo'))
-        if _memo:
-            memo_by_lead[lno] = _memo
         for ini in (p.get('assign') or []):
             current_by_mgr[ini].append((lno, lead))
+            if _memo and _memo not in memo_by_mgr[ini]:
+                memo_by_mgr[ini].append(_memo)
 
     # 이전 v9 DM 이력 (매니저별) — 채널·ts·lead_nos 저장돼 있으면 삭제/비교 가능
     prev_v9_by_mgr: Dict[str, Dict] = {}
@@ -1422,8 +1422,8 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                 )
             continue
 
-        # 메모가 바뀌어도 다시 보낸다 — 이 사람 현장들의 메모를 한 줄 서명으로(옛 저장값과 비교)
-        cur_memo = ' / '.join(f'{lno}:{memo_by_lead[lno]}' for lno in sorted(current_set) if lno in memo_by_lead)
+        # 메모가 바뀌어도 다시 보낸다(옛 저장값과 비교)
+        cur_memo = ' / '.join(memo_by_mgr.get(ini) or [])
         memo_changed = bool(prev_info) and (prev_info.get('memo') or '') != cur_memo
         # ────── (2) 배정 동일 (순서 무관) — skip ──────
         if prev_info and current_set == prev_set and not memo_changed:
@@ -1489,6 +1489,8 @@ def _send_dms_for_next_visit(assignments: List[Dict],
         )
         if common:
             lines.append(f'>:busts_in_silhouette: 동행 : {"+".join(common)}')
+        if cur_memo:
+            lines.append(f'>:memo: 메모 : {cur_memo}')
         lines.append(f'>{_SEP}')
         for i, (lno, lead) in enumerate(current_leads):
             e = _EMOJIS[i] if i < len(_EMOJIS) else f'*{i+1}.*'
@@ -1499,8 +1501,6 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                 )
             lines.append(f'>   :iphone: {lead.get("고객 연락처") or "-"}')
             lines.append(f'>   :round_pushpin: {lead.get("방문 주소") or "-"}')
-            if memo_by_lead.get(lno):
-                lines.append(f'>   :memo: 메모 : {memo_by_lead[lno]}')
             note = (lead.get('상담 내용') or lead.get('문의 내용') or '').strip()
             if note:
                 # 재상담 이력 있으면 최신 회차 content 만 표시 (2026-07-21)

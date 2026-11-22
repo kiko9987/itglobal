@@ -1,6 +1,7 @@
 /* ① 방문 일정 (2026-11-22 부장님) — 슬랙 캔버스2 + /일정확정 대신 그룹웨어에서 다음 날 방문을 팀에 나눠 넣고 확정한다.
-   차량 배정과 같은 모양(11-22 부장님): 왼쪽 사람·[함께] 조합 → 오른쪽 캔버스1 현장으로 끌어 놓기.
-   휴대폰·키보드는 사람을 누르고(고르기) → 현장의 [여기에 넣기]. 사람 없는 현장은 [위 현장과 같게]로 빠르게.
+   차량 배정과 같은 모양(11-22 부장님): 위 코스 카드(= 차 카드), 왼쪽 사람 → 코스에 넣기.
+   JW 가 메모장에서 하던 순서 — 아래 현장 목록(캔버스1, 지역끼리 모아 보임)을 하나씩 [새 코스로]·끌어 올리기 또는
+   체크해서 [코스 N으로] 한꺼번에 올려 코스를 먼저 묶고 → 사람 넣기 → 넣었다 뺐다. 휴대폰·키보드는 끌기 대신 단추.
    [임시 저장]은 DM 없이 저장, [일정 확정]은 /일정확정과 같은 처리(시트·슬랙 List·담당자/당번 DM·캔버스1)를 뒤에서 돌린다.
    날짜는 gw-vehicle-assign.js 가 고르고 'va:day' 로 알려 준다. 서버에서 온 글자는 모두 esc() 로만 넣는다. */
 (function () {
@@ -81,12 +82,13 @@
   });
 
   // ── 자료 ──
-  // P.plan.sites = {리드 No: {members: [이니셜], memo}} · P.picked = 'YM' 또는 조합 'YM,LSH'(차량 배정과 같은 고르기)
-  function siteOf(no) { return P.plan.sites[no] || null; }
-  function membersOf(no) { var s = siteOf(no); return s ? s.members : []; }
-  function ensure(no) { if (!P.plan.sites[no]) P.plan.sites[no] = { members: [], memo: '' }; return P.plan.sites[no]; }
-  function tidy(no) { var s = siteOf(no); if (s && !s.members.length && !s.memo) delete P.plan.sites[no]; }
-  function keyCodes(key) { return String(key || '').split(',').filter(Boolean); }
+  // P.plan.courses = [{name, members: [이니셜], leads: [리드 No(가는 순서)], memo}]
+  // P.picked = 고른 사람 이니셜(→ 코스 [여기에 넣기]) · P.checked = 체크한 현장(→ [코스 N으로 올리기])
+  function courseOf(no) {
+    for (var i = 0; i < P.plan.courses.length; i++) if (P.plan.courses[i].leads.indexOf(no) !== -1) return i;
+    return -1;
+  }
+  function label(i) { var c = P.plan.courses[i]; return (c && c.name) || ('코스 ' + (i + 1)); }
   function offWhy(code) {
     var o = (P.data.off || []).filter(function (x) { return x.code === code; })[0];
     return o ? o.why : '';
@@ -96,40 +98,37 @@
     return o ? o.why : '';
   }
   function name(code) { return P.names[code] || code; }
-  function keyName(key) { return keyCodes(key).map(name).join(' + '); }
-  function siteCount(code) {
-    return P.data.visits.filter(function (v) { return membersOf(v.lead_no).indexOf(code) !== -1; }).length;
-  }
-  function isDuty(code) { return P.plan.online.some(function (o) { return o.code === code; }); }
-  function emptySites() { return P.data.visits.filter(function (v) { return !membersOf(v.lead_no).length; }); }
-  // 같이 가는 조합(두 명 이상 현장) — 왼쪽 [함께] 단추로 한 번에 다른 현장에 넣는다
-  function combos() {
-    var seen = {}, out = [];
-    P.data.visits.forEach(function (v) {
-      var m = membersOf(v.lead_no);
-      if (m.length < 2) return;
-      var k = m.join(',');
-      if (!seen[k]) { seen[k] = { key: k, n: 0 }; out.push(seen[k]); }
-      seen[k].n++;
-    });
+  function coursesWith(code) {
+    var out = [];
+    P.plan.courses.forEach(function (c, i) { if (c.members.indexOf(code) !== -1) out.push(i); });
     return out;
   }
+  function isDuty(code) { return P.plan.online.some(function (o) { return o.code === code; }); }
+  function inbox() { return P.data.visits.filter(function (v) { return courseOf(v.lead_no) === -1; }); }
+  function checkedList() { return inbox().filter(function (v) { return P.checked[v.lead_no]; }).map(function (v) { return v.lead_no; }); }
 
   // 확정 전 점검 — 서버(visit_plan.warnings)와 같은 규칙. 확정할 때 서버가 다시 본다
   function warnings() {
-    var out = [], offs = {}, warned = {};
+    var out = [], offs = {}, count = {};
     (P.data.off || []).forEach(function (o) { offs[o.code] = o.why; });
-    var left = emptySites();
-    if (left.length) out.push({ level: 'warn', text: '사람을 넣지 않은 현장 ' + left.length + '건 — 담당 DM 이 가지 않아요.' });
-    P.data.visits.forEach(function (v) {
-      var m = membersOf(v.lead_no);
-      m.forEach(function (c) {
-        if (offs[c] && !warned[c]) { warned[c] = 1; out.push({ level: 'warn', lead: v.lead_no, text: name(c) + '님은 이날 ' + offs[c] + '예요.' }); }
+    var done = {};
+    P.plan.courses.forEach(function (c) { if (c.members.length) c.leads.forEach(function (n) { done[n] = 1; }); });
+    var left = P.data.visits.filter(function (v) { return !done[v.lead_no]; }).length;
+    if (left) out.push({ level: 'warn', text: '코스·사람이 안 정해진 현장 ' + left + '건 — 담당 DM 이 가지 않아요.' });
+    P.plan.courses.forEach(function (c, i) {
+      if (c.leads.length && !c.members.length) out.push({ level: 'warn', course: i, text: label(i) + '에 사람을 넣지 않았어요(현장 ' + c.leads.length + '건).' });
+      c.members.forEach(function (m) {
+        count[m] = (count[m] || 0) + 1;
+        if (offs[m]) out.push({ level: 'warn', course: i, text: label(i) + '의 ' + name(m) + '님은 이날 ' + offs[m] + '예요.' });
       });
-      if (m.length && v.owner && m.indexOf(v.owner) === -1) {
-        out.push({ level: 'warn', lead: v.lead_no, text: '본인 방문 필수 현장(' + String(v.addr || v.lead_no).slice(0, 30) + ')인데 상담한 ' + name(v.owner) + '님이 없어요.' });
-      }
+      if (c.members.length) c.leads.forEach(function (n) {
+        var v = P.byNo[n] || {};
+        if (v.owner && c.members.indexOf(v.owner) === -1) {
+          out.push({ level: 'warn', course: i, text: label(i) + '의 본인 방문 필수 현장(' + String(v.addr || n).slice(0, 30) + ')에 상담한 ' + name(v.owner) + '님이 없어요.' });
+        }
+      });
     });
+    Object.keys(count).forEach(function (m) { if (count[m] > 1) out.push({ level: 'warn', text: name(m) + '님이 코스 ' + count[m] + '곳에 들어가 있어요.' }); });
     P.plan.online.forEach(function (o) { if (offs[o.code]) out.push({ level: 'warn', text: '온라인 당번 ' + name(o.code) + '님은 이날 ' + offs[o.code] + '예요.' }); });
     return out;
   }
@@ -139,65 +138,101 @@
     return (v.platform ? '<span class="gw-va-smark plat">' + esc(v.platform) + '</span>' : '') +
       v.marks.map(function (m) { return '<span class="gw-va-smark">' + esc(m) + '</span>'; }).join('');
   }
+  function placeTag(v) { return v.place ? '<span class="gw-vp-place">' + esc(v.place) + '</span>' : ''; }
   function personTag(c) {
     var why = offWhy(c) || halfWhy(c);
     return why ? ' <small class="gw-va-leave">' + esc(why) + '</small>' : '';
   }
   function personBtn(p) {
-    var n = siteCount(p.code), on = P.picked === p.code;
-    var tags = (n ? '<small class="gw-va-visit">현장 ' + n + '</small>' : '') + personTag(p.code) +
+    var cs = coursesWith(p.code), on = P.picked === p.code;
+    var tags = (cs.length ? '<small class="gw-va-visit">' + esc(cs.map(label).join(', ')) + '</small>' : '') + personTag(p.code) +
       (isDuty(p.code) ? ' <small class="gw-va-leave">온라인 당번</small>' : '');
-    if (!P.canEdit) return '<div class="gw-va-person">' + '<span class="gw-va-pname">' + esc(p.name) + '</span>' + tags + '</div>';
-    return '<button type="button" class="gw-va-person' + (on ? ' picked' : '') + (n ? ' placed' : '') + '" draggable="true" data-pick="' + esc(p.code) +
+    if (!P.canEdit) return '<div class="gw-va-person"><span class="gw-va-pname">' + esc(p.name) + '</span>' + tags + '</div>';
+    return '<button type="button" class="gw-va-person' + (on ? ' picked' : '') + (cs.length ? ' placed' : '') + '" draggable="true" data-pick="' + esc(p.code) +
       '" aria-pressed="' + (on ? 'true' : 'false') + '"><span class="gw-va-pname">' + esc(p.name) + '</span>' + tags + '</button>';
   }
   function peoplePanel() {
     var ppl = P.data.people;
     var off = ppl.filter(function (p) { return offWhy(p.code); });
-    var free = ppl.filter(function (p) { return !offWhy(p.code) && !siteCount(p.code); });
-    var busy = ppl.filter(function (p) { return !offWhy(p.code) && siteCount(p.code); });
-    var html = '';
-    var cs = combos();
-    if (cs.length && P.canEdit) {
-      html += '<div class="gw-va-group"><div class="gw-va-gtitle">함께 가는 조합 <span>' + cs.length + '</span></div><div class="gw-va-plist">' +
-        cs.map(function (c) {
-          var on = P.picked === c.key;
-          return '<button type="button" class="gw-va-teambtn' + (on ? ' picked' : '') + '" draggable="true" data-pick="' + esc(c.key) +
-            '" aria-pressed="' + (on ? 'true' : 'false') + '"><i class="fas fa-people-group" aria-hidden="true"></i> ' + esc(keyName(c.key)) +
-            ' <small>현장 ' + c.n + '</small></button>';
-        }).join('') + '</div></div>';
-    }
-    [['현장 없음', free], ['현장 있음', busy], ['휴무', off]].forEach(function (g) {
-      if (!g[1].length) return;
-      html += '<div class="gw-va-group"><div class="gw-va-gtitle">' + esc(g[0]) + ' <span>' + g[1].length + '</span></div>' +
+    var free = ppl.filter(function (p) { return !offWhy(p.code) && !coursesWith(p.code).length; });
+    var busy = ppl.filter(function (p) { return !offWhy(p.code) && coursesWith(p.code).length; });
+    return [['코스 없음', free], ['코스 있음', busy], ['휴무', off]].map(function (g) {
+      if (!g[1].length) return '';
+      return '<div class="gw-va-group"><div class="gw-va-gtitle">' + esc(g[0]) + ' <span>' + g[1].length + '</span></div>' +
         '<div class="gw-va-plist">' + g[1].map(personBtn).join('') + '</div></div>';
-    });
-    return html;
+    }).join('');
   }
-  function siteCard(v, prev) {
-    var no = v.lead_no, s = siteOf(no) || { members: [], memo: '' }, m = s.members;
-    var chips = m.map(function (c) {
-      return '<span class="gw-va-chip"><span class="gw-va-cname">' + esc(name(c)) + '</span>' + personTag(c) +
-        (P.canEdit ? '<button type="button" class="gw-va-x" data-act="rmp" data-lead="' + esc(no) + '" data-code="' + esc(c) + '" aria-label="' + esc(name(c)) + ' 빼기">×</button>' : '') + '</span>';
+  function courseRow(v, i, k, n) {
+    var acts = P.canEdit ? '<span class="gw-vp-racts">' +
+      '<button type="button" class="gw-vp-ic" data-act="up" data-lead="' + esc(v.lead_no) + '"' + (k === 0 ? ' disabled' : '') + ' aria-label="' + esc(v.place || v.lead_no) + ' 앞으로"><i class="fas fa-arrow-up" aria-hidden="true"></i></button>' +
+      '<button type="button" class="gw-vp-ic" data-act="down" data-lead="' + esc(v.lead_no) + '"' + (k === n - 1 ? ' disabled' : '') + ' aria-label="' + esc(v.place || v.lead_no) + ' 뒤로"><i class="fas fa-arrow-down" aria-hidden="true"></i></button>' +
+      '<button type="button" class="gw-vp-ic" data-act="out" data-lead="' + esc(v.lead_no) + '" aria-label="' + esc(v.place || v.lead_no) + ' 현장 목록으로 내리기" title="현장 목록으로 내리기"><i class="fas fa-arrow-turn-down" aria-hidden="true"></i></button></span>' : '';
+    return '<li class="gw-vp-row"' + (P.canEdit ? ' draggable="true" data-drag-lead="' + esc(v.lead_no) + '"' : '') + '>' +
+      '<span class="gw-vp-no" aria-hidden="true">' + (k + 1) + '</span><span class="gw-vp-rmain">' +
+      '<span class="gw-vp-vtop">' + placeTag(v) + marks(v) + '<span class="gw-va-sno">' + esc(v.date) + ' · ' + esc(v.lead_no) + '</span></span>' +
+      (v.addr ? '<span class="gw-vp-vaddr">' + esc(v.addr) + '</span>' : '') + '</span>' + acts + '</li>';
+  }
+  function courseCard(c, i, ws) {
+    var bad = ws.some(function (w) { return w.course === i; });
+    var vs = c.leads.map(function (n) { return P.byNo[n]; }).filter(Boolean);
+    var chips = c.members.map(function (m) {
+      return '<span class="gw-va-chip"><span class="gw-va-cname">' + esc(name(m)) + '</span>' + personTag(m) +
+        (P.canEdit ? '<button type="button" class="gw-va-x" data-act="rmp" data-ci="' + i + '" data-code="' + esc(m) + '" aria-label="' + esc(label(i)) + '에서 ' + esc(name(m)) + ' 빼기">×</button>' : '') + '</span>';
     }).join('');
     var acts = '';
     if (P.canEdit) {
-      var add = P.picked ? keyCodes(P.picked).filter(function (c) { return m.indexOf(c) === -1; }) : [];
-      if (add.length) acts += '<button type="button" class="btn btn-sm btn-outline-secondary gw-va-put" data-act="put" data-lead="' + esc(no) + '">여기에 ' + esc(add.map(name).join(' + ')) + ' 넣기</button>';
-      var pm = prev ? membersOf(prev.lead_no) : [];
-      if (!m.length && pm.length && !P.picked) acts += '<button type="button" class="btn btn-sm btn-outline-secondary gw-vp-same" data-act="same" data-lead="' + esc(no) + '" data-from="' + esc(prev.lead_no) + '">위 현장과 같게(' + esc(pm.map(name).join(' + ')) + ')</button>';
-      acts += P.memoOpen[no] || s.memo
-        ? '<label class="gw-vp-memo"><span>현장 메모 <small>담당자 DM 에 함께 가요</small></span><input type="text" class="form-control form-control-sm" maxlength="200" data-act="memo" data-lead="' + esc(no) + '" value="' + esc(s.memo) + '"></label>'
-        : '<button type="button" class="btn btn-sm btn-link gw-vp-memobtn" data-act="memoopen" data-lead="' + esc(no) + '">메모 쓰기</button>';
-    } else if (s.memo) {
-      acts = '<p class="gw-vp-memotext"><i class="fas fa-note-sticky" aria-hidden="true"></i> ' + esc(s.memo) + '</p>';
+      if (P.picked && c.members.indexOf(P.picked) === -1) acts += '<button type="button" class="btn btn-sm btn-outline-secondary gw-va-put" data-act="putp" data-ci="' + i + '">여기에 ' + esc(name(P.picked)) + ' 넣기</button>';
+      var nChecked = checkedList().length;
+      if (nChecked) acts += '<button type="button" class="btn btn-sm btn-outline-secondary gw-va-put" data-act="lift" data-ci="' + i + '">체크한 현장 ' + nChecked + '건 여기로 올리기</button>';
     }
-    return '<section class="gw-va-card gw-vp-site' + (m.length ? '' : ' need') + (P.picked && P.canEdit ? ' can-drop' : '') + '" data-drop="site" data-lead="' + esc(no) + '" aria-label="' + esc(v.addr || no) + '">' +
-      '<div class="gw-vp-vtop">' + marks(v) + '<strong>' + esc(v.date) + '</strong><span class="gw-va-sno">' + esc(no) + '</span></div>' +
-      (v.addr ? '<div class="gw-vp-vaddr">' + esc(v.addr) + '</div>' : '') +
-      (v.text ? '<div class="gw-vp-vtext">' + esc(v.text) + '</div>' : '') +
+    var head = P.canEdit
+      ? '<div class="gw-vp-chead"><strong>' + esc('코스 ' + (i + 1)) + '</strong><input type="text" class="form-control form-control-sm gw-vp-cname" maxlength="20" data-act="cname" data-ci="' + i + '" value="' + esc(c.name) + '" aria-label="코스 ' + (i + 1) + ' 이름"><span class="gw-vp-ccount">현장 ' + vs.length + '</span>' +
+        '<button type="button" class="btn btn-sm btn-link gw-vp-cdel" data-act="delc" data-ci="' + i + '">지우기</button></div>'
+      : '<div class="gw-vp-chead"><strong>' + esc(label(i)) + '</strong><span class="gw-vp-ccount">현장 ' + vs.length + '</span></div>';
+    var memo = P.canEdit
+      ? '<label class="gw-vp-memo"><span>메모 <small>이 코스 사람들의 DM 위쪽에 함께 가요</small></span><input type="text" class="form-control form-control-sm" maxlength="200" data-act="memo" data-ci="' + i + '" value="' + esc(c.memo) + '"></label>'
+      : (c.memo ? '<p class="gw-vp-memotext"><i class="fas fa-note-sticky" aria-hidden="true"></i> ' + esc(c.memo) + '</p>' : '');
+    return '<section class="gw-va-card gw-vp-course' + (bad ? ' warn' : '') + (c.members.length ? '' : ' need') + ((P.picked || checkedList().length) && P.canEdit ? ' can-drop' : '') +
+      '" data-drop="course" data-ci="' + i + '" aria-label="' + esc(label(i)) + '">' + head +
       '<div class="gw-va-people">' + (chips || '<span class="gw-va-none">' + (P.canEdit ? '여기에 사람을 놓으세요' : '사람 없음') + '</span>') + '</div>' +
-      acts + '</section>';
+      '<ol class="gw-vp-rows">' + vs.map(function (v, k) { return courseRow(v, i, k, vs.length); }).join('') + '</ol>' +
+      (!vs.length ? '<p class="gw-vp-tempty">' + (P.canEdit ? '아래 현장을 체크해 올리거나 끌어 올려 주세요.' : '현장 없음') + '</p>' : '') +
+      acts + memo + '</section>';
+  }
+  // 현장 목록 — 지역(region)끼리 모아, 지역은 캔버스1에서 처음 나온 순서대로
+  function inboxRows() {
+    var groups = [];
+    inbox().forEach(function (v) {
+      var key = v.region || '지역 모름';
+      var g = groups.filter(function (x) { return x.key === key; })[0];
+      if (!g) { g = { key: key, items: [] }; groups.push(g); }
+      g.items.push(v);
+    });
+    return groups.map(function (g) {
+      var allOn = g.items.every(function (v) { return P.checked[v.lead_no]; });
+      var head = '<h3 class="gw-vp-gtitle">' + esc(g.key) + ' <span>' + g.items.length + '</span>' +
+        (P.canEdit && g.items.length > 1 ? ' <button type="button" class="btn btn-sm btn-link gw-vp-gall" data-act="checkgroup" data-region="' + esc(g.key) + '">' + (allOn ? '체크 풀기' : '모두 체크') + '</button>' : '') + '</h3>';
+      return '<div class="gw-vp-group">' + head + '<ul class="gw-vp-inrows">' + g.items.map(function (v) {
+        var on = !!P.checked[v.lead_no];
+        var check = P.canEdit ? '<input type="checkbox" class="form-check-input gw-vp-check" data-act="check" data-lead="' + esc(v.lead_no) + '"' + (on ? ' checked' : '') +
+          ' aria-label="' + esc((v.place || '') + ' ' + v.lead_no) + ' 고르기">' : '';
+        return '<li class="gw-vp-inrow' + (on ? ' on' : '') + '"' + (P.canEdit ? ' draggable="true" data-drag-lead="' + esc(v.lead_no) + '"' : '') + '>' + check +
+          '<span class="gw-vp-rmain"><span class="gw-vp-vtop">' + placeTag(v) + marks(v) + '<strong>' + esc(v.date) + '</strong><span class="gw-va-sno">' + esc(v.lead_no) + '</span></span>' +
+          (v.addr ? '<span class="gw-vp-vaddr">' + esc(v.addr) + '</span>' : '') +
+          (v.text ? '<span class="gw-vp-vtext">' + esc(v.text) + '</span>' : '') + '</span>' +
+          (P.canEdit ? '<button type="button" class="btn btn-sm btn-outline-secondary gw-vp-newc" data-act="newc" data-lead="' + esc(v.lead_no) + '">새 코스로</button>' : '') + '</li>';
+      }).join('') + '</ul></div>';
+    }).join('');
+  }
+  function selBar() {
+    var n = checkedList().length;
+    var bar = $('vpSelBar');
+    if (!P.canEdit || !n) { bar.hidden = true; bar.innerHTML = ''; return; }
+    bar.hidden = false;
+    bar.innerHTML = '<strong>체크한 현장 ' + n + '건</strong> → ' + P.plan.courses.map(function (c, i) {
+      return '<button type="button" class="btn btn-sm btn-outline-secondary" data-act="lift" data-ci="' + i + '">' + esc(label(i)) + '로</button>';
+    }).join('') + '<button type="button" class="btn btn-sm btn-primary" data-act="liftnew">새 코스로</button>' +
+      '<button type="button" class="btn btn-sm btn-link" data-act="uncheck">체크 풀기</button>';
   }
   function dutyPanel() {
     var rows = P.plan.online.map(function (o, k) {
@@ -235,7 +270,7 @@
     }
     if (d.saved_at && !d.confirmed_at) parts.push('<span class="gw-va-when">임시 저장 ' + esc(d.saved_at.slice(11, 16)) + (d.saved_name ? ' · ' + esc(d.saved_name) : '') + ' · DM 아직 안 보냄</span>');
     var notes = [];
-    if (d.dropped) notes.push('저장한 뒤 날짜가 바뀌거나 취소된 현장 ' + d.dropped + '건은 뺐어요.');
+    if (d.dropped) notes.push('저장한 뒤 날짜가 바뀌거나 취소된 현장 ' + d.dropped + '건은 코스에서 뺐어요.');
     if (d.changed_since_confirm || (d.confirmed_at && P.dirty)) notes.push('확정한 뒤 고친 내용이 있어요. 다시 확정해야 담당자 DM 이 바뀌어요.');
     if (!d.editable) notes.push('오늘과 지난 날 일정은 고칠 수 없어요.');
     else if (!P.canEdit) notes.push('방문 일정은 일정 담당자만 고칠 수 있어요.');
@@ -243,33 +278,26 @@
     $('vpTabPlanSt').textContent = d.confirmed_at ? (d.changed_since_confirm || P.dirty ? '· 고친 내용 있음' : '· 확정') : '· 확정 전';
   }
   function render() {
-    var ws = warnings();
-    var empty = emptySites().length;
+    var ws = warnings(), left = inbox();
+    Object.keys(P.checked).forEach(function (n) { if (courseOf(n) !== -1) delete P.checked[n]; });
     $('vpPeopleCount').textContent = P.data.people.length + '명';
     $('vpPeople').innerHTML = peoplePanel();
-    $('vpHow').innerHTML = P.canEdit
-      ? (P.picked ? esc(keyName(P.picked)) + ' 고름 — 넣을 현장에서 [여기에 넣기]를 눌러 주세요. <button type="button" class="btn btn-sm btn-link" data-act="unpick">고르기 취소</button>'
-        : '이름이나 [함께] 조합을 오른쪽 현장으로 끌어 놓으세요. 누른 뒤 현장의 [여기에 넣기]를 눌러도 돼요.')
+    $('vpPeopleHow').innerHTML = P.canEdit
+      ? (P.picked ? esc(name(P.picked)) + ' 고름 — 넣을 코스에서 [여기에 넣기]를 눌러 주세요. <button type="button" class="btn btn-sm btn-link" data-act="unpick">고르기 취소</button>'
+        : '코스를 먼저 만든 뒤, 이름을 코스로 끌어 놓으세요. 누른 뒤 코스의 [여기에 넣기]를 눌러도 돼요.')
       : '';
-    $('vpSiteCount').textContent = P.data.visits.length + '건' + (empty ? ' · 사람 없는 현장 ' + empty + '건' : '');
-    var only = $('vpOnlyLeft').checked;
-    // 캔버스1과 같은 묶음(기타·거래처·온라인 방문) 제목 아래에, 캔버스1 순서대로
-    var groups = [];
-    P.data.visits.forEach(function (v, i) {
-      var g = groups.filter(function (x) { return x.title === v.title; })[0];
-      if (!g) { g = { title: v.title, items: [] }; groups.push(g); }
-      g.items.push({ v: v, prev: i ? P.data.visits[i - 1] : null });
-    });
-    $('vpSites').innerHTML = groups.map(function (g) {
-      var items = g.items.filter(function (x) { return !only || !membersOf(x.v.lead_no).length; });
-      if (!items.length) return '';
-      return '<h3 class="gw-vp-gtitle">' + esc(g.title) + ' <span>' + g.items.length + '</span></h3><div class="gw-va-list gw-vp-sitelist">' +
-        items.map(function (x) { return siteCard(x.v, x.prev && x.prev.title === g.title ? x.prev : null); }).join('') + '</div>';
-    }).join('') || '<p class="gw-va-sempty">' + (P.data.visits.length ? '사람 없는 현장이 없어요.' : '이날 방문 일정이 없어요.') + '</p>';
+    $('vpCourseCount').textContent = P.plan.courses.length ? P.plan.courses.length + '개' : '';
+    $('vpCourses').innerHTML = P.plan.courses.map(function (c, i) { return courseCard(c, i, ws); }).join('') ||
+      '<p class="gw-va-sempty">' + (P.canEdit ? '아래 현장의 [새 코스로]를 누르거나, 현장을 체크한 뒤 [새 코스로]를 눌러 코스를 만들어 주세요.' : '아직 코스가 없어요.') + '</p>';
+    $('vpAddCourse').hidden = !P.canEdit;
+    $('vpInboxCount').textContent = left.length + '건' + (left.length !== P.data.visits.length ? ' (전체 ' + P.data.visits.length + '건)' : '');
+    $('vpHow').textContent = P.canEdit ? '같은 지역끼리 모아 보여 줘요. 체크해서 한꺼번에 올리거나, 위 코스로 끌어 올리세요.' : '';
+    selBar();
+    $('vpInList').innerHTML = inboxRows() ||
+      '<p class="gw-va-sempty">' + (P.data.visits.length ? '모든 현장을 코스에 넣었어요.' : '이날 방문 일정이 없어요.') + '</p>';
     $('vpDuty').innerHTML = dutyPanel();
     $('vpWarns').innerHTML = ws.map(function (w) {
-      return '<li class="' + (w.level === 'error' ? 'err' : 'warn') + '"><i class="fas ' + (w.level === 'error' ? 'fa-circle-xmark' : 'fa-triangle-exclamation') +
-        '" aria-hidden="true"></i> ' + esc(w.text) + '</li>';
+      return '<li class="warn"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> ' + esc(w.text) + '</li>';
     }).join('');
     $('vpBoard').classList.toggle('editing', P.canEdit);
     $('vpBar').hidden = !P.canEdit;
@@ -285,19 +313,33 @@
 
   // ── 고치기 ──
   function changed(focusSel) { setDirty(true); P.focus = focusSel || null; render(); }
-  function putOn(no, key) {
-    var s = ensure(no), add = keyCodes(key).filter(function (c) { return s.members.indexOf(c) === -1; });
-    add.forEach(function (c) { s.members.push(c); });
-    P.picked = null;
-    var v = P.byNo[no] || {};
-    changed('[data-drop="site"][data-lead="' + cssq(no) + '"] .gw-va-x');
-    say(add.length ? keyName(add.join(',')) + ' → ' + String(v.addr || no).slice(0, 24) + ' 넣었어요.' : '이미 들어가 있어요.', 'info');
+  function newCourse() { P.plan.courses.push({ name: '', members: [], leads: [], memo: '' }); return P.plan.courses.length - 1; }
+  function moveTo(nos, ci) {                // ci = -1 이면 현장 목록으로 내림
+    nos.forEach(function (no) {
+      var from = courseOf(no);
+      if (from !== -1) P.plan.courses[from].leads.splice(P.plan.courses[from].leads.indexOf(no), 1);
+      if (ci !== -1) P.plan.courses[ci].leads.push(no);
+      delete P.checked[no];
+    });
+    changed(ci === -1 ? '#vpInList [data-act="check"]' : '.gw-vp-course[data-ci="' + ci + '"] [data-act="cname"]');
+    say(ci === -1 ? '현장 목록으로 내렸어요.' : label(ci) + '에 현장 ' + nos.length + '건을 올렸어요.', 'info');
   }
-  P.memoOpen = {};
-  $('vpOnlyLeft').addEventListener('change', function () { render(); });
+  function putPerson(code, ci) {
+    var c = P.plan.courses[ci];
+    if (c.members.indexOf(code) === -1) c.members.push(code);
+    P.picked = null;
+    changed('.gw-vp-course[data-ci="' + ci + '"] .gw-va-x');
+    say(label(ci) + '에 ' + name(code) + '님을 넣었어요.', 'info');
+  }
+  P.checked = {};
+  $('vpAddCourse').addEventListener('click', function () {
+    var ci = newCourse();
+    changed('.gw-vp-course[data-ci="' + ci + '"] [data-act="cname"]');
+  });
   root.addEventListener('click', function (e) {
     var b = e.target.closest('[data-act], [data-pick]');
     if (!b || b.disabled || !P.canEdit) return;
+    if (b.matches('input')) return;                          // 체크·이름·메모 칸은 change/input 에서
     var pick = b.getAttribute('data-pick');
     if (pick) {
       P.picked = P.picked === pick ? null : pick;
@@ -305,22 +347,35 @@
       render();
       return;
     }
-    var act = b.getAttribute('data-act'), no = b.getAttribute('data-lead');
-    if (act === 'unpick') {
-      P.picked = null; render();
-    } else if (act === 'put') {
-      if (P.picked) putOn(no, P.picked);
-    } else if (act === 'same') {
-      putOn(no, membersOf(b.getAttribute('data-from')).join(','));
-    } else if (act === 'rmp') {
-      var s = ensure(no), c = b.getAttribute('data-code');
-      s.members.splice(s.members.indexOf(c), 1);
-      tidy(no);
-      changed('[data-drop="site"][data-lead="' + cssq(no) + '"] .gw-va-x, [data-drop="site"][data-lead="' + cssq(no) + '"] button');
-    } else if (act === 'memoopen') {
-      P.memoOpen[no] = true;
-      P.focus = 'input[data-act="memo"][data-lead="' + cssq(no) + '"]';
+    var act = b.getAttribute('data-act'), no = b.getAttribute('data-lead'), ci = parseInt(b.getAttribute('data-ci'), 10);
+    if (act === 'unpick') { P.picked = null; render(); }
+    else if (act === 'putp') { if (P.picked) putPerson(P.picked, ci); }
+    else if (act === 'newc') { moveTo([no], newCourse()); }
+    else if (act === 'lift') { moveTo(checkedList(), ci); }
+    else if (act === 'liftnew') { var list = checkedList(); if (list.length) moveTo(list, newCourse()); }
+    else if (act === 'uncheck') { P.checked = {}; render(); }
+    else if (act === 'checkgroup') {
+      var region = b.getAttribute('data-region');
+      var items = inbox().filter(function (v) { return (v.region || '지역 모름') === region; });
+      var allOn = items.every(function (v) { return P.checked[v.lead_no]; });
+      items.forEach(function (v) { if (allOn) delete P.checked[v.lead_no]; else P.checked[v.lead_no] = true; });
+      P.focus = '[data-act="checkgroup"][data-region="' + cssq(region) + '"]';
       render();
+    } else if (act === 'out') { moveTo([no], -1); }
+    else if (act === 'up' || act === 'down') {
+      var c = P.plan.courses[courseOf(no)], k = c.leads.indexOf(no), j = act === 'up' ? k - 1 : k + 1;
+      if (j < 0 || j >= c.leads.length) return;
+      c.leads.splice(k, 1); c.leads.splice(j, 0, no);
+      changed('.gw-vp-course [data-act="' + act + '"][data-lead="' + cssq(no) + '"]');
+    } else if (act === 'rmp') {
+      var cm = P.plan.courses[ci], code = b.getAttribute('data-code');
+      cm.members.splice(cm.members.indexOf(code), 1);
+      changed('.gw-vp-course[data-ci="' + ci + '"] [data-act="cname"]');
+    } else if (act === 'delc') {
+      var dc = P.plan.courses[ci];
+      if ((dc.leads.length || dc.members.length) && !window.confirm(label(ci) + '를 지울까요?\n현장 ' + dc.leads.length + '건은 현장 목록으로 돌아가요.')) return;
+      P.plan.courses.splice(ci, 1);
+      changed('#vpAddCourse');
     } else if (act === 'rmduty') {
       P.plan.online.splice(parseInt(b.getAttribute('data-k'), 10), 1);
       changed('.gw-vp-addduty');
@@ -330,7 +385,11 @@
     var el = e.target;
     if (!P.canEdit) return;
     var act = el.getAttribute('data-act');
-    if (act === 'addduty' && el.value) {
+    if (act === 'check') {
+      if (el.checked) P.checked[el.getAttribute('data-lead')] = true; else delete P.checked[el.getAttribute('data-lead')];
+      P.focus = '[data-act="check"][data-lead="' + cssq(el.getAttribute('data-lead')) + '"]';
+      render();
+    } else if (act === 'addduty' && el.value) {
       P.plan.online.push({ code: el.value, shift: '' });
       P.plan.online_shared = false;
       changed('.gw-vp-addduty');
@@ -340,39 +399,40 @@
     } else if (act === 'shared') {
       P.plan.online_shared = el.checked;
       setDirty(true);
+    } else if (act === 'cname') {
+      render();                                              // 경고·단추 글자(코스 이름)를 새 이름으로
     }
   });
   root.addEventListener('input', function (e) {
-    var el = e.target;
-    if (P.canEdit && el.getAttribute('data-act') === 'memo') {
-      var no = el.getAttribute('data-lead');
-      ensure(no).memo = el.value;
-      setDirty(true);
-      $('vpTabPlanSt').textContent = P.data.confirmed_at ? '· 고친 내용 있음' : '· 확정 전';
-    }
-  });
-  root.addEventListener('focusout', function (e) {       // 비운 메모 칸은 닫고, 사람·메모 없는 현장은 지운다
-    var el = e.target;
-    if (el.getAttribute && el.getAttribute('data-act') === 'memo') {
-      var no = el.getAttribute('data-lead');
-      if (!el.value.trim()) { delete P.memoOpen[no]; tidy(no); }
-    }
+    var el = e.target, act = el.getAttribute('data-act');
+    if (!P.canEdit || (act !== 'memo' && act !== 'cname')) return;
+    P.plan.courses[parseInt(el.getAttribute('data-ci'), 10)][act === 'memo' ? 'memo' : 'name'] = el.value;
+    setDirty(true);
+    $('vpTabPlanSt').textContent = P.data.confirmed_at ? '· 고친 내용 있음' : '· 확정 전';
   });
   root.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && P.picked) { P.picked = null; render(); }
   });
 
-  // 끌어 놓기(마우스) — 사람·[함께] 조합 → 현장
-  var dragKey = null;
+  // 끌어 놓기(마우스) — 사람 → 코스, 현장(목록·코스 안) → 코스 또는 현장 목록
+  var drag = null;
   root.addEventListener('dragstart', function (e) {
-    var el = e.target.closest && e.target.closest('[data-pick][draggable="true"]');
-    if (!el || !P.canEdit) return;
-    dragKey = el.getAttribute('data-pick');
-    try { e.dataTransfer.setData('text/plain', dragKey); e.dataTransfer.effectAllowed = 'copy'; } catch (er) { /* 무시 */ }
+    if (!P.canEdit || !e.target.closest) return;
+    var p = e.target.closest('[data-pick][draggable="true"]'), l = e.target.closest('[data-drag-lead]');
+    if (p) drag = { person: p.getAttribute('data-pick') };
+    else if (l) {
+      var no = l.getAttribute('data-drag-lead');
+      drag = { leads: P.checked[no] ? checkedList() : [no] };     // 체크한 현장을 끌면 체크한 것 모두
+    } else return;
+    try { e.dataTransfer.setData('text/plain', 'x'); e.dataTransfer.effectAllowed = 'move'; } catch (er) { /* 무시 */ }
   });
-  function dropZone(e) { return e.target.closest && e.target.closest('[data-drop="site"]'); }
+  function dropZone(e) {
+    var z = e.target.closest && e.target.closest('[data-drop]');
+    if (!z || !drag) return null;
+    if (drag.person && z.getAttribute('data-drop') !== 'course') return null;
+    return z;
+  }
   root.addEventListener('dragover', function (e) {
-    if (!dragKey) return;
     var z = dropZone(e);
     if (!z) return;
     e.preventDefault();
@@ -380,20 +440,22 @@
     z.classList.add('over');
   });
   root.addEventListener('dragleave', function (e) {
-    var z = dropZone(e);
+    var z = e.target.closest && e.target.closest('[data-drop]');
     if (z && !z.contains(e.relatedTarget)) z.classList.remove('over');
   });
   root.addEventListener('drop', function (e) {
     var z = dropZone(e);
-    if (!dragKey || !z) return;
+    if (!z) return;
     e.preventDefault();
-    var key = dragKey;
-    dragKey = null;
+    var d = drag;
+    drag = null;
     z.classList.remove('over');
-    putOn(z.getAttribute('data-lead'), key);
+    var ci = z.getAttribute('data-drop') === 'course' ? parseInt(z.getAttribute('data-ci'), 10) : -1;
+    if (d.person) putPerson(d.person, ci);
+    else moveTo(d.leads, ci);
   });
   root.addEventListener('dragend', function () {
-    dragKey = null;
+    drag = null;
     root.querySelectorAll('.over').forEach(function (x) { x.classList.remove('over'); });
   });
 
@@ -406,7 +468,7 @@
     j.people.forEach(function (p) { P.names[p.code] = p.name; });
     j.visits.forEach(function (v) { P.byNo[v.lead_no] = v; });
     P.picked = null;
-    P.memoOpen = {};
+    P.checked = {};
   }
   function load(day, keepMsg) {
     var my = ++P.seq;
@@ -458,12 +520,12 @@
     var ws = warnings();
     var err = ws.filter(function (w) { return w.level === 'error'; })[0];
     if (err) { say(err.text, 'err'); return; }
-    var placed = P.data.visits.filter(function (v) { return membersOf(v.lead_no).length; });
-    if (!placed.length) { say('사람을 넣은 현장이 없어요.', 'err'); return; }
-    var people = {};
-    placed.forEach(function (v) { membersOf(v.lead_no).forEach(function (c) { people[c] = 1; }); });
+    var placed = P.plan.courses.filter(function (c) { return c.members.length && c.leads.length; });
+    if (!placed.length) { say('사람과 현장을 넣은 코스가 없어요.', 'err'); return; }
+    var people = {}, nSites = 0;
+    placed.forEach(function (c) { nSites += c.leads.length; c.members.forEach(function (m) { people[m] = 1; }); });
     var lines = [P.data.day_label + ' 방문 일정을 ' + (P.data.confirmed_at ? '다시 ' : '') + '확정할까요?',
-      '현장 ' + placed.length + '곳 · 담당자 ' + Object.keys(people).length + '명' +
+      '코스 ' + placed.length + '개 · 현장 ' + nSites + '건 · 담당자 ' + Object.keys(people).length + '명' +
       (P.data.confirmed_at ? ' — 바뀐 사람에게만 DM 이 가요.' : '에게 DM 이 가요.')];
     if (ws.length) {
       lines.push('', '확인할 것:');
