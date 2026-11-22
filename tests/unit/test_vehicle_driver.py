@@ -111,3 +111,105 @@ def test_log_uses_actual_driver(db):
 def test_handle_bad_values(db):
     assert vd.handle_action(vd.A_ONE, 'not json', 'UYM') is None
     assert '바뀌어' in vd.handle_action(vd.A_ONE, json.dumps({'day': '2026-11-30', 'plate': 'x', 'code': 'YM'}), 'UYM')
+
+
+# ── 그룹웨어 [운행 종료](11-22) ────────────────────────────────────────────
+from datetime import date as _date  # noqa: E402
+
+
+def test_end_trip_web_then_no_dm(db):
+    calls = db
+    va.save_day('2026-11-23', [{'plate': '231허6854', 'people': ['YM', 'LSH']}], ASSIGNER, confirm=True)
+    today = _date(2026, 11, 23)
+    vd.end_trip('2026-11-23', '231허6854', 'YM', 'LSH', 'LSH', today=today)   # 김가람이 '이나래 운전'으로 적음
+    a = vd.answer('2026-11-23', '231허6854')
+    assert (a['am'], a['pm'], a['answered_by'], a['via']) == ('LSH', 'LSH', 'YM', 'web') and a['ended_at']
+    assert vd.send_asks('2026-11-23')['sent'] == 0 and not [c for c in calls if c[0] == 'chat.postMessage']
+
+
+def test_end_trip_after_dm_updates_dm(db):
+    calls = db
+    va.save_day('2026-11-23', [{'plate': '231허6854', 'people': ['YM', 'LSH']}], ASSIGNER, confirm=True)
+    vd.send_asks('2026-11-23')
+    calls.clear()
+    vd.end_trip('2026-11-23', '231허6854', 'LSH', 'YM', 'LSH', today=_date(2026, 11, 24))   # 다음 날 아침에 나눠서
+    ups = [p for m, p in calls if m == 'chat.update']
+    assert len(ups) == 2 and all('오전 김가람 · 오후 이나래' in p['text'] for p in ups)
+    first = vd.answer('2026-11-23', '231허6854')['ended_at']
+    vd.end_trip('2026-11-23', '231허6854', 'YM', 'YM', 'YM', today=_date(2026, 11, 24))   # 고치기 — 마지막 답이 맞음
+    a = vd.answer('2026-11-23', '231허6854')
+    assert (a['am'], a['pm']) == ('YM', 'YM') and a['ended_at'] == first     # 종료 시각은 처음 것
+
+
+def test_end_trip_rules(db):
+    va.save_day('2026-11-23', [{'plate': '231허6854', 'people': ['YM', 'LSH']}, {'plate': '53우1783', 'people': ['TH']}],
+                ASSIGNER)                                                    # 저장만 해도 적을 수 있음
+    today = _date(2026, 11, 23)
+    with pytest.raises(ValueError, match='탄 사람만'):
+        vd.end_trip('2026-11-23', '231허6854', 'TH', 'YM', 'YM', today=today)
+    with pytest.raises(ValueError, match='중에서'):
+        vd.end_trip('2026-11-23', '231허6854', 'YM', 'TH', 'TH', today=today)
+    with pytest.raises(ValueError, match='골라'):
+        vd.end_trip('2026-11-23', '231허6854', 'YM', '', '', today=today)
+    with pytest.raises(ValueError, match='마친 뒤'):
+        vd.end_trip('2026-11-23', '231허6854', 'YM', 'YM', 'YM', today=_date(2026, 11, 22))
+    with pytest.raises(ValueError, match='경영지원'):
+        vd.end_trip('2026-11-23', '231허6854', 'YM', 'YM', 'YM', today=_date(2026, 12, 5))
+    vd.end_trip('2026-11-23', '53우1783', 'TH', '', '', today=today)           # 혼자 탄 차는 고르지 않아도
+    assert vd.answer('2026-11-23', '53우1783')['am'] == 'TH'
+
+
+def test_my_trips(db):
+    va.save_day('2026-11-23', [{'plate': '16소4041', 'people': ['YG', 'JK'], 'pm': ['SJ', 'JK']},
+                               {'plate': '231허6854', 'people': ['YM', 'LSH']}], ASSIGNER)
+    t = vd.my_trips('jk', '2026-11-23')
+    assert len(t) == 1 and t[0]['plate'] == '16소4041' and t[0]['answer'] is None
+    assert [r['code'] for r in t[0]['riders']] == ['YG', 'JK', 'SJ']
+    assert t[0]['am_people'] == ['임산', '강해'] and t[0]['pm_people'] == ['오늘', '강해']
+    assert vd.my_trips('SJ', '2026-11-23')[0]['plate'] == '16소4041'          # 오후에만 탄 사람도
+    assert vd.my_trips('TH', '2026-11-23') == [] and vd.my_trips('', '2026-11-23') == []
+    vd.end_trip('2026-11-23', '16소4041', 'JK', 'YG', 'SJ', today=_date(2026, 11, 23))
+    a = vd.my_trips('YG', '2026-11-23')[0]['answer']
+    assert (a['am_name'], a['pm_name'], a['by_name'], a['via']) == ('임산', '오늘', '강해', 'web') and a['ended_at']
+    assert vd.code_of_name('강해') == 'JK' and vd.code_of_name('없는사람') == ''
+
+
+def test_trip_routes_and_field_paths(db, monkeypatch):
+    import dashboard.auth as auth
+    from flask import Flask
+    from dashboard.blueprints import gw_vehicles as bp
+    from dashboard.blueprints.groupware import field_path_allowed
+    monkeypatch.setattr(auth, '_validate_session', lambda require_admin=False: None)
+    monkeypatch.setattr(gw, 'can_use', lambda e: True)
+    monkeypatch.setattr(gw, 'DEV_PREVIEW_USERS', ())
+    me = {'name': '강해'}
+    monkeypatch.setattr(bp, '_my_person', lambda: me)
+    today = _date.today().isoformat()
+    va.save_day(today, [{'plate': '16소4041', 'people': ['YG', 'JK']}], ASSIGNER)
+    app = Flask(__name__)
+    app.secret_key = 'x'
+    app.register_blueprint(bp.gw_vehicles_bp)
+    with app.test_client() as cl:
+        with cl.session_transaction() as s:
+            s['user'] = {'email': 'staff@example.com', 'permission_level': 'user'}
+        j = cl.get('/api/vehicles/trip').get_json()
+        assert j['success'] and [t['plate'] for t in j['trips']] == ['16소4041']
+        r = cl.post('/api/vehicles/trip/end', json={'day': today, 'plate': '16소4041', 'am': 'YG', 'pm': 'YG'}).get_json()
+        assert r['success'] and r['trips'][0]['answer']['am_name'] == '임산'
+        bad = cl.post('/api/vehicles/trip/end', json={'day': today, 'plate': '16소4041', 'am': 'TH', 'pm': 'TH'})
+        assert bad.status_code == 400
+        me['name'] = '모르는사람'
+        assert cl.get('/api/vehicles/trip').get_json()['trips'] == []
+        assert cl.post('/api/vehicles/trip/end', json={'day': today, 'plate': '16소4041'}).status_code == 403
+    assert field_path_allowed('GET', '/api/vehicles/trip') and field_path_allowed('POST', '/api/vehicles/trip/end')
+
+
+def test_confirm_dm_mentions_end_button_only_after_open(db, monkeypatch):
+    rows = {'231허6854': {'people': ['YM', 'LSH'], 'note': '', 'pm': None},
+            '53우1783': {'people': ['TH'], 'note': '', 'pm': None}}
+    cars = {c['plate']: c for c in va.fleet(True)}
+    who = va._who_map()
+    assert '운행 종료' not in va._person_text('2026-11-23', 'YM', rows, cars, who)      # 개발 중엔 안 붙임
+    monkeypatch.setattr(gw, 'DEV_PREVIEW_USERS', ())
+    assert '[운행 종료]' in va._person_text('2026-11-23', 'YM', rows, cars, who)
+    assert '운행 종료' not in va._person_text('2026-11-23', 'TH', rows, cars, who)      # 혼자 탄 차는 자동

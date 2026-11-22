@@ -3237,3 +3237,25 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
   .gw-va-reset { margin-right: 0; }
 }
 .gw-vh-src.confirmed { background: #dbeafe; color: #1e40af; }
+/* 오늘 내 차 [운행 종료](11-22) — 배정 화면 맨 위. 누를 자리 44px, 휴대폰 글자 16px */
+.gw-vt { border: 1px solid #c7d2fe; background: #f5f7ff; border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; display: flex; flex-direction: column; gap: 10px; }
+.gw-vt-title { font-size: 1rem; font-weight: 700; margin: 0; }
+.gw-vt-title span { font-weight: 400; color: #475569; font-size: 0.88rem; margin-left: 4px; }
+.gw-vt-how { margin: 0; color: #475569; font-size: 0.86rem; }
+.gw-vt-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.gw-vt-car { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.gw-vt-car span { color: #475569; font-size: 0.86rem; }
+.gw-vt-end { align-self: flex-start; min-height: 44px; padding: 0 22px; font-weight: 600; }
+.gw-vt-q { margin: 0; font-size: 0.88rem; font-weight: 600; color: #1e293b; }
+.gw-vt-names, .gw-vt-acts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.gw-vt-names .btn, .gw-vt-acts .btn { min-height: 44px; }
+.gw-vt-pick { display: flex; flex-direction: column; gap: 6px; }
+.gw-vt-done { margin: 0; color: #166534; font-size: 0.92rem; }
+.gw-vt-done span { color: #475569; }
+.gw-vt-edit, .gw-vt-back, .gw-vt-cancel { align-self: flex-start; padding-left: 0; padding-right: 0; min-height: 44px; }
+.gw-vt .gw-vh-msg { margin: 0; }
+@media (max-width: 575.98px) {
+  .gw-vt-end { align-self: stretch; }
+  .gw-vt .btn { font-size: 16px; }
+}
+.gw-vt-car small { color: #64748b; font-size: 0.8rem; }

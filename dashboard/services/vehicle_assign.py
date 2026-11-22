@@ -708,6 +708,11 @@ def _person_text(day: str, code: str, rows: Dict[str, Dict], cars: Dict[str, Dic
                 notes.append(r['note'])
     for n in notes:
         lines.append(f"메모: {n}")
+    # 같이 타는 차면 [운행 종료] 안내(11-22) — 화면을 모두에게 연 뒤부터(개발 중엔 못 여는 화면이라 안 붙임)
+    from dashboard.services import groupware as gw
+    shared = any(len(riders(rows[p])) > 1 for p in {w['am'], w['pm']} if p and p in rows)
+    if shared and not gw.DEV_PREVIEW_USERS:
+        lines.append("운행을 마치면 그룹웨어 차량 배정에서 [운행 종료]를 눌러 운전한 사람을 적어 주세요.")
     return '\n'.join(lines)
 
 

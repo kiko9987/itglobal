@@ -19,6 +19,9 @@
     </div>
   </div>
 
+  {# 오늘 내 차 [운행 종료] — 운행 마친 사람이 바로 운전자를 적는다(11-22 부장님). 탄 차가 없으면 안 보임. gw-vehicle-trip.js #}
+  <section class="gw-vt" id="vaTrip" aria-label="오늘 내 차" hidden></section>
+
   <div class="gw-va-status" id="vaStatus"></div>
   <div class="gw-vh-msg" id="vaMsg" role="status" aria-live="polite"></div>
 
@@ -53,4 +56,5 @@
 
 {% block additional_js %}
 <script src="{{ gw_asset('js/gw-vehicle-assign.js') }}"></script>
+<script src="{{ gw_asset('js/gw-vehicle-trip.js') }}"></script>
 {% endblock %}

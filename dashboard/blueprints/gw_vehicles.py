@@ -10,9 +10,10 @@ from datetime import date
 
 from flask import Blueprint, jsonify, redirect, render_template, request
 
-from dashboard.blueprints.hr import _hr_admin, _is_field, _me, dev_preview_gate, gw_page
+from dashboard.blueprints.hr import _hr_admin, _is_field, _me, _my_person, dev_preview_gate, gw_page
 from dashboard.services import hr
 from dashboard.services import vehicle_assign as va
+from dashboard.services import vehicle_driver as vd
 from dashboard.services import vehicle_log as vl
 from dashboard.services import vehicle_manage as vm
 from dashboard.utils.logging_config import get_logger
@@ -175,6 +176,45 @@ def api_assign_save():
     logger.info(f"[차량배정] {day} 저장 by {_me()}: 바뀐 차 {len(res['changed'])}대, DM {res['notified']}건"
                 f"{' (확정)' if body.get('confirm') else ''}")
     return jsonify({'success': True, **res})
+
+
+# ── [운행 종료](11-22 부장님) — 운행을 마친 사람이 바로 운전자를 적는다(저녁 DM 과 같은 자리에 저장) ──
+def _my_code() -> str:
+    p = _my_person() or {}
+    return vd.code_of_name(p.get('name') or '')
+
+
+@gw_vehicles_bp.route('/api/vehicles/trip', methods=['GET'])
+@gw_page
+def api_trip_mine():
+    day = date.today().isoformat()
+    try:
+        code = _my_code()
+        trips = vd.my_trips(code, day) if code else []
+    except Exception as e:
+        logger.error(f'[운전자] 내 차 읽기 실패: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': '불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요.'}), 500
+    return jsonify({'success': True, 'day': day, 'day_label': va.day_label(day), 'trips': trips})
+
+
+@gw_vehicles_bp.route('/api/vehicles/trip/end', methods=['POST'])
+@gw_page
+def api_trip_end():
+    body = request.get_json(silent=True) or {}
+    code = _my_code()
+    if not code:
+        return jsonify({'success': False, 'message': '차량 배정 명단에 없는 분이에요.'}), 403
+    day = (body.get('day') or '').strip()
+    plate = (body.get('plate') or '').strip()[:20]
+    try:
+        vd.end_trip(day, plate, code, body.get('am') or '', body.get('pm') or '')
+        trips = vd.my_trips(code, day)
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        logger.error(f'[운전자] 운행 종료 실패: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': '저장하지 못했어요. 잠시 뒤 다시 해 주세요.'}), 500
+    return jsonify({'success': True, 'trips': trips})
 
 
 @gw_vehicles_bp.route('/api/vehicles/fleet/<plate>', methods=['POST'])

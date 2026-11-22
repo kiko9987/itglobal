@@ -6,7 +6,9 @@
 - 버튼: 탄 사람 이름마다 한 개 + [나눠서 운전](오전·오후 운전자를 따로). 한 명이 답하면 같은 차 다른 사람 DM 도
   '○○ 님이 답했어요'로 바뀐다. 나중에 다시 누르면 고쳐진다(마지막 답이 맞음).
 - 운행일지(vehicle_log)는 답이 있으면 배정보다 이 값을 먼저 쓴다(13:00 기준 오전·오후).
-- 회사로 돌아오지 않고 바로 퇴근하는 날이 많아(11월 운행일지: 카니발·스파크) '복귀 버튼' 대신 DM 으로 했다.
+- 회사로 돌아오지 않고 바로 퇴근하는 날이 많아(11월 운행일지: 카니발·스파크) 저녁 DM 은 그대로 둔다.
+- 그룹웨어 [운행 종료](11-22 부장님): 운행을 마친 사람이 차량 배정 화면에서 바로 운전자를 적는다(via='web').
+  먼저 적으면 저녁 DM 은 그 차에 안 간다(답이 있으니). DM 이 이미 갔으면 '답했어요'로 바꾼다. 어느 쪽이든 마지막 답이 맞음.
 """
 from __future__ import annotations
 
@@ -55,6 +57,10 @@ def _conn():
         if not _table_ready:
             for ddl in _DDL:
                 conn.execute(ddl)
+            cols = {r[1] for r in conn.execute('PRAGMA table_info(vehicle_driver)').fetchall()}
+            for col in ('via', 'ended_at'):            # 11-22 그룹웨어 [운행 종료]
+                if col not in cols:
+                    conn.execute(f'ALTER TABLE vehicle_driver ADD COLUMN {col} TEXT')
             conn.commit()
             _table_ready = True
         yield conn
@@ -182,7 +188,7 @@ def send_asks(day: Optional[str] = None) -> Dict:
         if answer(day, plate):
             continue
         if len(riders) == 1:
-            _save(day, plate, riders[0], riders[0], 'auto')
+            _save(day, plate, riders[0], riders[0], 'auto', via='auto')
             auto += 1
             continue
         blocks = _blocks(day, plate, riders)
@@ -207,12 +213,17 @@ def send_asks(day: Optional[str] = None) -> Dict:
     return {'day': day, 'sent': sent, 'auto': auto}
 
 
-def _save(day: str, plate: str, am: Optional[str], pm: Optional[str], by: str) -> None:
+def _save(day: str, plate: str, am: Optional[str], pm: Optional[str], by: str,
+          via: str = 'slack', ended: bool = False) -> None:
+    now = _now()
     with _conn() as conn:
-        conn.execute('INSERT INTO vehicle_driver (day, plate, am, pm, answered_by, answered_at) VALUES (?,?,?,?,?,?) '
+        conn.execute('INSERT INTO vehicle_driver (day, plate, am, pm, answered_by, answered_at, via, ended_at) '
+                     'VALUES (?,?,?,?,?,?,?,?) '
                      'ON CONFLICT(day, plate) DO UPDATE SET am = COALESCE(excluded.am, vehicle_driver.am), '
                      'pm = COALESCE(excluded.pm, vehicle_driver.pm), answered_by = excluded.answered_by, '
-                     'answered_at = excluded.answered_at', (day, plate, am, pm, by, _now()))
+                     'answered_at = excluded.answered_at, via = excluded.via, '
+                     'ended_at = COALESCE(vehicle_driver.ended_at, excluded.ended_at)',
+                     (day, plate, am, pm, by, now, via, now if ended else None))
 
 
 def _code_of_slack(slack_id: str) -> str:
@@ -253,3 +264,78 @@ def handle_action(action_id: str, value: str, slack_user: str, channel: str = ''
     _refresh_messages(day, plate, by)
     logger.info(f'[운전자] {day} {plate} 운전 답 by {by}: {answer(day, plate)}')
     return None
+
+
+# ── 그룹웨어 [운행 종료](11-22 부장님) ───────────────────────────────────────
+END_BACK_DAYS = 7      # 깜빡한 날도 일주일까지는 적을 수 있게
+
+
+def code_of_name(name: str) -> str:
+    """인사카드 이름 → 이니셜(배정할 수 있는 사람만). 모르면 ''."""
+    from dashboard.services import vehicle_assign as va
+    name = (name or '').strip()
+    return next((p['code'] for p in va.staff() if p['name'] == name), '') if name else ''
+
+
+def my_trips(code: str, day: Optional[str] = None) -> List[Dict]:
+    """그날 이 사람이 탄 차(배정 기준)와 운전자 답. 확정 여부와 상관없이 저장된 배정이면 보인다."""
+    from dashboard.services import vehicle_assign as va
+    day = day or date.today().isoformat()
+    code = (code or '').upper()
+    if not code:
+        return []
+    who = va._who_map()
+    cars = {c['plate']: c for c in va.fleet(True)}
+    out = []
+    for plate, r in va._day_rows(day).items():
+        rid = va.riders(r)
+        if code not in rid:
+            continue
+        a = answer(day, plate) or {}
+        out.append({
+            'day': day, 'plate': plate, 'car': (cars.get(plate) or {}).get('label') or plate,   # 화면용(슬랙 * 없이)
+            'riders': [{'code': c, 'name': va.display(c, who)} for c in rid],
+            'am_people': [va.display(c, who) for c in (r.get('people') or [])],
+            'pm_people': [va.display(c, who) for c in va.pm_of(r)] if r.get('pm') is not None else None,
+            'am_codes': list(r.get('people') or []), 'pm_codes': list(va.pm_of(r)),   # 나눠서 운전 — 그 반나절에 탄 사람만 보이게
+            'answer': {
+                'am': a.get('am') or '', 'pm': a.get('pm') or '',
+                'am_name': va.display(a['am'], who) if a.get('am') else '',
+                'pm_name': va.display(a['pm'], who) if a.get('pm') else '',
+                'by_name': '' if a.get('answered_by') == 'auto' else va.display(a.get('answered_by') or '', who),
+                'at': (a.get('answered_at') or '')[11:16], 'via': a.get('via') or '',
+                'ended_at': (a.get('ended_at') or '')[11:16],
+            } if a else None,
+        })
+    return out
+
+
+def end_trip(day: str, plate: str, by: str, am: str, pm: str, today: Optional[date] = None) -> Dict:
+    """운행을 마친 사람이 그룹웨어에서 [운행 종료] + 운전자. 그 차에 탄 사람만 적을 수 있다.
+    탄 사람이 한 명이면 그 사람. am == pm 이면 하루 내내 한 사람. 저녁 DM 이 이미 갔으면 '답했어요'로 바꾼다."""
+    from dashboard.services import vehicle_assign as va
+    today = today or date.today()
+    if not va.valid_day(day):
+        raise ValueError('날짜가 올바르지 않아요.')
+    d = date.fromisoformat(day)
+    if d > today:
+        raise ValueError('운행을 마친 뒤에 눌러 주세요.')
+    if (today - d).days > END_BACK_DAYS:
+        raise ValueError(f'{END_BACK_DAYS}일이 지난 운행은 경영지원에 말씀해 주세요.')
+    by = (by or '').upper()
+    riders = dict(_cars_to_ask_all(day)).get(plate, [])
+    if not riders:
+        raise ValueError('이 날 이 차 배정이 없어요. 새로 고쳐 주세요.')
+    if by not in riders:
+        raise ValueError('이 차에 탄 사람만 적을 수 있어요.')
+    am, pm = (am or '').upper(), (pm or '').upper()
+    if len(riders) == 1:
+        am = pm = riders[0]
+    if not am or not pm:
+        raise ValueError('운전한 사람을 골라 주세요.')
+    if am not in riders or pm not in riders:
+        raise ValueError('이 차에 탄 사람 중에서 골라 주세요.')
+    _save(day, plate, am, pm, by, via='web', ended=True)
+    _refresh_messages(day, plate, by)
+    logger.info(f'[운전자] {day} {plate} 운행 종료(그룹웨어) by {by}: 오전 {am} 오후 {pm}')
+    return answer(day, plate) or {}

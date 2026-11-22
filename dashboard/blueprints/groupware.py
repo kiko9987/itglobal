@@ -24,6 +24,8 @@ groupware_bp = Blueprint('groupware', __name__)
 _FIELD_PAGES = ('/home', '/hr/me', '/leave', '/yearend', '/vehicles/assign', '/logout', '/login')
 _FIELD_API = [
     (('GET',), re.compile(r'^/api/vehicles/assign$')),    # 차량 배정 보기만(고치기는 배정 담당자, 11-20)
+    (('GET',), re.compile(r'^/api/vehicles/trip$')),      # 오늘 내가 탄 차(11-22)
+    (('POST',), re.compile(r'^/api/vehicles/trip/end$')), # [운행 종료] + 운전자(그 차에 탄 사람만 — vehicle_driver.end_trip, 11-22)
     (('GET',), re.compile(r'^/api/home$')),              # 홈(현장은 내 휴가만 담김)
     (('GET',), re.compile(r'^/api/hr/people/\d+$')),     # 본인 카드(본인 여부는 화면 쪽에서 다시 확인)
     (('GET',), re.compile(r'^/api/leave/me$')),          # 내 휴가(+신청 창 정보)
