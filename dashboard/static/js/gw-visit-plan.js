@@ -150,7 +150,7 @@
       (isDuty(p.code) ? ' <small class="gw-va-leave">온라인 당번</small>' : '');
     if (!P.canEdit) return '<div class="gw-va-person"><span class="gw-va-pname">' + esc(p.name) + '</span>' + tags + '</div>';
     // 현장 목록과 같은 방식 — 줄 아무 곳이나 눌러 체크, 체크한 사람을 끌면 모두 함께
-    return '<div class="gw-va-person gw-vp-pperson' + (on ? ' on' : '') + (cs.length ? ' placed' : '') + '" draggable="true" data-person="' + esc(p.code) + '">' +
+    return '<div class="gw-va-person gw-vp-pperson' + (on ? ' on' : '') + (cs.length ? ' placed' : '') + '" draggable="true" data-pperson="' + esc(p.code) + '">' +
       '<input type="checkbox" class="form-check-input gw-vp-check" data-act="pcheck" data-code="' + esc(p.code) + '"' + (on ? ' checked' : '') +
       ' aria-label="' + esc(p.name) + ' 고르기"><span class="gw-va-pname">' + esc(p.name) + '</span>' + tags + '</div>';
   }
@@ -452,9 +452,9 @@
   var drag = null;
   root.addEventListener('dragstart', function (e) {
     if (!P.canEdit || !e.target.closest) return;
-    var p = e.target.closest('[data-person][draggable="true"]'), l = e.target.closest('[data-drag-lead]');
+    var p = e.target.closest('[data-pperson][draggable="true"]'), l = e.target.closest('[data-drag-lead]');
     if (p) {
-      var code = p.getAttribute('data-person');
+      var code = p.getAttribute('data-pperson');
       drag = { people: P.pp[code] ? checkedPeople() : [code] };     // 체크한 사람을 끌면 체크한 사람 모두
     }
     else if (l) {

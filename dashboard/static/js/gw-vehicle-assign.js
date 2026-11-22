@@ -557,8 +557,11 @@
 
   // 마우스 끌기 — 손가락(터치)은 스크롤과 겹쳐서 끌지 않고 누르기로 한다
   var D = null;
+  // ① 방문 일정(gw-visit-plan.js, #vpPlan)은 자기 끌기를 쓴다 — 거기 누른 것은 차량 배정이 건드리지 않음
+  //   (11-22: 방문 일정 사람을 잡으면 여기서 이름표가 생기고, 브라우저 끌기가 pointerup 을 삼켜 포인터에 남았음)
+  function inPlan(t) { return !!(t && t.closest && t.closest('#vpPlan')); }
   document.addEventListener('pointerdown', function (e) {
-    if (!S.canEdit || e.pointerType !== 'mouse' || e.button !== 0) return;
+    if (!S.canEdit || e.pointerType !== 'mouse' || e.button !== 0 || inPlan(e.target)) return;
     var p = e.target.closest('[data-team], [data-person]');
     if (!p || e.target.closest('[data-rm]')) return;
     D = { code: p.dataset.team || p.dataset.person, x: e.clientX, y: e.clientY, ghost: null, over: null };
@@ -583,6 +586,15 @@
       D.over = over;
     }
   });
+  function dropGhost() {             // 끌기가 중간에 끊기면(창 밖·브라우저 끌기 등) 이름표를 지운다
+    if (!D) return;
+    if (D.ghost) D.ghost.remove();
+    if (D.over) D.over.classList.remove('over');
+    document.body.classList.remove('gw-va-dragging');
+    D = null;
+  }
+  document.addEventListener('pointercancel', dropGhost);
+  window.addEventListener('blur', dropGhost);
   document.addEventListener('pointerup', function (e) {
     if (!D) return;
     var d = D;
@@ -600,7 +612,7 @@
   // 누르기 — 사람 고르기 / 차에 넣기 / 명단으로 빼기
   document.addEventListener('click', function (e) {
     if (S.suppressClick) { S.suppressClick = false; return; }
-    if (!S.canEdit) return;
+    if (!S.canEdit || inPlan(e.target)) return;
     var rm = e.target.closest('[data-rm]');
     if (rm) {
       var rc = carOf(rm.dataset.plate), rh = rm.dataset.half || 'all';
