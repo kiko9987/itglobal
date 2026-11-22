@@ -277,7 +277,7 @@
     }).join('');
     var add = '';
     if (P.canEdit) {
-      add = '<select class="form-select form-select-sm gw-vp-addduty" data-act="addduty" aria-label="온라인 당번 넣기"><option value="">+ 당번 넣기</option>' +
+      add = '<select class="form-select form-select-sm gw-vp-addduty" data-act="addduty" aria-label="온라인 당번 지정하기"><option value="">+ 당번 지정하기</option>' +
         P.data.people.filter(function (p) { return !isDuty(p.code); }).map(function (p) {
           var w = offWhy(p.code) || halfWhy(p.code);
           return '<option value="' + esc(p.code) + '">' + esc(p.name) + (w ? ' (' + esc(w) + ')' : '') + '</option>';
