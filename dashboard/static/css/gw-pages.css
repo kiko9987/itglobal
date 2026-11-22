@@ -3298,7 +3298,13 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
   .gw-vp-row .gw-vp-vtext, .gw-vp-inrow .gw-vp-vtext { flex: 1 1 0; min-width: 0; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
 .gw-vp-row[draggable="true"], .gw-vp-inrow[draggable="true"] { cursor: grab; }
-.gw-vp-inrow.on { border-color: #2a3038; background: #f2f3f6; }
+/* 체크한 현장도 사람과 같은 남색 채움·흰 글자(11-22 부장님) */
+.gw-vp-inrow.on { border-color: #2a3038; background: #2a3038; color: #ffffff; }
+.gw-vp-newc.gw-vp-keep { visibility: hidden; }
+.gw-vp-inrow.on .gw-va-sno, .gw-vp-inrow.on .gw-vp-vtext { color: #e2e8f0; }
+.gw-vp-inrow.on .gw-va-smark { background: #ffffff; border-color: #ffffff; color: #2a3038; }
+.gw-vp-inrow.on .gw-vp-check { border-color: #ffffff; background-color: #ffffff; }
+.gw-vp-inrow.on .gw-vp-check:checked { background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%232a3038' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='m6 10 3 3 6-6'/%3e%3c/svg%3e"); }
 .gw-vp-board.editing .gw-vp-inrow { cursor: pointer; user-select: none; }
 /* 사람도 체크로 여러 명 한꺼번에(11-22 부장님) — 줄 아무 곳이나 눌러 체크, 위 한 줄은 높이 고정 */
 .gw-vp-pperson { cursor: pointer; user-select: none; gap: 8px; }

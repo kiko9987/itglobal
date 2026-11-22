@@ -234,7 +234,9 @@
           (v.addr ? '<span class="gw-vp-vaddr">' + esc(v.addr) + '</span>' : '') +
           (v.text ? '<span class="gw-vp-vtext">' + esc(v.text) + '</span>' : '') + '</span>' +
           // 체크한 줄은 [새 코스로]를 숨긴다 — 체크한 것은 위 [새 코스로]·지역 단추로 함께 올림
-          (P.canEdit && !on ? '<button type="button" class="btn btn-sm btn-outline-secondary gw-vp-newc" data-act="newc" data-lead="' + esc(v.lead_no) + '">새 코스로</button>' : '') + '</li>';
+          //   자리는 남겨 둔다(숨김) — 단추가 빠지면 줄 높이가 줄어 아래가 올라감(11-22 부장님)
+          (P.canEdit ? '<button type="button" class="btn btn-sm btn-outline-secondary gw-vp-newc' + (on ? ' gw-vp-keep' : '') + '" data-act="newc" data-lead="' + esc(v.lead_no) + '"' +
+            (on ? ' tabindex="-1" aria-hidden="true" disabled' : '') + '>새 코스로</button>' : '') + '</li>';
       }).join('') + '</ul></div>';
     }).join('');
   }
