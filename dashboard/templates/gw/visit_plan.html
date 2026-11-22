@@ -52,9 +52,14 @@
         </section>
       </div>
     </div>
-    <ul class="gw-vp-warns" id="vpWarns" aria-label="확정 전 확인할 것"></ul>
-    <div class="gw-va-bar" id="vpBar" hidden>
+    <div class="gw-va-bar gw-vp-bar" id="vpBar" hidden>
       <div class="gw-vh-msg gw-va-barmsg" id="vpBarMsg" role="status" aria-live="polite"></div>
+      {# 확인할 것 — 첫 문장 + [외 n건], 펼치면 이 줄 위로 겹쳐 뜸(11-23 부장님: 목록이 화면을 밀지 않게) #}
+      <div class="gw-vp-warn" id="vpWarn" hidden>
+        <span class="gw-vp-warntext" id="vpWarnText"></span>
+        <button type="button" class="btn btn-sm btn-link gw-vp-warnmore" id="vpWarnMore" aria-controls="vpWarnPop" aria-expanded="false" hidden></button>
+        <ul class="gw-vp-warnpop" id="vpWarnPop" aria-label="확정 전 확인할 것" hidden></ul>
+      </div>
       <button type="button" class="btn btn-outline-secondary" id="vpSave">임시 저장</button>
       <button type="button" class="btn btn-primary" id="vpConfirm">일정 확정 · DM 보내기</button>
     </div>

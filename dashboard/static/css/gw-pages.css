@@ -3276,8 +3276,13 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
 .gw-vp-main { min-width: 0; }
 .gw-vp-courses { display: flex; flex-direction: column; gap: 10px; margin: 6px 0 16px; }
 .gw-vp-course { gap: 8px; }
-.gw-vp-course.need { border-color: #fdba74; }
-.gw-vp-course.warn { box-shadow: inset 3px 0 0 #f59e0b; }
+/* 확인할 것은 카드 전체가 아니라 그 자리(칩·꼬리표·'여기에 사람을 놓으세요')만 주황 — 줄은 늘지 않음(11-23 부장님) */
+.gw-va-chip.w { border-color: #ea580c; background: #fff7ed; color: #9a3412; }
+.gw-va-chip.w .fa-triangle-exclamation { font-size: 0.7rem; margin-right: 3px; }
+.gw-va-chip.w .gw-va-leave { color: #9a3412; }
+.gw-va-none.w { color: #9a3412; font-weight: 600; }
+.gw-va-smark.w, .gw-vp-inrow.on .gw-va-smark.w { border-color: #ea580c; background: #fff7ed; color: #9a3412; }
+.gw-va-smark.w .fa-triangle-exclamation { font-size: 0.64rem; }
 .gw-vp-course.over, .gw-vp-inbox.over { border-color: #2a3038; background: #f2f3f6; }
 .gw-vp-chead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .gw-vp-chead .gw-va-people { flex: 1 1 auto; min-height: 30px; }
@@ -3363,10 +3368,14 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
 .gw-page .gw-vp-duty .gw-vp-addduty { width: 100%; max-width: none; }
 .gw-vp-shared { display: inline-flex; align-items: center; gap: 6px; font-size: 0.86rem; color: #1a1c20; margin: 0; }
 .gw-vp-leave { font-size: 0.86rem; color: #1a1c20; }
-.gw-vp-warns { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 0.86rem; }
-.gw-vp-warns:empty { display: none; }
-.gw-vp-warns li.warn { color: #9a3412; }
-.gw-vp-warns li.err { color: #b91c1c; font-weight: 600; }
+.gw-vp-bar { align-items: center; }
+.gw-vp-warn { position: relative; flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 4px; font-size: 0.86rem; color: #9a3412; }
+.gw-vp-warn[hidden] { display: none; }
+.gw-vp-warntext { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gw-vp-warnmore { flex: 0 0 auto; padding: 0 4px; font-size: 0.86rem; white-space: nowrap; }
+.gw-vp-warnpop { position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 20; width: min(560px, 100%); margin: 0; padding: 10px 12px; list-style: none;
+  display: flex; flex-direction: column; gap: 4px; background: #fff; border: 1px solid #fdba74; border-radius: 10px; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12); color: #9a3412; }
+.gw-vp-warnpop[hidden] { display: none; }
 .gw-vp-next { margin-left: 6px; }
 @media (max-width: 767.98px) {
   .gw-vp-board { grid-template-columns: minmax(0, 1fr); }
@@ -3385,6 +3394,8 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
   .gw-vp-memo { flex-direction: column !important; align-items: stretch; }
   .gw-vp-memo input { min-height: 44px; font-size: 16px; }
   .gw-page .gw-vp-duty .gw-vp-addduty, .gw-page .gw-vp-duty .gw-vp-shift { height: 44px; min-height: 44px; font-size: 16px; }
+  .gw-vp-warn { flex: 1 1 100%; }
+  .gw-vp-warnmore { min-height: 44px; }
   .gw-vp-shared { min-height: 44px; }
   .gw-vp-left { position: static; max-height: none; overflow: visible; }
   .gw-vp-shared input { width: 20px; height: 20px; }
