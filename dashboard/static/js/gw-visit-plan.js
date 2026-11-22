@@ -189,7 +189,8 @@
     var bad = ws.some(function (w) { return w.course === i; });
     var vs = c.leads.map(function (n) { return P.byNo[n]; }).filter(Boolean);
     var chips = c.members.map(function (m) {
-      return '<span class="gw-va-chip"><span class="gw-va-cname">' + esc(name(m)) + '</span>' + personTag(m) +
+      // 칩을 다른 코스로 끌면 옮기고, 왼쪽 사람 칸으로 끌면 이 코스에서 뺀다(11-22 부장님)
+      return '<span class="gw-va-chip gw-vp-chip"' + (P.canEdit ? ' draggable="true" data-chip="' + esc(m) + '" data-ci="' + i + '"' : '') + '><span class="gw-va-cname">' + esc(name(m)) + '</span>' + personTag(m) +
         (P.canEdit ? '<button type="button" class="gw-va-x" data-act="rmp" data-ci="' + i + '" data-code="' + esc(m) + '" aria-label="' + esc(label(i)) + '에서 ' + esc(name(m)) + ' 빼기">×</button>' : '') + '</span>';
     }).join('');
     var acts = '';
@@ -346,6 +347,19 @@
     changed(ci === -1 ? '#vpInList [data-act="check"]' : '.gw-vp-course[data-ci="' + ci + '"] [data-act="memo"]');
     say(ci === -1 ? '현장 목록으로 내렸어요.' : label(ci) + '에 현장 ' + nos.length + '건을 올렸어요.', 'info');
   }
+  function movePerson(code, from, ci) {     // ci = -1 이면 코스에서 빼기(왼쪽 사람 칸에 놓음)
+    var src = P.plan.courses[from];
+    if (src) src.members.splice(src.members.indexOf(code), 1);
+    if (ci === -1) {
+      changed('[data-act="pcheck"][data-code="' + cssq(code) + '"]');
+      say(label(from) + '에서 ' + name(code) + '님을 뺐어요.', 'info');
+      return;
+    }
+    var c = P.plan.courses[ci];
+    if (c.members.indexOf(code) === -1) c.members.push(code);
+    changed('.gw-vp-course[data-ci="' + ci + '"] .gw-va-x');
+    say(name(code) + '님을 ' + label(from) + '에서 ' + label(ci) + '로 옮겼어요.', 'info');
+  }
   function putPeople(codes, ci) {
     var c = P.plan.courses[ci];
     codes.forEach(function (code) { if (c.members.indexOf(code) === -1) c.members.push(code); delete P.pp[code]; });
@@ -452,8 +466,11 @@
   var drag = null;
   root.addEventListener('dragstart', function (e) {
     if (!P.canEdit || !e.target.closest) return;
+    var chip = e.target.closest('[data-chip]');
     var p = e.target.closest('[data-pperson][draggable="true"]'), l = e.target.closest('[data-drag-lead]');
-    if (p) {
+    if (chip) {
+      drag = { people: [chip.getAttribute('data-chip')], from: parseInt(chip.getAttribute('data-ci'), 10) };
+    } else if (p) {
       var code = p.getAttribute('data-pperson');
       drag = { people: P.pp[code] ? checkedPeople() : [code] };     // 체크한 사람을 끌면 체크한 사람 모두
     }
@@ -466,7 +483,10 @@
   function dropZone(e) {
     var z = e.target.closest && e.target.closest('[data-drop]');
     if (!z || !drag) return null;
-    if (drag.people && z.getAttribute('data-drop') !== 'course') return null;
+    var kind = z.getAttribute('data-drop');
+    if (drag.people && kind !== 'course' && !(kind === 'people' && drag.from !== undefined)) return null;   // 사람 칸엔 코스에서 뺄 때만
+    if (drag.leads && kind === 'people') return null;
+    if (drag.from !== undefined && kind === 'course' && parseInt(z.getAttribute('data-ci'), 10) === drag.from) return null;
     return z;
   }
   root.addEventListener('dragover', function (e) {
@@ -494,7 +514,8 @@
     var ci = z.getAttribute('data-drop') === 'course' ? parseInt(z.getAttribute('data-ci'), 10) : -1;
     var row = ci !== -1 && e.target.closest('.gw-vp-row');
     root.querySelectorAll('.before').forEach(function (x) { x.classList.remove('before'); });
-    if (d.people) putPeople(d.people, ci);
+    if (d.people && d.from !== undefined) movePerson(d.people[0], d.from, ci);
+    else if (d.people) putPeople(d.people, ci);
     else moveTo(d.leads, ci, row ? row.getAttribute('data-drag-lead') : null);
   });
   root.addEventListener('dragend', function () {

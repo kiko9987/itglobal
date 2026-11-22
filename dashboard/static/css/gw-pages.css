@@ -3303,6 +3303,8 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
 /* 사람도 체크로 여러 명 한꺼번에(11-22 부장님) — 줄 아무 곳이나 눌러 체크, 위 한 줄은 높이 고정 */
 .gw-vp-pperson { cursor: pointer; user-select: none; gap: 8px; }
 .gw-vp-pperson.on { border-color: #2a3038; background: #f2f3f6; }
+.gw-vp-board.editing .gw-vp-chip { cursor: grab; user-select: none; }
+.gw-vp-people.over { border-color: #2a3038; background: #f2f3f6; }
 .gw-vp-people .gw-va-staff-how { display: flex; align-items: center; gap: 6px; height: 32px; margin: 4px 0 8px; white-space: nowrap; overflow: hidden; }
 .gw-vp-people .gw-va-staff-how .gw-vp-how { overflow: hidden; text-overflow: ellipsis; }
 .gw-vp-board.editing .gw-vp-inrow:hover { border-color: #b9bdc6; }
