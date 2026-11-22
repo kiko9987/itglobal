@@ -230,11 +230,19 @@
   function selBar() {
     var n = checkedList().length;
     var bar = $('vpSelBar');
-    if (!P.canEdit || !n) { bar.hidden = true; bar.innerHTML = ''; return; }
-    bar.hidden = false;
-    bar.innerHTML = '<strong>체크한 현장 ' + n + '건</strong> → ' + P.plan.courses.map(function (c, i) {
-      return '<button type="button" class="btn btn-sm btn-outline-secondary" data-act="lift" data-ci="' + i + '">' + esc(label(i)) + '로</button>';
-    }).join('') + '<button type="button" class="btn btn-sm btn-primary" data-act="liftnew">새 코스로</button>' +
+    if (!P.canEdit) { bar.innerHTML = ''; return; }
+    if (!n) {
+      bar.innerHTML = '<span class="gw-vp-how">같은 지역끼리 모아 보여 줘요. 위 코스로 끌어 올리거나(코스 안 줄 위에 놓으면 그 앞에), 체크해서 한꺼번에 올리세요.</span>';
+      return;
+    }
+    // 코스가 많으면 단추가 두 줄로 넘어가 목록이 밀림 → 4개부터는 목록 상자 하나로
+    var to = P.plan.courses.length > 3
+      ? '<select class="form-select form-select-sm gw-vp-liftsel" data-act="liftsel" aria-label="체크한 현장을 올릴 코스"><option value="">코스 고르기</option>' +
+        P.plan.courses.map(function (c, i) { return '<option value="' + i + '">' + esc(label(i)) + '</option>'; }).join('') + '</select>'
+      : P.plan.courses.map(function (c, i) {
+        return '<button type="button" class="btn btn-sm btn-outline-secondary" data-act="lift" data-ci="' + i + '">' + esc(label(i)) + '로</button>';
+      }).join('');
+    bar.innerHTML = '<strong>체크한 현장 ' + n + '건</strong> → ' + to + '<button type="button" class="btn btn-sm btn-primary" data-act="liftnew">새 코스로</button>' +
       '<button type="button" class="btn btn-sm btn-link" data-act="uncheck">체크 풀기</button>';
   }
   function dutyPanel() {
@@ -294,7 +302,6 @@
       '<p class="gw-va-sempty">' + (P.canEdit ? '아래 현장의 [새 코스로]를 누르거나, 현장을 체크한 뒤 [새 코스로]를 눌러 코스를 만들어 주세요.' : '아직 코스가 없어요.') + '</p>';
     $('vpAddCourse').hidden = !P.canEdit;
     $('vpInboxCount').textContent = left.length + '건' + (left.length !== P.data.visits.length ? ' (전체 ' + P.data.visits.length + '건)' : '');
-    $('vpHow').textContent = P.canEdit ? '같은 지역끼리 모아 보여 줘요. 위 코스로 끌어 올리거나(코스 안 줄 위에 놓으면 그 앞에), 체크해서 한꺼번에 올리세요.' : '';
     selBar();
     $('vpInList').innerHTML = inboxRows() ||
       '<p class="gw-va-sempty">' + (P.data.visits.length ? '모든 현장을 코스에 넣었어요.' : '이날 방문 일정이 없어요.') + '</p>';
@@ -405,7 +412,9 @@
     var el = e.target;
     if (!P.canEdit) return;
     var act = el.getAttribute('data-act');
-    if (act === 'check') {
+    if (act === 'liftsel' && el.value !== '') {
+      moveTo(checkedList(), parseInt(el.value, 10));
+    } else if (act === 'check') {
       if (el.checked) P.checked[el.getAttribute('data-lead')] = true; else delete P.checked[el.getAttribute('data-lead')];
       P.focus = '[data-act="check"][data-lead="' + cssq(el.getAttribute('data-lead')) + '"]';
       render();

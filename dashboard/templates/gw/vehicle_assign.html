@@ -51,9 +51,9 @@
         <section class="gw-vp-inbox" id="vpInbox" data-drop="inbox" aria-label="코스에 안 넣은 현장">
           <div class="gw-vp-sitehead">
             <h2 class="gw-vp-h">현장 목록 <span id="vpInboxCount"></span></h2>
-            <p class="gw-vp-how" id="vpHow"></p>
+            {# 안내 글과 '체크한 현장 → [코스 N로]' 단추가 같은 자리를 번갈아 씀 — 체크해도 목록이 밀리지 않게(11-22 부장님) #}
+            <div class="gw-vp-selbar" id="vpSelBar" aria-live="polite"></div>
           </div>
-          <div class="gw-vp-selbar" id="vpSelBar" hidden></div>
           <div id="vpInList"></div>
         </section>
       </div>
