@@ -43,7 +43,10 @@ def test_seeded_fleet(db):
     cars = {c['plate']: c for c in va.fleet()}
     assert len(cars) == 11 and len(va.fleet(True)) == 14      # 파나메라·벤츠·랜드로버는 배정에서 뺌
     assert cars['237허5358']['label'] == '레이 5358' and cars['237허5358']['usage'] == va.SHARED
-    assert cars['143고9687']['usage'] == va.SHARED and cars['53우1783']['usage'] == va.SHARED   # 카니발·스파크·모닝도 매일 배정
+    # 11-22 부장님: 카니발=YG 차(모자랄 때 빌려 씀), 스파크=MW 개인 차(유류비 지원) → 고정 차. 모닝은 공용
+    assert (cars['143고9687']['usage'], cars['143고9687']['fixed_user']) == (va.FIXED, 'YG')
+    assert (cars['53우1783']['usage'], cars['53우1783']['fixed_user'], cars['53우1783']['corp']) == (va.FIXED, 'MW', '개인(MW)')
+    assert cars['60거5484']['usage'] == va.SHARED
     assert '204두8988' not in cars and {c['plate']: c for c in va.fleet(True)}['204두8988']['usage'] == va.OFF
     assert cars['143고9687']['needs_log'] == 0
     va.update_car('133가6633', {'usage': va.FIXED, 'fixed_user': 'MJ'}, ASSIGNER)
@@ -398,3 +401,13 @@ def test_trip_driver_by_half(db):
     d = vl.vehicle_days('2026-11', '16소4041', LEADS)['days'][0]
     assert [t['driver'] for t in sorted(d['trips'], key=lambda t: t['start'])] == ['임산', '오늘']
     assert d['drivers'][:2] == ['임산', '오늘'] and d['source'] == 'assigned'
+
+
+def test_seed_fix_only_untouched_rows(db):
+    """11-22 고정 차 바꾸기는 처음 시드 그대로인 줄에만 — 화면에서 고친 줄은 그대로."""
+    with va._conn() as conn:
+        conn.execute("UPDATE vehicle_fleet SET usage = 'shared', fixed_user = '', updated_by = 'seed' WHERE plate = '53우1783'")
+        conn.execute("UPDATE vehicle_fleet SET usage = 'shared', fixed_user = '', updated_by = 'boss' WHERE plate = '143고9687'")
+    va._table_ready = False
+    cars = {c['plate']: c for c in va.fleet()}
+    assert cars['53우1783']['usage'] == va.FIXED and cars['143고9687']['usage'] == va.SHARED

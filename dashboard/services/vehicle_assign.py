@@ -40,9 +40,9 @@ _SEED = [
     ('817루4904', '포터 4904', '포터', '디젤', '글로벌', SHARED, '', 1, 1),
     ('821저4919', '포터 4919(LPG)', '포터', 'LPG', '글로벌', SHARED, '', 1, 1),
     ('90머9131', '전기트럭 9131', '포터 일렉트릭', '전기', '글로벌', SHARED, '', 1, 1),
-    ('53우1783', '스파크 1783', '스파크', '가솔린', '글로벌', SHARED, '', 1, 1),
+    ('53우1783', '스파크 1783', '스파크', '가솔린', '개인(MW)', FIXED, 'MW', 0, 1),    # MW 개인 차 — 회사가 유류비 지원, U+ 단말 연결(11-22)
     ('60거5484', '모닝 5484', '모닝', '가솔린', '글로벌', SHARED, '', 1, 1),
-    ('143고9687', '카니발 9687', '카니발', '디젤', '글로벌', SHARED, 'YG', 0, 1),   # 평소 YG, 매일 배정 목록엔 넣음(11-20)
+    ('143고9687', '카니발 9687', '카니발', '디젤', '글로벌', FIXED, 'YG', 0, 1),   # YG 차 — 차가 모자랄 때만 빌려 씀(11-22)
     ('204두8988', '파나메라 8988', '파나메라', '', '글로벌', OFF, 'JW', 1, 0),      # 현장 안 씀 — 배정에서 뺌
     ('260나7350', '벤츠 7350', '벤츠', '', '그룹', OFF, '김영숙', 1, 0),
     ('133가6633', '랜드로버 6633', '랜드로버', '디젤', '플랜트', OFF, '', 1, 0),
@@ -118,6 +118,12 @@ def _conn():
                 conn.execute('INSERT OR IGNORE INTO vehicle_fleet (plate, label, model, fuel, corp, usage, fixed_user, '
                              'needs_log, uplus, active, sort_no, updated_by, updated_at) '
                              'VALUES (?,?,?,?,?,?,?,?,?,1,?,?,?)', (*s, i, 'seed', _now()))
+            # 11-22 부장님: 카니발=YG 차(모자랄 때만 빌려 씀), 스파크=MW 개인 차(유류비 지원) → 고정 차로.
+            #   처음 시드 그대로인 줄만 바꾼다(화면에서 고친 줄은 그대로).
+            for plate, corp, user, need in (('143고9687', '글로벌', 'YG', 0), ('53우1783', '개인(MW)', 'MW', 0)):
+                conn.execute("UPDATE vehicle_fleet SET usage = ?, fixed_user = ?, corp = ?, needs_log = ?, "
+                             "updated_by = 'seed-1122', updated_at = ? WHERE plate = ? AND updated_by = 'seed'",
+                             (FIXED, user, corp, need, _now(), plate))
             conn.commit()
             _table_ready = True
         yield conn

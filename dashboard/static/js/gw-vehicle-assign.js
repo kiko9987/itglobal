@@ -114,8 +114,16 @@
   function staffSel(code) { return '#vaStaffList [data-person="' + cssq(code) + '"]'; }
   function chipSel(code) { return '.gw-va-chip[data-person="' + cssq(code) + '"] .gw-va-cname'; }
   function onlyOne(key) { return keyCodes(key)[0]; }
-  function staffNoCar() {             // 방문은 있는데 아직 차 없는 사람
-    return Object.keys(S.visits).filter(function (c) { return S.names[c] && !S.off[c] && !whereIs(c); }).map(name);
+  function ownCars() {                // 고정 차 주인 → 그 차(YG 카니발·MW 스파크)
+    var own = {};
+    S.cars.forEach(function (c) { if (c.usage === 'fixed' && c.fixed_user && S.names[c.fixed_user]) own[c.fixed_user] = c; });
+    return own;
+  }
+  function staffNoCar() {             // 방문은 있는데 아직 차 없는 사람(자기 차를 아무도 안 빌렸으면 자기 차로 본다)
+    var own = ownCars();
+    return Object.keys(S.visits).filter(function (c) {
+      return S.names[c] && !S.off[c] && !whereIs(c) && !(own[c] && !ridersOf(own[c]).length);
+    }).map(name);
   }
   function riders() {
     var seen = {};
@@ -192,7 +200,16 @@
     //   같은 쪽 안에서는 서버 순서(방문 많은 순) 그대로
     teams = teams.filter(function (t) { return t.left.length > 1; })
       .concat(teams.filter(function (t) { return t.left.length === 1; }));
-    var freeOther = free.filter(function (c) { return !inTeam[c]; });
+    // 자기 차(고정 차 주인 — YG 카니발·MW 스파크, 11-22 부장님): 2명 이상 팀에 끼지 않았고, 자기 차를 아무도 빌리지 않았으면
+    //   '배정 없음' 대신 '자기 차'로. 팀으로 같이 가면(예: YG 가 4041 팀) 팀 상자에 그대로 둔다
+    var own = ownCars();
+    var multiTeam = {};
+    teams.forEach(function (t) { if (t.left.length > 1) t.left.forEach(function (m) { multiTeam[m] = 1; }); });
+    var ownList = free.filter(function (c) { return own[c] && !multiTeam[c] && !ridersOf(own[c]).length; });
+    teams = teams.map(function (t) {
+      return t.left.length > 1 ? t : { left: t.left.filter(function (m) { return ownList.indexOf(m) === -1; }), visits: t.visits, big: t.big };
+    }).filter(function (t) { return t.left.length; });
+    var freeOther = free.filter(function (c) { return !inTeam[c] && ownList.indexOf(c) === -1; });
     var placed = codes.filter(function (c) { return whereIs(c); });
     function group(title, list, cls) {
       if (!list.length) return '';
@@ -218,6 +235,10 @@
       (teams.length ? '<div class="gw-va-group need"><div class="gw-va-gtitle">일정확정 팀 · 배정 없음 <span>' + nTeam + '</span></div>' +
         '<div class="gw-va-plist">' + teams.map(teamBox).join('') + '</div></div>' : '') +
       group('배정 없음', freeOther) +
+      (ownList.length ? '<div class="gw-va-group own"><div class="gw-va-gtitle">자기 차 <span>' + ownList.length + '</span></div>' +
+        '<div class="gw-va-plist">' + ownList.map(function (c) {
+          return person(c, '<small class="gw-va-where">' + esc(own[c].label) + '</small>');
+        }).join('') + '</div></div>' : '') +
       group('배정됨', placed, 'done') +
       group('온라인 당번', dutyList, 'off') +
       group('휴무', offList, 'off');

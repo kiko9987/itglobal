@@ -34,7 +34,7 @@ _INFO_SEED = {
     '817루4904': ('법인 소유', 'KB손해보험', '2027-04-14', ''),
     '821저4919': ('법인 소유', '현대해상', '2027-01-03', ''),
     '90머9131': ('법인 소유', '현대해상', '2027-07-25', ''),
-    '53우1783': ('법인 소유', '', '', '증권이 폴더에 없음'),
+    '53우1783': ('개인(MW) — 유류비 지원', '', '', 'MW 개인 차. 회사가 유류비를 지원해 U+ 단말을 달아 둠(11-22)'),
     '60거5484': ('법인 소유', 'DB손해보험', '2027-05-27', ''),
     '143고9687': ('법인 소유', 'DB손해보험', '2027-05-18', ''),
     '204두8988': ('법인 소유', '삼성화재', '2027-09-10', ''),
@@ -98,6 +98,8 @@ def _conn():
                 conn.execute('INSERT OR IGNORE INTO vehicle_info (plate, ownership, insurer, insurance_end, inspection_end, '
                              'note, updated_by, updated_at) VALUES (?,?,?,?,?,?,?,?)',
                              (plate, own, ins, end, '', note, 'seed', _now()))
+            conn.execute("UPDATE vehicle_info SET ownership = ?, note = ?, updated_by = 'seed-1122' "
+                         "WHERE plate = '53우1783' AND updated_by = 'seed'", (_INFO_SEED['53우1783'][0], _INFO_SEED['53우1783'][3]))
             conn.commit()
             _table_ready = True
         yield conn
