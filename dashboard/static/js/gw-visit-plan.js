@@ -117,8 +117,15 @@
   }
 
   // ── 그리기 ──
+  // 누구 현장인지(11-23 부장님): 거래처·기타는 늘 이름, 본인 방문 필수면 '이름 · 본인 방문 필수'(진하게).
+  //   온라인은 필수일 때만 — 그 밖엔 누가 가도 되는 건이라 이름을 달지 않는다
+  function who(v) {
+    if (!v.contact) return v.must ? '<span class="gw-va-smark">본인 방문 필수</span>' : '';
+    return '<span class="gw-va-smark ' + (v.must ? 'must' : 'who') + '" title="' + (v.must ? esc(v.contact) + '님이 꼭 가야 하는 현장' : esc(v.contact) + '님 현장') + '">' +
+      '<i class="fas fa-user" aria-hidden="true"></i> ' + esc(v.contact) + (v.must ? ' · 본인 방문 필수' : '') + '</span>';
+  }
   function marks(v) {
-    return (v.platform ? '<span class="gw-va-smark plat">' + esc(v.platform) + '</span>' : '') +
+    return (v.platform ? '<span class="gw-va-smark plat">' + esc(v.platform) + '</span>' : '') + who(v) +
       v.marks.map(function (m) { return '<span class="gw-va-smark">' + esc(m) + '</span>'; }).join('');
   }
   function placeTag(v) { return v.place ? '<span class="gw-vp-place">' + esc(v.place) + '</span>' : ''; }

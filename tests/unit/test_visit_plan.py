@@ -59,6 +59,19 @@ def test_starts_empty_from_canvas1(db):
     assert l1['region'] == '가상'
 
 
+def test_who_tag(db):
+    """누구 현장인지(11-23 부장님) — 거래처·기타는 늘 상담자 이름, 온라인은 본인 방문 필수일 때만."""
+    extra = [{**_lead('L-20', '', '서준'), '플랫폼': '거래처'},                       # 거래처 · 필수 아님
+             {**_lead('L-21', '', '김가람', '본인 방문 필수'), '플랫폼': '거래처'},    # 거래처 · 필수
+             _lead('L-22', '', '이나래')]                                               # 온라인 · 필수 아님
+    vs = {v['lead_no']: v for v in vp.load(DAY, LEADS + extra, 'p@example.com')['visits']}
+    assert (vs['L-20']['contact'], vs['L-20']['must'], vs['L-20']['owner']) == ('서준', False, '')
+    assert (vs['L-21']['contact'], vs['L-21']['must'], vs['L-21']['owner']) == ('김가람', True, 'YM')
+    assert (vs['L-22']['contact'], vs['L-22']['must']) == ('', False)
+    assert (vs['L-5']['contact'], vs['L-5']['must']) == ('강해', True)                 # 온라인 · 필수
+    assert all('본인 방문 필수' not in v['marks'] for v in vs.values())                 # 이름과 한 꼬리표로
+
+
 def test_clean_plan_rules():
     codes, nos = ['YM', 'TH'], ['L-1', 'L-2']
     raw = {'courses': [{'name': '  평택  라인 ', 'members': ['ym', 'YM'], 'leads': ['L-2', 'L-1', 'L-1'], 'memo': '  평택\n끝나고  '},

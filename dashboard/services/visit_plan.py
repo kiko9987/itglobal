@@ -112,11 +112,16 @@ def visits(day: str, leads: Iterable[dict]) -> List[Dict]:
         for it in g['items']:
             if not it.get('lead_no'):
                 continue
-            owner = ''
-            if '본인 방문 필수' in it['marks']:
-                owner = by_name.get(str((by_no.get(it['lead_no']) or {}).get('온라인 상담자') or '').strip(), '')
+            src = str((by_no.get(it['lead_no']) or {}).get('온라인 상담자') or '').strip()
+            src = '' if src in ('-', '미정') else src
+            must = '본인 방문 필수' in it['marks']
+            owner = by_name.get(src, '') if must else ''
+            # 누구 현장인지(11-23 부장님) — 거래처·기타는 늘, 온라인은 본인 방문 필수일 때만(그 밖엔 누가 가도 됨)
+            contact = src if (must or g['cat'] in ('거래처', '기타')) else ''
             item = {k: v for k, v in it.items() if k != 'who'}      # 시트 담당자(=캔버스2 결과)는 보이지 않는다
-            out.append({**item, 'cat': g['cat'], 'title': g['title'], 'owner': owner, **_where(it['addr'], vl)})
+            item['marks'] = [m for m in item['marks'] if m != '본인 방문 필수']     # 이름과 한 꼬리표로(아래 must)
+            out.append({**item, 'cat': g['cat'], 'title': g['title'], 'owner': owner, 'contact': contact, 'must': must,
+                        **_where(it['addr'], vl)})
     return out
 
 
