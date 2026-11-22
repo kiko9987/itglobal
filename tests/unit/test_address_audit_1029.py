@@ -400,6 +400,9 @@ def test_dot_joined_tail_absorbed_l04634(monkeypatch):
         ('백설마을5단지현대.코오롱아파트', road), ('백설마을현대코오롱아파트', road)])
     t = '수원 장안구 만석로68번길 10 백설마을 현대.코오롱아파트'
     assert ar._enrich_with_poi(t, t) == t
+    # 표시 단계에서 한글 사이 점은 뺌(장부 표기) — 숫자·영문 옆 점은 그대로
+    assert ar._post_normalize_display(t) == '수원 장안구 만석로68번길 10 백설마을 현대코오롱아파트'
+    assert ar._post_normalize_display('강남구 테헤란로 1 e.편한세상 1.5층') == '강남구 테헤란로 1 e.편한세상 1.5층'
 
 
 def test_corp_mark_stripped_from_building_name_l04615(monkeypatch):
