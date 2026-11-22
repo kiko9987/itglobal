@@ -108,10 +108,6 @@ def visits(day: str, leads: Iterable[dict]) -> List[Dict]:
     by_name = _code_maps()
     by_no = {str(l.get('리드 No') or '').strip(): l for l in leads}
     out = []
-    try:
-        dongs = vl._dong_cache([str(l.get('방문 주소') or '').strip() for l in leads])
-    except Exception:
-        dongs = {}
     for g in va.day_schedule(day, leads):
         for it in g['items']:
             if not it.get('lead_no'):
@@ -120,20 +116,22 @@ def visits(day: str, leads: Iterable[dict]) -> List[Dict]:
             if '본인 방문 필수' in it['marks']:
                 owner = by_name.get(str((by_no.get(it['lead_no']) or {}).get('온라인 상담자') or '').strip(), '')
             item = {k: v for k, v in it.items() if k != 'who'}      # 시트 담당자(=캔버스2 결과)는 보이지 않는다
-            out.append({**item, 'cat': g['cat'], 'title': g['title'], 'owner': owner, **_where(it['addr'], dongs, vl)})
+            out.append({**item, 'cat': g['cat'], 'title': g['title'], 'owner': owner, **_where(it['addr'], vl)})
     return out
 
 
 _BIG_CITIES = ('서울', '인천', '부산', '대구', '광주', '대전', '울산')
 
 
-def _where(addr: str, dongs: Dict[str, str], vl) -> Dict[str, str]:
-    """현장 꼬리표 — place = '평택 고덕동'(동 모르면 구), region = 코스 나눠 보기 단위(경기는 시, 서울·인천은 구까지)."""
-    city, gu, dong = vl.area(addr)
-    if not dong and dongs.get(addr):
-        dong = dongs[addr]
+def _where(addr: str, vl) -> Dict[str, str]:
+    """현장 꼬리표 — 도로명 주소에 적힌 단위만(시·구·읍·면). 지번 법정동(운행일지용 행안부 조회값)은 쓰지 않는다
+    (11-22 부장님: 우리 주소는 도로명 기준). place = '서울 강남구'·'평택'·'화성 봉담읍',
+    region = 같은 지역끼리 모아 보는 단위(경기는 시, 서울·인천 등 광역시는 구까지)."""
+    city, gu, town = vl.area(addr)
+    town = town if town.endswith(('읍', '면')) else ''          # '…동'은 도로명 주소의 단위가 아님
     region = (f'{city} {gu}'.strip() if city in _BIG_CITIES else city) or gu or ''
-    return {'place': vl.place_label((city, gu, dong), addr), 'region': region}
+    place = ' '.join(x for x in (city, gu, town) if x) or ''
+    return {'place': place, 'region': region}
 
 
 def people(vs: List[Dict]) -> List[Dict]:
