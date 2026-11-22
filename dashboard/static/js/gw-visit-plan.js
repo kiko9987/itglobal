@@ -212,7 +212,9 @@
     return groups.map(function (g) {
       var allOn = g.items.every(function (v) { return P.checked[v.lead_no]; });
       var head = '<h3 class="gw-vp-gtitle">' + esc(g.key) + ' <span>' + g.items.length + '</span>' +
-        (P.canEdit && g.items.length > 1 ? ' <button type="button" class="btn btn-sm btn-link gw-vp-gall" data-act="checkgroup" data-region="' + esc(g.key) + '">' + (allOn ? '체크 풀기' : '모두 체크') + '</button>' : '') + '</h3>';
+        (P.canEdit && g.items.length > 1 ? ' <button type="button" class="btn btn-sm btn-link gw-vp-gall" data-act="checkgroup" data-region="' + esc(g.key) + '">' + (allOn ? '체크 풀기' : '모두 체크') + '</button>' : '') +
+        // 지역을 모두 체크하면 줄마다 있던 [새 코스로]를 이 단추 하나로(11-22 부장님)
+        (P.canEdit && allOn && g.items.length > 1 ? ' <button type="button" class="btn btn-sm btn-outline-secondary gw-vp-newc" data-act="newcgroup" data-region="' + esc(g.key) + '">' + esc(g.key) + ' ' + g.items.length + '건 새 코스로</button>' : '') + '</h3>';
       return '<div class="gw-vp-group">' + head + '<ul class="gw-vp-inrows">' + g.items.map(function (v) {
         var on = !!P.checked[v.lead_no];
         var check = P.canEdit ? '<input type="checkbox" class="form-check-input gw-vp-check" data-act="check" data-lead="' + esc(v.lead_no) + '"' + (on ? ' checked' : '') +
@@ -221,7 +223,8 @@
           '<span class="gw-vp-rmain"><span class="gw-vp-vtop">' + placeTag(v) + marks(v) + '<strong>' + esc(v.date) + '</strong><span class="gw-va-sno">' + esc(v.lead_no) + '</span></span>' +
           (v.addr ? '<span class="gw-vp-vaddr">' + esc(v.addr) + '</span>' : '') +
           (v.text ? '<span class="gw-vp-vtext">' + esc(v.text) + '</span>' : '') + '</span>' +
-          (P.canEdit ? '<button type="button" class="btn btn-sm btn-outline-secondary gw-vp-newc" data-act="newc" data-lead="' + esc(v.lead_no) + '">새 코스로</button>' : '') + '</li>';
+          // 체크한 줄은 [새 코스로]를 숨긴다 — 체크한 것은 위 [새 코스로]·지역 단추로 함께 올림
+          (P.canEdit && !on ? '<button type="button" class="btn btn-sm btn-outline-secondary gw-vp-newc" data-act="newc" data-lead="' + esc(v.lead_no) + '">새 코스로</button>' : '') + '</li>';
       }).join('') + '</ul></div>';
     }).join('');
   }
@@ -364,6 +367,11 @@
     if (act === 'unpick') { P.picked = null; render(); }
     else if (act === 'putp') { if (P.picked) putPerson(P.picked, ci); }
     else if (act === 'newc') { moveTo([no], newCourse()); }
+    else if (act === 'newcgroup') {
+      var reg = b.getAttribute('data-region');
+      var grp = inbox().filter(function (v) { return (v.region || '지역 모름') === reg; }).map(function (v) { return v.lead_no; });
+      if (grp.length) moveTo(grp, newCourse());
+    }
     else if (act === 'lift') { moveTo(checkedList(), ci); }
     else if (act === 'liftnew') { var list = checkedList(); if (list.length) moveTo(list, newCourse()); }
     else if (act === 'uncheck') { P.checked = {}; render(); }
