@@ -44,14 +44,16 @@ def db(tmp_path, monkeypatch):
     gw._invalidate()
 
 
-def test_prefill_groups_sheet_managers(db):
-    data = vp.load(DAY, LEADS, 'p@example.com')
-    assert data['source'] == 'sheet'
-    teams = {tuple(t['members']): t['leads'] for t in data['plan']['teams']}
-    assert teams == {('YM', 'LSH'): ['L-1', 'L-2'], ('TH',): ['L-3']}          # L-4·L-5 는 배정 안 됨 칸
-    owner = next(v for v in data['visits'] if v['lead_no'] == 'L-5')['owner']
-    assert owner == 'JK'
-    assert any(w['kind'] == 'left' for w in data['warnings'])
+def test_starts_empty_from_canvas1(db):
+    """시트 영업 담당자(=캔버스2 결과)로 팀을 묶지 않는다 — 캔버스1 현장이 모두 '배정 안 된 방문'에서 시작(11-22 부장님)."""
+    extra = [{**_lead('L-8'), '상태': '방문 완료'}, {**_lead('L-9'), '상태': '유선 상담'},
+             {**_lead('L-10'), '상담 내용': '실측 ─── [11.20 09:00 YM · 방문 완료]'}]
+    data = vp.load(DAY, LEADS + extra, 'p@example.com')
+    assert data['source'] == 'empty' and data['plan'] == {'teams': [], 'online': [], 'online_shared': False}
+    assert [v['lead_no'] for v in data['visits']] == ['L-1', 'L-2', 'L-3', 'L-4', 'L-5']   # 캔버스1 기준만
+    assert all('who' not in v for v in data['visits'])
+    assert next(v for v in data['visits'] if v['lead_no'] == 'L-5')['owner'] == 'JK'
+    assert [w['kind'] for w in data['warnings']] == ['left']
 
 
 def test_clean_plan_rules():

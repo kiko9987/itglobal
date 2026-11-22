@@ -4,6 +4,8 @@
 → 차량 배정 화면 ① 방문 일정 단계에서 방문 카드를 팀에 넣고 [일정 확정]을 누른다.
    확정 처리(시트 영업 담당자·슬랙 List·담당자/당번 DM·캔버스1)는 /일정확정과 같은 본체
    (visit_assignment_sync.commit_plan)를 쓴다. 리드를 골라 넣으므로 전화번호 매칭 실패·이니셜 판독 불가가 없다.
+- 현장은 캔버스1과 같은 기준(visit_canvas_sync.visit_open + 그날에 걸친 방문)으로 띄우고, 사람은 처음부터 배정한다
+  (11-22 부장님: 시트 영업 담당자 = 캔버스2 결과라 그걸로 팀을 미리 묶으면 안 됨). 온라인 당번도 비워 두고 시작.
 - 휴무·반차는 그룹웨어 휴가·토요 휴무표에서(캔버스2 '휴무' 칸 대신).
 - 팀 메모는 담당자 DM 에 함께 간다(캔버스2를 내리면 메모 볼 곳이 DM 뿐).
 - 바꾸는 동안 슬랙 /일정확정도 그대로 둔다. 그룹웨어에서 확정한 날은 /일정확정이 막는다(덮어쓰기 방지).
@@ -82,15 +84,22 @@ def _code_maps() -> Dict[str, str]:
     return out
 
 
-def _who_codes(names: Iterable[str], by_name: Dict[str, str]) -> List[str]:
-    return list(dict.fromkeys(by_name[n] for n in names if n in by_name))
-
-
 # ── 그날 방문 ───────────────────────────────────────────────────────────
+def _open_leads(leads: Iterable[dict]) -> List[dict]:
+    """캔버스1에 올라가는 리드만(방문 예약·공사 확정, 방문 완료 처리 전)."""
+    from dashboard.services.visit_canvas_sync import visit_open
+    try:
+        from dashboard.utils.redis_client import get_redis_client
+        rc = get_redis_client().redis
+    except Exception:
+        rc = None
+    return [l for l in leads if visit_open(l, rc)]
+
+
 def visits(day: str, leads: Iterable[dict]) -> List[Dict]:
-    """그날 방문(캔버스1과 같은 묶음, va.day_schedule) 을 한 줄로 — 카드 하나 = 리드 하나.
+    """그날 현장(캔버스1과 같은 리드·묶음) 을 한 줄로 — 카드 하나 = 리드 하나.
     본인 방문 필수면 owner = 상담한 사람 이니셜(온라인 상담자)."""
-    leads = list(leads)
+    leads = _open_leads(leads)
     by_name = _code_maps()
     by_no = {str(l.get('리드 No') or '').strip(): l for l in leads}
     out = []
@@ -101,33 +110,28 @@ def visits(day: str, leads: Iterable[dict]) -> List[Dict]:
             owner = ''
             if '본인 방문 필수' in it['marks']:
                 owner = by_name.get(str((by_no.get(it['lead_no']) or {}).get('온라인 상담자') or '').strip(), '')
-            out.append({**it, 'cat': g['cat'], 'who_codes': _who_codes(it['who'], by_name), 'owner': owner})
+            item = {k: v for k, v in it.items() if k != 'who'}      # 시트 담당자(=캔버스2 결과)는 보이지 않는다
+            out.append({**item, 'cat': g['cat'], 'title': g['title'], 'owner': owner})
     return out
 
 
 def people(vs: List[Dict]) -> List[Dict]:
-    """팀에 넣을 수 있는 사람 — 현장 명단 + 그날 방문에 이미 적힌 다른 사람(사무직 등)."""
+    """팀에 넣을 수 있는 사람 — 현장 명단 + 본인 방문 필수 건을 상담한 다른 사람(사무직 등)."""
     out = [{'code': p['code'], 'name': p['name']} for p in va.staff()]
     have = {p['code'] for p in out}
     from dashboard.services.visit_assignment_sync import _load_initial_maps
     ini_to_name, _ = _load_initial_maps()
     for v in vs:
-        for c in v['who_codes']:
-            if c not in have and c in ini_to_name:
-                have.add(c)
-                out.append({'code': c, 'name': ini_to_name[c], 'extra': True})
+        c = v.get('owner') or ''
+        if c and c not in have and c in ini_to_name:
+            have.add(c)
+            out.append({'code': c, 'name': ini_to_name[c], 'extra': True})
     return out
 
 
-def _prefill(vs: List[Dict]) -> Dict:
-    """저장한 일정이 없는 날 — 시트에 이미 적힌 영업 담당자대로 팀을 묶어 둔다(없으면 배정 안 됨 칸)."""
-    teams: Dict[tuple, Dict] = {}
-    for v in vs:
-        key = tuple(v['who_codes'])
-        if not key:
-            continue
-        teams.setdefault(key, {'members': list(key), 'leads': [], 'memo': ''})['leads'].append(v['lead_no'])
-    return {'teams': list(teams.values()), 'online': [], 'online_shared': False}
+def _empty_plan() -> Dict:
+    """저장한 일정이 없는 날 — 모든 현장이 '배정 안 된 방문'에서 시작(시트 담당자·캔버스2 당번은 쓰지 않음)."""
+    return {'teams': [], 'online': [], 'online_shared': False}
 
 
 # ── 저장된 일정 ─────────────────────────────────────────────────────────
@@ -259,9 +263,8 @@ def load(day: str, leads: Iterable[dict], me: str = '') -> Dict:
         dropped = before - sum(len(t['leads']) for t in plan['teams'])   # 그사이 날짜가 바뀌거나 취소된 방문
         source = 'saved'
     else:
-        plan = _prefill(vs)
-        plan['online'] = [{'code': o['code'], 'shift': o['shift']} for o in va.online_duty(day)]
-        source = 'sheet' if plan['teams'] else 'empty'
+        plan = _empty_plan()
+        source = 'empty'
     confirmed_plan = _loads((row or {}).get('confirmed_plan'))
     return {
         'day': day, 'day_label': va.day_label(day), 'visits': vs, 'people': ppl,

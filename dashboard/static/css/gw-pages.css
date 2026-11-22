@@ -3335,3 +3335,6 @@ button.gw-vp-visit:hover { border-color: #b9bdc6; background: #f7f8f9; }
   .gw-vp-shared { min-height: 44px; }
   .gw-vp-shared input { width: 20px; height: 20px; }
 }
+.gw-vp-gtitle { font-size: 0.8rem; font-weight: 600; color: #475569; margin: 6px 0 0; }
+.gw-vp-gtitle:first-child { margin-top: 0; }
+.gw-vp-gtitle span { color: #64748b; font-weight: 400; }

@@ -207,6 +207,30 @@ def _render_item(lead: Dict, initial_map: Dict[str, str]) -> str:
     return f'{_confirmed_marker}{_self_visit_marker}({ini}) {vd} / {phone} / {address} / {inquiry}'
 
 
+def visit_open(row, rc=None) -> bool:
+    """캔버스1에 올라가는 방문인지(날짜 빼고) — 상태 방문 예약·공사 확정이고 방문 완료 처리 전.
+    그룹웨어 방문 일정(services/visit_plan)도 같은 기준으로 현장을 띄운다(11-22 부장님: 캔버스1 현장 기준)."""
+    from dashboard.services.lead_helpers import consult_visit_done
+    status = str(row.get('상태') or '').strip()
+    # 2026-07-27: 공사 확정 건도 포함 — 계약 후 현장 핸들링·기타 방문 잡기 위함.
+    #   방문 예정일 미래 필터가 이미 있어 완료된 옛 공사 확정은 자동 제외 (1건 수준).
+    if status not in ('방문 예약', '공사 확정'):
+        return False
+    _lno = str(row.get('리드 No') or '').strip()
+    # 이중 필터 (2026-07-24 Redis 대량 손실 사고 이후):
+    #   1) Redis flag `visit_auto_completed:{lead_no}` 있으면 완료
+    #   2) 시트 K열 (상담 내용) 에 `[... · 방문 완료]` 마커 있으면 완료
+    #   → Redis 손실해도 시트가 source of truth 로 커버.
+    if rc is not None and _lno:
+        try:
+            if rc.get(f'visit_auto_completed:{_lno}'):
+                return False  # 방문 완료 처리됨 (Redis flag)
+        except Exception:
+            pass
+    # 방문 완료 처리됨 (시트 마커 — 그 뒤 새 방문 예약 회차가 없을 때)
+    return not consult_visit_done(str(row.get('상담 내용') or ''))
+
+
 def _fetch_visit_leads() -> List[Dict]:
     """상태 = 방문 예약 + 방문 예정일 오늘 이후 lead 만 fetch.
 
@@ -233,25 +257,8 @@ def _fetch_visit_leads() -> List[Dict]:
     today = date.today()
     leads: List[Dict] = []
     for _, row in df.iterrows():
-        status = str(row.get('상태') or '').strip()
-        # 2026-07-27: 공사 확정 건도 포함 — 계약 후 현장 핸들링·기타 방문 잡기 위함.
-        #   방문 예정일 미래 필터가 이미 있어 완료된 옛 공사 확정은 자동 제외 (1건 수준).
-        if status not in ('방문 예약', '공사 확정'):
+        if not visit_open(row, _rc):
             continue
-        _lno = str(row.get('리드 No') or '').strip()
-        # 이중 필터 (2026-07-24 Redis 대량 손실 사고 이후):
-        #   1) Redis flag `visit_auto_completed:{lead_no}` 있으면 완료
-        #   2) 시트 K열 (상담 내용) 에 `[... · 방문 완료]` 마커 있으면 완료
-        #   → Redis 손실해도 시트가 source of truth 로 커버.
-        if _rc is not None and _lno:
-            try:
-                if _rc.get(f'visit_auto_completed:{_lno}'):
-                    continue  # 방문 완료 처리됨 (Redis flag)
-            except Exception:
-                pass
-        _consult = str(row.get('상담 내용') or '')
-        if consult_visit_done(_consult):
-            continue  # 방문 완료 처리됨 (시트 마커 — 그 뒤 새 방문 예약 회차가 없을 때)
         # 방문 예정일 파싱 — 오늘 이전이면 제외 (범위면 종료일 기준)
         vd_raw = str(row.get('방문 예정일') or '').strip().lstrip("'")
         vd_date: Optional[date] = None

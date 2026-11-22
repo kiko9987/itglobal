@@ -232,8 +232,7 @@
     }
     if (d.saved_at && !d.confirmed_at) parts.push('<span class="gw-va-when">임시 저장 ' + esc(d.saved_at.slice(11, 16)) + (d.saved_name ? ' · ' + esc(d.saved_name) : '') + ' · DM 아직 안 보냄</span>');
     var notes = [];
-    if (P.canEdit && d.source === 'sheet') notes.push('시트에 이미 적힌 담당자대로 팀을 묶어 두었어요. 바뀐 곳만 고쳐 주세요.');
-    if (P.canEdit && d.source === 'empty' && d.visits.length) notes.push('왼쪽 방문을 팀에 나눠 넣어 주세요. [새 팀]으로 팀을 만들어요.');
+    if (P.canEdit && d.source === 'empty' && d.visits.length) notes.push('캔버스1 현장이 모두 왼쪽에 있어요. [새 팀]으로 팀을 만들고 사람과 현장을 넣어 주세요.');
     if (d.dropped) notes.push('저장한 뒤 날짜가 바뀌거나 취소된 방문 ' + d.dropped + '건은 팀에서 뺐어요.');
     if (d.changed_since_confirm || (d.confirmed_at && P.dirty)) notes.push('확정한 뒤 고친 내용이 있어요. 다시 확정해야 담당자 DM 이 바뀌어요.');
     if (!d.editable) notes.push('오늘과 지난 날 일정은 고칠 수 없어요.');
@@ -245,7 +244,16 @@
     var ws = warnings();
     var left = leftVisits();
     $('vpLeftCount').textContent = left.length + '건';
-    $('vpLeft').innerHTML = left.map(leftCard).join('') ||
+    // 캔버스1과 같은 묶음(기타·거래처·온라인 방문) 제목 아래에
+    var groups = [];
+    left.forEach(function (v) {
+      var g = groups.filter(function (x) { return x.title === v.title; })[0];
+      if (!g) { g = { title: v.title, items: [] }; groups.push(g); }
+      g.items.push(v);
+    });
+    $('vpLeft').innerHTML = groups.map(function (g) {
+      return '<h3 class="gw-vp-gtitle">' + esc(g.title) + ' <span>' + g.items.length + '</span></h3>' + g.items.map(leftCard).join('');
+    }).join('') ||
       '<p class="gw-va-sempty">' + (P.data.visits.length ? '모든 방문을 팀에 넣었어요.' : '이날 방문 일정이 없어요.') + '</p>';
     $('vpLeftBox').classList.toggle('can-drop', !!(P.picked && P.canEdit && teamOf(P.picked) !== -1));
     $('vpHow').innerHTML = P.canEdit
