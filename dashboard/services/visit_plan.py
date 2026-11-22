@@ -476,6 +476,17 @@ def confirmed_upcoming_day() -> Optional[Dict]:
     return {'day': day, 'label': va.day_label(day), 'by': _name_of_email(row.get('confirmed_by') or '')}
 
 
+def confirmed_info(day: str) -> Optional[Dict]:
+    """그 날 방문 일정을 그룹웨어에서 확정했으면 {'confirmed_at', 'confirmed_name', 'courses'} — 차량 배정 위 한 줄."""
+    row = _row(day)
+    plan = _loads((row or {}).get('confirmed_plan'))
+    if not row or not row.get('confirmed_at') or not plan:
+        return None
+    courses = [c for c in plan.get('courses') or _old_courses(plan) or [] if c.get('members') and c.get('leads')]
+    return {'confirmed_at': row['confirmed_at'], 'confirmed_name': _name_of_email(row.get('confirmed_by') or ''),
+            'courses': len(courses)}
+
+
 def confirmed_teams(day: str) -> Optional[List[Dict]]:
     """그룹웨어에서 확정한 날의 팀(같이 가는 사람 묶음) — 차량 배정이 시트(캐시)보다 먼저 쓴다. 없으면 None.
     [{'members', 'visits', 'big'}] (va.teams 와 같은 모양·같은 묶는 규칙)"""

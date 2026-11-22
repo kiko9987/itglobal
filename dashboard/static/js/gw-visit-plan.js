@@ -1,9 +1,9 @@
-/* ① 방문 일정 (2026-11-22 부장님) — 슬랙 캔버스2 + /일정확정 대신 그룹웨어에서 다음 날 방문을 팀에 나눠 넣고 확정한다.
+/* 방문 일정 (2026-11-22 부장님, 영업 > 방문 일정 /visits/plan) — 슬랙 캔버스2 + /일정확정 대신 그룹웨어에서 다음 날 방문을 코스로 묶고 사람을 넣어 확정한다.
    차량 배정과 같은 모양(11-22 부장님): 위 코스 카드(= 차 카드), 왼쪽 사람 → 코스에 넣기.
    JW 가 메모장에서 하던 순서 — 아래 현장 목록(캔버스1, 지역끼리 모아 보임)을 하나씩 [새 코스로]·끌어 올리기 또는
    체크해서 [코스 N으로] 한꺼번에 올려 코스를 먼저 묶고 → 사람 넣기 → 넣었다 뺐다. 휴대폰·키보드는 끌기 대신 단추.
    [임시 저장]은 DM 없이 저장, [일정 확정]은 /일정확정과 같은 처리(시트·슬랙 List·담당자/당번 DM·캔버스1)를 뒤에서 돌린다.
-   날짜는 gw-vehicle-assign.js 가 고르고 'va:day' 로 알려 준다. 서버에서 온 글자는 모두 esc() 로만 넣는다. */
+   확정하면 [차량 배정으로] — 차량 배정(/vehicles/assign)은 확정한 코스를 팀으로 받아 쓴다. 서버에서 온 글자는 모두 esc() 로만 넣는다. */
 (function () {
   'use strict';
 
@@ -41,7 +41,7 @@
   function cssq(v) { return String(v).replace(/["\\]/g, '\\$&'); }
 
   var P = { day: '', label: '', data: null, plan: null, canEdit: false, dirty: false,
-            step: '', seq: 0, poll: null, names: {}, byNo: {}, focus: null };
+            seq: 0, poll: null, names: {}, byNo: {}, focus: null };
 
   function say(text, kind) {
     var el = $('vpBarMsg');
@@ -54,32 +54,15 @@
     P.dirty = v;
     if ($('vpSave')) $('vpSave').disabled = !v;
   }
-  window.vpDirty = function () { return P.dirty && P.canEdit; };
-
-  // ── 단계(① 방문 일정 / ② 차량 배정) ──
-  function showStep(step, push) {
-    P.step = step;
-    var plan = step === 'plan';
-    root.hidden = !plan;
-    $('vaStepCars').hidden = plan;
-    $('vpTabPlan').setAttribute('aria-selected', plan ? 'true' : 'false');
-    $('vpTabCars').setAttribute('aria-selected', plan ? 'false' : 'true');
-    $('vpTabPlan').tabIndex = plan ? 0 : -1;
-    $('vpTabCars').tabIndex = plan ? -1 : 0;
-    if (push !== false) setUrl();
+  function addDays(day, n) {
+    var d = new Date(day + 'T00:00:00');
+    d.setDate(d.getDate() + n);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   }
   function setUrl() {
     if (!P.day) return;
-    try { history.replaceState(null, '', '/vehicles/assign?day=' + P.day + (P.step === 'plan' ? '&step=plan' : '')); } catch (e) { /* 무시 */ }
+    try { history.replaceState(null, '', '/visits/plan?day=' + P.day); } catch (e) { /* 무시 */ }
   }
-  $('vpTabPlan').addEventListener('click', function () { showStep('plan'); });
-  $('vpTabCars').addEventListener('click', function () { showStep('cars'); });
-  $('vpSteps').addEventListener('keydown', function (e) {      // 탭 사이 ←/→
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-    e.preventDefault();
-    showStep(P.step === 'plan' ? 'cars' : 'plan');
-    (P.step === 'plan' ? $('vpTabPlan') : $('vpTabCars')).focus();
-  });
 
   // ── 자료 ──
   // P.plan.courses = [{name, members: [이니셜], leads: [리드 No(가는 순서)], memo}]
@@ -299,7 +282,6 @@
     if (!d.editable) notes.push('오늘과 지난 날 일정은 고칠 수 없어요.');
     else if (!P.canEdit) notes.push('방문 일정은 일정 담당자만 고칠 수 있어요.');
     $('vpStatus').innerHTML = parts.join(' ') + notes.map(function (n) { return '<span class="gw-va-draft">' + esc(n) + '</span>'; }).join('');
-    $('vpTabPlanSt').textContent = d.confirmed_at ? (d.changed_since_confirm || P.dirty ? '· 고친 내용 있음' : '· 확정') : '· 확정 전';
   }
   function render() {
     var ws = warnings(), left = inbox();
@@ -458,7 +440,6 @@
     if (!P.canEdit || act !== 'memo') return;
     P.plan.courses[parseInt(el.getAttribute('data-ci'), 10)].memo = el.value;
     setDirty(true);
-    $('vpTabPlanSt').textContent = P.data.confirmed_at ? '· 고친 내용 있음' : '· 확정 전';
   });
   root.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && checkedPeople().length) { P.pp = {}; render(); }
@@ -542,34 +523,36 @@
     return api('/api/vehicles/plan?day=' + encodeURIComponent(day)).then(function (j) {
       if (my !== P.seq) return;
       take(j);
+      P.day = j.day;
+      $('vpDay').value = j.day;
+      setUrl();
       setDirty(false);
-      $('vpSteps').hidden = false;
-      if (!P.step) {
-        var q = new URLSearchParams(location.search).get('step');
-        showStep(q === 'plan' || (P.canEdit && !j.confirmed_at) ? 'plan' : 'cars', true);
-      } else setUrl();
       if (!keepMsg) say('');
       render();
       runState(j.run, false);
     }).catch(function (e) {
       if (my !== P.seq) return;
-      if (e.status === 403 || e.message === SESSION_ENDED) {       // 현장 세션 등 — 단계 없이 차량 배정만
-        $('vpSteps').hidden = true; root.hidden = true; $('vaStepCars').hidden = false;
-        $('vaStepCars').removeAttribute('role');
-        return;
-      }
-      $('vpSteps').hidden = false;
       say(e.message, 'err');
     });
   }
-  function onDay(d) {
-    d = d || {};
-    if (!d.day) return;
-    if (d.day === P.day && P.data) { setUrl(); return; }     // 차량 배정만 다시 불러온 것 — 주소의 단계만 되살림
-    P.day = d.day; P.label = d.label || '';
-    load(d.day);
+  // 날짜는 달력으로만 고른다(차량 배정과 같은 규칙 — 글자를 치면 '0001-11-23' 같은 날을 바로 불러왔음)
+  (function pickerOnly(inp) {
+    if (!inp) return;
+    inp.addEventListener('click', function () { try { inp.showPicker(); } catch (e) { /* 무시 */ } });
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Tab' || e.key === 'Escape') return;
+      e.preventDefault();
+      if (e.key === 'Enter' || e.key === ' ') { try { inp.showPicker(); } catch (er) { /* 무시 */ } }
+    });
+    inp.addEventListener('paste', function (e) { e.preventDefault(); });
+  })($('vpDay'));
+  function go(day) {
+    if (P.dirty && P.canEdit && !window.confirm('저장하지 않은 방문 일정이 있어요. 다른 날로 갈까요?')) { $('vpDay').value = P.day; return; }
+    load(day);
   }
-  document.addEventListener('va:day', function (e) { onDay(e.detail); });
+  $('vpPrev').addEventListener('click', function () { if (P.day) go(addDays(P.day, -1)); });
+  $('vpNext').addEventListener('click', function () { if (P.day) go(addDays(P.day, 1)); });
+  $('vpDay').addEventListener('change', function () { if (this.value) go(this.value); });
 
   function body() { return { day: P.day, plan: P.plan }; }
   function lock(on) { ['vpSave', 'vpConfirm'].forEach(function (id) { if ($(id)) $(id).disabled = on; }); }
@@ -644,13 +627,12 @@
       var t = resultText(run.result || {});
       load(P.day, true).then(function () {
         say('확정했어요. ' + t.ok + (t.bad.length ? ' — 확인 필요: ' + t.bad.join(' / ') : ''), t.bad.length ? 'warn' : 'ok');
-        var go = document.createElement('button');
-        go.type = 'button'; go.className = 'btn btn-sm btn-outline-primary gw-vp-next'; go.textContent = '② 차량 배정으로';
-        go.addEventListener('click', function () { showStep('cars'); window.scrollTo(0, 0); });
+        var link = document.createElement('a');
+        link.className = 'btn btn-sm btn-outline-primary gw-vp-next'; link.textContent = '차량 배정으로';
+        link.href = '/vehicles/assign?day=' + encodeURIComponent(P.day);
         var el = $('vpBarMsg');
-        if (el && !$('vpBar').hidden) { el.appendChild(document.createTextNode(' ')); el.appendChild(go); }
+        if (el && !$('vpBar').hidden) { el.appendChild(document.createTextNode(' ')); el.appendChild(link); }
       });
-      if (window.vaReload) window.vaReload();
     } else if (run.state === 'failed' || run.state === 'stale') {
       say(run.state === 'stale' ? '확정이 중간에 끊겼어요. 다시 확정해 주세요.' : ((run.result || {}).message || '확정하지 못했어요.'), 'err');
     }
@@ -659,5 +641,5 @@
   window.addEventListener('beforeunload', function (e) {
     if (P.dirty && P.canEdit) { e.preventDefault(); e.returnValue = ''; }
   });
-  if (window.vaCurrent) onDay(window.vaCurrent);     // 차량 배정이 이미 날짜를 불러왔으면 바로
+  load(new URLSearchParams(location.search).get('day') || '');
 })();

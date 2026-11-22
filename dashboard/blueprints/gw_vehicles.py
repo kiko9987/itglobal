@@ -157,6 +157,12 @@ def api_assign_get():
     if view.get('confirmed_by'):
         p = hr.find_by_email(view['confirmed_by'])
         view['confirmed_name'] = (p or {}).get('name') or view['confirmed_by']
+    try:        # 그룹웨어 방문 일정 확정 한 줄(11-22) — 화면 위에 '○ 방문 일정 확정 · 코스 n개'
+        info = vp.confirmed_info(day)
+        view['plan'] = {**info, 'can_open': _can_plan()} if info else None
+    except Exception as e:
+        logger.warning(f'[차량배정] 방문 일정 확정 정보 실패: {e}')
+        view['plan'] = None
     return jsonify({'success': True, **view, 'day_label': va.day_label(day),
                     'staff': [{'code': p['code'], 'name': p['name']} for p in people], 'visitors': visitors, 'teams': teams,
                     'resolving': resolving, 'schedule': schedule, 'off': off['off'], 'half': off['half'], 'online': online,
@@ -183,10 +189,18 @@ def api_assign_save():
     return jsonify({'success': True, **res})
 
 
-# ── ① 방문 일정(11-22 부장님) — 슬랙 캔버스2 + /일정확정 대신 그룹웨어에서 짜고 확정. 규칙은 services/visit_plan.py
-#    보기는 사무실 직원(현장 세션은 문지기가 막음), 고치기·확정은 일정 담당(JW·대표님·부장님)
+# ── 방문 일정(11-22 부장님, 영업 > 방문 일정 /visits/plan) — 슬랙 캔버스2 + /일정확정 대신 그룹웨어에서 짜고 확정.
+#    규칙은 services/visit_plan.py. 화면·고치기·확정은 일정 담당(JW·대표님·부장님), 현장 세션은 문지기가 막음
 def _can_plan() -> bool:
     return not _is_field() and vp.can_plan(_me())
+
+
+@gw_vehicles_bp.route('/visits/plan')
+@gw_page
+def page_visit_plan():
+    if not _can_plan():
+        return redirect('/vehicles/assign')
+    return render_template('gw/visit_plan.html')
 
 
 def _fresh_leads() -> list:

@@ -1,0 +1,64 @@
+{% extends "modern_base.html" %}
+
+{% block title %}방문 일정 - 아이티글로벌그룹{% endblock %}
+
+{% block additional_css %}
+<link rel="stylesheet" href="{{ gw_asset('css/gw-pages.css') }}">
+{% endblock %}
+
+{% block content %}
+{# 방문 일정(11-22 부장님, 영업 > 방문 일정) — 슬랙 캔버스2·/일정확정 대신 여기서 다음 날 방문을 코스로 묶고 사람을 넣어 확정한다.
+   일정 담당(JW·대표님·부장님)만 고친다. 규칙은 services/visit_plan.py, 화면은 gw-visit-plan.js.
+   확정하면 차량 배정(/vehicles/assign)이 코스를 팀으로 받아 쓰고, 배정 담당(SJ)에게 DM 이 간다. #}
+<div class="gw-page gw-va" id="vpPage">
+  <div class="gw-page-head">
+    <h1 class="gw-page-title">방문 일정</h1>
+    <div class="gw-page-actions gw-va-daynav">
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="vpPrev" aria-label="전날"><i class="fas fa-chevron-left" aria-hidden="true"></i></button>
+      <input type="date" class="form-control form-control-sm gw-va-date" id="vpDay" aria-label="날짜">
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="vpNext" aria-label="다음 날"><i class="fas fa-chevron-right" aria-hidden="true"></i></button>
+    </div>
+  </div>
+
+  <section class="gw-vp" id="vpPlan" aria-label="방문 일정">
+    <div class="gw-va-status" id="vpStatus"></div>
+    <div class="gw-vp-info" id="vpInfo"></div>
+    {# 차량 배정과 같은 모양(11-22 부장님): 왼쪽 사람 → 위 코스 카드(= 차 카드). 아래 현장 목록(캔버스1)을 지역끼리 모아
+       하나씩 또는 체크해서 위 코스로 올린다. JW 가 메모장에서 하던 순서 — 코스 묶기 → 사람 넣기 → 넣었다 뺐다 #}
+    <div class="gw-vp-board" id="vpBoard">
+      <aside class="gw-va-staff gw-vp-people" id="vpPeopleBox" data-drop="people" aria-label="사람">
+        <div class="gw-va-staff-head"><strong>사람</strong><span id="vpPeopleCount"></span></div>
+        <p class="gw-va-staff-how" id="vpPeopleHow"></p>
+        <div id="vpPeople"></div>
+      </aside>
+      <div class="gw-vp-main">
+        <div class="gw-vp-sitehead">
+          <h2 class="gw-vp-h">코스 <span id="vpCourseCount"></span></h2>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="vpAddCourse"><i class="fas fa-plus" aria-hidden="true"></i> 코스 만들기</button>
+        </div>
+        <p class="gw-vp-how" id="vpMemoHelp">코스 메모는 그 코스 사람들의 담당자 DM 위쪽에 함께 가요.</p>
+        <div class="gw-vp-courses" id="vpCourses"></div>
+        <section class="gw-vp-inbox" id="vpInbox" data-drop="inbox" aria-label="코스에 안 넣은 현장">
+          <div class="gw-vp-sitehead">
+            <h2 class="gw-vp-h">현장 목록 <span id="vpInboxCount"></span></h2>
+            {# 안내 글과 '체크한 현장 → [코스 N로]' 단추가 같은 자리를 번갈아 씀 — 체크해도 목록이 밀리지 않게(11-22 부장님) #}
+            <div class="gw-vp-selbar" id="vpSelBar" aria-live="polite"></div>
+          </div>
+          <div id="vpInList"></div>
+        </section>
+      </div>
+    </div>
+    <section class="gw-vp-duty" id="vpDuty" aria-label="온라인 당번"></section>
+    <ul class="gw-vp-warns" id="vpWarns" aria-label="확정 전 확인할 것"></ul>
+    <div class="gw-va-bar" id="vpBar" hidden>
+      <div class="gw-vh-msg gw-va-barmsg" id="vpBarMsg" role="status" aria-live="polite"></div>
+      <button type="button" class="btn btn-outline-secondary" id="vpSave">임시 저장</button>
+      <button type="button" class="btn btn-primary" id="vpConfirm">일정 확정 · DM 보내기</button>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block additional_js %}
+<script src="{{ gw_asset('js/gw-visit-plan.js') }}"></script>
+{% endblock %}

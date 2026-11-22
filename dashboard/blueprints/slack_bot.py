@@ -3741,7 +3741,7 @@ def _register_visit_handlers(app):
                 if _gw_day:
                     respond({'response_type': 'ephemeral',
                              'text': f":lock: {_gw_day['label']} 방문 일정은 그룹웨어에서 이미 확정했어요"
-                                     f"({_gw_day['by']}). 고칠 것은 그룹웨어 차량 배정 화면의 [방문 일정]에서 해 주세요."})
+                                     f"({_gw_day['by']}). 고칠 것은 그룹웨어 영업 > 방문 일정에서 해 주세요."})
                     return
                 result = commit()
                 resp = _format_assignment_result(result, committed=True)

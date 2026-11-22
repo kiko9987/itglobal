@@ -175,6 +175,7 @@ AREAS = [
             # 순서(11-18 부장님): 자주 쓰는 프로젝트 → 일을 따오는 입구(리드·입찰) → 끝난 공사 글(시공사례) → 보고(통계)
             {'href': '/projects', 'label': '프로젝트', 'icon': 'fas fa-folder-open'},
             {'href': '/leads', 'label': '고객 리드', 'icon': 'fas fa-user-tie'},
+            {'href': '/visits/plan', 'label': '방문 일정', 'icon': 'fas fa-route', 'planner': True},   # 캔버스2·/일정확정 대신(11-22)
             {'href': '/bids', 'label': '입찰 공고', 'icon': 'fas fa-gavel'},   # 나라장터(11-18)
             {'href': '/case-posts', 'label': '시공사례', 'icon': 'fas fa-camera', 'admin': True},
             {'href': '/stats', 'label': '매출 통계', 'icon': 'fas fa-chart-bar'},
@@ -227,7 +228,7 @@ def _matches(path: str, href: str) -> bool:
 
 
 def _visible(it: dict, is_admin: bool, is_hr_admin: bool, field: bool = False, leave_all: bool = False,
-             sat_off: bool = False) -> bool:
+             sat_off: bool = False, planner: bool = False) -> bool:
     if field:                       # 현장·미화 세션: field=True 메뉴만
         return bool(it.get('field'))
     if it.get('admin') and not is_admin:
@@ -238,17 +239,19 @@ def _visible(it: dict, is_admin: bool, is_hr_admin: bool, field: bool = False, l
         return False
     if it.get('sat_off') and not sat_off:
         return False
+    if it.get('planner') and not planner:      # 방문 일정 — 일정 담당(JW·대표님·부장님)만
+        return False
     return True
 
 
 def build_nav(path: str, permission_level: str, is_hr_admin: bool = False, field: bool = False,
-              leave_all: bool = False, sat_off: bool = False) -> dict:
+              leave_all: bool = False, sat_off: bool = False, planner: bool = False) -> dict:
     """현재 주소에 맞춰 왼쪽 줄(영역)과 위쪽 줄(하위 메뉴)을 만든다.
     bottom=True 영역(관리)은 왼쪽 줄 아래쪽에 따로 둔다. field=True 는 현장·미화 세션."""
     is_admin = permission_level in ('admin', 'super_admin')
     areas, active_items = [], []
     for area in AREAS:
-        items = [dict(it) for it in area['items'] if _visible(it, is_admin, is_hr_admin, field, leave_all, sat_off)]
+        items = [dict(it) for it in area['items'] if _visible(it, is_admin, is_hr_admin, field, leave_all, sat_off, planner)]
         if not items:
             continue
         # 가장 길게 맞는 메뉴 하나만 켠다(/leave/team 에서 /leave 까지 켜지지 않게)

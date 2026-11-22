@@ -288,6 +288,7 @@ def test_plan_routes_permission(db, monkeypatch):
     monkeypatch.setattr(vp, '_audit', lambda res, by: [])
     monkeypatch.setattr(va, 'request_assignment', lambda day=None: 0)
     monkeypatch.setattr('dashboard.services.visit_assignment_sync.PLANNER_EMAILS', ('p@example.com',))
+    monkeypatch.setattr(bp, 'render_template', lambda name, **k: name)
     app = Flask(__name__)
     app.secret_key = 'x'
     app.register_blueprint(bp.gw_vehicles_bp)
@@ -308,4 +309,20 @@ def test_plan_routes_permission(db, monkeypatch):
         assert bad.status_code == 400
         assert cl.post('/api/vehicles/plan/confirm', json={'day': DAY, 'plan': plan}).get_json()['run'] == {'state': 'running'}
         assert cl.get(f'/api/vehicles/plan/state?day={DAY}').get_json()['run']['state'] == 'done'
+        assert cl.get('/visits/plan').status_code == 200                     # 영업 > 방문 일정 화면
+        info = vp.confirmed_info(DAY)
+        assert info['courses'] == 1 and info['confirmed_at']
+        with cl.session_transaction() as s2:
+            s2['user'] = {'email': 'staff@example.com', 'permission_level': 'user'}
+        r = cl.get('/visits/plan')
+        assert r.status_code == 302 and r.headers['Location'].endswith('/vehicles/assign')   # 일정 담당 아니면 차량 배정으로
     assert not field_path_allowed('GET', '/api/vehicles/plan') and not field_path_allowed('POST', '/api/vehicles/plan/confirm')
+
+
+def test_menu_planner_only():
+    """영업 > 방문 일정 메뉴는 일정 담당에게만(11-22)."""
+    labels = lambda nav: [c['label'] for a in nav['areas'] if a['key'] == 'sales' for c in a['children']]
+    assert '방문 일정' not in labels(gw.build_nav('/leads', 'user'))
+    on = labels(gw.build_nav('/visits/plan', 'user', planner=True))
+    assert on.index('방문 일정') == on.index('고객 리드') + 1
+    assert '방문 일정' not in [c['label'] for a in gw.build_nav('/home', 'field', field=True)['areas'] for c in a['children']]

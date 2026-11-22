@@ -402,6 +402,19 @@
     setDirty(S.dirty);
     restoreFocus();
   }
+  // 방문 일정(영업 > 방문 일정)을 그룹웨어에서 확정했으면 한 줄 — 팀이 어디서 왔는지(11-22 부장님)
+  function planLine(j) {
+    var el = $('vaPlanLine');
+    if (!el) return;
+    var p = j.plan;
+    if (!p || !p.confirmed_at) { el.hidden = true; el.innerHTML = ''; return; }
+    var text = esc(j.day_label) + ' 방문 일정 확정 ' + esc(p.confirmed_at.slice(11, 16)) + (p.confirmed_name ? ' · ' + esc(p.confirmed_name) : '') +
+      ' · 코스 ' + p.courses + '개';
+    el.innerHTML = '<i class="fas fa-route" aria-hidden="true"></i> ' +
+      (p.can_open ? '<a href="/visits/plan?day=' + encodeURIComponent(j.day) + '">' + text + '</a>' : text) +
+      ' <span>— 코스대로 팀을 미리 넣어 두었어요.</span>';
+    el.hidden = false;
+  }
   function status(j) {
     var el = $('vaStatus');
     var parts = ['<strong>' + esc(j.day_label) + '</strong>'];
@@ -446,10 +459,7 @@
       render();
       S.placeTries = 0;
       placesLater(j.resolving);
-      // ① 방문 일정(gw-visit-plan.js)이 같은 날을 불러오게(11-22) — 날짜 고르기는 이 파일이 맡는다
-      //   방문 일정 스크립트가 이 응답보다 늦게 붙어도 집어 가게 window.vaCurrent 에도 남긴다
-      window.vaCurrent = { day: j.day, label: j.day_label };
-      try { document.dispatchEvent(new CustomEvent('va:day', { detail: window.vaCurrent })); } catch (e) { /* 무시 */ }
+      planLine(j);
     }).catch(function (e) { if (my === S.seq) msg(e.message, 'err'); });
   }
   // 갈 곳의 동을 서버가 뒤에서 찾는 중이면 잠시 뒤 갈 곳만 다시 받는다(배정 고친 것은 그대로)
@@ -557,11 +567,8 @@
 
   // 마우스 끌기 — 손가락(터치)은 스크롤과 겹쳐서 끌지 않고 누르기로 한다
   var D = null;
-  // ① 방문 일정(gw-visit-plan.js, #vpPlan)은 자기 끌기를 쓴다 — 거기 누른 것은 차량 배정이 건드리지 않음
-  //   (11-22: 방문 일정 사람을 잡으면 여기서 이름표가 생기고, 브라우저 끌기가 pointerup 을 삼켜 포인터에 남았음)
-  function inPlan(t) { return !!(t && t.closest && t.closest('#vpPlan')); }
   document.addEventListener('pointerdown', function (e) {
-    if (!S.canEdit || e.pointerType !== 'mouse' || e.button !== 0 || inPlan(e.target)) return;
+    if (!S.canEdit || e.pointerType !== 'mouse' || e.button !== 0) return;
     var p = e.target.closest('[data-team], [data-person]');
     if (!p || e.target.closest('[data-rm]')) return;
     D = { code: p.dataset.team || p.dataset.person, x: e.clientX, y: e.clientY, ghost: null, over: null };
@@ -612,7 +619,7 @@
   // 누르기 — 사람 고르기 / 차에 넣기 / 명단으로 빼기
   document.addEventListener('click', function (e) {
     if (S.suppressClick) { S.suppressClick = false; return; }
-    if (!S.canEdit || inPlan(e.target)) return;
+    if (!S.canEdit) return;
     var rm = e.target.closest('[data-rm]');
     if (rm) {
       var rc = carOf(rm.dataset.plate), rh = rm.dataset.half || 'all';
@@ -728,11 +735,8 @@
   })($('vaDay'));
   function go(day) {
     if (S.dirty && S.canEdit && !window.confirm('저장하지 않은 배정이 있어요. 다른 날로 갈까요?')) { $('vaDay').value = S.day; return; }
-    if (window.vpDirty && window.vpDirty() && !window.confirm('저장하지 않은 방문 일정이 있어요. 다른 날로 갈까요?')) { $('vaDay').value = S.day; return; }
     load(day);
   }
-  // 방문 일정을 확정하면 그 팀으로 차량 배정을 다시 불러온다(고치던 배정이 있으면 그대로 둠) — gw-visit-plan.js
-  window.vaReload = function () { if (!S.dirty) load(S.day); };
   $('vaPrev').addEventListener('click', function () { go(addDays(S.day, -1)); });
   $('vaNext').addEventListener('click', function () { go(addDays(S.day, 1)); });
   $('vaDay').addEventListener('change', function () { if (this.value) go(this.value); });

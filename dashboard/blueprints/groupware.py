@@ -231,6 +231,15 @@ def _sat_off_menu(email: str) -> bool:
         return False
 
 
+def _planner_menu(email: str) -> bool:
+    """영업 > 방문 일정 메뉴 — 일정 담당(JW·대표님·부장님, 11-22)."""
+    try:
+        from dashboard.services.visit_plan import can_plan
+        return can_plan(email)
+    except Exception:
+        return False
+
+
 @groupware_bp.app_context_processor
 def inject_groupware_layout():
     """화면을 그릴 때 새 틀을 쓸지와 메뉴를 넣어 준다. 실패하면 기존 틀."""
@@ -250,7 +259,8 @@ def inject_groupware_layout():
         return {
             'gw_layout': True,
             'gw_nav': gw.build_nav(request.path, user.get('permission_level', ''), hr.is_hr_admin(email),
-                                   leave_all=hr.can_view_all_leave(email), sat_off=_sat_off_menu(email)),
+                                   leave_all=hr.can_view_all_leave(email), sat_off=_sat_off_menu(email),
+                                   planner=_planner_menu(email)),
         }
     except Exception as e:
         logger.warning(f'[GW] 틀 고르기 실패 → 기존 틀: {e}')

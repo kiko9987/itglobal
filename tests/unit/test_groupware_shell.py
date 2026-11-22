@@ -109,7 +109,7 @@ def test_context_processor_picks_layout(db):
         assert render_template_string(tpl) == 'False|False|'
     with app.test_request_context('/projects'):
         session['user'] = {'email': 'kiko@itg-aircon.com', 'permission_level': 'super_admin'}
-        assert render_template_string(tpl) == 'True|False|프로젝트,고객 리드,입찰 공고,시공사례,매출 통계'
+        assert render_template_string(tpl) == 'True|False|프로젝트,고객 리드,방문 일정,입찰 공고,시공사례,매출 통계'   # 일정 담당(11-22)
     with app.test_request_context('/projects'):
         session['user'] = {'email': 'kiko@itg-aircon.com', 'permission_level': 'super_admin'}
         session['gw_off'] = True

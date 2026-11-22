@@ -3260,13 +3260,10 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
 }
 .gw-vt-car small { color: #64748b; font-size: 0.8rem; }
 
-/* ── ① 방문 일정(11-22 부장님) — 차량 배정 화면 위 단계. 왼쪽 사람, 위 코스 카드, 아래 현장 목록(캔버스1) ───────────── */
-.gw-vp-steps { display: flex; align-items: center; gap: 6px; margin: 0 0 12px; border-bottom: 1px solid #e5e7eb; }
-.gw-vp-step { border: 0; border-bottom: 3px solid transparent; background: transparent; color: #475569; font-weight: 600; font-size: 0.95rem; padding: 8px 6px 7px; min-height: 44px; cursor: pointer; }
-.gw-vp-step[aria-selected="true"] { color: #1a1c20; border-bottom-color: #2a3038; }
-.gw-vp-step:focus-visible { outline: 2px solid #2a3038; outline-offset: 2px; }
-.gw-vp-stepst { font-weight: 400; font-size: 0.8rem; color: #64748b; }
-.gw-vp-stepsep { color: #94a3b8; font-size: 0.75rem; }
+/* ── 방문 일정(11-22 부장님, 영업 > 방문 일정 /visits/plan). 왼쪽 사람, 위 코스 카드, 아래 현장 목록(캔버스1) ───────────── */
+.gw-va-planline { margin: 0 0 10px; padding: 8px 12px; border: 1px solid #e5e7eb; border-radius: 8px; background: #f8fafc; font-size: 0.88rem; color: #1a1c20; }
+.gw-va-planline a { font-weight: 600; color: #1a1c20; }
+.gw-va-planline span { color: #475569; }
 .gw-vp-info:empty { display: none; }
 .gw-vp-h { font-size: 0.95rem; font-weight: 700; margin: 0 0 6px; }
 .gw-vp-h span { color: #64748b; font-weight: 400; }
