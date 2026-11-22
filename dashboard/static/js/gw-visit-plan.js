@@ -183,8 +183,7 @@
     var acts = '';
     if (P.canEdit) {
       if (P.picked && c.members.indexOf(P.picked) === -1) acts += '<button type="button" class="btn btn-sm btn-outline-secondary gw-va-put" data-act="putp" data-ci="' + i + '">여기에 ' + esc(name(P.picked)) + ' 넣기</button>';
-      var nChecked = checkedList().length;
-      if (nChecked) acts += '<button type="button" class="btn btn-sm btn-outline-secondary gw-va-put" data-act="lift" data-ci="' + i + '">체크한 현장 ' + nChecked + '건 여기로 올리기</button>';
+      // 체크한 현장은 코스 카드에 단추를 늘리지 않고(화면이 출렁임, 11-22 부장님) 위 '체크한 현장 → [코스 N로]' 줄·끌기로 올린다
     }
     // 캔버스2 섹션처럼 한 줄: 코스 N · 사람 칩 · 현장 수 · [지우기]
     var head = '<div class="gw-vp-chead"><strong>' + esc(label(i)) + '</strong>' +
@@ -194,7 +193,7 @@
     var memo = P.canEdit
       ? '<label class="gw-vp-memo"><span>메모</span><input type="text" class="form-control form-control-sm" maxlength="200" data-act="memo" data-ci="' + i + '" value="' + esc(c.memo) + '" aria-describedby="vpMemoHelp"></label>'
       : (c.memo ? '<p class="gw-vp-memotext"><i class="fas fa-note-sticky" aria-hidden="true"></i> ' + esc(c.memo) + '</p>' : '');
-    return '<section class="gw-va-card gw-vp-course' + (bad ? ' warn' : '') + (c.members.length ? '' : ' need') + ((P.picked || checkedList().length) && P.canEdit ? ' can-drop' : '') +
+    return '<section class="gw-va-card gw-vp-course' + (bad ? ' warn' : '') + (c.members.length ? '' : ' need') + (P.picked && P.canEdit ? ' can-drop' : '') +
       '" data-drop="course" data-ci="' + i + '" aria-label="' + esc(label(i)) + '">' + head +
       '<ol class="gw-vp-rows">' + vs.map(function (v, k) { return courseRow(v, i, k, vs.length); }).join('') + '</ol>' +
       (!vs.length ? '<p class="gw-vp-tempty">' + (P.canEdit ? '아래 현장 목록에서 끌어 올리거나, 체크해서 올려 주세요.' : '현장 없음') + '</p>' : '') +
