@@ -379,7 +379,7 @@ def test_halves_dm_text_and_changes(db):
     ym = next(t for sid, t in sent if sid == 'UYM')
     assert '오전·오후가 달라요' in ym and '오전: *레이 6854*' in ym and '오후: *포터 4904*' in ym and '함께 서준' in ym
     jw = next(t for sid, t in sent if sid == 'UJW')
-    assert '차량: *쏘렌토 8021*' in jw and '함께 타는 사람: 박다솜' in jw and '운전: 본인' in jw
+    assert '차량: *쏘렌토 8021*' in jw and '함께 타는 사람: 박다솜' in jw and '운전' not in jw   # 운전은 저녁 DM(11-22)
     sent.clear()
     va.save_day('2026-11-23', [rows[0], dict(rows[1], pm=['YM']), rows[2]], ASSIGNER)   # TH 가 오후 포터에서 빠짐
     who = {sid for sid, _ in sent}

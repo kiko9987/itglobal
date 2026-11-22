@@ -449,6 +449,18 @@ def start_scheduler():
         )
         jobs.append('방문 일정↔캔버스1 점검 평일 16:00')
 
+    # 2026-11-22 실제 운전자 묻기 — 그날 확정한 차량 배정의 탄 사람들에게 저녁 18:30 슬랙 DM(월~토).
+    #   누가 운전할지는 출발할 때 동행자끼리 정해서 배정 때 고르지 않는다(부장님). 확정 안 한 날은 안 보냄.
+    if os.getenv('VEHICLE_DRIVER_ASK_ENABLED', '1').strip().lower() not in ('0', 'false', 'no'):
+        _scheduler.add_job(
+            _safe_vehicle_driver_ask,
+            'cron',
+            day_of_week='mon-sat', hour=18, minute=30,
+            id='vehicle_driver_ask_daily',
+            replace_existing=True,
+        )
+        jobs.append('차량 실제 운전자 묻기 월~토 18:30')
+
     # 2026-07-23 매일 아침 부재중/미완료 리마인드 (온라인 문의 채널) — 출근 직후.
     #   2026-10-07 출퇴근 08~17시 변경으로 09:00 → 08:10.
     _scheduler.add_job(
@@ -1214,6 +1226,16 @@ def _safe_monthly_invoice_remind():
         logger.info(f'[SCHED] 계산서 마감 월간 리마인드 결과: {result}')
     except Exception as exc:
         logger.error(f'[SCHED] 계산서 마감 월간 리마인드 실패: {exc}', exc_info=True)
+
+
+def _safe_vehicle_driver_ask():
+    """그날 차량 배정(확정한 날)의 실제 운전자를 탄 사람들에게 묻는다(월~토 18:30)."""
+    try:
+        from dashboard.services.vehicle_driver import send_asks
+        result = send_asks()
+        logger.info(f'[SCHED] 차량 운전자 묻기: {result}')
+    except Exception as exc:
+        logger.error(f'[SCHED] 차량 운전자 묻기 실패: {exc}', exc_info=True)
 
 
 def _safe_visit_canvas_audit():

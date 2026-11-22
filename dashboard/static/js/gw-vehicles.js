@@ -44,7 +44,7 @@
   function real(list) { return (list || []).filter(function (n) { return /[가-힣A-Za-z]/.test(String(n || '')); }); }
   function names(list) { list = real(list); return list.length ? list.map(esc).join(', ') : ''; }
   // 운전자 출처(11-20) — 배정(차량 배정 화면)·고정(정해진 사람)·추정(방문 일정)
-  var SRC = { assigned: '배정', fixed: '고정', guess: '추정' };
+  var SRC = { confirmed: '확인', assigned: '배정', fixed: '고정', guess: '추정' };   // 확인 = 저녁 슬랙 DM 으로 받은 실제 운전자(11-22)
   function who(list, src) {
     if (!real(list).length) return '<span class="gw-vh-none">' + (src === 'guess' || !src ? '알 수 없음' : '없음') + '</span>';
     return '<span class="gw-vh-src ' + esc(src || 'guess') + '">' + esc(SRC[src] || '추정') + '</span> ' + names(list);

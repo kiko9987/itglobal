@@ -675,8 +675,7 @@ def _where(rows: Dict[str, Dict]) -> Dict[str, Dict]:
 
 def _car_line(plate: str, people: List[str], code: str, cars: Dict[str, Dict], who: Dict[str, Dict]) -> str:
     others = [display(p, who) for p in people if p != code]
-    drive = ' (운전)' if people and people[0] == code else (f' · 운전 {display(people[0], who)}' if people else '')
-    return _car_text(plate, cars) + drive + (f" · 함께 {', '.join(others)}" if others else '')
+    return _car_text(plate, cars) + (f" · 함께 {', '.join(others)}" if others else '')
 
 
 def _person_text(day: str, code: str, rows: Dict[str, Dict], cars: Dict[str, Dict], who: Dict[str, Dict]) -> str:
@@ -688,10 +687,6 @@ def _person_text(day: str, code: str, rows: Dict[str, Dict], cars: Dict[str, Dic
         others = [display(p, who) for p in r['people'] if p != code]
         if others:
             lines.append(f"함께 타는 사람: {', '.join(others)}")
-        if r['people'] and r['people'][0] == code and len(r['people']) > 1:
-            lines.append('운전: 본인')
-        elif r['people'] and r['people'][0] != code:
-            lines.append(f"운전: {display(r['people'][0], who)}")
         notes = [r['note']] if r.get('note') else []
     else:
         lines.append(f":car: {day_label(day)} 차량 — 오전·오후가 달라요")

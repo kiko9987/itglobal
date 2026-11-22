@@ -226,15 +226,15 @@
     how.textContent = S.picked
       ? keyName(S.picked) + ' 님을 넣을 차에서 [여기에 … 넣기]를 누르세요.' + (anyPlaced(S.picked) ? ' 명단 빈 곳을 누르면 차에서 빠져요.' : '') +
         (TOUCH ? '' : ' Esc 를 누르면 취소돼요.')
-      : (TOUCH ? '이름이나 팀의 [함께]를 누른 뒤 넣을 차를 누르세요. 운전할 사람은 차마다 [운전] 칸에서 골라요.'
-         : '이름이나 팀의 [함께]를 끌어 차에 놓으세요. 누른 뒤 차를 눌러도 돼요. 운전할 사람은 차마다 [운전] 칸에서 골라요.');
+      : (TOUCH ? '이름이나 팀의 [함께]를 누른 뒤 넣을 차를 누르세요. 운전한 사람은 그날 저녁 슬랙으로 물어봐요.'
+         : '이름이나 팀의 [함께]를 끌어 차에 놓으세요. 누른 뒤 차를 눌러도 돼요. 운전한 사람은 그날 저녁 슬랙으로 물어봐요.');
     $('vaStaffCount').textContent = nTeam ? '방문 있는데 배정 없음 ' + nTeam + '명' : '';
     $('vaStaffCount').className = nTeam ? 'gw-va-warn' : '';
   }
   // 칩 = 이름 단추 + [×] 단추 나란히(누를 수 있는 칩 안에 또 단추가 들어 있던 것, 11-21 점검)
   function chip(c, code, i, half) {   // half = 'all'(나누지 않음) / 'am' / 'pm'
     half = half || 'all';
-    var lead = i === 0 ? '<span class="gw-va-lead">운전</span>' : '';
+    var lead = '';   // 운전은 배정 때 정하지 않는다 — 그날 저녁 슬랙 DM 으로 실제 운전자를 받음(11-22 부장님)
     var cls = 'gw-va-chip' + (S.picked === code ? ' picked' : '');
     if (!S.canEdit) return '<span class="' + cls + '">' + lead + esc(name(code)) + '</span>';
     var hl = half === 'am' ? ' 오전' : half === 'pm' ? ' 오후' : '';
@@ -242,7 +242,7 @@
       '" aria-label="' + esc(c.label + hl) + '에서 ' + esc(name(code)) + ' 빼기"><i class="fas fa-xmark" aria-hidden="true"></i></button>';
     return '<span class="' + cls + '" data-person="' + esc(code) + '" data-in="' + esc(c.plate) + '" data-half="' + half + '">' + lead +
       '<button type="button" class="gw-va-cname" aria-pressed="' + (S.picked === code) + '" aria-label="' +
-      esc(name(code) + (i === 0 ? '(운전)' : '') + ' — 눌러서 옮기기') + '">' + esc(name(code)) + '</button>' + x + '</span>';
+      esc(name(code) + ' — 눌러서 옮기기') + '">' + esc(name(code)) + '</button>' + x + '</span>';
   }
   function fixedSelect(c) {   // 고정 차의 평소 사용자 — 고르면 바로 저장(배정과 별개)
     var has = false;
@@ -274,8 +274,8 @@
         chips = '<span class="gw-va-none">' + (S.canEdit ? '여기에 사람을 놓으세요'
           : (c.usage === 'fixed' ? '평소대로' : '배정 없음')) + '</span>';
       }
-      // 운전할 사람 — 고르면 그 사람이 맨 앞(=운전, 운행기록부 '사용자')
-      var drv = S.canEdit && list.length > 1
+      // 운전할 사람은 고르지 않는다(출발할 때 동행자끼리 정함 → 저녁 DM 으로 받음, 11-22 부장님)
+      var drv = false && list.length > 1
         ? '<label class="gw-va-driver"><span>운전</span><select class="form-select form-select-sm" data-driver="' + esc(c.plate) +
           '" data-half="' + half + '" aria-label="' + esc(c.label + hl) + ' 운전할 사람">' + list.map(function (p, i) {
             return '<option value="' + esc(p) + '"' + (i === 0 ? ' selected' : '') + '>' + esc(name(p)) + '</option>';

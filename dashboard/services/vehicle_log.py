@@ -461,6 +461,21 @@ def _assignments(start: str, end: str):
         for k, h in va.assigned_halves(start, end).items():
             am, pm = h['people'], va.pm_of(h)
             _SHIFTS[k] = (va.display(am[0], who) if am else '', va.display(pm[0], who) if pm else '', va.HALF_AT)
+        # 그날 저녁 슬랙으로 받은 실제 운전자(services/vehicle_driver) — 있으면 배정보다 먼저(11-22)
+        global _CONFIRMED
+        _CONFIRMED = set()
+        try:
+            from dashboard.services import vehicle_driver as vd
+            for k, a in vd.actual_drivers(start, end).items():
+                base = _SHIFTS.get(k, ('', '', va.HALF_AT))
+                am_n = va.display(a['am'], who) if a['am'] else base[0]
+                pm_n = va.display(a['pm'], who) if a['pm'] else base[1]
+                _SHIFTS[k] = (am_n, pm_n, va.HALF_AT)
+                _CONFIRMED.add(k)
+                if k not in rows:
+                    rows[k] = [x for x in dict.fromkeys((am_n, pm_n)) if x]
+        except Exception:
+            pass
         return rows, fixed
     except Exception:
         _SHIFTS = {}
@@ -468,6 +483,7 @@ def _assignments(start: str, end: str):
 
 
 _SHIFTS: Dict[Tuple[str, str], Tuple[str, str, str]] = {}   # (날짜, 번호판) → (오전 운전, 오후 운전, 나누는 시각)
+_CONFIRMED: set = set()                                      # 저녁 DM 으로 실제 운전자를 받은 (날짜, 번호판)
 
 
 def trip_driver(day: str, plate: str, start_time: str, assigned) -> str:
@@ -486,7 +502,7 @@ def _drivers_for(day: str, plate: str, assigned, fixed, matched: List[Dict]) -> 
         if sh:                       # 오전 운전 → 오후 운전 → 나머지
             first = [x for x in dict.fromkeys(sh[:2]) if x]
             ppl = first + [p for p in ppl if p not in first]
-        return ppl, 'assigned'
+        return ppl, ('confirmed' if (day, plate) in _CONFIRMED else 'assigned')
     if plate in fixed:
         return [fixed[plate]], 'fixed'
     return _guess(matched), 'guess'

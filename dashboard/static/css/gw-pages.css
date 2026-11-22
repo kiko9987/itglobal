@@ -3236,3 +3236,4 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
   .gw-va-splitbtn { min-height: 44px; }
   .gw-va-reset { margin-right: 0; }
 }
+.gw-vh-src.confirmed { background: #dbeafe; color: #1e40af; }

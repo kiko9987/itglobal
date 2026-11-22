@@ -3607,6 +3607,27 @@ def _register_visit_handlers(app):
                              exc_info=True)
         threading.Thread(target=_bg, daemon=True).start()
 
+    # 2026-11-22 실제 운전자 묻기(services/vehicle_driver) — 그날 저녁 DM 의 이름·[나눠서 운전] 버튼
+    @app.action(re.compile(r"^vdrv_(one|split|am|pm)$"))
+    def handle_vehicle_driver(ack, body, client):
+        ack()
+        def _bg():
+            try:
+                from dashboard.services.vehicle_driver import handle_action
+                act = (body.get('actions') or [{}])[0]
+                msg = handle_action(act.get('action_id') or '', act.get('value') or '',
+                                    (body.get('user') or {}).get('id') or '',
+                                    (body.get('channel') or {}).get('id') or (body.get('container') or {}).get('channel_id') or '',
+                                    (body.get('container') or {}).get('message_ts') or (body.get('message') or {}).get('ts') or '')
+                if msg:
+                    ch = (body.get('channel') or {}).get('id') or ''
+                    uid = (body.get('user') or {}).get('id') or ''
+                    if ch and uid:
+                        client.chat_postEphemeral(channel=ch, user=uid, text=msg)
+            except Exception as exc:
+                logger.error(f"[SLACK/방문봇] 운전자 답 처리 실패: {exc}", exc_info=True)
+        threading.Thread(target=_bg, daemon=True).start()
+
     @app.action("visit_complete")
     def handle_visit_complete(ack, body, client):
         ack()
