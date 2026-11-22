@@ -446,6 +446,10 @@
       render();
       S.placeTries = 0;
       placesLater(j.resolving);
+      // ① 방문 일정(gw-visit-plan.js)이 같은 날을 불러오게(11-22) — 날짜 고르기는 이 파일이 맡는다
+      //   방문 일정 스크립트가 이 응답보다 늦게 붙어도 집어 가게 window.vaCurrent 에도 남긴다
+      window.vaCurrent = { day: j.day, label: j.day_label };
+      try { document.dispatchEvent(new CustomEvent('va:day', { detail: window.vaCurrent })); } catch (e) { /* 무시 */ }
     }).catch(function (e) { if (my === S.seq) msg(e.message, 'err'); });
   }
   // 갈 곳의 동을 서버가 뒤에서 찾는 중이면 잠시 뒤 갈 곳만 다시 받는다(배정 고친 것은 그대로)
@@ -712,8 +716,11 @@
   })($('vaDay'));
   function go(day) {
     if (S.dirty && S.canEdit && !window.confirm('저장하지 않은 배정이 있어요. 다른 날로 갈까요?')) { $('vaDay').value = S.day; return; }
+    if (window.vpDirty && window.vpDirty() && !window.confirm('저장하지 않은 방문 일정이 있어요. 다른 날로 갈까요?')) { $('vaDay').value = S.day; return; }
     load(day);
   }
+  // 방문 일정을 확정하면 그 팀으로 차량 배정을 다시 불러온다(고치던 배정이 있으면 그대로 둠) — gw-visit-plan.js
+  window.vaReload = function () { if (!S.dirty) load(S.day); };
   $('vaPrev').addEventListener('click', function () { go(addDays(S.day, -1)); });
   $('vaNext').addEventListener('click', function () { go(addDays(S.day, 1)); });
   $('vaDay').addEventListener('change', function () { if (this.value) go(this.value); });

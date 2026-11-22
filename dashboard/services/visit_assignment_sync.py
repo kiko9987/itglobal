@@ -32,6 +32,9 @@ _COMMIT_GUARD_KEY = 'visit_assign_commit:guard'
 _COMMIT_INFLIGHT_TTL = 180   # 실행 중 상한(크래시 안전용, 초)
 _COMMIT_COOLDOWN_TTL = 20    # 완료 직후 연타 흡수 쿨다운(초)
 
+# 일정 확정 권한 — 박정우(JW)·박용구(YG)·고광일(KiKO) (2026-07-19). 슬랙 /일정확정·그룹웨어 방문 일정 공용
+PLANNER_EMAILS = ('jw@itg-aircon.com', 'yg@itg-aircon.com', 'kiko@itg-aircon.com')
+
 # 이름 → 이니셜 별명
 _ALIAS_MAP = {
     '대표님': 'YG',
@@ -399,7 +402,10 @@ def _resolve_lead_for_assignment(a: Dict, phone_map: Dict[str, List[Dict]],
     2026-07-20: dry_run·commit·DM 발송 모두 이 helper 로 통일. 인투익스·산들해 등
     phone '-' lead 는 주소 substring 매칭으로 배정 반영.
     2026-07-27: phone_map 이 phone → 리스트. 공유 번호면 라인 주소로 disambiguate.
+    2026-11-22: 그룹웨어 방문 일정(services/visit_plan)은 리드를 골라 넣으므로 'lead' 가 이미 붙어 온다.
     """
+    if a.get('lead'):
+        return a['lead']
     if a.get('phone_digits'):
         pd_ = a['phone_digits']
         _lmd = _line_md_from_assignment(a)
@@ -537,6 +543,20 @@ def commit() -> Dict:
       commit 이 앞서 보낸 DM 을 '완전 제거'로 지우는 race (JW 사고) → 실행 중이거나
       직후 쿨다운 동안 재실행 시 즉시 거절.
     """
+    return _guarded(_commit_locked)
+
+
+def commit_plan(parsed_full: Dict, target_date=None) -> Dict:
+    """그룹웨어 방문 일정 확정(2026-11-22 부장님) — 캔버스 대신 화면에서 짠 배정으로 같은 처리를 한다.
+    parsed_full 은 parse_assignment_canvas_full 과 같은 모양이고 배정마다 'lead'(시트 행)·'memo'(팀 메모)가 붙는다.
+    연타 가드를 /일정확정과 함께 써서 슬랙·그룹웨어가 동시에 돌지 않는다."""
+    def run():
+        with _ASSIGN_LOCK:
+            return _apply_assignments(parsed_full, target_date=target_date)
+    return _guarded(run)
+
+
+def _guarded(fn) -> Dict:
     import time as _time
     from dashboard.utils.redis_client import get_redis_client
 
@@ -553,7 +573,7 @@ def commit() -> Dict:
         logger.warning(f'[ASSIGN] commit 가드 Redis 실패 — 우회: {_exc}')
 
     try:
-        return _commit_locked()
+        return fn()
     finally:
         # 완료(또는 예외) 후 짧은 쿨다운으로 전환해 직후 연타 흡수.
         #   크래시로 finally 를 못 타면 inflight TTL 로 자동 해제.
@@ -569,9 +589,6 @@ def commit() -> Dict:
 
 def _commit_locked() -> Dict:
     """commit() 본체 — 연타 가드는 commit() 래퍼가 관리."""
-    from dashboard.services.lead_service import update_lead
-    from dashboard.services.visit_canvas_sync import rebuild_canvas_async
-
     with _ASSIGN_LOCK:
         # 캔버스 확장 파싱 (assignments + online_duty + off_duty)
         token = (
@@ -584,86 +601,96 @@ def _commit_locked() -> Dict:
         html = _fetch_canvas_html(token, canvas_id)
         if html is None:
             return {'ok': False, 'reason': '캔버스 fetch 실패'}
-        parsed_full = parse_assignment_canvas_full(html)
+        return _apply_assignments(parse_assignment_canvas_full(html))
 
-        assignments = parsed_full['assignments']
-        online_duty = parsed_full['online_duty']
-        online_duty_shifts = parsed_full.get('online_duty_shifts') or {}
-        online_shared = parsed_full.get('online_shared', False)
-        off_duty = parsed_full['off_duty']
 
-        initial_to_name, _ = _load_initial_maps()
-        phone_map = _match_leads_by_phone(assignments)
-        if not phone_map and any(p.get('phone_digits') for p in assignments):
-            # 리드 시트를 못 읽었는데 '0건 완료'로 끝나던 것 (2026-10-28 5차)
-            return {'ok': False, 'reason': '리드 시트를 읽지 못했습니다. 잠시 후 다시 실행해 주세요.'}
-        addr_candidates = _load_addr_candidates()
+def _apply_assignments(parsed_full: Dict, target_date=None) -> Dict:
+    """배정 반영 — 시트 담당자 → 슬랙 List → 담당자·당번 DM → 캔버스1. 캔버스(/일정확정)·그룹웨어(commit_plan) 공용.
+    target_date(date) 를 주면 DM 대상일을 그날로 고정한다(그룹웨어는 날짜를 골라 짠다)."""
+    from dashboard.services.lead_service import update_lead
+    from dashboard.services.visit_canvas_sync import rebuild_canvas_async
 
-        # 1. 시트 update
-        updated: List[str] = []
-        failed: List[Tuple[str, str]] = []
-        for p in assignments:
-            lead = _resolve_lead_for_assignment(p, phone_map, addr_candidates)
-            if not lead:
-                continue
-            if not p['assign']:
-                continue
-            new_names = ','.join(initial_to_name.get(i, i) for i in p['assign'])
-            if not new_names or new_names == '-':
-                continue
-            current = str(lead.get('영업 담당자') or '').strip()
-            lno = str(lead.get('리드 No') or '').strip()
-            if not lno:
-                continue
-            if current == new_names:
-                continue
-            try:
-                _res = update_lead(lno, {'영업 담당자': new_names})
-                if isinstance(_res, dict) and _res.get('success') is False:   # 실패를 예외 없이 돌려줌 (5차)
-                    raise RuntimeError(_res.get('message') or '시트 저장 실패')
-                updated.append(lno)
-            except Exception as exc:
-                failed.append((lno, str(exc)))
-                logger.error(f'[ASSIGN] {lno} 시트 update 실패: {exc}')
+    assignments = parsed_full['assignments']
+    online_duty = parsed_full['online_duty']
+    online_duty_shifts = parsed_full.get('online_duty_shifts') or {}
+    online_shared = parsed_full.get('online_shared', False)
+    off_duty = parsed_full['off_duty']
 
-        # 2. Slack List 담당자 update (주소 fallback 위해 sheet_leads 넘김)
+    initial_to_name, _ = _load_initial_maps()
+    # 리드가 이미 붙어 온 배정(그룹웨어)만 있으면 시트를 번호로 다시 찾을 필요가 없다
+    _need_match = [p for p in assignments if not p.get('lead')]
+    phone_map = _match_leads_by_phone(_need_match) if _need_match else {}
+    if not phone_map and any(p.get('phone_digits') for p in _need_match):
+        # 리드 시트를 못 읽었는데 '0건 완료'로 끝나던 것 (2026-10-28 5차)
+        return {'ok': False, 'reason': '리드 시트를 읽지 못했습니다. 잠시 후 다시 실행해 주세요.'}
+    addr_candidates = _load_addr_candidates() if _need_match else []
+
+    # 1. 시트 update
+    updated: List[str] = []
+    failed: List[Tuple[str, str]] = []
+    for p in assignments:
+        lead = _resolve_lead_for_assignment(p, phone_map, addr_candidates)
+        if not lead:
+            continue
+        if not p['assign']:
+            continue
+        new_names = ','.join(initial_to_name.get(i, i) for i in p['assign'])
+        if not new_names or new_names == '-':
+            continue
+        current = str(lead.get('영업 담당자') or '').strip()
+        lno = str(lead.get('리드 No') or '').strip()
+        if not lno:
+            continue
+        if current == new_names:
+            continue
         try:
-            from dashboard.services.visit_canvas_sync import _fetch_visit_leads
-            _sheet_leads = _fetch_visit_leads()
-        except Exception:
-            _sheet_leads = None
-        list_ok, list_fail, list_missing = _update_slack_list_managers(
-            assignments, phone_map, sheet_leads=_sheet_leads,
-        )
+            _res = update_lead(lno, {'영업 담당자': new_names})
+            if isinstance(_res, dict) and _res.get('success') is False:   # 실패를 예외 없이 돌려줌 (5차)
+                raise RuntimeError(_res.get('message') or '시트 저장 실패')
+            updated.append(lno)
+        except Exception as exc:
+            failed.append((lno, str(exc)))
+            logger.error(f'[ASSIGN] {lno} 시트 update 실패: {exc}')
 
-        # 3. DM 발송 (target_date = min(방문일 시작일) > today)
-        dm_result = _send_dms_for_next_visit(
-            assignments, phone_map, initial_to_name, online_duty, off_duty,
-            addr_candidates=addr_candidates,
-            online_duty_shifts=online_duty_shifts,
-            online_shared=online_shared,
-        )
+    # 2. Slack List 담당자 update (주소 fallback 위해 sheet_leads 넘김)
+    try:
+        from dashboard.services.visit_canvas_sync import _fetch_visit_leads
+        _sheet_leads = _fetch_visit_leads()
+    except Exception:
+        _sheet_leads = None
+    list_ok, list_fail, list_missing = _update_slack_list_managers(
+        assignments, phone_map, sheet_leads=_sheet_leads,
+    )
 
-        # 4. 방문 캔버스 A rebuild
-        rebuild_canvas_async()
+    # 3. DM 발송 (target_date = min(방문일 시작일) > today)
+    dm_result = _send_dms_for_next_visit(
+        assignments, phone_map, initial_to_name, online_duty, off_duty,
+        addr_candidates=addr_candidates,
+        online_duty_shifts=online_duty_shifts,
+        online_shared=online_shared,
+        target_date=target_date,
+    )
 
-        return {
-            'ok': True,
-            'total_rows': len(assignments),
-            'updated': updated,
-            'updated_count': len(updated),
-            'failed': failed,
-            'failed_count': len(failed),
-            'list_updated': list_ok,
-            'list_failed': list_fail,
-            'list_missing': list_missing,
-            'dm': dm_result,
-            'online_duty': online_duty,
-            'online_duty_shifts': online_duty_shifts,   # 차량 배정이 당번을 명단에서 빼는 데 씀(11-21)
-            'off_duty': off_duty,
-            'duplicates': parsed_full.get('duplicates', []),     # 예전엔 확정 결과에 빠져 경고가 안 나왔음
-            'unreadable': parsed_full.get('unreadable', []),
-        }
+    # 4. 방문 캔버스 A rebuild
+    rebuild_canvas_async()
+
+    return {
+        'ok': True,
+        'total_rows': len(assignments),
+        'updated': updated,
+        'updated_count': len(updated),
+        'failed': failed,
+        'failed_count': len(failed),
+        'list_updated': list_ok,
+        'list_failed': list_fail,
+        'list_missing': list_missing,
+        'dm': dm_result,
+        'online_duty': online_duty,
+        'online_duty_shifts': online_duty_shifts,   # 차량 배정이 당번을 명단에서 빼는 데 씀(11-21)
+        'off_duty': off_duty,
+        'duplicates': parsed_full.get('duplicates', []),     # 예전엔 확정 결과에 빠져 경고가 안 나왔음
+        'unreadable': parsed_full.get('unreadable', []),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -999,6 +1026,12 @@ def _parse_visit_date_end(vd) -> Optional['date']:
     return _parse_visit_date_start(vd)
 
 
+def _dm_safe(text) -> str:
+    """직원이 쓴 메모를 슬랙 글로 — 한 줄로, 멘션·링크 꺾쇠(<!channel> 등)는 글자로."""
+    s = re.sub(r'\s+', ' ', str(text or '')).strip()[:200]
+    return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+
 def _get_visit_client():
     """방문봇 client 반환."""
     from dashboard.blueprints.slack_bot import _init_visit_slack_app, _visit_slack_app
@@ -1171,7 +1204,8 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                               off_duty: List[str],
                               addr_candidates: Optional[List[Dict]] = None,
                               online_duty_shifts: Optional[Dict[str, str]] = None,
-                              online_shared: bool = False) -> Dict:
+                              online_shared: bool = False,
+                              target_date=None) -> Dict:
     """min(방문일 시작일) > today 인 리드에 담당자/온라인 당번 DM.
 
     2026-07-19 확장: dm_sent 를 JSON 으로 관리해 재실행 시 신규/유지/제거 분류.
@@ -1220,7 +1254,8 @@ def _send_dms_for_next_visit(assignments: List[Dict],
     from datetime import timedelta as _td
     tomorrow = today + _td(days=1)
     effective_starts = [max(s, tomorrow) for _, _, s, _ in enriched]
-    target_date = max(effective_starts)  # 대다수 lead 의 방문일
+    # 그룹웨어 방문 일정은 날짜를 골라 짜므로 그날로 고정(11-22) — 여러 날 걸친 방문만 있는 날도 맞게
+    target_date = target_date or max(effective_starts)  # 대다수 lead 의 방문일
     result['target_date'] = target_date.isoformat()
 
     # 필터: 오늘 이후 유효한 모든 lead 발송 (end > today 조건은 위 enriched 단계
@@ -1256,10 +1291,15 @@ def _send_dms_for_next_visit(assignments: List[Dict],
 
     # 현재 배정 — 매니저별 lead 리스트
     current_by_mgr: Dict[str, List[Tuple[str, Dict]]] = defaultdict(list)
+    # 팀 메모(그룹웨어 방문 일정, 11-22) — 매니저별로 모아 DM 위쪽에. 캔버스 배정엔 없음('')
+    memo_by_mgr: Dict[str, List[str]] = defaultdict(list)
     for p, lead in filtered:
         lno = str(lead.get('리드 No') or '').strip()
+        _memo = _dm_safe(p.get('memo'))
         for ini in (p.get('assign') or []):
             current_by_mgr[ini].append((lno, lead))
+            if _memo and _memo not in memo_by_mgr[ini]:
+                memo_by_mgr[ini].append(_memo)
 
     # 이전 v9 DM 이력 (매니저별) — 채널·ts·lead_nos 저장돼 있으면 삭제/비교 가능
     prev_v9_by_mgr: Dict[str, Dict] = {}
@@ -1285,6 +1325,7 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                     'channel': data.get('channel', ''),
                     'ts': data.get('ts', ''),
                     'lead_nos': set(data.get('lead_nos') or []),
+                    'memo': data.get('memo') or '',
                 }
             except Exception as exc:
                 logger.debug(f'[ASSIGN/DM] prev v9 파싱 실패 ({ini}): {exc}')
@@ -1381,8 +1422,10 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                 )
             continue
 
+        cur_memo = ' / '.join(memo_by_mgr.get(ini) or [])
+        memo_changed = bool(prev_info) and (prev_info.get('memo') or '') != cur_memo
         # ────── (2) 배정 동일 (순서 무관) — skip ──────
-        if prev_info and current_set == prev_set:
+        if prev_info and current_set == prev_set and not memo_changed:
             logger.info(
                 f'[ASSIGN/DM] {mgr_name}({ini}) 배정 동일 '
                 f'({len(current_set)}건) → skip'
@@ -1429,7 +1472,7 @@ def _send_dms_for_next_visit(assignments: List[Dict],
 
         lines = [_BLANK]
         # 변경 재발송 헤더 (담담한 톤) — prev 있고 실제 lead set 다른 케이스만
-        if prev_info and current_set != prev_set:
+        if prev_info and (current_set != prev_set or memo_changed):
             _prev_n = len(prev_set)
             _cur_n = len(current_set)
             lines.append(
@@ -1445,6 +1488,8 @@ def _send_dms_for_next_visit(assignments: List[Dict],
         )
         if common:
             lines.append(f'>:busts_in_silhouette: 동행 : {"+".join(common)}')
+        if cur_memo:
+            lines.append(f'>:memo: 메모 : {cur_memo}')
         lines.append(f'>{_SEP}')
         for i, (lno, lead) in enumerate(current_leads):
             e = _EMOJIS[i] if i < len(_EMOJIS) else f'*{i+1}.*'
@@ -1507,6 +1552,7 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                         'channel': r.get('channel', ''),
                         'ts': r.get('ts', ''),
                         'lead_nos': sorted(current_set),
+                        'memo': cur_memo,
                     })
                     if rc_pre is not None:
                         rc_pre.set(

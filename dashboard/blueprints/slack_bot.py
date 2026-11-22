@@ -3705,9 +3705,8 @@ def _register_visit_handlers(app):
 
     # 방문 일정 조정 캔버스 (JW 전용) 파서 (2026-07-15)
     # 권한 = 박정우(JW)·박용구(YG)·고광일(KiKO) 만 실행 (2026-07-19)
-    _VISIT_CMD_ALLOWED_EMAILS = {
-        'jw@itg-aircon.com', 'yg@itg-aircon.com', 'kiko@itg-aircon.com',
-    }
+    from dashboard.services.visit_assignment_sync import PLANNER_EMAILS as _PLANNERS
+    _VISIT_CMD_ALLOWED_EMAILS = set(_PLANNERS)
 
     def _check_visit_cmd_permission(command) -> Optional[str]:
         """권한 없으면 안내 문구 반환, 있으면 None."""
@@ -3732,6 +3731,18 @@ def _register_visit_handlers(app):
         def _bg():
             try:
                 from dashboard.services.visit_assignment_sync import commit
+                # 2026-11-22 그룹웨어에서 이미 확정한 날이면 캔버스로 덮어쓰지 않는다(바꾸는 동안 두 곳 병행)
+                try:
+                    from dashboard.services import visit_plan
+                    _gw_day = visit_plan.confirmed_upcoming_day()
+                except Exception as _pexc:
+                    logger.warning(f"[일정확정] 그룹웨어 확정 확인 실패(그대로 진행): {_pexc}")
+                    _gw_day = None
+                if _gw_day:
+                    respond({'response_type': 'ephemeral',
+                             'text': f":lock: {_gw_day['label']} 방문 일정은 그룹웨어에서 이미 확정했어요"
+                                     f"({_gw_day['by']}). 고칠 것은 그룹웨어 차량 배정 화면의 [방문 일정]에서 해 주세요."})
+                    return
                 result = commit()
                 resp = _format_assignment_result(result, committed=True)
                 # 2026-10-27 일정확정 직후 누락 점검 — 카드↔캔버스1, 캔버스1↔캔버스2(대상일),

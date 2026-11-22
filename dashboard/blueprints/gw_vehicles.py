@@ -16,6 +16,7 @@ from dashboard.services import vehicle_assign as va
 from dashboard.services import vehicle_driver as vd
 from dashboard.services import vehicle_log as vl
 from dashboard.services import vehicle_manage as vm
+from dashboard.services import visit_plan as vp
 from dashboard.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -118,6 +119,10 @@ def api_assign_get():
     try:        # 일정확정 결과(리드 시트 방문 예정일·영업 담당자) — 못 읽어도 배정은 할 수 있게
         leads = _leads()
         visitors, teams = va.visitors(day, leads), va.teams(day, leads)
+        try:    # 그룹웨어에서 확정한 날은 그 팀 그대로(시트 캐시가 늦게 바뀌어도, 11-22)
+            teams = vp.confirmed_teams(day) or teams
+        except Exception as e:
+            logger.warning(f'[차량배정] 방문 일정 팀 읽기 실패: {e}')
         # 갈 곳을 동까지 보이게 — 아직 못 찾은 방문 주소는 뒤에서 찾고(행안부), 화면이 잠시 뒤 다시 받아 간다
         resolving = bool(vl.unresolved(leads, day, day))
         if resolving and not _resolving.locked():
@@ -176,6 +181,81 @@ def api_assign_save():
     logger.info(f"[차량배정] {day} 저장 by {_me()}: 바뀐 차 {len(res['changed'])}대, DM {res['notified']}건"
                 f"{' (확정)' if body.get('confirm') else ''}")
     return jsonify({'success': True, **res})
+
+
+# ── ① 방문 일정(11-22 부장님) — 슬랙 캔버스2 + /일정확정 대신 그룹웨어에서 짜고 확정. 규칙은 services/visit_plan.py
+#    보기는 사무실 직원(현장 세션은 문지기가 막음), 고치기·확정은 일정 담당(JW·대표님·부장님)
+def _can_plan() -> bool:
+    return not _is_field() and vp.can_plan(_me())
+
+
+def _fresh_leads() -> list:
+    from dashboard.services.lead_service import load_leads_data
+    df = load_leads_data(force_refresh=True)
+    return [] if df is None or df.empty else df.to_dict('records')
+
+
+@gw_vehicles_bp.route('/api/vehicles/plan', methods=['GET'])
+@gw_page
+def api_plan_get():
+    day = _day()
+    try:
+        data = vp.load(day, _leads(), _me() if not _is_field() else '')
+    except Exception as e:
+        logger.error(f'[방문일정] 불러오기 실패: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': '불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요.'}), 500
+    data['can_edit'] = bool(data.pop('can_plan')) and data['editable'] and not _is_field()
+    return jsonify({'success': True, **data})
+
+
+def _plan_body():
+    body = request.get_json(silent=True) or {}
+    return (body.get('day') or '').strip(), body.get('plan') or {}
+
+
+@gw_vehicles_bp.route('/api/vehicles/plan', methods=['POST'])
+@gw_page
+def api_plan_save():
+    if not _can_plan():
+        return jsonify({'success': False, 'message': '방문 일정은 일정 담당자만 고칠 수 있어요.'}), 403
+    day, plan = _plan_body()
+    try:
+        vp.save(day, plan, _me(), _leads())
+        data = vp.load(day, _leads(), _me())
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        logger.error(f'[방문일정] 저장 실패: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': '저장하지 못했어요. 잠시 뒤 다시 해 주세요.'}), 500
+    data['can_edit'] = bool(data.pop('can_plan')) and data['editable']
+    return jsonify({'success': True, **data})
+
+
+@gw_vehicles_bp.route('/api/vehicles/plan/confirm', methods=['POST'])
+@gw_page
+def api_plan_confirm():
+    if not _can_plan():
+        return jsonify({'success': False, 'message': '방문 일정은 일정 담당자만 확정할 수 있어요.'}), 403
+    day, plan = _plan_body()
+    try:
+        st = vp.start_confirm(day, plan, _me(), _leads(), _fresh_leads)
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        logger.error(f'[방문일정] 확정 시작 실패: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': '확정하지 못했어요. 잠시 뒤 다시 해 주세요.'}), 500
+    logger.info(f'[방문일정] {day} 확정 시작 by {_me()}')
+    return jsonify({'success': True, 'run': st})
+
+
+@gw_vehicles_bp.route('/api/vehicles/plan/state', methods=['GET'])
+@gw_page
+def api_plan_state():
+    try:
+        return jsonify({'success': True, 'run': vp.run_state(_day())})
+    except Exception as e:
+        logger.error(f'[방문일정] 상태 읽기 실패: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': '상태를 읽지 못했어요.'}), 500
 
 
 # ── [운행 종료](11-22 부장님) — 운행을 마친 사람이 바로 운전자를 적는다(저녁 DM 과 같은 자리에 저장) ──

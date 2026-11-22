@@ -22,34 +22,70 @@
   {# 오늘 내 차 [운행 종료] — 운행 마친 사람이 바로 운전자를 적는다(11-22 부장님). 탄 차가 없으면 안 보임. gw-vehicle-trip.js #}
   <section class="gw-vt" id="vaTrip" aria-label="오늘 내 차" hidden></section>
 
-  <div class="gw-va-status" id="vaStatus"></div>
-  <div class="gw-vh-msg" id="vaMsg" role="status" aria-live="polite"></div>
-
-  <div class="gw-va-board" id="vaBoard">
-    <aside class="gw-va-staff" id="vaStaff" data-drop="out" hidden>
-      <div class="gw-va-staff-head">
-        <strong>사람</strong>
-        <span id="vaStaffCount"></span>
-      </div>
-      <p class="gw-va-staff-how" id="vaStaffHow"></p>
-      <div id="vaStaffList"></div>
-    </aside>
-
-    <section class="gw-va-cars">
-      {# 그날 방문 일정(캔버스1과 같은 묶음) + 휴무 — gw-vehicle-assign.js schedPanel 이 채운다(11-21) #}
-      <details class="gw-va-sched" id="vaSched" hidden></details>
-      <div class="gw-va-list" id="vaShared"><p class="gw-empty">불러오는 중…</p></div>
-      <h2 class="gw-va-sec" id="vaFixedHead" hidden>고정 차 <span class="gw-va-sec-sub">평소엔 정해진 사람이 타요. 차가 모자란 날만 빌려 쓰기로 넣어 주세요.</span></h2>
-      <div class="gw-va-list" id="vaFixed"></div>
-    </section>
+  {# ① 방문 일정 → ② 차량 배정(11-22 부장님) — 슬랙 캔버스2·/일정확정 대신 여기서 일정을 짜고 확정한다.
+     일정 담당(JW·대표님·부장님)만 고친다. 규칙은 services/visit_plan.py, 화면은 gw-visit-plan.js #}
+  <div class="gw-vp-steps" id="vpSteps" role="tablist" aria-label="단계" hidden>
+    <button type="button" class="gw-vp-step" id="vpTabPlan" role="tab" aria-controls="vpPlan" aria-selected="false">① 방문 일정 <span class="gw-vp-stepst" id="vpTabPlanSt"></span></button>
+    <i class="fas fa-chevron-right gw-vp-stepsep" aria-hidden="true"></i>
+    <button type="button" class="gw-vp-step" id="vpTabCars" role="tab" aria-controls="vaStepCars" aria-selected="false">② 차량 배정</button>
   </div>
 
-  {# 저장 결과는 누른 단추 바로 위에(휴대폰에선 위쪽 안내가 화면 밖이라 안 보였음 — 11-21 점검) #}
-  <div class="gw-va-bar" id="vaBar" hidden>
-    <div class="gw-vh-msg gw-va-barmsg" id="vaBarMsg" role="status" aria-live="polite"></div>
-    <button type="button" class="btn btn-outline-secondary gw-va-reset" id="vaReset">초기화</button>
-    <button type="button" class="btn btn-outline-secondary" id="vaSave">저장만</button>
-    <button type="button" class="btn btn-primary" id="vaConfirm">확정하고 알리기</button>
+  <section class="gw-vp" id="vpPlan" role="tabpanel" aria-labelledby="vpTabPlan" hidden>
+    <div class="gw-va-status" id="vpStatus"></div>
+    <div class="gw-vp-info" id="vpInfo"></div>
+    <div class="gw-vp-board" id="vpBoard">
+      <aside class="gw-vp-left" id="vpLeftBox" data-drop="left">
+        <h2 class="gw-vp-h">배정 안 된 방문 <span id="vpLeftCount"></span></h2>
+        <p class="gw-vp-how" id="vpHow"></p>
+        <div class="gw-vp-list" id="vpLeft"></div>
+      </aside>
+      <div class="gw-vp-right">
+        <div class="gw-vp-teams" id="vpTeams"></div>
+        <div class="gw-vp-add" id="vpAddRow">
+          <button type="button" class="btn btn-outline-secondary" id="vpAddTeam"><i class="fas fa-plus" aria-hidden="true"></i> 새 팀</button>
+          <p class="gw-vp-free" id="vpFree"></p>
+        </div>
+      </div>
+    </div>
+    <section class="gw-vp-duty" id="vpDuty" aria-label="온라인 당번"></section>
+    <ul class="gw-vp-warns" id="vpWarns" aria-label="확정 전 확인할 것"></ul>
+    <div class="gw-va-bar" id="vpBar" hidden>
+      <div class="gw-vh-msg gw-va-barmsg" id="vpBarMsg" role="status" aria-live="polite"></div>
+      <button type="button" class="btn btn-outline-secondary" id="vpSave">임시 저장</button>
+      <button type="button" class="btn btn-primary" id="vpConfirm">일정 확정 · DM 보내기</button>
+    </div>
+  </section>
+
+  <div id="vaStepCars" role="tabpanel" aria-labelledby="vpTabCars">
+    <div class="gw-va-status" id="vaStatus"></div>
+    <div class="gw-vh-msg" id="vaMsg" role="status" aria-live="polite"></div>
+
+    <div class="gw-va-board" id="vaBoard">
+      <aside class="gw-va-staff" id="vaStaff" data-drop="out" hidden>
+        <div class="gw-va-staff-head">
+          <strong>사람</strong>
+          <span id="vaStaffCount"></span>
+        </div>
+        <p class="gw-va-staff-how" id="vaStaffHow"></p>
+        <div id="vaStaffList"></div>
+      </aside>
+
+      <section class="gw-va-cars">
+        {# 그날 방문 일정(캔버스1과 같은 묶음) + 휴무 — gw-vehicle-assign.js schedPanel 이 채운다(11-21) #}
+        <details class="gw-va-sched" id="vaSched" hidden></details>
+        <div class="gw-va-list" id="vaShared"><p class="gw-empty">불러오는 중…</p></div>
+        <h2 class="gw-va-sec" id="vaFixedHead" hidden>고정 차 <span class="gw-va-sec-sub">평소엔 정해진 사람이 타요. 차가 모자란 날만 빌려 쓰기로 넣어 주세요.</span></h2>
+        <div class="gw-va-list" id="vaFixed"></div>
+      </section>
+    </div>
+
+    {# 저장 결과는 누른 단추 바로 위에(휴대폰에선 위쪽 안내가 화면 밖이라 안 보였음 — 11-21 점검) #}
+    <div class="gw-va-bar" id="vaBar" hidden>
+      <div class="gw-vh-msg gw-va-barmsg" id="vaBarMsg" role="status" aria-live="polite"></div>
+      <button type="button" class="btn btn-outline-secondary gw-va-reset" id="vaReset">초기화</button>
+      <button type="button" class="btn btn-outline-secondary" id="vaSave">저장만</button>
+      <button type="button" class="btn btn-primary" id="vaConfirm">확정하고 알리기</button>
+    </div>
   </div>
 </div>
 {% endblock %}
@@ -57,4 +93,5 @@
 {% block additional_js %}
 <script src="{{ gw_asset('js/gw-vehicle-assign.js') }}"></script>
 <script src="{{ gw_asset('js/gw-vehicle-trip.js') }}"></script>
+<script src="{{ gw_asset('js/gw-visit-plan.js') }}"></script>
 {% endblock %}
