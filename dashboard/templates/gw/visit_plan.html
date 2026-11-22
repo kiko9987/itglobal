@@ -26,11 +26,15 @@
     {# 차량 배정과 같은 모양(11-22 부장님): 왼쪽 사람 → 위 코스 카드(= 차 카드). 아래 현장 목록(캔버스1)을 지역끼리 모아
        하나씩 또는 체크해서 위 코스로 올린다. JW 가 메모장에서 하던 순서 — 코스 묶기 → 사람 넣기 → 넣었다 뺐다 #}
     <div class="gw-vp-board" id="vpBoard">
-      <aside class="gw-va-staff gw-vp-people" id="vpPeopleBox" data-drop="people" aria-label="사람">
-        <div class="gw-va-staff-head"><strong>사람</strong><span id="vpPeopleCount"></span></div>
-        <p class="gw-va-staff-how" id="vpPeopleHow"></p>
-        <div id="vpPeople"></div>
-      </aside>
+      {# 왼쪽 칸 = 사람 + 그 아래 온라인 당번(11-23 부장님: 현장이 늘어도 당번이 밑으로 밀려 내려가지 않게) #}
+      <div class="gw-vp-left">
+        <aside class="gw-va-staff gw-vp-people" id="vpPeopleBox" data-drop="people" aria-label="사람">
+          <div class="gw-va-staff-head"><strong>사람</strong><span id="vpPeopleCount"></span></div>
+          <p class="gw-va-staff-how" id="vpPeopleHow"></p>
+          <div id="vpPeople"></div>
+        </aside>
+        <section class="gw-vp-duty" id="vpDuty" aria-label="온라인 당번"></section>
+      </div>
       <div class="gw-vp-main">
         <div class="gw-vp-sitehead">
           <h2 class="gw-vp-h">코스 <span id="vpCourseCount"></span></h2>
@@ -48,7 +52,6 @@
         </section>
       </div>
     </div>
-    <section class="gw-vp-duty" id="vpDuty" aria-label="온라인 당번"></section>
     <ul class="gw-vp-warns" id="vpWarns" aria-label="확정 전 확인할 것"></ul>
     <div class="gw-va-bar" id="vpBar" hidden>
       <div class="gw-vh-msg gw-va-barmsg" id="vpBarMsg" role="status" aria-live="polite"></div>
