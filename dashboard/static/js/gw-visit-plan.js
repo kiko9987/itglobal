@@ -211,9 +211,8 @@
     return groups.map(function (g) {
       var allOn = g.items.every(function (v) { return P.checked[v.lead_no]; });
       var head = '<h3 class="gw-vp-gtitle">' + esc(g.key) + ' <span>' + g.items.length + '</span>' +
-        (P.canEdit && g.items.length > 1 ? ' <button type="button" class="btn btn-sm btn-link gw-vp-gall" data-act="checkgroup" data-region="' + esc(g.key) + '">' + (allOn ? '체크 풀기' : '모두 체크') + '</button>' : '') +
-        // 지역을 모두 체크하면 줄마다 있던 [새 코스로]를 이 단추 하나로(11-22 부장님)
-        (P.canEdit && allOn && g.items.length > 1 ? ' <button type="button" class="btn btn-sm btn-outline-secondary gw-vp-newc" data-act="newcgroup" data-region="' + esc(g.key) + '">' + esc(g.key) + ' ' + g.items.length + '건 새 코스로</button>' : '') + '</h3>';
+        (P.canEdit && g.items.length > 1 ? ' <button type="button" class="btn btn-sm btn-link gw-vp-gall" data-act="checkgroup" data-region="' + esc(g.key) + '">' + (allOn ? '체크 풀기' : '모두 체크') + '</button>' : '') + '</h3>';
+      // 체크한 현장은 제목 줄의 '체크한 현장 → [새 코스로]·[코스 N로]' 로 올린다(지역 단추는 두지 않음, 11-22 부장님)
       return '<div class="gw-vp-group">' + head + '<ul class="gw-vp-inrows">' + g.items.map(function (v) {
         var on = !!P.checked[v.lead_no];
         var check = P.canEdit ? '<input type="checkbox" class="form-check-input gw-vp-check" data-act="check" data-lead="' + esc(v.lead_no) + '"' + (on ? ' checked' : '') +
@@ -373,11 +372,6 @@
     if (act === 'unpick') { P.picked = null; render(); }
     else if (act === 'putp') { if (P.picked) putPerson(P.picked, ci); }
     else if (act === 'newc') { moveTo([no], newCourse()); }
-    else if (act === 'newcgroup') {
-      var reg = b.getAttribute('data-region');
-      var grp = inbox().filter(function (v) { return (v.region || '지역 모름') === reg; }).map(function (v) { return v.lead_no; });
-      if (grp.length) moveTo(grp, newCourse());
-    }
     else if (act === 'lift') { moveTo(checkedList(), ci); }
     else if (act === 'liftnew') { var list = checkedList(); if (list.length) moveTo(list, newCourse()); }
     else if (act === 'uncheck') { P.checked = {}; render(); }
