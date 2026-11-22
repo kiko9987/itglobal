@@ -3213,3 +3213,13 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
   .gw-vm-form .btn, .gw-vm-add summary { min-height: 44px; }
   .gw-vm-add summary { display: flex; align-items: center; }
 }
+
+/* 차량 배정 — 교대 운전·큰 팀 안내(11-22) */
+.gw-va-shift { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 0.82rem; color: #475569; }
+.gw-va-shift label { display: inline-flex; align-items: center; gap: 6px; margin: 0; }
+.gw-va-shift span { white-space: nowrap; }
+.gw-va-shift select { width: auto; min-width: 0; }
+.gw-va-teamhint { display: block; color: #9a3412; font-size: 0.76rem; line-height: 1.35; }
+@media (max-width: 767.98px) {
+  .gw-va-shift select { font-size: 16px; min-height: 44px; }
+}

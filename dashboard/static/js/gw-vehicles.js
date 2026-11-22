@@ -149,7 +149,8 @@
       return '<div class="gw-vh-visit"><b>' + names(x.who) + '</b> <span class="text-muted">' + esc(x.lead_no) + '</span><br>' +
         '<span class="gw-vh-addr">' + esc(x.addr) + '</span></div>';
     }).join('');
-    return '<tr' + (t.home ? ' class="gw-vh-home"' : '') + '><td class="gw-vh-time">' + esc(t.start) + '<br><span class="text-muted">' + esc(t.end) + '</span></td>' +
+    return '<tr' + (t.home ? ' class="gw-vh-home"' : '') + '><td class="gw-vh-time">' + esc(t.start) + '<br><span class="text-muted">' + esc(t.end) + '</span>' +
+      (t.driver ? '<br><span class="gw-vh-src assigned">' + esc(t.driver) + '</span>' : '') + '</td>' +
       '<td>' + esc(shortAddr(t.to)) + (t.home ? ' <span class="gw-badge gw-badge-resigned">회사</span>' : '') +
         '<br><span class="text-muted small">' + esc(shortAddr(t.from)) + '에서</span></td>' +
       '<td class="num">' + esc(km(t.km)) + '</td><td>' + (v || '') + '</td></tr>';

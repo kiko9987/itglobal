@@ -109,6 +109,11 @@ def _conn():
             cols = {r[1] for r in conn.execute('PRAGMA table_info(vehicle_assign_day)').fetchall()}
             if 'online_duty' not in cols:
                 conn.execute('ALTER TABLE vehicle_assign_day ADD COLUMN online_duty TEXT')
+            # 한 차를 오전·오후 다른 사람이 운전(11-22 부장님: 4041 대표님 오전 → 승정 대리 오후)
+            acols = {r[1] for r in conn.execute('PRAGMA table_info(vehicle_assign)').fetchall()}
+            for col in ('shift_driver', 'shift_at'):
+                if col not in acols:
+                    conn.execute(f'ALTER TABLE vehicle_assign ADD COLUMN {col} TEXT')
             for i, s in enumerate(_SEED):
                 conn.execute('INSERT OR IGNORE INTO vehicle_fleet (plate, label, model, fuel, corp, usage, fixed_user, '
                              'needs_log, uplus, active, sort_no, updated_by, updated_at) '
@@ -231,10 +236,19 @@ def _split(people: str) -> List[str]:
     return [p for p in (people or '').split(',') if p]
 
 
+def _empty() -> Dict:
+    return {'people': [], 'note': '', 'shift_driver': '', 'shift_at': ''}
+
+
+def _row(people: List[str], note: str = '', shift_driver: str = '', shift_at: str = '') -> Dict:
+    return {'people': list(people), 'note': note or '', 'shift_driver': shift_driver or '', 'shift_at': shift_at or ''}
+
+
 def _day_rows(day: str) -> Dict[str, Dict]:
     with _conn() as conn:
-        return {r['plate']: {'people': _split(r['people']), 'note': r['note'] or ''}
-                for r in conn.execute('SELECT plate, people, note FROM vehicle_assign WHERE day = ?', (day,)).fetchall()}
+        return {r['plate']: _row(_split(r['people']), r['note'], r['shift_driver'], r['shift_at'])
+                for r in conn.execute('SELECT plate, people, note, shift_driver, shift_at FROM vehicle_assign WHERE day = ?',
+                                      (day,)).fetchall()}
 
 
 def _day_info(day: str) -> Optional[Dict]:
@@ -262,15 +276,65 @@ def _recent_cars(day: str, back_days: int = 30) -> Dict[str, str]:
     return out
 
 
+def _pairs(day: str, back_days: int = 60) -> Dict[frozenset, int]:
+    """그날 이전 배정에서 같은 차를 탄 짝 — {frozenset({A, B}): 횟수}."""
+    start = (date.fromisoformat(day) - timedelta(days=back_days)).isoformat()
+    with _conn() as conn:
+        rows = conn.execute('SELECT people FROM vehicle_assign WHERE day >= ? AND day < ?', (start, day)).fetchall()
+    out: Dict[frozenset, int] = {}
+    for r in rows:
+        ppl = _split(r['people'])
+        for i, a in enumerate(ppl):
+            for b in ppl[i + 1:]:
+                k = frozenset((a, b))
+                out[k] = out.get(k, 0) + 1
+    return out
+
+
+BIG_TEAM = 3   # 이 인원 이상인 일정확정 팀은 방문 뒤 현장별로 갈라질 수 있다(11-22 부장님: JW+YM+TH+LJW → 8021·레이 2대)
+
+
+def split_team(members: List[str], pairs: Dict[frozenset, int]) -> Optional[List[List[str]]]:
+    """큰 팀을 평소 같은 차를 타는 짝대로 나눈다(짝 기록으로 이어진 사람끼리 한 묶음). 작은 팀은 그대로.
+    큰 팀인데 짝 기록이 하나도 없으면 None — 한 차에 몰아넣지 않고 승정 대리가 나누게 둔다."""
+    if len(members) < BIG_TEAM:
+        return [list(members)]
+    adj = {m: set() for m in members}
+    for i, a in enumerate(members):
+        for b in members[i + 1:]:
+            if pairs.get(frozenset((a, b))):
+                adj[a].add(b)
+                adj[b].add(a)
+    if not any(adj.values()):
+        return None
+    groups, seen = [], set()
+    for m in members:
+        if m in seen:
+            continue
+        comp, stack = [], [m]
+        while stack:
+            x = stack.pop()
+            if x in seen:
+                continue
+            seen.add(x)
+            comp.append(x)
+            stack.extend(adj[x] - seen)
+        groups.append(sorted(comp, key=members.index))
+    return groups
+
+
 def _team_draft(day: str, teams: List[Dict], cars: List[Dict]) -> Dict[str, Dict]:
-    """일정확정 팀마다 그 팀 사람이 최근에 탄 차(비어 있으면)에 넣은 초안. 탄 적 없으면 넣지 않는다."""
+    """일정확정 팀마다 그 팀 사람이 최근에 탄 차(비어 있으면)에 넣은 초안. 탄 적 없으면 넣지 않는다.
+    큰 팀(3명 이상)은 짝 기록으로 나눠 묶음마다 따로 넣고, 짝 기록이 없으면 넣지 않는다(11-22)."""
     recent = _recent_cars(day)
+    pairs = _pairs(day)
     shared = {c['plate'] for c in cars if c['usage'] == SHARED}
     rows: Dict[str, Dict] = {}
     for t in teams:
-        plate = next((recent[p] for p in t['members'] if recent.get(p) in shared and recent[p] not in rows), None)
-        if plate:
-            rows[plate] = {'people': list(t['members']), 'note': ''}
+        for g in split_team(t['members'], pairs) or []:
+            plate = next((recent[p] for p in g if recent.get(p) in shared and recent[p] not in rows), None)
+            if plate:
+                rows[plate] = _row(g)
     return rows
 
 
@@ -289,16 +353,20 @@ def day_view(day: str, teams: Optional[List[Dict]] = None) -> Dict:
             draft_kind = 'prev'
             prev_rows = _day_rows(prev)
             shared = {c['plate'] for c in cars if c['usage'] == SHARED}
-            rows = {p: {'people': r['people'], 'note': ''} for p, r in prev_rows.items() if p in shared and r['people']}
+            rows = {p: _row(r['people']) for p, r in prev_rows.items() if p in shared and r['people']}
             draft_from = prev
     out = []
     for c in cars:
-        r = rows.get(c['plate'], {'people': [], 'note': ''})
+        r = rows.get(c['plate'], _empty())
         out.append({**{k: c[k] for k in ('plate', 'label', 'model', 'fuel', 'corp', 'usage', 'fixed_user',
                                          'needs_log', 'uplus')},
-                    'people': r['people'], 'note': r['note']})
+                    'people': r['people'], 'note': r['note'],
+                    'shift_driver': r.get('shift_driver', ''), 'shift_at': r.get('shift_at', '')})
     return {'day': day, 'cars': out, 'draft_from': draft_from, 'draft_kind': draft_kind,
             'confirmed_at': (info or {}).get('confirmed_at'), 'confirmed_by': (info or {}).get('confirmed_by')}
+
+
+_HHMM = re.compile(r'^(0\d|1\d|2[0-3]):[0-5]\d$')
 
 
 def _clean_rows(rows: Iterable[Dict], plates: set, codes: set) -> Dict[str, Dict]:
@@ -322,8 +390,18 @@ def _clean_rows(rows: Iterable[Dict], plates: set, codes: set) -> Dict[str, Dict
             where[p] = plate
             people.append(p)
         note = (r.get('note') or '').strip()[:60]
+        # 오후부터 운전 — 그 차에 탄 사람 중 맨 앞(오전 운전)이 아닌 사람만. 시각 기본 13:00
+        sd = (r.get('shift_driver') or '').strip()
+        sd = sd.upper() if sd.upper() in codes else sd
+        sa = (r.get('shift_at') or '').strip()
+        if sd and (sd not in people or sd == people[0]):
+            sd = ''
+        if sd and not _HHMM.match(sa):
+            sa = '13:00'
+        if not sd:
+            sa = ''
         if people or note:
-            out[plate] = {'people': people, 'note': note}
+            out[plate] = _row(people, note, sd, sa)
     return out
 
 
@@ -343,16 +421,18 @@ def save_day(day: str, rows: Iterable[Dict], by: str, confirm: bool = False, not
     changed = []
     with _conn() as conn:
         for plate in set(old) | set(new):
-            o = old.get(plate, {'people': [], 'note': ''})
-            n = new.get(plate, {'people': [], 'note': ''})
+            o = old.get(plate, _empty())
+            n = new.get(plate, _empty())
             if o == n:
                 continue
             changed.append(plate)
             conn.execute('INSERT INTO vehicle_assign_log (day, plate, before, after, by, at) VALUES (?,?,?,?,?,?)',
                          (day, plate, json.dumps(o, ensure_ascii=False), json.dumps(n, ensure_ascii=False), by, now))
             if n['people'] or n['note']:
-                conn.execute('INSERT OR REPLACE INTO vehicle_assign (day, plate, people, note, updated_by, updated_at) '
-                             'VALUES (?,?,?,?,?,?)', (day, plate, ','.join(n['people']), n['note'], by, now))
+                conn.execute('INSERT OR REPLACE INTO vehicle_assign (day, plate, people, note, shift_driver, shift_at, '
+                             'updated_by, updated_at) VALUES (?,?,?,?,?,?,?,?)',
+                             (day, plate, ','.join(n['people']), n['note'], n['shift_driver'] or None, n['shift_at'] or None,
+                              by, now))
             else:
                 conn.execute('DELETE FROM vehicle_assign WHERE day = ? AND plate = ?', (day, plate))
         if confirm and not was_confirmed:
@@ -382,6 +462,14 @@ def assigned_people(start: str, end: str) -> Dict[Tuple[str, str], List[str]]:
         rows = conn.execute('SELECT day, plate, people FROM vehicle_assign WHERE day BETWEEN ? AND ?',
                             (start, end)).fetchall()
     return {(r['day'], r['plate']): _split(r['people']) for r in rows if r['people']}
+
+
+def assigned_shifts(start: str, end: str) -> Dict[Tuple[str, str], Tuple[str, str]]:
+    """운행일지용 — (날짜, 번호판) → (오후부터 운전한 사람 이니셜, 'HH:MM'). 그 시각 이후 운행은 그 사람."""
+    with _conn() as conn:
+        rows = conn.execute('SELECT day, plate, shift_driver, shift_at FROM vehicle_assign WHERE day BETWEEN ? AND ? '
+                            "AND shift_driver IS NOT NULL AND shift_driver != ''", (start, end)).fetchall()
+    return {(r['day'], r['plate']): (r['shift_driver'], r['shift_at'] or '13:00') for r in rows}
 
 
 def fixed_users() -> Dict[str, str]:
@@ -565,6 +653,9 @@ def _person_text(day: str, code: str, plate: str, row: Dict, cars: Dict[str, Dic
     lines = [f":car: {day_label(day)} 차량: {_car_text(plate, cars)}"]
     if others:
         lines.append(f"함께 타는 사람: {', '.join(others)}")
+    if row.get('shift_driver') and row['people']:
+        lines.append(f"운전: {display(row['people'][0], who)} → {row.get('shift_at') or '13:00'}부터 "
+                     f"{display(row['shift_driver'], who)}")
     if row.get('note'):
         lines.append(f"메모: {row['note']}")
     return '\n'.join(lines)
@@ -654,4 +745,4 @@ def teams(day: str, leads: Iterable[dict]) -> List[Dict]:
         taken.update(rest)
         out[rest] = out.get(rest, 0) + n
     # 남은 사람이 이미 있는 팀과 같으면 합친다(위 out 키가 같으면 이미 합쳐짐)
-    return [{'members': list(k), 'visits': v} for k, v in out.items()]
+    return [{'members': list(k), 'visits': v, 'big': len(k) >= BIG_TEAM} for k, v in out.items()]

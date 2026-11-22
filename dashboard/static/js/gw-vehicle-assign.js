@@ -151,7 +151,7 @@
     var teams = S.teams.map(function (t) {
       var left = t.members.filter(function (m) { return S.names[m] && free.indexOf(m) !== -1; });
       left.forEach(function (m) { inTeam[m] = 1; });
-      return { left: left, visits: t.visits };
+      return { left: left, visits: t.visits, big: !!t.big };
     }).filter(function (t) { return t.left.length; });
     // 함께 가는 팀(2명 이상)을 먼저, 혼자 가는 사람은 그 아래(혼자가 팀 사이에 끼어 있던 것, 11-21 부장님)
     //   같은 쪽 안에서는 서버 순서(방문 많은 순) 그대로
@@ -173,7 +173,10 @@
           '" aria-pressed="' + on + '" title="팀 그대로 함께 옮기기">' +
           '<i class="fas fa-people-group" aria-hidden="true"></i> 함께 <small>방문 ' + t.visits + '</small></button>'
         : '';
-      return '<div class="gw-va-team">' + btn + t.left.map(function (c) { return person(c); }).join('') + '</div>';
+      // 큰 팀(3명 이상)은 방문을 함께 돈 뒤 현장별로 갈라질 수 있다(11-22 부장님) — 한 차에 다 넣기 전에 한 번 더 보게
+      var hint = t.big && t.left.length > 2
+        ? '<small class="gw-va-teamhint">함께 방문한 뒤 갈라질 수 있어요. 차를 나눠 넣어 주세요.</small>' : '';
+      return '<div class="gw-va-team">' + btn + hint + t.left.map(function (c) { return person(c); }).join('') + '</div>';
     }
     var nTeam = teams.reduce(function (n, t) { return n + t.left.length; }, 0);
     $('vaStaffList').innerHTML =
@@ -239,14 +242,31 @@
           return '<option value="' + esc(p) + '"' + (i === 0 ? ' selected' : '') + '>' + esc(name(p)) + '</option>';
         }).join('') + '</select></label>'
       : '';
+    var shift = '';
+    if (S.canEdit && c.people.length > 1) {
+      var on = shiftOk(c);
+      var hours = [];
+      for (var h = 9; h <= 18; h++) { ['00', '30'].forEach(function (m) { hours.push((h < 10 ? '0' : '') + h + ':' + m); }); }
+      shift = '<div class="gw-va-shift"><label><span>교대</span><select class="form-select form-select-sm" data-shift="' + esc(c.plate) +
+        '" aria-label="' + esc(c.label) + ' 중간에 운전을 넘겨받는 사람"><option value="">없음</option>' +
+        c.people.slice(1).map(function (p) {
+          return '<option value="' + esc(p) + '"' + (on && c.shift_driver === p ? ' selected' : '') + '>' + esc(name(p)) + '</option>';
+        }).join('') + '</select></label>' +
+        (on ? '<label><select class="form-select form-select-sm" data-shiftat="' + esc(c.plate) + '" aria-label="' + esc(c.label) +
+          ' 교대 시각">' + hours.map(function (t) {
+            return '<option' + ((c.shift_at || '13:00') === t ? ' selected' : '') + '>' + t + '</option>';
+          }).join('') + '</select><span>부터</span></label>' : '') + '</div>';
+    } else if (shiftOk(c)) {
+      shift = '<div class="gw-va-notetext">' + esc(c.shift_at || '13:00') + '부터 ' + esc(name(c.shift_driver)) + ' 운전</div>';
+    }
     var note = S.canEdit && (c.people.length || c.note)
-      ? '<input type="text" class="form-control form-control-sm gw-va-note" maxlength="60" placeholder="메모(예: 열쇠는 사무실)" data-note="' +
+      ? '<input type="text" class="form-control form-control-sm gw-va-note" maxlength="60" placeholder="메모" data-note="' +
         esc(c.plate) + '" value="' + esc(c.note || '') + '" aria-label="' + esc(c.label) + ' 메모" autocomplete="off">'
       : (c.note ? '<div class="gw-va-notetext">' + esc(c.note) + '</div>' : '');
     var drop = S.canEdit ? ' data-drop="car"' : '';
     return '<div class="gw-va-card' + (S.picked ? ' can-drop' : '') + '" data-plate="' + esc(c.plate) + '"' + drop + '>' +
       '<div class="gw-va-car"><strong>' + esc(c.label) + '</strong><span>' + esc(sub) + '</span>' + fixed + '</div>' +
-      carPlaces(c) + '<div class="gw-va-people">' + people + put + '</div>' + driver + note + '</div>';
+      carPlaces(c) + '<div class="gw-va-people">' + people + put + '</div>' + driver + shift + note + '</div>';
   }
   // ── 그날 방문 일정 칸(차 목록 위, 11-21 부장님) ──
   // 캔버스1(봇 자동)과 같은 묶음·표시를 리드 시트에서 바로 그린다. 줄마다 /일정확정으로 들어간 영업 담당자.
@@ -394,8 +414,13 @@
       }).catch(function () { /* 다음에 불러올 때 */ });
     }, 15000);
   }
+  // 오후부터 운전(11-22 부장님: 4041 대표님 오전 → 승정 대리 오후) — 차에 탄 사람 중 맨 앞(오전 운전)이 아닌 사람
+  function shiftOk(c) { return !!c.shift_driver && c.people.indexOf(c.shift_driver) > 0; }
   function rowsForSave() {
-    return S.cars.map(function (c) { return { plate: c.plate, people: c.people, note: c.note || '' }; });
+    return S.cars.map(function (c) {
+      var sd = shiftOk(c) ? c.shift_driver : '';
+      return { plate: c.plate, people: c.people, note: c.note || '', shift_driver: sd, shift_at: sd ? (c.shift_at || '13:00') : '' };
+    });
   }
   // notify: 슬랙으로 알릴지. 확정 전 [저장만]·확정 뒤 [알리지 않고 저장]은 false
   function save(notify) {
@@ -565,6 +590,16 @@
         focusAfter('[data-driver="' + cssq(dc.plate) + '"]');
         render();
       }
+    } else if (t.dataset.shift) {                // 교대 운전할 사람(없음이면 끔)
+      var sc = carOf(t.dataset.shift);
+      sc.shift_driver = t.value;
+      if (t.value && !sc.shift_at) sc.shift_at = '13:00';
+      setDirty(true);
+      focusAfter('[data-shift="' + cssq(sc.plate) + '"]');
+      render();
+    } else if (t.dataset.shiftat) {
+      carOf(t.dataset.shiftat).shift_at = t.value;
+      setDirty(true);
     } else if (t.dataset.fixed) {
       var fc = carOf(t.dataset.fixed);
       post('/api/vehicles/fleet/' + encodeURIComponent(fc.plate), { fixed_user: t.value }).then(function (j) {

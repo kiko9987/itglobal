@@ -455,14 +455,36 @@ def _assignments(start: str, end: str):
         who = va._who_map()
         rows = {k: [va.display(c, who) for c in v] for k, v in va.assigned_people(start, end).items()}
         fixed = {p: va.display(u, who) for p, u in va.fixed_users().items()}
+        # 오후부터 다른 사람이 운전한 날 — 그 시각 이후 운행의 운전자(11-22)
+        global _SHIFTS
+        _SHIFTS = {k: (va.display(c, who), at) for k, (c, at) in va.assigned_shifts(start, end).items()}
         return rows, fixed
     except Exception:
+        _SHIFTS = {}
         return {}, {}
+
+
+_SHIFTS: Dict[Tuple[str, str], Tuple[str, str]] = {}
+
+
+def trip_driver(day: str, plate: str, start_time: str, assigned) -> str:
+    """운행 한 건의 운전자 — 배정 맨 앞(오전), 오후부터 바뀐 날은 그 시각 이후 운행이면 바뀐 사람."""
+    ppl = assigned.get((day, plate)) or []
+    if not ppl:
+        return ''
+    sh = _SHIFTS.get((day, plate))
+    if sh and (start_time or '')[:5] >= sh[1]:
+        return sh[0]
+    return ppl[0]
 
 
 def _drivers_for(day: str, plate: str, assigned, fixed, matched: List[Dict]) -> Tuple[List[str], str]:
     if (day, plate) in assigned:
-        return assigned[(day, plate)], 'assigned'
+        ppl = assigned[(day, plate)]
+        sh = _SHIFTS.get((day, plate))
+        if sh and sh[0] in ppl:      # 오전 운전 → 오후 운전 순으로
+            ppl = [ppl[0], sh[0]] + [p for p in ppl if p not in (ppl[0], sh[0])]
+        return ppl, 'assigned'
     if plate in fixed:
         return [fixed[plate]], 'fixed'
     return _guess(matched), 'guess'
@@ -490,7 +512,8 @@ def month_summary(ym: str, leads: Iterable[dict]) -> Dict:
             names, src = _drivers_for(t['day'], t['plate'], assigned, fixed, [])
             if src != 'guess':
                 c['known_days'].add(t['day'])
-                c['known'].update(names[:1])
+                sh = _SHIFTS.get((t['day'], t['plate']))
+                c['known'].update(names[:2] if sh else names[:1])
     rows = []
     labels = _labels()
     for c in cars.values():
@@ -525,6 +548,9 @@ def vehicle_days(ym: str, plate: str, leads: Iterable[dict]) -> Dict:
         for v in m:
             d['matched'][v['lead_no']] = v
     assigned, fixed = _assignments(start, end)
+    for d in days.values():          # 운행마다 운전자(배정한 날만 — 오후 교대 반영)
+        for t in d['trips']:
+            t['driver'] = trip_driver(d['day'], plate, t['start'], assigned)
     out = []
     for d in sorted(days.values(), key=lambda x: x['day'], reverse=True):
         drivers, src = _drivers_for(d['day'], plate, assigned, fixed, list(d['matched'].values()))

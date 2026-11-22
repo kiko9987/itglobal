@@ -248,7 +248,7 @@ def test_routes_view_for_all_edit_for_assigner(db, monkeypatch):
         assert j['success'] and not j['can_edit'] and len(j['cars']) == 11 and j['day_label'] == '11/21(토)'
         assert j['visitors'] == [{'code': 'TH', 'name': '서준', 'visits': 1,
                                   'places': [{'label': '부천', 'addr': '부천 길주로 1'}]}]
-        assert j['teams'] == [{'members': ['TH'], 'visits': 1}]
+        assert j['teams'] == [{'members': ['TH'], 'visits': 1, 'big': False}]
         assert j['resolving'] and resolve == [('2026-11-21', '2026-11-21')]   # 동은 뒤에서 찾고 화면이 다시 받아 감
         assert j['off'] == [{'code': 'JK', 'name': '강해', 'why': '연차'}] and j['half'] == []
         assert [g['cat'] for g in j['schedule']] == ['온라인 방문'] and j['schedule'][0]['items'][0]['who'] == ['서준']
@@ -331,3 +331,50 @@ def test_online_duty_saved_at_schedule_confirm(db):
     va.record_online_duty('2026-11-23', ['YG'])
     assert [o['code'] for o in va.online_duty('2026-11-23')] == ['YG']
     assert va.day_view('2026-11-23')['confirmed_at']                               # 당번 저장이 확정을 지우지 않음
+
+
+# ── 11-22 부장님: 큰 팀은 짝 기록대로 나눠 초안, 한 차를 오전·오후 다른 사람이 운전 ──
+def test_split_big_team_by_pairs(db):
+    pairs = {frozenset(('JW', 'TH')): 3, frozenset(('YM', 'LJW')): 2}
+    assert va.split_team(['JW', 'TH', 'YM', 'LJW'], pairs) == [['JW', 'TH'], ['YM', 'LJW']]
+    assert va.split_team(['JW', 'TH', 'YM', 'LJW'], {}) is None                # 짝 기록 없으면 몰아넣지 않음
+    assert va.split_team(['MJ', 'KMW'], {}) == [['MJ', 'KMW']]                 # 2명은 그대로
+    assert va.split_team(['YG', 'JK', 'LSH'], {frozenset(('YG', 'JK')): 1}) == [['YG', 'JK'], ['LSH']]
+
+
+def test_team_draft_splits_with_history(db):
+    va.save_day('2026-11-20', [{'plate': '03모8021', 'people': ['JW', 'TH']},
+                               {'plate': '231허6854', 'people': ['YM', 'LJW']}], ASSIGNER)
+    teams = [{'members': ['JW', 'TH', 'YM', 'LJW'], 'visits': 4, 'big': True}]
+    v = va.day_view('2026-11-23', teams)
+    assert _rows(v) == {'03모8021': ['JW', 'TH'], '231허6854': ['YM', 'LJW']}
+    assert not _rows(va.day_view('2026-11-23', [{'members': ['MJ', 'KMW', 'SJ'], 'visits': 1, 'big': True}]))
+
+
+def test_shift_driver_saved_and_in_dm(db):
+    sent = db
+    rows = [{'plate': '16소4041', 'people': ['YG', 'JK', 'SJ'], 'shift_driver': 'SJ', 'shift_at': '12:30'},
+            {'plate': '03모8021', 'people': ['JW', 'TH'], 'shift_driver': 'JW'}]       # 맨 앞 사람은 교대 운전 불가 → 무시
+    va.save_day('2026-11-23', rows, ASSIGNER, confirm=True)
+    cars = {c['plate']: c for c in va.day_view('2026-11-23')['cars']}
+    assert (cars['16소4041']['shift_driver'], cars['16소4041']['shift_at']) == ('SJ', '12:30')
+    assert cars['03모8021']['shift_driver'] == ''
+    sj = next(t for sid, t in sent if sid == 'USJ')
+    assert '운전: 임산 → 12:30부터 오늘' in sj
+    assert va.assigned_shifts('2026-11-23', '2026-11-23') == {('2026-11-23', '16소4041'): ('SJ', '12:30')}
+    sent.clear()
+    va.save_day('2026-11-23', [dict(rows[0], shift_at='')], ASSIGNER)                 # 시각 비우면 13:00
+    assert va.day_view('2026-11-23')['cars'][[c['plate'] for c in va.day_view('2026-11-23')['cars']].index('16소4041')]['shift_at'] == '13:00'
+
+
+def test_trip_driver_by_time(db):
+    from tests.unit.test_vehicle_log import _xlsx, LEADS
+    trips = [('2026-11-23(월)', '09:10:00', '경기도 김포시 걸포동', '서울특별시 영등포구 영등포동', 30.0),
+             ('2026-11-23(월)', '14:00:00', '서울특별시 영등포구 영등포동', '서울특별시 강남구 역삼동', 15.0)]
+    vl.import_upload('a.xlsx', _xlsx(trips=trips), 'x')
+    with vl._conn() as conn:
+        conn.execute("UPDATE vehicle_trips SET plate = '16소4041'")
+    va.save_day('2026-11-23', [{'plate': '16소4041', 'people': ['YG', 'JK', 'SJ'], 'shift_driver': 'SJ'}], ASSIGNER)
+    d = vl.vehicle_days('2026-11', '16소4041', LEADS)['days'][0]
+    assert [t['driver'] for t in sorted(d['trips'], key=lambda t: t['start'])] == ['임산', '오늘']
+    assert d['drivers'][:2] == ['임산', '오늘'] and d['source'] == 'assigned'
