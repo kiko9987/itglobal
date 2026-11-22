@@ -393,6 +393,15 @@ def test_complex_tenant_not_attached_l04623(monkeypatch):
     assert ar._enrich_with_poi(t, t) == t
 
 
+def test_dot_joined_tail_absorbed_l04634(monkeypatch):
+    # '현대.코오롱아파트' 처럼 '.'으로 붙은 뒤 토큰도 흡수 — 'POI명.코오롱아파트' 겹침 방지
+    road = '경기 수원시 장안구 만석로68번길 10'
+    monkeypatch.setattr(ar, '_search_poi', lambda q: [
+        ('백설마을5단지현대.코오롱아파트', road), ('백설마을현대코오롱아파트', road)])
+    t = '수원 장안구 만석로68번길 10 백설마을 현대.코오롱아파트'
+    assert ar._enrich_with_poi(t, t) == t
+
+
 def test_corp_mark_stripped_from_building_name_l04615(monkeypatch):
     bld = {'road_address': {'building_name': '주식회사에이피로지스틱스'}}
     monkeypatch.setattr(ar, '_kakao_search', lambda q: bld)

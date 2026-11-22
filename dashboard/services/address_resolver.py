@@ -2333,13 +2333,22 @@ def _enrich_with_poi(verified_addr: str, original_text: str) -> str:
             _acc = _jc
             # 영문 대소문자 무시(고객 'WEST' vs POI 'West', 2026-10-29 L-04404 — 흡수 실패로
             #   'West오피스텔 WEST' 중복)
-            for _m_tok in re.finditer(r'\s+(\S+)', verified_addr[_span_end:]):
+            # 뒤 토큰이 공백 없이 '.'·'·' 등으로 붙어 있어도 흡수 (2026-11-21 L-04634: '백설마을 현대.
+            #   코오롱아파트' → '백설마을현대코오롱아파트.코오롱아파트'). 비교는 구두점을 빼고 한다.
+            #   위치는 매번 처음부터 다시 맞춰 토큰이 둘 이상 흡수될 때 끝 위치가 밀리지 않게.
+            _SEP = r'.·・,&+/'
+            _pn_cmp = re.sub(f'[{re.escape(_SEP)}]', '', _pn_ns)
+            while True:
+                _m_tok = re.match(rf'(?:\s+|\s*[{re.escape(_SEP)}]\s*)([^\s{re.escape(_SEP)}]+)',
+                                  verified_addr[_span_end:])
+                if not _m_tok:
+                    break
                 _nxt = _acc + _m_tok.group(1)
-                if not _pn_ns.lower().startswith(_nxt.lower()):
+                if not _pn_cmp.lower().startswith(_nxt.lower()):
                     break
                 _acc = _nxt
                 _span_end += _m_tok.end()
-            _rest = _pn_ns[len(_acc):]
+            _rest = _pn_cmp[len(_acc):]
             if not _rest or re.fullmatch(r'(?:주상복합)?(?:아파트|오피스텔|빌라|맨션)', _rest):
                 # 건물 자체 POI 를 찾았으면 여기서 멈춤 — 다음 후보는 같은 건물의 입점 업체라
                 #   지점명으로 붙이면 엉뚱함 (2026-11-20 L-04623: '동탄역예미지시그너스아파트'
