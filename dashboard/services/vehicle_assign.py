@@ -111,7 +111,7 @@ def _conn():
                 conn.execute('ALTER TABLE vehicle_assign_day ADD COLUMN online_duty TEXT')
             # 한 차를 오전·오후 다른 사람이 운전(11-22 부장님: 4041 대표님 오전 → 승정 대리 오후)
             acols = {r[1] for r in conn.execute('PRAGMA table_info(vehicle_assign)').fetchall()}
-            for col in ('shift_driver', 'shift_at'):
+            for col in ('shift_driver', 'shift_at', 'pm_people'):   # pm_people = 오후(없으면 오전과 같음, 11-22)
                 if col not in acols:
                     conn.execute(f'ALTER TABLE vehicle_assign ADD COLUMN {col} TEXT')
             for i, s in enumerate(_SEED):
@@ -236,18 +236,32 @@ def _split(people: str) -> List[str]:
     return [p for p in (people or '').split(',') if p]
 
 
+HALF_AT = '13:00'   # 오전·오후 나눈 차 — 이 시각 이후 운행은 오후 사람이 운전(운행일지)
+
+
 def _empty() -> Dict:
-    return {'people': [], 'note': '', 'shift_driver': '', 'shift_at': ''}
+    return {'people': [], 'pm': None, 'note': ''}
 
 
-def _row(people: List[str], note: str = '', shift_driver: str = '', shift_at: str = '') -> Dict:
-    return {'people': list(people), 'note': note or '', 'shift_driver': shift_driver or '', 'shift_at': shift_at or ''}
+def _row(people: List[str], note: str = '', pm: Optional[List[str]] = None) -> Dict:
+    """people = 오전(나누지 않았으면 종일), pm = 오후(None 이면 오전과 같음)."""
+    return {'people': list(people), 'pm': (list(pm) if pm is not None else None), 'note': note or ''}
+
+
+def pm_of(row: Dict) -> List[str]:
+    return row['pm'] if row.get('pm') is not None else row['people']
+
+
+def riders(row: Dict) -> List[str]:
+    """그 차에 하루 동안 탄 사람(오전 먼저, 오후에만 탄 사람 뒤)."""
+    return list(dict.fromkeys(row['people'] + pm_of(row)))
 
 
 def _day_rows(day: str) -> Dict[str, Dict]:
     with _conn() as conn:
-        return {r['plate']: _row(_split(r['people']), r['note'], r['shift_driver'], r['shift_at'])
-                for r in conn.execute('SELECT plate, people, note, shift_driver, shift_at FROM vehicle_assign WHERE day = ?',
+        return {r['plate']: _row(_split(r['people']), r['note'],
+                                 _split(r['pm_people']) if r['pm_people'] is not None else None)
+                for r in conn.execute('SELECT plate, people, pm_people, note FROM vehicle_assign WHERE day = ?',
                                       (day,)).fetchall()}
 
 
@@ -280,14 +294,16 @@ def _pairs(day: str, back_days: int = 60) -> Dict[frozenset, int]:
     """그날 이전 배정에서 같은 차를 탄 짝 — {frozenset({A, B}): 횟수}."""
     start = (date.fromisoformat(day) - timedelta(days=back_days)).isoformat()
     with _conn() as conn:
-        rows = conn.execute('SELECT people FROM vehicle_assign WHERE day >= ? AND day < ?', (start, day)).fetchall()
+        rows = conn.execute('SELECT people, pm_people FROM vehicle_assign WHERE day >= ? AND day < ?',
+                            (start, day)).fetchall()
     out: Dict[frozenset, int] = {}
     for r in rows:
-        ppl = _split(r['people'])
-        for i, a in enumerate(ppl):
-            for b in ppl[i + 1:]:
-                k = frozenset((a, b))
-                out[k] = out.get(k, 0) + 1
+        groups = [_split(r['people'])] + ([_split(r['pm_people'])] if r['pm_people'] is not None else [])
+        for ppl in groups:
+            for i, a in enumerate(ppl):
+                for b in ppl[i + 1:]:
+                    k = frozenset((a, b))
+                    out[k] = out.get(k, 0) + 1
     return out
 
 
@@ -360,48 +376,47 @@ def day_view(day: str, teams: Optional[List[Dict]] = None) -> Dict:
         r = rows.get(c['plate'], _empty())
         out.append({**{k: c[k] for k in ('plate', 'label', 'model', 'fuel', 'corp', 'usage', 'fixed_user',
                                          'needs_log', 'uplus')},
-                    'people': r['people'], 'note': r['note'],
-                    'shift_driver': r.get('shift_driver', ''), 'shift_at': r.get('shift_at', '')})
+                    'people': r['people'], 'pm': r.get('pm'), 'note': r['note']})
     return {'day': day, 'cars': out, 'draft_from': draft_from, 'draft_kind': draft_kind,
             'confirmed_at': (info or {}).get('confirmed_at'), 'confirmed_by': (info or {}).get('confirmed_by')}
 
 
-_HHMM = re.compile(r'^(0\d|1\d|2[0-3]):[0-5]\d$')
-
-
 def _clean_rows(rows: Iterable[Dict], plates: set, codes: set) -> Dict[str, Dict]:
-    """화면에서 온 배정 → {plate: {people, note}}. 한 사람이 두 차에 있으면 ValueError."""
-    out: Dict[str, Dict] = {}
-    where: Dict[str, str] = {}
-    for r in rows or []:
-        plate = (r.get('plate') or '').strip()
-        if plate not in plates:
-            raise ValueError(f'없는 차량이에요: {plate}')
-        people = []
-        for p in r.get('people') or []:
+    """화면에서 온 배정 → {plate: {people, pm, note}}. 같은 사람이 같은 반나절(오전·오후)에 두 차면 ValueError.
+    pm 이 없거나 오전과 똑같으면 '나누지 않음'(None)."""
+    def clean(lst):
+        out = []
+        for p in lst or []:
             p = (p or '').strip()
             if not p:
                 continue
             p = p.upper() if p.upper() in codes else p[:20]
-            if p in people:
-                continue
-            if p in where and where[p] != plate:
-                raise ValueError(f'{p} 님이 두 차에 들어 있어요. 한 차만 골라 주세요.')
-            where[p] = plate
-            people.append(p)
+            if p not in out:
+                out.append(p)
+        return out
+
+    out: Dict[str, Dict] = {}
+    am_at: Dict[str, str] = {}
+    pm_at: Dict[str, str] = {}
+    for r in rows or []:
+        plate = (r.get('plate') or '').strip()
+        if plate not in plates:
+            raise ValueError(f'없는 차량이에요: {plate}')
+        people = clean(r.get('people'))
+        pm = clean(r.get('pm')) if r.get('pm') is not None else None
+        if pm == people:
+            pm = None
+        for p in people:
+            if p in am_at and am_at[p] != plate:
+                raise ValueError(f'{p} 님이 오전에 두 차에 들어 있어요. 한 차만 골라 주세요.')
+            am_at[p] = plate
+        for p in (pm if pm is not None else people):
+            if p in pm_at and pm_at[p] != plate:
+                raise ValueError(f'{p} 님이 오후에 두 차에 들어 있어요. 한 차만 골라 주세요.')
+            pm_at[p] = plate
         note = (r.get('note') or '').strip()[:60]
-        # 오후부터 운전 — 그 차에 탄 사람 중 맨 앞(오전 운전)이 아닌 사람만. 시각 기본 13:00
-        sd = (r.get('shift_driver') or '').strip()
-        sd = sd.upper() if sd.upper() in codes else sd
-        sa = (r.get('shift_at') or '').strip()
-        if sd and (sd not in people or sd == people[0]):
-            sd = ''
-        if sd and not _HHMM.match(sa):
-            sa = '13:00'
-        if not sd:
-            sa = ''
-        if people or note:
-            out[plate] = _row(people, note, sd, sa)
+        if people or pm or note:
+            out[plate] = _row(people, note, pm)
     return out
 
 
@@ -428,11 +443,11 @@ def save_day(day: str, rows: Iterable[Dict], by: str, confirm: bool = False, not
             changed.append(plate)
             conn.execute('INSERT INTO vehicle_assign_log (day, plate, before, after, by, at) VALUES (?,?,?,?,?,?)',
                          (day, plate, json.dumps(o, ensure_ascii=False), json.dumps(n, ensure_ascii=False), by, now))
-            if n['people'] or n['note']:
-                conn.execute('INSERT OR REPLACE INTO vehicle_assign (day, plate, people, note, shift_driver, shift_at, '
-                             'updated_by, updated_at) VALUES (?,?,?,?,?,?,?,?)',
-                             (day, plate, ','.join(n['people']), n['note'], n['shift_driver'] or None, n['shift_at'] or None,
-                              by, now))
+            if n['people'] or n['pm'] or n['note']:
+                conn.execute('INSERT OR REPLACE INTO vehicle_assign (day, plate, people, pm_people, note, updated_by, updated_at) '
+                             'VALUES (?,?,?,?,?,?,?)',
+                             (day, plate, ','.join(n['people']), ','.join(n['pm']) if n['pm'] is not None else None,
+                              n['note'], by, now))
             else:
                 conn.execute('DELETE FROM vehicle_assign WHERE day = ? AND plate = ?', (day, plate))
         if confirm and not was_confirmed:
@@ -448,28 +463,27 @@ def save_day(day: str, rows: Iterable[Dict], by: str, confirm: bool = False, not
 
 
 def person_car(day: str, code: str) -> Optional[Dict]:
-    """그날 이 사람이 탈 차(배정, 없으면 고정 차)."""
+    """그날 이 사람이 탈 차(오전 차 먼저, 오전에 없으면 오후 차)."""
     rows = _day_rows(day)
-    for plate, r in rows.items():
-        if code in r['people']:
-            return {'plate': plate, **r}
+    for half in ('am', 'pm'):
+        for plate, r in rows.items():
+            if code in (r['people'] if half == 'am' else pm_of(r)):
+                return {'plate': plate, 'half': half, **r}
     return None
 
 
 def assigned_people(start: str, end: str) -> Dict[Tuple[str, str], List[str]]:
     """운행일지용 — (날짜, 번호판) → 탄 사람 이니셜(맨 앞 = 사용자). 배정 없는 고정 차는 고정 사용자."""
+    return {k: riders(v) for k, v in assigned_halves(start, end).items() if riders(v)}
+
+
+def assigned_halves(start: str, end: str) -> Dict[Tuple[str, str], Dict]:
+    """운행일지용 — (날짜, 번호판) → {'people': 오전, 'pm': 오후 또는 None}. 13:00(HALF_AT) 이후 운행은 오후 사람."""
     with _conn() as conn:
-        rows = conn.execute('SELECT day, plate, people FROM vehicle_assign WHERE day BETWEEN ? AND ?',
+        rows = conn.execute('SELECT day, plate, people, pm_people FROM vehicle_assign WHERE day BETWEEN ? AND ?',
                             (start, end)).fetchall()
-    return {(r['day'], r['plate']): _split(r['people']) for r in rows if r['people']}
-
-
-def assigned_shifts(start: str, end: str) -> Dict[Tuple[str, str], Tuple[str, str]]:
-    """운행일지용 — (날짜, 번호판) → (오후부터 운전한 사람 이니셜, 'HH:MM'). 그 시각 이후 운행은 그 사람."""
-    with _conn() as conn:
-        rows = conn.execute('SELECT day, plate, shift_driver, shift_at FROM vehicle_assign WHERE day BETWEEN ? AND ? '
-                            "AND shift_driver IS NOT NULL AND shift_driver != ''", (start, end)).fetchall()
-    return {(r['day'], r['plate']): (r['shift_driver'], r['shift_at'] or '13:00') for r in rows}
+    return {(r['day'], r['plate']): _row(_split(r['people']), '', _split(r['pm_people']) if r['pm_people'] is not None else None)
+            for r in rows}
 
 
 def fixed_users() -> Dict[str, str]:
@@ -648,54 +662,95 @@ def _car_text(plate: str, cars: Dict[str, Dict]) -> str:
     return f"*{c.get('label') or plate}* ({plate})"
 
 
-def _person_text(day: str, code: str, plate: str, row: Dict, cars: Dict[str, Dict], who: Dict[str, Dict]) -> str:
-    others = [display(p, who) for p in row['people'] if p != code]
-    lines = [f":car: {day_label(day)} 차량: {_car_text(plate, cars)}"]
-    if others:
-        lines.append(f"함께 타는 사람: {', '.join(others)}")
-    if row.get('shift_driver') and row['people']:
-        lines.append(f"운전: {display(row['people'][0], who)} → {row.get('shift_at') or '13:00'}부터 "
-                     f"{display(row['shift_driver'], who)}")
-    if row.get('note'):
-        lines.append(f"메모: {row['note']}")
+def _where(rows: Dict[str, Dict]) -> Dict[str, Dict]:
+    """사람 → {'am': 번호판, 'pm': 번호판} (그 반나절에 차가 없으면 '')."""
+    out: Dict[str, Dict] = {}
+    for plate, r in rows.items():
+        for c in r['people']:
+            out.setdefault(c, {'am': '', 'pm': ''})['am'] = plate
+        for c in pm_of(r):
+            out.setdefault(c, {'am': '', 'pm': ''})['pm'] = plate
+    return out
+
+
+def _car_line(plate: str, people: List[str], code: str, cars: Dict[str, Dict], who: Dict[str, Dict]) -> str:
+    others = [display(p, who) for p in people if p != code]
+    drive = ' (운전)' if people and people[0] == code else (f' · 운전 {display(people[0], who)}' if people else '')
+    return _car_text(plate, cars) + drive + (f" · 함께 {', '.join(others)}" if others else '')
+
+
+def _person_text(day: str, code: str, rows: Dict[str, Dict], cars: Dict[str, Dict], who: Dict[str, Dict]) -> str:
+    w = _where(rows).get(code) or {'am': '', 'pm': ''}
+    lines = []
+    if w['am'] and w['am'] == w['pm'] and rows[w['am']].get('pm') is None:
+        r = rows[w['am']]
+        lines.append(f":car: {day_label(day)} 차량: {_car_text(w['am'], cars)}")
+        others = [display(p, who) for p in r['people'] if p != code]
+        if others:
+            lines.append(f"함께 타는 사람: {', '.join(others)}")
+        if r['people'] and r['people'][0] == code and len(r['people']) > 1:
+            lines.append('운전: 본인')
+        elif r['people'] and r['people'][0] != code:
+            lines.append(f"운전: {display(r['people'][0], who)}")
+        notes = [r['note']] if r.get('note') else []
+    else:
+        lines.append(f":car: {day_label(day)} 차량 — 오전·오후가 달라요")
+        notes = []
+        for half, label in (('am', '오전'), ('pm', '오후')):
+            plate = w[half]
+            if not plate:
+                lines.append(f"{label}: 배정 없음")
+                continue
+            r = rows[plate]
+            lines.append(f"{label}: " + _car_line(plate, r['people'] if half == 'am' else pm_of(r), code, cars, who))
+            if r.get('note') and r['note'] not in notes:
+                notes.append(r['note'])
+    for n in notes:
+        lines.append(f"메모: {n}")
     return '\n'.join(lines)
+
+
+def _person_view(code: str, rows: Dict[str, Dict]) -> tuple:
+    """알림 비교용 — 그 사람이 받을 내용이 바뀌었는지(차·같이 탄 사람·운전·메모)."""
+    w = _where(rows).get(code)
+    if not w:
+        return ()
+    out = []
+    for half in ('am', 'pm'):
+        plate = w[half]
+        r = rows.get(plate) if plate else None
+        out.append((plate, tuple((r['people'] if half == 'am' else pm_of(r)) if r else ()), r['note'] if r else ''))
+    return tuple(out)
 
 
 def notify_people(day: str, cars: Dict[str, Dict], rows: Dict[str, Dict], who: Dict[str, Dict],
                   everyone: bool = True, only: Optional[set] = None) -> int:
     n = 0
-    for plate, row in rows.items():
-        for code in row['people']:
-            if only is not None and code not in only:
-                continue
-            p = who.get(code)
-            if p and _dm(p['slack_id'], _person_text(day, code, plate, row, cars, who)):
-                n += 1
+    for code in _where(rows):
+        if only is not None and code not in only:
+            continue
+        p = who.get(code)
+        if p and _dm(p['slack_id'], _person_text(day, code, rows, cars, who)):
+            n += 1
     return n
 
 
 def notify_changes(day: str, cars: Dict[str, Dict], old: Dict[str, Dict], new: Dict[str, Dict],
                    who: Dict[str, Dict]) -> int:
-    """확정 뒤 고친 경우 — 차가 바뀌었거나, 같이 타는 사람·메모가 바뀐 사람에게만."""
-    def where(rows):
-        return {c: (plate, r) for plate, r in rows.items() for c in r['people']}
-    o, nw = where(old), where(new)
+    """확정 뒤 고친 경우 — 차(오전·오후)·같이 타는 사람·운전·메모가 바뀐 사람에게만."""
+    ow, nw = _where(old), _where(new)
     n = 0
-    for code in set(o) | set(nw):
-        before, after = o.get(code), nw.get(code)
-        if before == after:
+    for code in set(ow) | set(nw):
+        if _person_view(code, old) == _person_view(code, new):
             continue
         p = who.get(code)
         if not p:
             continue
-        if after:
-            text = _person_text(day, code, after[0], after[1], cars, who)
-            if before and before[0] != after[0]:
-                text = f":arrows_counterclockwise: 차량이 바뀌었어요 ({_car_text(before[0], cars)} → {_car_text(after[0], cars)})\n" + text
-            else:
-                text = ':arrows_counterclockwise: 차량 배정이 바뀌었어요\n' + text
+        if code in nw:
+            text = ':arrows_counterclockwise: 차량 배정이 바뀌었어요\n' + _person_text(day, code, new, cars, who)
         else:
-            text = f":arrows_counterclockwise: {day_label(day)} 차량 배정에서 빠졌어요 ({_car_text(before[0], cars)})"
+            was = [x for x in dict.fromkeys((ow[code]['am'], ow[code]['pm'])) if x]
+            text = f":arrows_counterclockwise: {day_label(day)} 차량 배정에서 빠졌어요 ({', '.join(_car_text(x, cars) for x in was)})"
         if _dm(p['slack_id'], text):
             n += 1
     return n

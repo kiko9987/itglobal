@@ -58,9 +58,36 @@
   function keyCodes(key) { return String(key || '').split(',').filter(Boolean); }
   function keyName(key) { return keyCodes(key).map(name).join(' + '); }
   function anyPlaced(key) { return keyCodes(key).some(function (c) { return whereIs(c); }); }
-  function whereIs(code) {
-    for (var i = 0; i < S.cars.length; i++) if (S.cars[i].people.indexOf(code) !== -1) return S.cars[i];
+  // 오전·오후(11-22 부장님): c.people = 오전(나누지 않았으면 종일), c.pm = 오후(null 이면 오전과 같음)
+  //   같은 사람은 반나절에 한 차 — 오전 레이·오후 포터처럼 나눠 탈 수 있다
+  function isSplit(c) { return !!c.pm; }
+  function pmOf(c) { return c.pm ? c.pm : c.people; }
+  function ridersOf(c) {
+    var out = c.people.slice();
+    pmOf(c).forEach(function (p) { if (out.indexOf(p) === -1) out.push(p); });
+    return out;
+  }
+  function whereAt(code, half) {
+    for (var i = 0; i < S.cars.length; i++) {
+      if ((half === 'pm' ? pmOf(S.cars[i]) : S.cars[i].people).indexOf(code) !== -1) return S.cars[i];
+    }
     return null;
+  }
+  function whereIs(code) { return whereAt(code, 'am') || whereAt(code, 'pm'); }
+  function sameList(a, b) { return a.length === b.length && a.every(function (x, i) { return x === b[i]; }); }
+  function tidy(c) { if (c.pm && sameList(c.pm, c.people)) c.pm = null; }
+  // 한 사람을 그 반나절의 차에서 뺀다. 종일 탄 차에서 반나절만 빼면 그 차는 오전·오후로 나뉜다
+  function removeHalf(code, half) {
+    S.cars.forEach(function (c) {
+      if (half === 'am' && c.people.indexOf(code) !== -1) {
+        if (!isSplit(c)) c.pm = c.people.slice();
+        c.people.splice(c.people.indexOf(code), 1);
+      } else if (half === 'pm' && pmOf(c).indexOf(code) !== -1) {
+        if (!isSplit(c)) c.pm = c.people.slice();
+        c.pm.splice(c.pm.indexOf(code), 1);
+      }
+      tidy(c);
+    });
   }
   function addDays(day, n) {
     var d = new Date(day + 'T00:00:00');
@@ -91,9 +118,9 @@
     return Object.keys(S.visits).filter(function (c) { return S.names[c] && !S.off[c] && !whereIs(c); }).map(name);
   }
   function riders() {
-    var n = 0;
-    S.cars.forEach(function (c) { n += c.people.length; });
-    return n;
+    var seen = {};
+    S.cars.forEach(function (c) { ridersOf(c).forEach(function (p) { seen[p] = 1; }); });
+    return Object.keys(seen).length;
   }
 
   // ── 그리기 ──
@@ -118,7 +145,7 @@
   //   (펼치면 주소마다 같은 이름이 되풀이돼 너무 길었음 — 11-21 부장님)
   function carPlaces(c) {
     var seen = {}, list = [];
-    c.people.forEach(function (code) {
+    ridersOf(c).forEach(function (code) {
       (S.places[code] || []).forEach(function (p) {
         if (!seen[p.addr]) { seen[p.addr] = 1; list.push(p); }
       });
@@ -127,13 +154,21 @@
     var sum = groupLabels(list).map(function (g) { return g.label + (g.n > 1 ? ' ' + g.n + '곳' : ''); }).join(' · ');
     return '<div class="gw-va-places"><i class="fas fa-location-dot" aria-hidden="true"></i><span>' + esc(sum) + '</span></div>';
   }
+  function whereText(code) {       // '레이 6854' / '레이 6854 오전 · 포터 4904 오후' / '레이 6854 오전만'
+    var am = whereAt(code, 'am'), pm = whereAt(code, 'pm');
+    if (!am && !pm) return '';
+    if (am && pm && am === pm) return am.label;
+    if (am && pm) return am.label + ' 오전 · ' + pm.label + ' 오후';
+    return am ? am.label + ' 오전만' : pm.label + ' 오후만';
+  }
   function person(code, extra) {   // 왼쪽 명단 한 사람
     var at = whereIs(code);
-    var cls = 'gw-va-person' + (at ? ' placed' : '') + (S.picked === code ? ' picked' : '');
+    var half = at && !(whereAt(code, 'am') && whereAt(code, 'pm'));
+    var cls = 'gw-va-person' + (at ? ' placed' : '') + (half ? ' halfonly' : '') + (S.picked === code ? ' picked' : '');
     return '<button type="button" class="' + cls + '" data-person="' + esc(code) + '"' +
       (S.picked === code ? ' aria-pressed="true"' : ' aria-pressed="false"') + '>' +
       '<span class="gw-va-pname">' + esc(name(code)) + '</span>' + visitTag(code) +
-      (at ? '<small class="gw-va-where">' + esc(at.label) + '</small>' : '') + (extra || '') + '</button>';
+      (at ? '<small class="gw-va-where">' + esc(whereText(code)) + '</small>' : '') + (extra || '') + '</button>';
   }
   function staffPanel() {
     var panel = $('vaStaff');
@@ -141,7 +176,7 @@
     panel.hidden = !S.canEdit;
     if (!S.canEdit) return;
     var codes = S.staff.map(function (p) { return p.code; });
-    // 그날 종일 쉬는 사람(그룹웨어 휴가·토요일 휴무표)은 '차 없음'에서 빼 '휴무'로 따로 — 차에 넣었으면 '배정됨'에 남는다
+    // 그날 종일 쉬는 사람(그룹웨어 휴가·토요일 휴무표)은 '배정 없음'에서 빼 '휴무'로 따로 — 차에 넣었으면 '배정됨'에 남는다
     var offList = codes.filter(function (c) { return S.off[c] && !whereIs(c); });
     // 온라인 당번은 사무실에 남아 차가 필요 없다 — 방문도 있는 겸업(방문 다녀와 합류)만 명단에 남긴다
     var dutyList = codes.filter(function (c) { return S.online[c] && !S.visits[c] && !S.off[c] && !whereIs(c); });
@@ -180,9 +215,9 @@
     }
     var nTeam = teams.reduce(function (n, t) { return n + t.left.length; }, 0);
     $('vaStaffList').innerHTML =
-      (teams.length ? '<div class="gw-va-group need"><div class="gw-va-gtitle">일정확정 팀 · 차 없음 <span>' + nTeam + '</span></div>' +
+      (teams.length ? '<div class="gw-va-group need"><div class="gw-va-gtitle">일정확정 팀 · 배정 없음 <span>' + nTeam + '</span></div>' +
         '<div class="gw-va-plist">' + teams.map(teamBox).join('') + '</div></div>' : '') +
-      group('차 없음', freeOther) +
+      group('배정 없음', freeOther) +
       group('배정됨', placed, 'done') +
       group('온라인 당번', dutyList, 'off') +
       group('휴무', offList, 'off');
@@ -193,17 +228,19 @@
         (TOUCH ? '' : ' Esc 를 누르면 취소돼요.')
       : (TOUCH ? '이름이나 팀의 [함께]를 누른 뒤 넣을 차를 누르세요. 운전할 사람은 차마다 [운전] 칸에서 골라요.'
          : '이름이나 팀의 [함께]를 끌어 차에 놓으세요. 누른 뒤 차를 눌러도 돼요. 운전할 사람은 차마다 [운전] 칸에서 골라요.');
-    $('vaStaffCount').textContent = nTeam ? '방문 있는데 차 없음 ' + nTeam + '명' : '';
+    $('vaStaffCount').textContent = nTeam ? '방문 있는데 배정 없음 ' + nTeam + '명' : '';
     $('vaStaffCount').className = nTeam ? 'gw-va-warn' : '';
   }
   // 칩 = 이름 단추 + [×] 단추 나란히(누를 수 있는 칩 안에 또 단추가 들어 있던 것, 11-21 점검)
-  function chip(c, code, i) {
+  function chip(c, code, i, half) {   // half = 'all'(나누지 않음) / 'am' / 'pm'
+    half = half || 'all';
     var lead = i === 0 ? '<span class="gw-va-lead">운전</span>' : '';
     var cls = 'gw-va-chip' + (S.picked === code ? ' picked' : '');
     if (!S.canEdit) return '<span class="' + cls + '">' + lead + esc(name(code)) + '</span>';
-    var x = '<button type="button" class="gw-va-x" data-rm="' + esc(code) + '" data-plate="' + esc(c.plate) +
-      '" aria-label="' + esc(c.label) + '에서 ' + esc(name(code)) + ' 빼기"><i class="fas fa-xmark" aria-hidden="true"></i></button>';
-    return '<span class="' + cls + '" data-person="' + esc(code) + '" data-in="' + esc(c.plate) + '">' + lead +
+    var hl = half === 'am' ? ' 오전' : half === 'pm' ? ' 오후' : '';
+    var x = '<button type="button" class="gw-va-x" data-rm="' + esc(code) + '" data-plate="' + esc(c.plate) + '" data-half="' + half +
+      '" aria-label="' + esc(c.label + hl) + '에서 ' + esc(name(code)) + ' 빼기"><i class="fas fa-xmark" aria-hidden="true"></i></button>';
+    return '<span class="' + cls + '" data-person="' + esc(code) + '" data-in="' + esc(c.plate) + '" data-half="' + half + '">' + lead +
       '<button type="button" class="gw-va-cname" aria-pressed="' + (S.picked === code) + '" aria-label="' +
       esc(name(code) + (i === 0 ? '(운전)' : '') + ' — 눌러서 옮기기') + '">' + esc(name(code)) + '</button>' + x + '</span>';
   }
@@ -224,49 +261,47 @@
       fixed = '<div class="gw-va-fixed">평소: ' + (S.canEdit ? fixedSelect(c)
         : (c.fixed_name ? esc(c.fixed_name) : '<span class="gw-va-none">정해진 사람 없음</span>')) + '</div>';
     }
-    var people = c.people.map(function (p, i) { return chip(c, p, i); }).join('');
-    // 사람을 고른 동안은 차마다 [여기에 넣기] 단추(카드 통째를 단추로 만들면 안의 메모 칸·칩까지 단추 속에 갇혔음)
-    var put = S.canEdit && S.picked
-      ? '<button type="button" class="btn btn-sm btn-outline-secondary gw-va-put" data-put="' + esc(c.plate) + '" aria-label="' +
-        esc(c.label) + '에 ' + esc(keyName(S.picked)) + ' 넣기"><i class="fas fa-plus" aria-hidden="true"></i> 여기에 ' +
-        esc(keyName(S.picked)) + ' 넣기</button>'
-      : '';
-    if (!people && !put) {
-      people = '<span class="gw-va-none">' + (S.canEdit ? '여기에 사람을 놓으세요'
-        : (c.usage === 'fixed' ? '평소대로' : '배정 없음')) + '</span>';
+    // 한 칸(종일 또는 오전·오후 한쪽) = 칩 + [여기에 넣기] + [운전] 고르기
+    function zone(list, half) {
+      var chips = list.map(function (p, i) { return chip(c, p, i, half); }).join('');
+      var hl = half === 'am' ? ' 오전' : half === 'pm' ? ' 오후' : '';
+      var put = S.canEdit && S.picked
+        ? '<button type="button" class="btn btn-sm btn-outline-secondary gw-va-put" data-put="' + esc(c.plate) + '" data-half="' + half +
+          '" aria-label="' + esc(c.label + hl) + '에 ' + esc(keyName(S.picked)) + ' 넣기"><i class="fas fa-plus" aria-hidden="true"></i> 여기에 ' +
+          esc(keyName(S.picked)) + ' 넣기</button>'
+        : '';
+      if (!chips && !put) {
+        chips = '<span class="gw-va-none">' + (S.canEdit ? '여기에 사람을 놓으세요'
+          : (c.usage === 'fixed' ? '평소대로' : '배정 없음')) + '</span>';
+      }
+      // 운전할 사람 — 고르면 그 사람이 맨 앞(=운전, 운행기록부 '사용자')
+      var drv = S.canEdit && list.length > 1
+        ? '<label class="gw-va-driver"><span>운전</span><select class="form-select form-select-sm" data-driver="' + esc(c.plate) +
+          '" data-half="' + half + '" aria-label="' + esc(c.label + hl) + ' 운전할 사람">' + list.map(function (p, i) {
+            return '<option value="' + esc(p) + '"' + (i === 0 ? ' selected' : '') + '>' + esc(name(p)) + '</option>';
+          }).join('') + '</select></label>'
+        : '';
+      return '<div class="gw-va-people">' + chips + put + '</div>' + drv;
     }
-    // 운전할 사람 고르기 — 고르면 그 사람이 맨 앞(=운전, 운행기록부 '사용자')으로 간다(11-21 부장님: 맨 앞 자동이라 정하기 어려웠음)
-    var driver = S.canEdit && c.people.length > 1
-      ? '<label class="gw-va-driver"><span>운전</span><select class="form-select form-select-sm" data-driver="' + esc(c.plate) +
-        '" aria-label="' + esc(c.label) + ' 운전할 사람">' + c.people.map(function (p, i) {
-          return '<option value="' + esc(p) + '"' + (i === 0 ? ' selected' : '') + '>' + esc(name(p)) + '</option>';
-        }).join('') + '</select></label>'
-      : '';
-    var shift = '';
-    if (S.canEdit && c.people.length > 1) {
-      var on = shiftOk(c);
-      var hours = [];
-      for (var h = 9; h <= 18; h++) { ['00', '30'].forEach(function (m) { hours.push((h < 10 ? '0' : '') + h + ':' + m); }); }
-      shift = '<div class="gw-va-shift"><label><span>교대</span><select class="form-select form-select-sm" data-shift="' + esc(c.plate) +
-        '" aria-label="' + esc(c.label) + ' 중간에 운전을 넘겨받는 사람"><option value="">없음</option>' +
-        c.people.slice(1).map(function (p) {
-          return '<option value="' + esc(p) + '"' + (on && c.shift_driver === p ? ' selected' : '') + '>' + esc(name(p)) + '</option>';
-        }).join('') + '</select></label>' +
-        (on ? '<label><select class="form-select form-select-sm" data-shiftat="' + esc(c.plate) + '" aria-label="' + esc(c.label) +
-          ' 교대 시각">' + hours.map(function (t) {
-            return '<option' + ((c.shift_at || '13:00') === t ? ' selected' : '') + '>' + t + '</option>';
-          }).join('') + '</select><span>부터</span></label>' : '') + '</div>';
-    } else if (shiftOk(c)) {
-      shift = '<div class="gw-va-notetext">' + esc(c.shift_at || '13:00') + '부터 ' + esc(name(c.shift_driver)) + ' 운전</div>';
+    var body;
+    if (isSplit(c)) {
+      body = ['am', 'pm'].map(function (h) {
+        return '<div class="gw-va-half"' + (S.canEdit ? ' data-drop="car" data-plate="' + esc(c.plate) + '" data-half="' + h + '"' : '') + '>' +
+          '<div class="gw-va-halfhead">' + (h === 'am' ? '오전' : '오후') + '</div>' + zone(h === 'am' ? c.people : c.pm, h) + '</div>';
+      }).join('') + (S.canEdit ? '<button type="button" class="btn btn-sm btn-link gw-va-splitbtn" data-unsplit="' + esc(c.plate) +
+        '">오후도 오전과 같게</button>' : '');
+    } else {
+      body = zone(c.people, 'all') + (S.canEdit && c.people.length ? '<button type="button" class="btn btn-sm btn-link gw-va-splitbtn" data-split="' +
+        esc(c.plate) + '">오전·오후 나누기</button>' : '');
     }
-    var note = S.canEdit && (c.people.length || c.note)
+    var note = S.canEdit && (ridersOf(c).length || c.note)
       ? '<input type="text" class="form-control form-control-sm gw-va-note" maxlength="60" placeholder="메모" data-note="' +
         esc(c.plate) + '" value="' + esc(c.note || '') + '" aria-label="' + esc(c.label) + ' 메모" autocomplete="off">'
       : (c.note ? '<div class="gw-va-notetext">' + esc(c.note) + '</div>' : '');
-    var drop = S.canEdit ? ' data-drop="car"' : '';
-    return '<div class="gw-va-card' + (S.picked ? ' can-drop' : '') + '" data-plate="' + esc(c.plate) + '"' + drop + '>' +
+    var drop = S.canEdit && !isSplit(c) ? ' data-drop="car" data-half="all"' : '';
+    return '<div class="gw-va-card' + (S.picked ? ' can-drop' : '') + (isSplit(c) ? ' split' : '') + '" data-plate="' + esc(c.plate) + '"' + drop + '>' +
       '<div class="gw-va-car"><strong>' + esc(c.label) + '</strong><span>' + esc(sub) + '</span>' + fixed + '</div>' +
-      carPlaces(c) + '<div class="gw-va-people">' + people + put + '</div>' + driver + shift + note + '</div>';
+      carPlaces(c) + body + note + '</div>';
   }
   // ── 그날 방문 일정 칸(차 목록 위, 11-21 부장님) ──
   // 캔버스1(봇 자동)과 같은 묶음·표시를 리드 시트에서 바로 그린다. 줄마다 /일정확정으로 들어간 영업 담당자.
@@ -372,6 +407,7 @@
     return api('/api/vehicles/assign' + (day ? '?day=' + encodeURIComponent(day) : '')).then(function (j) {
       if (my !== S.seq) return;
       S.day = j.day; S.cars = j.cars; S.staff = j.staff; S.canEdit = !!j.can_edit;
+      S.cars.forEach(function (c) { c.pm = Array.isArray(c.pm) ? c.pm : null; });
       S.confirmed = !!j.confirmed_at; S.picked = null;
       S.names = {}; S.visits = {}; S.places = {}; S.off = {}; S.half = {}; S.online = {};
       j.staff.forEach(function (p) { S.names[p.code] = p.name; });
@@ -414,13 +450,8 @@
       }).catch(function () { /* 다음에 불러올 때 */ });
     }, 15000);
   }
-  // 오후부터 운전(11-22 부장님: 4041 대표님 오전 → 승정 대리 오후) — 차에 탄 사람 중 맨 앞(오전 운전)이 아닌 사람
-  function shiftOk(c) { return !!c.shift_driver && c.people.indexOf(c.shift_driver) > 0; }
   function rowsForSave() {
-    return S.cars.map(function (c) {
-      var sd = shiftOk(c) ? c.shift_driver : '';
-      return { plate: c.plate, people: c.people, note: c.note || '', shift_driver: sd, shift_at: sd ? (c.shift_at || '13:00') : '' };
-    });
+    return S.cars.map(function (c) { return { plate: c.plate, people: c.people, pm: c.pm || null, note: c.note || '' }; });
   }
   // notify: 슬랙으로 알릴지. 확정 전 [저장만]·확정 뒤 [알리지 않고 저장]은 false
   function save(notify) {
@@ -429,7 +460,7 @@
     if (notify && !S.confirmed) {
       var miss = staffNoCar();
       if (!window.confirm(dayText + ' 배정을 확정하고, 차에 넣은 ' + riders() + '명에게 슬랙으로 알릴까요?' +
-          (miss.length ? '\n\n방문이 있는데 아직 차가 없는 사람: ' + miss.join(', ') : '') +
+          (miss.length ? '\n\n방문이 있는데 아직 배정 없는 사람: ' + miss.join(', ') : '') +
           '\n\n보낸 알림은 되돌릴 수 없어요.')) return;
     } else if (notify) {
       if (!window.confirm('고친 내용을 저장하고, 차나 같이 타는 사람이 바뀐 사람에게만 슬랙으로 알릴까요?')) return;
@@ -449,21 +480,28 @@
   }
 
   // ── 옮기기 ──
-  function unplace(code) {
+  function unplace(code) {         // 하루 통째로 뺀다(명단으로 끌어 놓을 때)
     var at = whereIs(code);
-    if (at) at.people.splice(at.people.indexOf(code), 1);
+    removeHalf(code, 'am');
+    removeHalf(code, 'pm');
     return at;
   }
-  function place(code, plate, before) {   // before = 그 사람 앞자리로(없으면 맨 뒤)
+  // half = 'all'(나누지 않은 차 — 종일) / 'am' / 'pm'. before = 그 사람 앞자리로(없으면 맨 뒤)
+  function place(code, plate, before, half) {
+    half = half || 'all';
     if (code === before) return;
-    unplace(code);
     var c = carOf(plate);
-    var i = before ? c.people.indexOf(before) : -1;
-    if (i === -1) c.people.push(code); else c.people.splice(i, 0, code);
+    if (half === 'all' && isSplit(c)) half = 'am';
+    if (half === 'all') { removeHalf(code, 'am'); removeHalf(code, 'pm'); }
+    else removeHalf(code, half);
+    var list = half === 'pm' ? (c.pm || (c.pm = c.people.slice())) : c.people;
+    var i = before ? list.indexOf(before) : -1;
+    if (i === -1) list.push(code); else list.splice(i, 0, code);
+    tidy(c);
     setDirty(true);
   }
-  function placeMany(key, plate, before) {   // 팀이면 적힌 순서대로 같은 자리에
-    keyCodes(key).forEach(function (c) { place(c, plate, before); });
+  function placeMany(key, plate, before, half) {   // 팀이면 적힌 순서대로 같은 자리에
+    keyCodes(key).forEach(function (c) { place(c, plate, before, half); });
   }
   function pick(code, fromEl) {
     S.picked = S.picked === code ? null : code;
@@ -479,7 +517,9 @@
     var outEl = target && target.closest('[data-drop="out"]');
     S.picked = null;
     if (cardEl) {
-      placeMany(key, cardEl.dataset.plate, chipEl ? chipEl.dataset.person : null);
+      var half = cardEl.dataset.half || 'all';
+      var before = chipEl && (chipEl.dataset.half || 'all') === half ? chipEl.dataset.person : null;
+      placeMany(key, cardEl.dataset.plate, before, half);
       focusAfter(chipSel(onlyOne(key)));
     } else if (outEl && anyPlaced(key)) {
       keyCodes(key).forEach(unplace);
@@ -538,12 +578,34 @@
     if (!S.canEdit) return;
     var rm = e.target.closest('[data-rm]');
     if (rm) {
-      var c = carOf(rm.dataset.plate);
-      var left = c.people.indexOf(rm.dataset.rm);
-      c.people.splice(left, 1);
+      var rc = carOf(rm.dataset.plate), rh = rm.dataset.half || 'all';
+      if (rh === 'all') { removeHalf(rm.dataset.rm, 'am'); removeHalf(rm.dataset.rm, 'pm'); }
+      else removeHalf(rm.dataset.rm, rh);
       setDirty(true);
-      // 뺀 자리 다음 사람(없으면 명단의 그 사람)으로 포커스
-      focusAfter(c.people[left] ? chipSel(c.people[left]) : staffSel(rm.dataset.rm));
+      var nextC = (rh === 'pm' ? pmOf(rc) : rc.people)[0];
+      focusAfter(nextC ? chipSel(nextC) : staffSel(rm.dataset.rm));
+      render();
+      return;
+    }
+    var sp = e.target.closest('[data-split]');
+    if (sp) {                                   // 오전·오후 나누기 — 오후에 오전 사람을 그대로 옮겨 놓고 시작
+      var spc = carOf(sp.dataset.split);
+      spc.pm = spc.people.slice();
+      setDirty(true);
+      focusAfter('[data-unsplit="' + cssq(spc.plate) + '"]');
+      render();
+      return;
+    }
+    var us = e.target.closest('[data-unsplit]');
+    if (us) {
+      var usc = carOf(us.dataset.unsplit);
+      var pmOnly = (usc.pm || []).filter(function (p) { return usc.people.indexOf(p) === -1; });
+      if (pmOnly.length && !window.confirm('오후에만 탄 ' + pmOnly.map(name).join(', ') + ' 님은 이 차 오후에서 빠져요. 오후도 오전과 같게 할까요?')) return;
+      // 오전 사람이 다른 차 오후에 들어가 있으면 거기서 빼야 종일이 된다
+      usc.people.forEach(function (p) { var o = whereAt(p, 'pm'); if (o && o !== usc) removeHalf(p, 'pm'); });
+      usc.pm = null;
+      setDirty(true);
+      focusAfter('[data-split="' + cssq(usc.plate) + '"]');
       render();
       return;
     }
@@ -557,7 +619,8 @@
     }
     if (p) { pick(p.dataset.person, p); return; }
     if (S.picked) {
-      var target = e.target.closest('[data-drop]');
+      var putBtn = e.target.closest('[data-put]');
+      var target = putBtn ? (putBtn.closest('[data-drop="car"]') || putBtn) : e.target.closest('[data-drop]');
       if (target) drop(S.picked, target);
     }
   });
@@ -581,25 +644,17 @@
       carOf(t.dataset.note).note = t.value.trim();
       setDirty(true);
     } else if (t.dataset.driver) {               // 운전할 사람을 맨 앞으로
-      var dc = carOf(t.dataset.driver);
-      var at = dc.people.indexOf(t.value);
+      var dc = carOf(t.dataset.driver), dh = t.dataset.half || 'all';
+      var dl = dh === 'pm' ? dc.pm : dc.people;
+      var at = dl ? dl.indexOf(t.value) : -1;
       if (at > 0) {
-        dc.people.splice(at, 1);
-        dc.people.unshift(t.value);
+        dl.splice(at, 1);
+        dl.unshift(t.value);
+        tidy(dc);
         setDirty(true);
-        focusAfter('[data-driver="' + cssq(dc.plate) + '"]');
+        focusAfter('[data-driver="' + cssq(dc.plate) + '"][data-half="' + dh + '"]');
         render();
       }
-    } else if (t.dataset.shift) {                // 교대 운전할 사람(없음이면 끔)
-      var sc = carOf(t.dataset.shift);
-      sc.shift_driver = t.value;
-      if (t.value && !sc.shift_at) sc.shift_at = '13:00';
-      setDirty(true);
-      focusAfter('[data-shift="' + cssq(sc.plate) + '"]');
-      render();
-    } else if (t.dataset.shiftat) {
-      carOf(t.dataset.shiftat).shift_at = t.value;
-      setDirty(true);
     } else if (t.dataset.fixed) {
       var fc = carOf(t.dataset.fixed);
       post('/api/vehicles/fleet/' + encodeURIComponent(fc.plate), { fixed_user: t.value }).then(function (j) {
@@ -608,6 +663,18 @@
       }).catch(function (e2) { msg(e2.message, 'err'); t.value = fc.fixed_user || ''; });
     }
   });
+  // 초기화(11-22 부장님) — 지금 화면의 배정을 모두 비운다. 저장해야 반영되고, 저장 전엔 다른 날로 갔다 오면 되돌아간다
+  if ($('vaReset')) {
+    $('vaReset').addEventListener('click', function () {
+      if (!riders() && !S.cars.some(function (c) { return c.note; })) { msg('비울 배정이 없어요.', 'info', true); return; }
+      if (!window.confirm('지금 화면의 차량 배정을 모두 비울까요?\n저장하기 전까지는 반영되지 않아요.')) return;
+      S.cars.forEach(function (c) { c.people = []; c.pm = null; c.note = ''; });
+      S.picked = null;
+      setDirty(true);
+      render();
+      msg('모두 비웠어요. 다시 넣은 뒤 저장해 주세요.', 'info', true);
+    });
+  }
   $('vaSave').addEventListener('click', function () { save(false); });
   $('vaConfirm').addEventListener('click', function () { save(true); });
 

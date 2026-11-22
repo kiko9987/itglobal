@@ -455,35 +455,37 @@ def _assignments(start: str, end: str):
         who = va._who_map()
         rows = {k: [va.display(c, who) for c in v] for k, v in va.assigned_people(start, end).items()}
         fixed = {p: va.display(u, who) for p, u in va.fixed_users().items()}
-        # 오후부터 다른 사람이 운전한 날 — 그 시각 이후 운행의 운전자(11-22)
+        # 오전·오후 나눈 차 — 13:00 이후 운행은 오후 운전자(11-22)
         global _SHIFTS
-        _SHIFTS = {k: (va.display(c, who), at) for k, (c, at) in va.assigned_shifts(start, end).items()}
+        _SHIFTS = {}
+        for k, h in va.assigned_halves(start, end).items():
+            am, pm = h['people'], va.pm_of(h)
+            _SHIFTS[k] = (va.display(am[0], who) if am else '', va.display(pm[0], who) if pm else '', va.HALF_AT)
         return rows, fixed
     except Exception:
         _SHIFTS = {}
         return {}, {}
 
 
-_SHIFTS: Dict[Tuple[str, str], Tuple[str, str]] = {}
+_SHIFTS: Dict[Tuple[str, str], Tuple[str, str, str]] = {}   # (날짜, 번호판) → (오전 운전, 오후 운전, 나누는 시각)
 
 
 def trip_driver(day: str, plate: str, start_time: str, assigned) -> str:
-    """운행 한 건의 운전자 — 배정 맨 앞(오전), 오후부터 바뀐 날은 그 시각 이후 운행이면 바뀐 사람."""
-    ppl = assigned.get((day, plate)) or []
-    if not ppl:
-        return ''
+    """운행 한 건의 운전자 — 오전 운전자, 13:00 이후 운행은 오후 운전자(오전·오후 같으면 같은 사람)."""
     sh = _SHIFTS.get((day, plate))
-    if sh and (start_time or '')[:5] >= sh[1]:
-        return sh[0]
-    return ppl[0]
+    if not sh:
+        return ''
+    am, pm, at = sh
+    return (pm if (start_time or '')[:5] >= at else am) or ''
 
 
 def _drivers_for(day: str, plate: str, assigned, fixed, matched: List[Dict]) -> Tuple[List[str], str]:
     if (day, plate) in assigned:
         ppl = assigned[(day, plate)]
         sh = _SHIFTS.get((day, plate))
-        if sh and sh[0] in ppl:      # 오전 운전 → 오후 운전 순으로
-            ppl = [ppl[0], sh[0]] + [p for p in ppl if p not in (ppl[0], sh[0])]
+        if sh:                       # 오전 운전 → 오후 운전 → 나머지
+            first = [x for x in dict.fromkeys(sh[:2]) if x]
+            ppl = first + [p for p in ppl if p not in first]
         return ppl, 'assigned'
     if plate in fixed:
         return [fixed[plate]], 'fixed'
@@ -513,7 +515,7 @@ def month_summary(ym: str, leads: Iterable[dict]) -> Dict:
             if src != 'guess':
                 c['known_days'].add(t['day'])
                 sh = _SHIFTS.get((t['day'], t['plate']))
-                c['known'].update(names[:2] if sh else names[:1])
+                c['known'].update([x for x in dict.fromkeys(sh[:2]) if x] if sh else names[:1])
     rows = []
     labels = _labels()
     for c in cars.values():

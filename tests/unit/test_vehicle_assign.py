@@ -178,7 +178,7 @@ def test_save_confirm_and_change_dms(db):
                                      {'plate': '03모8021', 'people': ['JW']}], ASSIGNER)
     who = {sid: t for sid, t in sent}
     assert set(who) == {'UTH', 'ULJW', 'UJSH', 'UJW'}
-    assert '빠졌어요' in who['UJSH'] and '차량이 바뀌었어요' in who['ULJW']
+    assert '빠졌어요' in who['UJSH'] and '차량 배정이 바뀌었어요' in who['ULJW'] and '레이 5358' in who['ULJW']
     assert va.person_car('2026-11-21', 'LJW')['plate'] == '237허5358'
     # 확정 뒤 [알리지 않고 저장](메모 오타 등) — 저장은 되고 DM 은 안 감(11-21)
     sent.clear()
@@ -351,30 +351,50 @@ def test_team_draft_splits_with_history(db):
     assert not _rows(va.day_view('2026-11-23', [{'members': ['MJ', 'KMW', 'SJ'], 'visits': 1, 'big': True}]))
 
 
-def test_shift_driver_saved_and_in_dm(db):
-    sent = db
-    rows = [{'plate': '16소4041', 'people': ['YG', 'JK', 'SJ'], 'shift_driver': 'SJ', 'shift_at': '12:30'},
-            {'plate': '03모8021', 'people': ['JW', 'TH'], 'shift_driver': 'JW'}]       # 맨 앞 사람은 교대 운전 불가 → 무시
-    va.save_day('2026-11-23', rows, ASSIGNER, confirm=True)
+def test_halves_saved_and_validated(db):
+    """오전·오후 나누기(11-22) — 같은 사람은 반나절에 한 차, 오전 레이·오후 포터 가능."""
+    with pytest.raises(ValueError, match='오전에 두 차'):
+        va.save_day('2026-11-23', [{'plate': '231허6854', 'people': ['YM']},
+                                   {'plate': '817루4904', 'people': ['YM']}], ASSIGNER)
+    rows = [{'plate': '231허6854', 'people': ['YM', 'LJW'], 'pm': ['LJW']},           # 오후엔 LJW 만
+            {'plate': '817루4904', 'people': [], 'pm': ['YM', 'TH']},                 # 오후에만 쓰는 차
+            {'plate': '16소4041', 'people': ['YG', 'JK'], 'pm': ['SJ']},
+            {'plate': '03모8021', 'people': ['JW'], 'pm': ['JW']}]                    # 오전=오후 → 나누지 않음
+    va.save_day('2026-11-23', rows, ASSIGNER)
     cars = {c['plate']: c for c in va.day_view('2026-11-23')['cars']}
-    assert (cars['16소4041']['shift_driver'], cars['16소4041']['shift_at']) == ('SJ', '12:30')
-    assert cars['03모8021']['shift_driver'] == ''
-    sj = next(t for sid, t in sent if sid == 'USJ')
-    assert '운전: 임산 → 12:30부터 오늘' in sj
-    assert va.assigned_shifts('2026-11-23', '2026-11-23') == {('2026-11-23', '16소4041'): ('SJ', '12:30')}
+    assert (cars['231허6854']['people'], cars['231허6854']['pm']) == (['YM', 'LJW'], ['LJW'])
+    assert (cars['817루4904']['people'], cars['817루4904']['pm']) == ([], ['YM', 'TH'])
+    assert cars['03모8021']['pm'] is None
+    with pytest.raises(ValueError, match='오후에 두 차'):
+        va.save_day('2026-11-23', rows + [{'plate': '231허6873', 'people': ['TH']}], ASSIGNER)   # TH 종일 = 오후도
+    assert va.person_car('2026-11-23', 'TH')['half'] == 'pm'
+
+
+def test_halves_dm_text_and_changes(db):
+    sent = db
+    rows = [{'plate': '231허6854', 'people': ['YM', 'LJW'], 'pm': ['LJW']},
+            {'plate': '817루4904', 'people': [], 'pm': ['YM', 'TH']},
+            {'plate': '03모8021', 'people': ['JW', 'MJ']}]
+    va.save_day('2026-11-23', rows, ASSIGNER, confirm=True)
+    ym = next(t for sid, t in sent if sid == 'UYM')
+    assert '오전·오후가 달라요' in ym and '오전: *레이 6854*' in ym and '오후: *포터 4904*' in ym and '함께 서준' in ym
+    jw = next(t for sid, t in sent if sid == 'UJW')
+    assert '차량: *쏘렌토 8021*' in jw and '함께 타는 사람: 박다솜' in jw and '운전: 본인' in jw
     sent.clear()
-    va.save_day('2026-11-23', [dict(rows[0], shift_at='')], ASSIGNER)                 # 시각 비우면 13:00
-    assert va.day_view('2026-11-23')['cars'][[c['plate'] for c in va.day_view('2026-11-23')['cars']].index('16소4041')]['shift_at'] == '13:00'
+    va.save_day('2026-11-23', [rows[0], dict(rows[1], pm=['YM']), rows[2]], ASSIGNER)   # TH 가 오후 포터에서 빠짐
+    who = {sid for sid, _ in sent}
+    assert who == {'UTH', 'UYM'}                                         # 같이 타는 사람이 바뀐 YM 도
+    assert '빠졌어요' in next(t for sid, t in sent if sid == 'UTH')
 
 
-def test_trip_driver_by_time(db):
+def test_trip_driver_by_half(db):
     from tests.unit.test_vehicle_log import _xlsx, LEADS
     trips = [('2026-11-23(월)', '09:10:00', '경기도 김포시 걸포동', '서울특별시 영등포구 영등포동', 30.0),
              ('2026-11-23(월)', '14:00:00', '서울특별시 영등포구 영등포동', '서울특별시 강남구 역삼동', 15.0)]
     vl.import_upload('a.xlsx', _xlsx(trips=trips), 'x')
     with vl._conn() as conn:
         conn.execute("UPDATE vehicle_trips SET plate = '16소4041'")
-    va.save_day('2026-11-23', [{'plate': '16소4041', 'people': ['YG', 'JK', 'SJ'], 'shift_driver': 'SJ'}], ASSIGNER)
+    va.save_day('2026-11-23', [{'plate': '16소4041', 'people': ['YG', 'JK'], 'pm': ['SJ']}], ASSIGNER)
     d = vl.vehicle_days('2026-11', '16소4041', LEADS)['days'][0]
     assert [t['driver'] for t in sorted(d['trips'], key=lambda t: t['start'])] == ['임산', '오늘']
     assert d['drivers'][:2] == ['임산', '오늘'] and d['source'] == 'assigned'
