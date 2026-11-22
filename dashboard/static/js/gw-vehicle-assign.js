@@ -201,7 +201,7 @@
     teams = teams.filter(function (t) { return t.left.length > 1; })
       .concat(teams.filter(function (t) { return t.left.length === 1; }));
     // 자기 차(고정 차 주인 — YG 카니발·MW 스파크, 11-22 부장님): 2명 이상 팀에 끼지 않았고, 자기 차를 아무도 빌리지 않았으면
-    //   '배정 없음' 대신 '자기 차'로. 팀으로 같이 가면(예: YG 가 4041 팀) 팀 상자에 그대로 둔다
+    //   '배정 없음' 대신 '본인 차량'으로(11-22 이름). 팀으로 같이 가면(예: YG 가 4041 팀) 팀 상자에 그대로 둔다
     var own = ownCars();
     var multiTeam = {};
     teams.forEach(function (t) { if (t.left.length > 1) t.left.forEach(function (m) { multiTeam[m] = 1; }); });
@@ -235,7 +235,7 @@
       (teams.length ? '<div class="gw-va-group need"><div class="gw-va-gtitle">일정확정 팀 · 배정 없음 <span>' + nTeam + '</span></div>' +
         '<div class="gw-va-plist">' + teams.map(teamBox).join('') + '</div></div>' : '') +
       group('배정 없음', freeOther) +
-      (ownList.length ? '<div class="gw-va-group own"><div class="gw-va-gtitle">자기 차 <span>' + ownList.length + '</span></div>' +
+      (ownList.length ? '<div class="gw-va-group own"><div class="gw-va-gtitle">본인 차량 <span>' + ownList.length + '</span></div>' +
         '<div class="gw-va-plist">' + ownList.map(function (c) {
           return person(c, '<small class="gw-va-where">' + esc(own[c].label) + '</small>');
         }).join('') + '</div></div>' : '') +
