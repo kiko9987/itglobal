@@ -1,6 +1,6 @@
 {% extends "modern_base.html" %}
 
-{% block title %}차량 운행 - 아이티글로벌그룹{% endblock %}
+{% block title %}운행일지 - 아이티글로벌그룹{% endblock %}
 
 {% block additional_css %}
 <link rel="stylesheet" href="{{ gw_asset('css/gw-pages.css') }}">
@@ -10,7 +10,7 @@
 {# 차량 운행(11-20) — U+커넥트 운행일지를 올려 차량별 운행과 추정 운전자를 본다. 규칙은 services/vehicle_log.py #}
 <div class="gw-page gw-vh" id="vhPage">
   <div class="gw-page-head">
-    <h1 class="gw-page-title">차량 운행</h1>
+    <h1 class="gw-page-title">운행일지</h1>
     <div class="gw-page-actions">
       <select class="form-select form-select-sm gw-vh-month" id="vhMonth" aria-label="월"></select>
       {# label+hidden input 은 Tab 으로 갈 수 없어 단추로(11-21 점검) #}

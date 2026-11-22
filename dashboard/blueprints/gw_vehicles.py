@@ -14,6 +14,7 @@ from dashboard.blueprints.hr import _hr_admin, _is_field, _me, dev_preview_gate,
 from dashboard.services import hr
 from dashboard.services import vehicle_assign as va
 from dashboard.services import vehicle_log as vl
+from dashboard.services import vehicle_manage as vm
 from dashboard.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -208,4 +209,96 @@ def api_upload():
     rng = vl.trip_range()
     if rng:
         _resolve_later(*rng)
+    return jsonify({'success': True, **res})
+
+
+# ── 차량 관리(11-22) — 보험·검사 만기, 정비·비용(결재에서 자동), 계기판 km. 경영지원만 ─────────────
+@gw_vehicles_bp.route('/vehicles/manage')
+@gw_page
+def page_manage():
+    if not _hr_admin():
+        return redirect('/home')
+    return render_template('gw/vehicle_manage.html')
+
+
+@gw_vehicles_bp.route('/api/vehicles/manage', methods=['GET'])
+@gw_page
+def api_manage():
+    if not _hr_admin():
+        return _deny()
+    try:
+        vm.sync_costs()              # 결재에서 새로 생긴 차량 비용(10분에 한 번)
+    except Exception as e:
+        logger.warning(f'[차량관리] 결재 비용 가져오기 실패: {e}', exc_info=True)
+    try:
+        return jsonify({'success': True, **vm.overview(), 'kinds': list(vm.KINDS)})
+    except Exception as e:
+        logger.error(f'[차량관리] 불러오기 실패: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': '불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요.'}), 500
+
+
+@gw_vehicles_bp.route('/api/vehicles/manage/car', methods=['GET'])
+@gw_page
+def api_manage_car():
+    if not _hr_admin():
+        return _deny()
+    plate = (request.args.get('plate') or '').strip()[:20]
+    if not plate:
+        return jsonify({'success': False, 'message': '차량을 골라 주세요.'}), 400
+    return jsonify({'success': True, 'plate': plate, 'info': vm.info(plate), 'costs': vm.costs(plate=plate),
+                    'odometer': vm.odometer(plate)})
+
+
+@gw_vehicles_bp.route('/api/vehicles/manage/info/<plate>', methods=['POST'])
+@gw_page
+def api_manage_info(plate):
+    if not _hr_admin():
+        return _deny()
+    try:
+        info = vm.update_info(plate, request.get_json(silent=True) or {}, _me())
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+    logger.info(f'[차량관리] 차량 정보 {plate} by {_me()}')
+    return jsonify({'success': True, 'info': info})
+
+
+@gw_vehicles_bp.route('/api/vehicles/manage/costs', methods=['POST'])
+@gw_page
+def api_manage_cost_add():
+    if not _hr_admin():
+        return _deny()
+    b = request.get_json(silent=True) or {}
+    try:
+        res = vm.add_cost(b.get('plate') or '', b.get('day') or '', b.get('kind') or '', b.get('item') or '',
+                          b.get('amount'), b.get('vendor') or '', _me())
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+    logger.info(f"[차량관리] 비용 직접 추가 {b.get('plate')} by {_me()}")
+    return jsonify({'success': True, **res})
+
+
+@gw_vehicles_bp.route('/api/vehicles/manage/costs/<int:cost_id>/delete', methods=['POST'])
+@gw_page
+def api_manage_cost_delete(cost_id):
+    if not _hr_admin():
+        return _deny()
+    try:
+        vm.delete_cost(cost_id)
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+    logger.info(f'[차량관리] 비용 지움 #{cost_id} by {_me()}')
+    return jsonify({'success': True})
+
+
+@gw_vehicles_bp.route('/api/vehicles/manage/odometer', methods=['POST'])
+@gw_page
+def api_manage_odometer():
+    if not _hr_admin():
+        return _deny()
+    b = request.get_json(silent=True) or {}
+    try:
+        res = vm.add_odometer(b.get('plate') or '', b.get('day') or '', b.get('km'), _me(), b.get('note') or '')
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+    logger.info(f"[차량관리] 계기판 km {b.get('plate')} by {_me()}")
     return jsonify({'success': True, **res})

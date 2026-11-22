@@ -3182,3 +3182,34 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
   .gw-va-sbody { max-height: none; }
   .gw-va-swho { margin-left: 0; width: 100%; }
 }
+
+/* ── 차량 관리(11-22) — 보험·검사 만기, 정비·비용, 계기판 km ───────────── */
+.gw-vm .gw-ap-tablewrap { overflow-x: auto; }
+.gw-vm-table td { vertical-align: top; }
+.gw-vm-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gw-vm-table tr.gw-vm-warn td:first-child { box-shadow: inset 3px 0 0 #dc2626; }
+.gw-vm-own { display: inline-block; font-size: 0.74rem; color: #475569; background: #f1f5f9; border-radius: 4px; padding: 0 5px; }
+.gw-vm-kinds { margin-top: 4px; font-size: 0.78rem; color: #64748b; }
+.gw-vm-panel { width: min(720px, 100vw); }
+.gw-vm-panel .gw-drawer-head h2:focus, .gw-vm-panel .gw-drawer-head h2:focus-visible { outline: none; box-shadow: none; }
+.gw-vm-sec + .gw-vm-sec { margin-top: 20px; padding-top: 16px; border-top: 1px solid #e2e8f0; }
+.gw-vm-sec h3 { font-size: 0.95rem; font-weight: 700; margin: 0 0 10px; }
+.gw-vm-sub { font-weight: 400; color: #64748b; font-size: 0.8rem; margin-left: 4px; }
+.gw-vm-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px 10px; align-items: end; }
+.gw-vm-form label { display: flex; flex-direction: column; gap: 3px; font-size: 0.8rem; color: #475569; margin: 0; }
+.gw-vm-form label.wide { grid-column: 1 / -1; }
+.gw-vm-actions { display: flex; justify-content: flex-end; grid-column: 1 / -1; }
+.gw-vm-add { margin-bottom: 12px; }
+.gw-vm-add summary { cursor: pointer; font-size: 0.86rem; color: #2563eb; margin-bottom: 8px; }
+.gw-vm-list { font-size: 0.86rem; width: 100%; }
+.gw-vm-list td { vertical-align: top; }
+.gw-vm-list .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.gw-vm-day { white-space: nowrap; }
+.gw-vm-kind { display: inline-block; white-space: nowrap; font-size: 0.74rem; color: #334155; background: #f1f5f9; border-radius: 4px; padding: 0 5px; margin-right: 2px; }
+@media (max-width: 767.98px) {
+  .gw-vm-opt { display: none; }
+  /* 휴대폰: 입력칸 16px(아이폰 확대 방지)·누를 자리 44px(점검 11-22) */
+  .gw-vm-form .form-control-sm, .gw-vm-form .form-select-sm { font-size: 16px; min-height: 44px; }
+  .gw-vm-form .btn, .gw-vm-add summary { min-height: 44px; }
+  .gw-vm-add summary { display: flex; align-items: center; }
+}

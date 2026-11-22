@@ -1,0 +1,44 @@
+{% extends "modern_base.html" %}
+
+{% block title %}차량 관리 - 아이티글로벌그룹{% endblock %}
+
+{% block additional_css %}
+<link rel="stylesheet" href="{{ gw_asset('css/gw-pages.css') }}">
+{% endblock %}
+
+{% block content %}
+{# 차량 관리(11-22) — 보험·검사 만기, 정비·비용(결재에서 자동), 계기판 km. 규칙은 services/vehicle_manage.py #}
+<div class="gw-page gw-vm" id="vmPage">
+  <div class="gw-page-head">
+    <h1 class="gw-page-title">차량 관리</h1>
+  </div>
+
+  <div class="gw-vh-msg" id="vmMsg" role="status" aria-live="polite"></div>
+  <div class="gw-stats" id="vmStats"></div>
+
+  <div class="gw-panel gw-ap-tablewrap">
+    <table class="gw-table gw-table-click gw-vm-table">
+      <thead><tr>
+        <th>차량</th><th>보험 만기</th><th>검사 만기</th><th class="num">올해 비용</th><th>최근 정비</th><th class="num gw-vm-opt">계기판 km</th>
+      </tr></thead>
+      <tbody id="vmRows"><tr><td colspan="6" class="gw-empty">불러오는 중…</td></tr></tbody>
+    </table>
+  </div>
+  <p class="gw-vh-foot">비용은 결재(법인카드 지출결의·개인경비·자금집행·비품·전자결재)에 차량 번호가 적힌 줄을 자동으로 모은 거예요. 결재 없이 쓴 돈은 차량을 눌러 직접 넣어 주세요.</p>
+</div>
+
+<div class="gw-drawer" id="vmCar" hidden>
+  <div class="gw-drawer-backdrop" data-close></div>
+  <aside class="gw-drawer-panel gw-vm-panel" role="dialog" aria-modal="true" aria-labelledby="vmCarTitle">
+    <div class="gw-drawer-head">
+      <h2 id="vmCarTitle" tabindex="-1">차량</h2>
+      <button type="button" class="btn-close" data-close aria-label="닫기"></button>
+    </div>
+    <div class="gw-drawer-body" id="vmCarBody"></div>
+  </aside>
+</div>
+{% endblock %}
+
+{% block additional_js %}
+<script src="{{ gw_asset('js/gw-vehicle-manage.js') }}"></script>
+{% endblock %}
