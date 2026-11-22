@@ -170,7 +170,8 @@
     return '<li class="gw-vp-row"' + (P.canEdit ? ' draggable="true" data-drag-lead="' + esc(v.lead_no) + '"' : '') + '>' +
       '<span class="gw-vp-no" aria-hidden="true">' + (k + 1) + '</span><span class="gw-vp-rmain">' +
       '<span class="gw-vp-vtop">' + placeTag(v) + marks(v) + '<span class="gw-va-sno">' + esc(v.date) + ' · ' + esc(v.lead_no) + '</span></span>' +
-      (v.addr ? '<span class="gw-vp-vaddr">' + esc(v.addr) + '</span>' : '') + '</span>' + acts + '</li>';
+      (v.addr ? '<span class="gw-vp-vaddr">' + esc(v.addr) + '</span>' : '') +
+      (v.text ? '<span class="gw-vp-vtext">' + esc(v.text) + '</span>' : '') + '</span>' + acts + '</li>';
   }
   function courseCard(c, i, ws) {
     var bad = ws.some(function (w) { return w.course === i; });
@@ -185,19 +186,19 @@
       var nChecked = checkedList().length;
       if (nChecked) acts += '<button type="button" class="btn btn-sm btn-outline-secondary gw-va-put" data-act="lift" data-ci="' + i + '">체크한 현장 ' + nChecked + '건 여기로 올리기</button>';
     }
-    var head = P.canEdit
-      ? '<div class="gw-vp-chead"><strong>' + esc('코스 ' + (i + 1)) + '</strong><input type="text" class="form-control form-control-sm gw-vp-cname" maxlength="20" data-act="cname" data-ci="' + i + '" value="' + esc(c.name) + '" aria-label="코스 ' + (i + 1) + ' 이름"><span class="gw-vp-ccount">현장 ' + vs.length + '</span>' +
-        '<button type="button" class="btn btn-sm btn-link gw-vp-cdel" data-act="delc" data-ci="' + i + '">지우기</button></div>'
-      : '<div class="gw-vp-chead"><strong>' + esc(label(i)) + '</strong><span class="gw-vp-ccount">현장 ' + vs.length + '</span></div>';
+    // 캔버스2 섹션처럼 한 줄: 코스 N · 사람 칩 · 현장 수 · [지우기]
+    var head = '<div class="gw-vp-chead"><strong>' + esc(label(i)) + '</strong>' +
+      '<div class="gw-va-people">' + (chips || '<span class="gw-va-none">' + (P.canEdit ? '여기에 사람을 놓으세요' : '사람 없음') + '</span>') + '</div>' +
+      '<span class="gw-vp-ccount">현장 ' + vs.length + '</span>' +
+      (P.canEdit ? '<button type="button" class="btn btn-sm btn-link gw-vp-cdel" data-act="delc" data-ci="' + i + '">지우기</button>' : '') + '</div>';
     var memo = P.canEdit
-      ? '<label class="gw-vp-memo"><span>메모 <small>이 코스 사람들의 DM 위쪽에 함께 가요</small></span><input type="text" class="form-control form-control-sm" maxlength="200" data-act="memo" data-ci="' + i + '" value="' + esc(c.memo) + '"></label>'
+      ? '<label class="gw-vp-memo"><span>메모</span><input type="text" class="form-control form-control-sm" maxlength="200" data-act="memo" data-ci="' + i + '" value="' + esc(c.memo) + '" aria-describedby="vpMemoHelp"></label>'
       : (c.memo ? '<p class="gw-vp-memotext"><i class="fas fa-note-sticky" aria-hidden="true"></i> ' + esc(c.memo) + '</p>' : '');
     return '<section class="gw-va-card gw-vp-course' + (bad ? ' warn' : '') + (c.members.length ? '' : ' need') + ((P.picked || checkedList().length) && P.canEdit ? ' can-drop' : '') +
       '" data-drop="course" data-ci="' + i + '" aria-label="' + esc(label(i)) + '">' + head +
-      '<div class="gw-va-people">' + (chips || '<span class="gw-va-none">' + (P.canEdit ? '여기에 사람을 놓으세요' : '사람 없음') + '</span>') + '</div>' +
       '<ol class="gw-vp-rows">' + vs.map(function (v, k) { return courseRow(v, i, k, vs.length); }).join('') + '</ol>' +
-      (!vs.length ? '<p class="gw-vp-tempty">' + (P.canEdit ? '아래 현장을 체크해 올리거나 끌어 올려 주세요.' : '현장 없음') + '</p>' : '') +
-      acts + memo + '</section>';
+      (!vs.length ? '<p class="gw-vp-tempty">' + (P.canEdit ? '아래 현장 목록에서 끌어 올리거나, 체크해서 올려 주세요.' : '현장 없음') + '</p>' : '') +
+      (acts ? '<div class="gw-vp-cacts">' + acts + '</div>' : '') + memo + '</section>';
   }
   // 현장 목록 — 지역(region)끼리 모아, 지역은 캔버스1에서 처음 나온 순서대로
   function inboxRows() {
@@ -291,7 +292,7 @@
       '<p class="gw-va-sempty">' + (P.canEdit ? '아래 현장의 [새 코스로]를 누르거나, 현장을 체크한 뒤 [새 코스로]를 눌러 코스를 만들어 주세요.' : '아직 코스가 없어요.') + '</p>';
     $('vpAddCourse').hidden = !P.canEdit;
     $('vpInboxCount').textContent = left.length + '건' + (left.length !== P.data.visits.length ? ' (전체 ' + P.data.visits.length + '건)' : '');
-    $('vpHow').textContent = P.canEdit ? '같은 지역끼리 모아 보여 줘요. 체크해서 한꺼번에 올리거나, 위 코스로 끌어 올리세요.' : '';
+    $('vpHow').textContent = P.canEdit ? '같은 지역끼리 모아 보여 줘요. 위 코스로 끌어 올리거나(코스 안 줄 위에 놓으면 그 앞에), 체크해서 한꺼번에 올리세요.' : '';
     selBar();
     $('vpInList').innerHTML = inboxRows() ||
       '<p class="gw-va-sempty">' + (P.data.visits.length ? '모든 현장을 코스에 넣었어요.' : '이날 방문 일정이 없어요.') + '</p>';
@@ -314,14 +315,19 @@
   // ── 고치기 ──
   function changed(focusSel) { setDirty(true); P.focus = focusSel || null; render(); }
   function newCourse() { P.plan.courses.push({ name: '', members: [], leads: [], memo: '' }); return P.plan.courses.length - 1; }
-  function moveTo(nos, ci) {                // ci = -1 이면 현장 목록으로 내림
+  function moveTo(nos, ci, before) {        // ci = -1 이면 현장 목록으로 내림, before = 이 현장 앞에 끼움
     nos.forEach(function (no) {
       var from = courseOf(no);
       if (from !== -1) P.plan.courses[from].leads.splice(P.plan.courses[from].leads.indexOf(no), 1);
-      if (ci !== -1) P.plan.courses[ci].leads.push(no);
       delete P.checked[no];
     });
-    changed(ci === -1 ? '#vpInList [data-act="check"]' : '.gw-vp-course[data-ci="' + ci + '"] [data-act="cname"]');
+    if (ci !== -1) {
+      var leads = P.plan.courses[ci].leads;
+      var at = before && nos.indexOf(before) === -1 ? leads.indexOf(before) : -1;
+      if (at === -1) at = leads.length;
+      Array.prototype.splice.apply(leads, [at, 0].concat(nos));
+    }
+    changed(ci === -1 ? '#vpInList [data-act="check"]' : '.gw-vp-course[data-ci="' + ci + '"] [data-act="memo"]');
     say(ci === -1 ? '현장 목록으로 내렸어요.' : label(ci) + '에 현장 ' + nos.length + '건을 올렸어요.', 'info');
   }
   function putPerson(code, ci) {
@@ -334,7 +340,7 @@
   P.checked = {};
   $('vpAddCourse').addEventListener('click', function () {
     var ci = newCourse();
-    changed('.gw-vp-course[data-ci="' + ci + '"] [data-act="cname"]');
+    changed('.gw-vp-course[data-ci="' + ci + '"] [data-act="memo"]');
   });
   root.addEventListener('click', function (e) {
     var b = e.target.closest('[data-act], [data-pick]');
@@ -370,7 +376,7 @@
     } else if (act === 'rmp') {
       var cm = P.plan.courses[ci], code = b.getAttribute('data-code');
       cm.members.splice(cm.members.indexOf(code), 1);
-      changed('.gw-vp-course[data-ci="' + ci + '"] [data-act="cname"]');
+      changed('.gw-vp-course[data-ci="' + ci + '"] [data-act="memo"]');
     } else if (act === 'delc') {
       var dc = P.plan.courses[ci];
       if ((dc.leads.length || dc.members.length) && !window.confirm(label(ci) + '를 지울까요?\n현장 ' + dc.leads.length + '건은 현장 목록으로 돌아가요.')) return;
@@ -399,14 +405,12 @@
     } else if (act === 'shared') {
       P.plan.online_shared = el.checked;
       setDirty(true);
-    } else if (act === 'cname') {
-      render();                                              // 경고·단추 글자(코스 이름)를 새 이름으로
     }
   });
   root.addEventListener('input', function (e) {
     var el = e.target, act = el.getAttribute('data-act');
-    if (!P.canEdit || (act !== 'memo' && act !== 'cname')) return;
-    P.plan.courses[parseInt(el.getAttribute('data-ci'), 10)][act === 'memo' ? 'memo' : 'name'] = el.value;
+    if (!P.canEdit || act !== 'memo') return;
+    P.plan.courses[parseInt(el.getAttribute('data-ci'), 10)].memo = el.value;
     setDirty(true);
     $('vpTabPlanSt').textContent = P.data.confirmed_at ? '· 고친 내용 있음' : '· 확정 전';
   });
@@ -436,10 +440,14 @@
     var z = dropZone(e);
     if (!z) return;
     e.preventDefault();
-    root.querySelectorAll('.over').forEach(function (x) { if (x !== z) x.classList.remove('over'); });
+    root.querySelectorAll('.over, .before').forEach(function (x) { if (x !== z) x.classList.remove('over', 'before'); });
     z.classList.add('over');
+    var row = drag.leads && z.getAttribute('data-drop') === 'course' && e.target.closest('.gw-vp-row');
+    if (row) row.classList.add('before');                    // 이 줄 앞에 들어간다는 표시
   });
   root.addEventListener('dragleave', function (e) {
+    var r = e.target.closest && e.target.closest('.gw-vp-row');
+    if (r && !r.contains(e.relatedTarget)) r.classList.remove('before');
     var z = e.target.closest && e.target.closest('[data-drop]');
     if (z && !z.contains(e.relatedTarget)) z.classList.remove('over');
   });
@@ -451,12 +459,14 @@
     drag = null;
     z.classList.remove('over');
     var ci = z.getAttribute('data-drop') === 'course' ? parseInt(z.getAttribute('data-ci'), 10) : -1;
+    var row = ci !== -1 && e.target.closest('.gw-vp-row');
+    root.querySelectorAll('.before').forEach(function (x) { x.classList.remove('before'); });
     if (d.person) putPerson(d.person, ci);
-    else moveTo(d.leads, ci);
+    else moveTo(d.leads, ci, row ? row.getAttribute('data-drag-lead') : null);
   });
   root.addEventListener('dragend', function () {
     drag = null;
-    root.querySelectorAll('.over').forEach(function (x) { x.classList.remove('over'); });
+    root.querySelectorAll('.over, .before').forEach(function (x) { x.classList.remove('over', 'before'); });
   });
 
   // ── 불러오기·저장·확정 ──
