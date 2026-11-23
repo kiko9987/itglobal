@@ -3554,7 +3554,7 @@ button.gw-vp-rgn:focus-visible { outline: 2px solid #2a3038; outline-offset: 2px
 .gw-vc-main .gw-vp-courses { margin-top: 0; }
 .gw-vc-cars { padding: 12px; }
 #vcCarList { display: flex; flex-direction: column; gap: 6px; }
-.gw-vc-car { border: 1px solid #e5e7eb; border-radius: 10px; padding: 7px 10px; background: #fafbfc; display: flex; flex-direction: column; gap: 3px; }
+.gw-vc-car { border: 1px solid #cbd0d8; border-radius: 10px; padding: 7px 10px; background: #fff; display: flex; flex-direction: column; gap: 3px; }   /* 빈 차도 회색 없이 같은 모양(11-24 부장님) — '빈 차' 글로 구분 */
 .gw-vc-car.used { background: #fff; border-color: #cbd0d8; }
 .gw-vc-car.own { border-style: dashed; }
 .gw-vc-board.editing .gw-vc-car { cursor: grab; user-select: none; }
