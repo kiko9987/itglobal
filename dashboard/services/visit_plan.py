@@ -78,6 +78,21 @@ def _conn():
         conn.commit()
 
 
+_STAFF_TTL = 5.0
+_staff_memo: Dict[str, object] = {'fn': None, 'at': 0.0, 'val': None}
+
+
+def _staff() -> List[Dict]:
+    """현장 명단 — 한 번 불러올 때 여러 번 읽지 않게 몇 초만 기억(11-23 속도: 읽을 때마다 사용자 목록 로그가 147줄씩)."""
+    import time
+    m = _staff_memo
+    if m['fn'] is va.staff and m['val'] is not None and time.monotonic() - m['at'] < _STAFF_TTL:
+        return [dict(p) for p in m['val']]
+    val = va.staff()
+    m.update(fn=va.staff, at=time.monotonic(), val=[dict(p) for p in val])
+    return [dict(p) for p in val]
+
+
 def _now() -> str:
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
@@ -99,7 +114,7 @@ def _code_maps() -> Dict[str, str]:
     from dashboard.services.visit_assignment_sync import _load_initial_maps
     _, name_to_ini = _load_initial_maps()
     out = dict(name_to_ini)
-    out.update({p['name']: p['code'] for p in va.staff()})
+    out.update({p['name']: p['code'] for p in _staff()})
     return out
 
 
@@ -115,12 +130,29 @@ def _open_leads(leads: Iterable[dict]) -> List[dict]:
     return [l for l in leads if visit_open(l, rc)]
 
 
+def _on_day(day: str, leads: Iterable[dict]) -> List[dict]:
+    """방문 예정일이 그날에 걸친 리드만(여러 날짜 '2026-11-23~24' 포함) — day_schedule 과 같은 기준."""
+    from dashboard.services import visit_assignment_sync as vas
+    d = date.fromisoformat(day)
+    out = []
+    for l in leads:
+        vd = l.get('방문 예정일')
+        st = vas._parse_visit_date_start(vd)
+        if not st:
+            continue
+        en = vas._parse_visit_date_end(vd)
+        if st <= d <= (en if en and en >= st else st):
+            out.append(l)
+    return out
+
+
 def visits(day: str, leads: Iterable[dict], done: bool = False) -> List[Dict]:
     """그날 현장(캔버스1과 같은 리드·묶음) 을 한 줄로 — 카드 하나 = 리드 하나.
     본인 방문 필수면 owner = 상담한 사람 이니셜(온라인 상담자).
     done=True(오늘·지난 날 보기)면 방문 완료한 것까지 — 그날 실제로 간 현장(11-23 부장님)."""
     from dashboard.services import vehicle_log as vl
-    leads = list(leads) if done else _open_leads(leads)
+    leads = _on_day(day, leads)         # 그날 방문만 먼저 — 방문 완료 확인(Redis)을 전체 791건이 아니라 몇 건만(11-23 속도)
+    leads = leads if done else _open_leads(leads)
     by_name = _code_maps()
     by_no = {str(l.get('리드 No') or '').strip(): l for l in leads}
     out = []
@@ -174,7 +206,7 @@ def _where(addr: str, vl) -> Dict[str, str]:
 def people(vs: List[Dict], more: Iterable[str] = ()) -> List[Dict]:
     """팀에 넣을 수 있는 사람 — 현장 명단 + 본인 방문 필수 건을 상담한 다른 사람(사무직 등).
     more = 지난 날 시트 담당자처럼 명단 밖이어도 보여 줄 이니셜."""
-    out = [{'code': p['code'], 'name': p['name']} for p in va.staff()]
+    out = [{'code': p['code'], 'name': p['name']} for p in _staff()]
     have = {p['code'] for p in out}
     from dashboard.services.visit_assignment_sync import _load_initial_maps
     ini_to_name, _ = _load_initial_maps()
@@ -366,7 +398,7 @@ def warnings(plan: Dict, vs: List[Dict], off: Dict[str, List[Dict]], names: Dict
     # 코스·사내 업무·당번 어디에도 없는 현장 직원(11-23 부장님: 문의가 적어 남는 인원을 빠뜨리지 않게) — 막지는 않음
     if plan['courses'] and not plan['online_shared']:
         placed = {m for c in plan['courses'] for m in c['members']} | {o['code'] for o in plan['online']}
-        idle = [p for p in va.staff() if p['code'] not in placed and p['code'] not in offs]
+        idle = [p for p in _staff() if p['code'] not in placed and p['code'] not in offs]
         if idle:
             out.append({'level': 'warn', 'kind': 'idle',
                         'text': f'아무 데도 안 들어간 사람 {len(idle)}명({", ".join(p["name"] for p in idle)}) — '
@@ -548,7 +580,7 @@ def _send_work_dms(day: str, plan: Dict, prev: Optional[Dict]) -> Dict[str, int]
     """사내 업무 DM — 처음 확정이면 모두, 다시 확정이면 할 일·같이 하는 사람이 바뀐 사람만(11-23 부장님)."""
     from dashboard.services.visit_assignment_sync import _dm_safe
     now, before = _work_map(plan), _work_map(prev)
-    who = {p['code']: p for p in va.staff()}
+    who = {p['code']: p for p in _staff()}
     sent = failed = 0
     for code, w in now.items():
         if before.get(code) == w:
@@ -675,7 +707,7 @@ def _merge_urgent(day: str, plan: Dict, nos: List[str], names: Dict[str, str]) -
 
 
 def _slack_of(code: str, name: str) -> str:
-    p = next((p for p in va.staff() if p['code'] == code), None)
+    p = next((p for p in _staff() if p['code'] == code), None)
     if p and p.get('slack_id'):
         return p['slack_id']
     try:
