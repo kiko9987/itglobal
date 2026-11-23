@@ -49,7 +49,7 @@
             visits: {}, places: {}, teams: [], picked: null, seq: 0, focus: null,
             placeTries: 0, placeTimer: null,
             off: {}, half: {}, online: {}, schedule: [], courses: null, plan: null, dayLabel: '',
-            noteOpen: {}, doneOpen: false, carWhen: '', draftNote: '' };
+            noteOpen: {}, doneOpen: true, carWhen: '', draftNote: '' };   // 배정됨은 펼친 채로 시작(11-23 부장님)
   // 화면 정리(11-23 부장님 "너무 어지럽다"): 쓰는 차만 큰 카드·빈 차는 아래 작은 칸, 메모·나누기는 카드 머리 작은 단추,
   //   명단 '배정됨'은 접어 두기, 코스는 한 줄씩(눌러서 현장 펼침), 위 안내는 한 줄로
   // courses = 그룹웨어에서 확정한 방문 일정의 코스(위 칸, 11-23) — 슬랙으로 확정한 날은 null(캔버스1 모양 그대로)
@@ -199,6 +199,23 @@
     (t.leads || []).forEach(function (n) { var p = placeOf(n); if (p && out[out.length - 1] !== p) out.push(p); });
     return out.join(' → ');
   }
+  // 배정됨 — 코스 순서대로 묶어 보기(11-23 부장님). 두 코스에 든 사람은 앞 코스에, 코스에 없는 사람은 맨 아래 '그 밖'
+  function placedByCourse(placed) {
+    var groups = [], seen = {};
+    var src = S.courses ? S.courses.courses.filter(function (c) { return c.kind !== 'work'; })
+      : S.teams.filter(function (t) { return t.label; }).map(function (t) { return { label: t.label, members: t.members }; });
+    src.forEach(function (c) {
+      var list = c.members.filter(function (m) { return placed.indexOf(m) !== -1 && !seen[m]; });
+      list.forEach(function (m) { seen[m] = 1; });
+      if (list.length) groups.push({ label: c.label, list: list });
+    });
+    var rest = placed.filter(function (m) { return !seen[m]; });
+    if (!groups.length) return '<div class="gw-va-plist">' + placed.map(function (c) { return person(c); }).join('') + '</div>';
+    if (rest.length) groups.push({ label: '그 밖', list: rest });
+    return groups.map(function (g) {
+      return '<div class="gw-va-psub">' + esc(g.label) + '</div><div class="gw-va-plist">' + g.list.map(function (c) { return person(c); }).join('') + '</div>';
+    }).join('');
+  }
   function staffPanel() {
     var panel = $('vaStaff');
     if (!panel) return;              // 서버 재시작 전 옛 화면 — 명단 칸이 없음
@@ -278,7 +295,7 @@
         }).join('') + '</div></div>' : '') +
       (placed.length ? '<details class="gw-va-group done" id="vaDoneGroup"' + (S.doneOpen ? ' open' : '') + '><summary class="gw-va-gtitle">' +
         '<i class="fas fa-chevron-right gw-va-gfold" aria-hidden="true"></i> 배정됨 <span>' + placed.length + '</span></summary>' +
-        '<div class="gw-va-plist">' + placed.map(function (c) { return person(c); }).join('') + '</div></details>' : '') +
+        placedByCourse(placed) + '</details>' : '') +
       group('온라인 당번', dutyList, 'off') +
       (workList.length ? '<div class="gw-va-group off"><div class="gw-va-gtitle">사내 업무 <span>' + workList.length + '</span></div>' +
         '<div class="gw-va-plist">' + workList.map(function (c) {

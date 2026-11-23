@@ -3521,3 +3521,7 @@ details.gw-va-cline[open] .gw-va-cfold { transform: rotate(90deg); }
   .gw-va-csum { min-height: 44px; }
   .gw-va-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* 배정됨 — 코스별 소제목(11-23) */
+.gw-va-psub { font-size: 0.74rem; color: #64748b; font-weight: 600; margin: 6px 0 3px; }
+details.gw-va-group > summary + .gw-va-psub { margin-top: 2px; }
