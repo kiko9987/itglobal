@@ -410,16 +410,6 @@
   }
 
   // ── 왼쪽 차 목록 ──
-  function fixedSelect(c) {   // 고정 차의 평소 사용자 — 고르면 바로 저장(배정과 별개)
-    var has = false;
-    var opts = S.staff.map(function (p) {
-      if (p.code === c.fixed_user) has = true;
-      return '<option value="' + esc(p.code) + '"' + (p.code === c.fixed_user ? ' selected' : '') + '>' + esc(p.name) + '</option>';
-    }).join('');
-    if (c.fixed_user && !has) opts = '<option value="' + esc(c.fixed_user) + '" selected>' + esc(c.fixed_name || c.fixed_user) + '</option>' + opts;
-    return '<select class="form-select form-select-sm gw-va-fixedsel" data-fixed="' + esc(c.plate) + '" aria-label="' +
-      esc(c.label) + ' 평소 사용자"><option value="">정해진 사람 없음</option>' + opts + '</select>';
-  }
   function carRow(c, inG) {
     var rs = ridersOf(c);
     var labels = uniq(rs.map(function (m) { return (inG[m] || ['그 밖'])[0]; })).filter(function (l) { return l !== '혼자'; });
@@ -430,15 +420,15 @@
       ? '<span class="gw-vc-cwho"><span class="gw-vc-clabel">' + esc(labels.join('·')) + '</span> ' + esc(who) + '</span>'
       : '<span class="gw-vc-cwho none">' + (isOwn(c) ? '차가 모자라면 본인 차량으로' : isCrew(c) ? '평소 시공팀'
         : c.usage === 'fixed' ? '평소 ' + esc(c.fixed_name || '정해진 사람 없음') : '빈 차') + '</span>';
-    // 메모 칸은 없앴다(11-24 부장님 — 필요 없음). 고정 차의 평소 사용자 고르기는 여기서만 바꿀 수 있어 그대로
-    var fixed = c.usage === 'fixed' && S.canEdit ? '<div class="gw-va-tilefixed">평소 ' + fixedSelect(c) + '</div>' : '';
+    // 차 줄의 메모 칸은 없앴다(11-24 부장님 — 예외는 코스 메모 한 줄로)
+    // 고정 차 '평소 [사람 고르기]' 칸은 뺐다(11-24 부장님) — 평소 사용자는 줄 글('평소 ○○')로만 보인다
     var on = S.canEdit && S.pick === c.plate;
     var check = S.canEdit ? '<input type="checkbox" class="form-check-input gw-vp-check" data-carcheck="' + esc(c.plate) + '"' +
       (on ? ' checked' : '') + ' aria-label="' + esc(c.label) + ' 고르기">' : '';
     return '<div class="gw-vc-car' + (rs.length ? ' used' : '') + (isOwn(c) ? ' own' : '') + (on ? ' on' : '') + '" data-car="' + esc(c.plate) + '">' +
       '<div class="gw-vc-carhead">' + check +
       '<strong>' + (isOwn(c) ? '<i class="fas fa-user" aria-hidden="true"></i> ' : '') + esc(c.label) + '</strong>' +
-      (isOwn(c) ? '' : '<small>' + esc(c.plate) + '</small>') + '</div>' + line + fixed + '</div>';
+      (isOwn(c) ? '' : '<small>' + esc(c.plate) + '</small>') + '</div>' + line + '</div>';
   }
   // 차 목록 위 한 줄 — 안내 글 ↔ '레이 5358 → [코스에 넣기]' 가 같은 자리(방문 일정 사람 칸과 같게)
   function carBar(gs) {
