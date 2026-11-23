@@ -786,6 +786,7 @@ def _strip_personal_name(tail: str) -> str:
 _TAIL_STOP_WORDS = [
     '신축', '상담', '견적', '문의', '연락', '전화', '에어컨', '설치', '예정',
     '냉방', '냉난방', '제품', '면적', '평수', '평형', '시스템',
+    '천장형', '스탠드형', '벽걸이', '중고 ',   # 제품 형태 (2026-11-23 L-04077)
     '예정입니다', '있습니다', '합니다', '드립니다', '부탁', '바랍니다',
     '필요합니다', '희망', '원합니다',
     # 모호 명사 (의미 없이 뒤따라붙는 단어들) — "집/카페/식당"은 빌딩명에 흔히 들어가므로 제외
@@ -1005,7 +1006,8 @@ def _extract_building_tail(text: str, require_signal: bool = True) -> str:
         # 평수(면적) 이후는 상세/문의라 절단 (2026-08-25 L-03774): '이마트…2층 25평
         #   인테리어공사시작단계' → '이마트…2층'. 공백+숫자+평(뒤 한글 아님) 지점에서 자름
         #   ('평택로'·'평화빌딩' 등 오절단 방지 위해 앞 공백+숫자 필수).
-        _mp = re.search(r'\s\d+\s*평(?![가-힣])', tail)
+        from dashboard.services.lead_helpers import PYEONG_AREA
+        _mp = re.search(rf'\s{PYEONG_AREA}', tail)
         if _mp and _mp.start() < cut_pos:
             cut_pos = _mp.start()
         tail = tail[:cut_pos].strip()
@@ -1986,7 +1988,8 @@ def _enrich_verified_address(
         for _pi, _pt in enumerate(_ptoks):
             # '예정'은 홀로 쓴 낱말('설치 예정')만 절단 — '예정지'·'○○예정'은 장소 표시라
             #   _mark_planned 가 '(예정)'으로 바꿈 (2026-11-19 L-04599 '용인스크린 예정지'의 '예정지'가 잘림)
-            if any(_sw in _mask_stop_exempt(_pt) for _sw in _TAIL_STOP_WORDS
+            # 낱말 끝에 공백을 붙여 비교 — '중고 '처럼 공백까지 든 절단어도 낱말 단위로 잡히게
+            if any(_sw in _mask_stop_exempt(_pt) + ' ' for _sw in _TAIL_STOP_WORDS
                    if _sw != '사무실' and not (_sw == '예정' and _pt != '예정')):
                 _ptoks = _ptoks[:_pi]
                 break

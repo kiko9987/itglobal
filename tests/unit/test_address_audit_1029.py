@@ -467,6 +467,27 @@ def test_dong_typo_and_underscore_l04637(raw, expected):
     assert N(raw) == expected
 
 
+@pytest.mark.parametrize('raw, expected', [
+    # L-04651: '80평형으로' 처럼 평수 뒤에 말이 붙어도 거기서 자름
+    ('소래역로36 304호 80평형으로 견적바랍니다', '소래역로 36 304호'),
+    ('강남구 테헤란로 1 2층 30평대 사무실', '강남구 테헤란로 1 2층'),
+    ('강남구 테헤란로 1 2층 25평 인테리어', '강남구 테헤란로 1 2층'),
+    # 지명 '평택·평화'는 그대로
+    ('평택시 평택로 12 평화빌딩', '평택시 평택로 12 평화빌딩'),
+])
+def test_pyeong_suffix_cut_l04651(raw, expected):
+    assert N(raw) == expected
+
+
+def test_product_words_not_kept_as_shop_l04077(monkeypatch):
+    # 평수 절단 뒤 남은 '중고 천장형'(제품 형태)을 상호로 붙이지 않음
+    monkeypatch.setattr(ar, '_enrich_with_poi', lambda v, t: v)
+    out = ar._enrich_verified_address(
+        '남양주 오남읍 양자리 661-3 1동 102호',
+        '경기도 남양주시 오남읍 양자리 661-3 1동 102호 중고 천장형', None)
+    assert out == '남양주 오남읍 양자리 661-3 1동 102호'
+
+
 @pytest.mark.parametrize('line, expected', [
     # L-04648: 방문 주소 둘째 줄이 건물·층이면 주소에 이어 붙임
     ('아라비즈타워 6층', True), ('101동 1203호', True), ('B동 3층', True),
