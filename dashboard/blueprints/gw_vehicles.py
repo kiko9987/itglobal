@@ -167,11 +167,6 @@ def api_assign_get():
     except Exception as e:
         logger.error(f'[차량배정] 불러오기 실패: {e}', exc_info=True)
         return jsonify({'success': False, 'message': '불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요.'}), 500
-    try:        # 사람마다 최근에 탄 차 — 화면 [코스대로 자동 채우기]가 먼저 고른다(11-23)
-        view['recent'] = va._recent_cars(day)
-    except Exception as e:
-        logger.warning(f'[차량배정] 최근 탄 차 읽기 실패: {e}')
-        view['recent'] = {}
     who = {p['code']: p for p in people}
     for c in view['cars']:
         c['fixed_name'] = va.display(c['fixed_user'], who) if c['fixed_user'] else ''

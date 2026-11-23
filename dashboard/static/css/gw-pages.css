@@ -3641,9 +3641,3 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
   .gw-vc-inbtn small { color: #64748b; font-size: 0.74rem; }
   .gw-vc-inbtn:focus-visible { outline: 2px solid #2a3038; outline-offset: 2px; }
 }
-/* [코스대로 자동 채우기](11-23) */
-#vcAuto { display: flex; flex-direction: column; gap: 3px; margin: 0 0 10px; }
-#vcAuto[hidden] { display: none; }
-.gw-vc-auto { width: 100%; }
-.gw-vc-auto i { font-size: 0.8rem; }
-.gw-vc-autohelp { color: #64748b; font-size: 0.74rem; }
