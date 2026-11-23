@@ -319,7 +319,13 @@
   function selBar() {
     var n = checkedList().length;
     var bar = $('vpSelBar');
-    if (!P.canEdit) { bar.innerHTML = ''; return; }
+    if (!P.canEdit) {
+      // 고칠 수 없는 날(지난 날·일정 담당 아님) — 남은 현장은 '배정 안 된 현장'이라고 분명히(11-23 부장님)
+      var nLeft = inbox().length;
+      bar.innerHTML = nLeft ? '<span class="gw-vp-unassigned"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> ' +
+        (P.data.source === 'sheet' ? '시트에 영업 담당자가 없어 코스에 넣지 못한 현장이에요.' : '코스·사람이 정해지지 않아 담당 DM 이 가지 않은 현장이에요.') + '</span>' : '';
+      return;
+    }
     if (!n) {
       bar.innerHTML = '<span class="gw-vp-how">줄을 눌러 체크한 뒤 여기서 코스로 옮기세요. 코스로 끌어 놓아도 돼요.</span>';
       return;
@@ -409,6 +415,9 @@
     $('vpAddCourse').hidden = !P.canEdit;
     $('vpAddWork').hidden = !P.canEdit;
     $('vpInboxCount').textContent = left.length + '건' + (left.length !== P.data.visits.length ? ' (전체 ' + P.data.visits.length + '건)' : '');
+    var unassigned = !P.canEdit && left.length;          // 고칠 수 없는 날 남은 현장 = 배정 안 된 현장
+    $('vpInboxTitle').textContent = unassigned ? '배정 안 된 현장' : '현장 목록';
+    $('vpInbox').classList.toggle('gw-vp-inbox-left', !!unassigned);
     selBar();
     $('vpInList').innerHTML = inboxRows() ||
       '<p class="gw-va-sempty">' + (P.data.visits.length ? '모든 현장을 코스에 넣었어요.' : '이날 방문 일정이 없어요.') + '</p>';

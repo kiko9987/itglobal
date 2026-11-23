@@ -3282,6 +3282,10 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
 .gw-vp-memo.w input { border-color: #ea580c; }
 .gw-vp-memo.w > span { color: #9a3412; font-weight: 600; }
 .gw-vp-addbtns { display: flex; gap: 6px; }
+/* 고칠 수 없는 날 남은 현장(11-23) — 제목·테두리 주황, 안내 한 줄 */
+.gw-vp-inbox.gw-vp-inbox-left { border-color: #fdba74; }
+.gw-vp-inbox-left #vpInboxTitle { color: #9a3412; }
+.gw-vp-unassigned { color: #9a3412; font-size: 0.86rem; overflow: hidden; text-overflow: ellipsis; }
 .gw-vp-coursebox { border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; padding: 12px; margin-bottom: 12px; }
 .gw-vp-course { gap: 8px; }
 /* 확인할 것은 카드 전체가 아니라 그 자리(칩·꼬리표·'여기에 사람을 놓으세요')만 주황 — 줄은 늘지 않음(11-23 부장님) */
