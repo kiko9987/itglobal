@@ -3612,3 +3612,32 @@ button.gw-vp-rgn:focus-visible { outline: 2px solid #2a3038; outline-offset: 2px
 .gw-vc-p .gw-va-cname { white-space: nowrap; }
 .gw-vc-p .gw-va-leave { white-space: nowrap; }
 .gw-vc-half small { white-space: nowrap; }
+/* 코스 차 칸 + 차례로 채우기(11-23 부장님: 차는 왼쪽, 코스는 오른쪽 — 코스를 누르고 차를 누름) */
+.gw-vc-slot { display: inline-flex; align-items: center; gap: 4px; min-height: 30px; padding: 0 4px 0 10px; border-radius: 999px; border: 1px solid #cbd0d8; background: #fff; color: #1a1c20; font-size: 0.86rem; font-weight: 600; white-space: nowrap; }
+.gw-vc-slot:not(:has(.gw-va-x)) { padding-right: 10px; }
+.gw-vc-slot i { font-size: 0.76rem; color: #64748b; }
+.gw-vc-slot.on { border-color: #2a3038; }
+.gw-vc-slot.empty { border-style: dashed; border-color: #ea580c; background: #fff7ed; color: #9a3412; font-weight: 600; }
+.gw-vc-slot.empty i { color: #ea580c; }
+.gw-vc-slot.mixed, .gw-vc-slot.own { color: #475569; font-weight: 500; }
+.gw-vc-course.pickable { cursor: pointer; }
+.gw-vc-course.pickable:hover { border-color: #b9bdc6; }
+.gw-vc-course.active { border-color: #2a3038; box-shadow: 0 0 0 2px #2a3038; }
+.gw-vc-course.pickable:focus-visible { outline: 2px solid #2a3038; outline-offset: 2px; }
+.gw-vc-course .gw-va-people { cursor: inherit; }
+.gw-vc-pick { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; border: 0; background: transparent; padding: 2px 0; color: inherit; font: inherit; text-align: left; border-radius: 6px; }
+button.gw-vc-pick { cursor: pointer; }
+button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2px; }
+.gw-vc-board.editing .gw-vc-car:hover { border-color: #8b95a5; }
+.gw-vc-cars .gw-va-staff-how.picking { color: #fff; background: #2a3038; border-radius: 8px; padding: 6px 8px; font-weight: 600; }
+@media (max-width: 767.98px) {
+  .gw-vc-pick { min-height: 40px; align-items: center; }
+}
+.gw-vc-inpick { display: none; }
+@media (max-width: 991.98px) {
+  .gw-vc-inpick { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 4px; border-top: 1px dashed #e5e7eb; }
+  .gw-vc-inbtn { border: 1px solid #cbd0d8; background: #fff; color: #1a1c20; border-radius: 999px; padding: 4px 12px; font-size: 0.86rem; min-height: 40px; }
+  .gw-vc-inbtn.used { background: #f2f3f6; color: #475569; }
+  .gw-vc-inbtn small { color: #64748b; font-size: 0.74rem; }
+  .gw-vc-inbtn:focus-visible { outline: 2px solid #2a3038; outline-offset: 2px; }
+}
