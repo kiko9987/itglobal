@@ -118,7 +118,7 @@ def _cars_to_ask(day: str) -> List[Tuple[str, List[str]]]:
     info = va._day_info(day) or {}
     if not info.get('confirmed_at'):
         return []
-    return [(plate, va.riders(r)) for plate, r in va._day_rows(day).items() if va.riders(r)]
+    return [(plate, va.riders(r)) for plate, r in va.car_rows(day).items() if va.riders(r)]
 
 
 # ── 묻는 글 ──────────────────────────────────────────────────────────────
@@ -173,7 +173,7 @@ def _refresh_messages(day: str, plate: str, by: str) -> None:
 def _cars_to_ask_all(day: str) -> List[Tuple[str, List[str]]]:
     """확정 여부와 상관없이 그날 차마다 탄 사람(버튼 누른 뒤 다시 그릴 때)."""
     from dashboard.services import vehicle_assign as va
-    return [(plate, va.riders(r)) for plate, r in va._day_rows(day).items() if va.riders(r)]
+    return [(plate, va.riders(r)) for plate, r in va.car_rows(day).items() if va.riders(r)]
 
 
 # ── 보내기·받기 ──────────────────────────────────────────────────────────
@@ -289,7 +289,7 @@ def my_trips(code: str, day: Optional[str] = None) -> List[Dict]:
     who = va._who_map()
     cars = {c['plate']: c for c in va.fleet(True)}
     out = []
-    for plate, r in va._day_rows(day).items():
+    for plate, r in va.car_rows(day).items():
         rid = va.riders(r)
         if code not in rid:
             continue

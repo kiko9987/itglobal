@@ -249,7 +249,7 @@ def test_routes_view_for_all_edit_for_assigner(db, monkeypatch):
         with cl.session_transaction() as s:
             s['user'] = {'email': 'staff@example.com', 'permission_level': 'user'}
         j = cl.get('/api/vehicles/assign?day=2026-11-21').get_json()
-        assert j['success'] and not j['can_edit'] and len(j['cars']) == 11 and j['day_label'] == '11/21(토)'
+        assert j['success'] and not j['can_edit'] and len(j['cars']) == 12 and j['day_label'] == '11/21(토)'   # 11대 + 자차 칸(11-23)
         assert j['visitors'] == [{'code': 'TH', 'name': '서준', 'visits': 1,
                                   'places': [{'label': '부천', 'addr': '부천 길주로 1'}]}]
         # 지난 날(슬랙으로 정한 날)은 시트 담당자 코스로 — 방문 일정 화면과 같게(11-23)
@@ -457,3 +457,25 @@ def test_car_dm_off(db, monkeypatch):
     assert va.request_assignment('2026-11-25') == 0 and va.notify_plan_changed('2026-11-24', '추가 서준') == 0
     assert vd.send_asks('2026-11-24') == {'skipped': 'car_dm_off'}
     assert not sent
+
+
+def test_own_car_slot(db):
+    """자차 칸(11-23 부장님: 차가 모자라면 자기 차로 이동) — 차처럼 넣고 저장, 한 사람이 두 곳이면 막고,
+    운행일지·운전자 묻기·최근 탄 차에서는 빠진다. DM 은 '자차 (자기 차로 이동)', 같이 타는 사람 없음."""
+    from dashboard.services import vehicle_driver as vd
+    sent = db
+    view = va.day_view('2026-11-24')
+    assert view['cars'][-1]['plate'] == va.OWN and view['cars'][-1]['usage'] == 'own'
+    rows = [{'plate': '03모8021', 'people': ['JW', 'JSH', 'LJW']}, {'plate': va.OWN, 'people': ['JH', 'YM']}]
+    with pytest.raises(ValueError):
+        va.save_day('2026-11-24', rows + [{'plate': '16소4041', 'people': ['JH']}], ASSIGNER)
+    res = va.save_day('2026-11-24', rows, ASSIGNER, confirm=True)
+    assert res['confirmed'] and set(res['changed']) == {'03모8021', va.OWN}
+    assert _rows(va.day_view('2026-11-24'))[va.OWN] == ['JH', 'YM']
+    own_dm = [t for sid, t in sent if sid == 'UJH'][0]
+    assert '자차' in own_dm and '함께' not in own_dm and '최마루' not in own_dm.split('\n', 1)[-1]
+    assert va.OWN not in va.car_rows('2026-11-24') and '03모8021' in va.car_rows('2026-11-24')
+    assert all(k[1] != va.OWN for k in va.assigned_halves('2026-11-24', '2026-11-24'))
+    assert all(p != va.OWN for p, _ in vd._cars_to_ask_all('2026-11-24'))
+    assert va.OWN not in va._recent_cars('2026-11-25').values()
+    assert frozenset(('JH', 'YM')) not in va._pairs('2026-11-25')

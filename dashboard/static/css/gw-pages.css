@@ -3497,6 +3497,9 @@ details.gw-va-group[open] .gw-va-gfold { transform: rotate(90deg); }
 .gw-va-tile.over { border-style: solid; border-color: #2a3038; background: #f2f3f6; }
 .gw-va-tileput { color: #1a1c20; font-size: 0.8rem; font-weight: 600; }
 .gw-va-tilefixed { display: flex; align-items: center; gap: 6px; color: #475569; font-size: 0.78rem; }
+/* 자차 칸(11-23) — 회사 차와 구별되게 점선 카드 */
+.gw-va-card.own { border-style: dashed; border-color: #b8bec8; }
+.gw-va-tile.own .gw-va-car strong i { font-size: 0.78rem; color: #64748b; }
 .gw-va-tilefixed .gw-va-fixedsel { flex: 1 1 auto; min-width: 0; width: auto; font-size: 0.78rem; padding-top: 1px; padding-bottom: 1px; }
 .gw-va-sbody.courses { max-height: none; overflow: visible; padding-top: 4px; }
 .gw-va-cline { border-top: 1px solid #f1f2f4; }

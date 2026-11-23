@@ -27,6 +27,11 @@ from dashboard.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# 자차(11-23 부장님: 차가 모자라면 자기 차로 이동 — 11/24 JH) — 배정 표에 번호판 대신 '자차' 줄로 날짜마다 남긴다.
+#   차 목록(vehicle_fleet)에는 없고 배정 화면 맨 끝에 칸 하나로만 보인다. 운행일지·U+ 대조·저녁 운전자 묻기는 이 줄을 뺀다.
+OWN = '자차'
+OWN_CAR = {'plate': OWN, 'label': '자차', 'model': '자차', 'fuel': '', 'corp': '개인', 'usage': 'own', 'fixed_user': '',
+           'needs_log': 0, 'uplus': 0}
 SHARED, FIXED, OFF = 'shared', 'fixed', 'off'      # OFF = 배정 화면에 안 나옴(현장에 안 쓰는 차)
 
 # 법인 차량(11-20 U+커넥트 차량 등록 화면 + 공유 드라이브 ★법인 차량관리폴더 기준).
@@ -292,8 +297,8 @@ def _recent_cars(day: str, back_days: int = 30) -> Dict[str, str]:
     """사람 → 그날 이전에 마지막으로 탄 차."""
     start = (date.fromisoformat(day) - timedelta(days=back_days)).isoformat()
     with _conn() as conn:
-        rows = conn.execute('SELECT day, plate, people FROM vehicle_assign WHERE day >= ? AND day < ? ORDER BY day',
-                            (start, day)).fetchall()
+        rows = conn.execute('SELECT day, plate, people FROM vehicle_assign WHERE day >= ? AND day < ? AND plate != ? '
+                            'ORDER BY day', (start, day, OWN)).fetchall()
     out: Dict[str, str] = {}
     for r in rows:
         for p in _split(r['people']):
@@ -305,8 +310,8 @@ def _pairs(day: str, back_days: int = 60) -> Dict[frozenset, int]:
     """그날 이전 배정에서 같은 차를 탄 짝 — {frozenset({A, B}): 횟수}."""
     start = (date.fromisoformat(day) - timedelta(days=back_days)).isoformat()
     with _conn() as conn:
-        rows = conn.execute('SELECT people, pm_people FROM vehicle_assign WHERE day >= ? AND day < ?',
-                            (start, day)).fetchall()
+        rows = conn.execute('SELECT people, pm_people FROM vehicle_assign WHERE day >= ? AND day < ? AND plate != ?',
+                            (start, day, OWN)).fetchall()
     out: Dict[frozenset, int] = {}
     for r in rows:
         groups = [_split(r['people'])] + ([_split(r['pm_people'])] if r['pm_people'] is not None else [])
@@ -383,7 +388,7 @@ def day_view(day: str, teams: Optional[List[Dict]] = None) -> Dict:
             rows = {p: _row(r['people']) for p, r in prev_rows.items() if p in shared and r['people']}
             draft_from = prev
     out = []
-    for c in cars:
+    for c in cars + [OWN_CAR]:          # 자차 칸은 맨 끝(11-23)
         r = rows.get(c['plate'], _empty())
         out.append({**{k: c[k] for k in ('plate', 'label', 'model', 'fuel', 'corp', 'usage', 'fixed_user',
                                          'needs_log', 'uplus')},
@@ -438,6 +443,7 @@ def save_day(day: str, rows: Iterable[Dict], by: str, confirm: bool = False, not
     if not valid_day(day):
         raise ValueError('날짜가 올바르지 않아요.')
     cars = {c['plate']: c for c in fleet()}
+    cars[OWN] = OWN_CAR
     who = _who_map()
     new = _clean_rows(rows, set(cars), set(who))
     old = _day_rows(day)
@@ -495,8 +501,8 @@ def assigned_people(start: str, end: str) -> Dict[Tuple[str, str], List[str]]:
 def assigned_halves(start: str, end: str) -> Dict[Tuple[str, str], Dict]:
     """운행일지용 — (날짜, 번호판) → {'people': 오전, 'pm': 오후 또는 None}. 13:00(HALF_AT) 이후 운행은 오후 사람."""
     with _conn() as conn:
-        rows = conn.execute('SELECT day, plate, people, pm_people FROM vehicle_assign WHERE day BETWEEN ? AND ?',
-                            (start, end)).fetchall()
+        rows = conn.execute('SELECT day, plate, people, pm_people FROM vehicle_assign WHERE day BETWEEN ? AND ? AND plate != ?',
+                            (start, end, OWN)).fetchall()
     return {(r['day'], r['plate']): _row(_split(r['people']), '', _split(r['pm_people']) if r['pm_people'] is not None else None)
             for r in rows}
 
@@ -673,7 +679,14 @@ def _dm(slack_id: str, text: str) -> bool:
         return False
 
 
+def car_rows(day: str) -> Dict[str, Dict]:
+    """그날 회사 차 배정만(자차 줄 뺌) — 운전자 묻기·운행 종료처럼 실제 차가 있어야 하는 곳."""
+    return {p: r for p, r in _day_rows(day).items() if p != OWN}
+
+
 def _car_text(plate: str, cars: Dict[str, Dict]) -> str:
+    if plate == OWN:
+        return '*자차* (자기 차로 이동)'
     c = cars.get(plate) or {}
     return f"*{c.get('label') or plate}* ({plate})"
 
@@ -690,7 +703,7 @@ def _where(rows: Dict[str, Dict]) -> Dict[str, Dict]:
 
 
 def _car_line(plate: str, people: List[str], code: str, cars: Dict[str, Dict], who: Dict[str, Dict]) -> str:
-    others = [display(p, who) for p in people if p != code]
+    others = [display(p, who) for p in people if p != code] if plate != OWN else []   # 자차는 같이 타는 게 아님
     return _car_text(plate, cars) + (f" · 함께 {', '.join(others)}" if others else '')
 
 
@@ -700,7 +713,7 @@ def _person_text(day: str, code: str, rows: Dict[str, Dict], cars: Dict[str, Dic
     if w['am'] and w['am'] == w['pm'] and rows[w['am']].get('pm') is None:
         r = rows[w['am']]
         lines.append(f":car: {day_label(day)} 차량: {_car_text(w['am'], cars)}")
-        others = [display(p, who) for p in r['people'] if p != code]
+        others = [display(p, who) for p in r['people'] if p != code] if w['am'] != OWN else []
         if others:
             lines.append(f"함께 타는 사람: {', '.join(others)}")
         notes = [r['note']] if r.get('note') else []
@@ -720,7 +733,7 @@ def _person_text(day: str, code: str, rows: Dict[str, Dict], cars: Dict[str, Dic
         lines.append(f"메모: {n}")
     # 같이 타는 차면 [운행 종료] 안내(11-22) — 화면을 모두에게 연 뒤부터(개발 중엔 못 여는 화면이라 안 붙임)
     from dashboard.services import groupware as gw
-    shared = any(len(riders(rows[p])) > 1 for p in {w['am'], w['pm']} if p and p in rows)
+    shared = any(len(riders(rows[p])) > 1 for p in {w['am'], w['pm']} if p and p in rows and p != OWN)
     if shared and not gw.DEV_PREVIEW_USERS:
         lines.append("운행을 마치면 그룹웨어 차량 배정에서 [운행 종료]를 눌러 운전한 사람을 적어 주세요.")
     return '\n'.join(lines)

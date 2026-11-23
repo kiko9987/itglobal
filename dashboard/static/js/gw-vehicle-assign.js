@@ -347,8 +347,10 @@
     return '<select class="form-select form-select-sm gw-va-fixedsel" data-fixed="' + esc(c.plate) + '" aria-label="' +
       esc(c.label) + ' 평소 사용자"><option value="">정해진 사람 없음</option>' + opts + '</select>';
   }
+  // 자차 칸(11-23 부장님: 차가 모자라면 자기 차로 이동) — 차처럼 사람을 넣는다. 번호판 대신 '자기 차로 이동'
+  function isOwn(c) { return c.usage === 'own'; }
   function card(c) {
-    var sub = [c.plate, c.fuel].filter(Boolean).join(' · ');
+    var sub = isOwn(c) ? '자기 차로 이동' : [c.plate, c.fuel].filter(Boolean).join(' · ');
     var fixed = '';
     if (c.usage === 'fixed') {
       fixed = '<div class="gw-va-fixed">평소: ' + (S.canEdit ? fixedSelect(c)
@@ -399,7 +401,7 @@
       else if (c.people.length) tools += '<button type="button" class="gw-va-tool" data-split="' + esc(c.plate) + '">오전·오후 나누기</button>';
     }
     var drop = S.canEdit && !isSplit(c) ? ' data-drop="car" data-half="all"' : '';
-    return '<div class="gw-va-card' + (S.picked ? ' can-drop' : '') + (isSplit(c) ? ' split' : '') + '" data-plate="' + esc(c.plate) + '"' + drop + '>' +
+    return '<div class="gw-va-card' + (S.picked ? ' can-drop' : '') + (isSplit(c) ? ' split' : '') + (isOwn(c) ? ' own' : '') + '" data-plate="' + esc(c.plate) + '"' + drop + '>' +
       '<div class="gw-va-cardhead"><div class="gw-va-car"><strong>' + esc(c.label) + '</strong><span>' + esc(sub) + '</span></div>' +
       (tools ? '<div class="gw-va-tools">' + tools + '</div>' : '') + '</div>' + fixed +
       (S.courses ? '' : carPlaces(c)) + body + note + '</div>';
@@ -409,9 +411,10 @@
     var fixed = c.usage === 'fixed'
       ? '<div class="gw-va-tilefixed">평소 ' + (S.canEdit ? fixedSelect(c) : esc(c.fixed_name || '없음')) + '</div>' : '';
     var put = S.canEdit && S.picked ? '<span class="gw-va-tileput"><i class="fas fa-plus" aria-hidden="true"></i> 넣기</span>' : '';
-    return '<div class="gw-va-tile' + (S.picked ? ' can-drop' : '') + '" data-plate="' + esc(c.plate) + '"' +
+    return '<div class="gw-va-tile' + (S.picked ? ' can-drop' : '') + (isOwn(c) ? ' own' : '') + '" data-plate="' + esc(c.plate) + '"' +
       (S.canEdit ? ' data-drop="car" data-half="all"' : '') + '>' +
-      '<div class="gw-va-car"><strong>' + esc(c.label) + '</strong><span>' + esc(c.plate) + '</span></div>' + fixed + put + '</div>';
+      '<div class="gw-va-car"><strong>' + (isOwn(c) ? '<i class="fas fa-user" aria-hidden="true"></i> ' : '') + esc(c.label) + '</strong><span>' +
+      esc(isOwn(c) ? '차가 모자라면 자기 차로' : c.plate) + '</span></div>' + fixed + put + '</div>';
   }
   // ── 그날 방문 일정 칸(차 목록 위, 11-21 부장님) ──
   // 캔버스1(봇 자동)과 같은 묶음·표시를 리드 시트에서 바로 그린다. 줄마다 /일정확정으로 들어간 영업 담당자.
@@ -551,7 +554,8 @@
     var empty = S.cars.filter(function (c) { return used.indexOf(c) === -1; });
     $('vaShared').innerHTML = used.map(card).join('') ||
       '<p class="gw-va-none gw-va-noused">' + (S.canEdit ? '아직 넣은 차가 없어요. 아래 빈 차에 사람을 놓으세요.' : '이날 차량 배정이 없어요.') + '</p>';
-    $('vaFixedHead').innerHTML = '빈 차 <span class="gw-va-sec-n">' + empty.length + '대</span>' +
+    var nEmpty = empty.filter(function (c) { return !isOwn(c); }).length;    // 자차 칸은 차 대수에 안 셈
+    $('vaFixedHead').innerHTML = '빈 차 <span class="gw-va-sec-n">' + nEmpty + '대</span>' +
       (S.canEdit ? '<span class="gw-va-sec-sub">사람을 놓으면 위로 올라가요. 고정 차는 평소엔 정해진 사람이 타요.</span>' : '');
     $('vaFixedHead').hidden = !empty.length;
     $('vaFixed').className = 'gw-va-tiles';
