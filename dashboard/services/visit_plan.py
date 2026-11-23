@@ -198,7 +198,9 @@ def _old_courses(raw: Dict) -> Optional[list]:
 
 def clean_plan(raw: Dict, visit_nos: Iterable[str], codes: Iterable[str], strict: bool = True) -> Dict:
     """화면에서 온 일정을 다듬는다. strict=False 면 모르는 현장·사람은 조용히 뺀다(불러올 때).
-    plan = {'courses': [{'name', 'members': [이니셜], 'leads': [리드 No(가는 순서)], 'memo'}], 'online', 'online_shared'}"""
+    plan = {'courses': [{'name', 'members': [이니셜], 'leads': [리드 No(가는 순서)], 'memo'}], 'online', 'online_shared'}
+    사내 업무(11-23 부장님)는 {'kind': 'work', 'members', 'leads': [], 'memo'=할 일} — 회사 안에서 하는 일만
+    (우체국·은행·차량 정비처럼 밖에 나가는 일은 기타 방문(ETC-)으로 등록돼 현장 목록에 나온다)."""
     if not isinstance(raw, dict):
         raise ValueError('일정 내용을 읽지 못했어요.')
     visit_nos, codes = set(visit_nos), set(codes)
@@ -219,8 +221,9 @@ def clean_plan(raw: Dict, visit_nos: Iterable[str], codes: Iterable[str], strict
                 members.append(c)
             elif c and c not in codes and strict:
                 raise ValueError(f'명단에 없는 사람({c})이 코스에 있어요. 새로 고친 뒤 다시 해 주세요.')
+        work = t.get('kind') == 'work'
         leads = []
-        for n in t.get('leads') or []:
+        for n in ([] if work else t.get('leads') or []):
             n = str(n or '').strip()
             if n in visit_nos and n not in seen:
                 seen.add(n)
@@ -230,7 +233,10 @@ def clean_plan(raw: Dict, visit_nos: Iterable[str], codes: Iterable[str], strict
         name = re.sub(r'\s+', ' ', str(t.get('name') or '')).strip()[:NAME_MAX]
         memo = re.sub(r'\s+', ' ', str(t.get('memo') or '')).strip()[:MEMO_MAX]
         if members or leads or memo or name:
-            courses.append({'name': name, 'members': members, 'leads': leads, 'memo': memo})
+            c = {'name': name, 'members': members, 'leads': leads, 'memo': memo}
+            if work:
+                c['kind'] = 'work'
+            courses.append(c)
     online = []
     for o in raw.get('online') or []:
         if not isinstance(o, dict):
@@ -247,8 +253,18 @@ def _staffed(plan: Dict) -> List[Dict]:
     return [c for c in plan['courses'] if c['members'] and c['leads']]
 
 
-def course_label(c: Dict, i: int) -> str:
-    return c.get('name') or f'코스 {i + 1}'
+def is_work(c: Dict) -> bool:
+    return c.get('kind') == 'work'
+
+
+def course_labels(plan: Dict) -> List[str]:
+    """화면과 같은 이름 — 방문 코스는 '코스 N', 사내 업무는 '사내 업무 N'(종류마다 따로 셈)."""
+    out, n = [], {'visit': 0, 'work': 0}
+    for c in plan['courses']:
+        k = 'work' if is_work(c) else 'visit'
+        n[k] += 1
+        out.append(c.get('name') or (f'사내 업무 {n[k]}' if k == 'work' else f'코스 {n[k]}'))
+    return out
 
 
 def editable(day: str, today: Optional[date] = None) -> bool:
@@ -269,8 +285,13 @@ def warnings(plan: Dict, vs: List[Dict], off: Dict[str, List[Dict]], names: Dict
     offs = {o['code']: o['why'] for o in off.get('off', [])}
     hard = {o['code'] for o in off.get('off', []) if not o.get('soft')}
     count: Dict[str, int] = {}
+    labels = course_labels(plan)
     for i, c in enumerate(plan['courses']):
-        label = course_label(c, i)
+        label = labels[i]
+        if is_work(c) and c['members'] and not c['memo']:
+            out.append({'level': 'warn', 'kind': 'task', 'course': i, 'text': f'{label}에 할 일을 적어 주세요.'})
+        if is_work(c) and c['memo'] and not c['members']:
+            out.append({'level': 'warn', 'kind': 'nobody', 'course': i, 'text': f'{label}에 사람을 넣지 않았어요.'})
         if c['leads'] and not c['members']:
             out.append({'level': 'warn', 'kind': 'nobody', 'course': i,
                         'text': f'{label}에 사람을 넣지 않았어요(현장 {len(c["leads"])}건).'})
@@ -297,6 +318,14 @@ def warnings(plan: Dict, vs: List[Dict], off: Dict[str, List[Dict]], names: Dict
             out.append({'level': 'error' if bad else 'warn', 'kind': 'off',
                         'text': f'온라인 당번 {names.get(o["code"], o["code"])}님은 이날 {offs[o["code"]]}예요'
                                 + (' — 빼야 확정돼요.' if bad else '.')})
+    # 코스·사내 업무·당번 어디에도 없는 현장 직원(11-23 부장님: 문의가 적어 남는 인원을 빠뜨리지 않게) — 막지는 않음
+    if plan['courses'] and not plan['online_shared']:
+        placed = {m for c in plan['courses'] for m in c['members']} | {o['code'] for o in plan['online']}
+        idle = [p for p in va.staff() if p['code'] not in placed and p['code'] not in offs]
+        if idle:
+            out.append({'level': 'warn', 'kind': 'idle',
+                        'text': f'아무 데도 안 들어간 사람 {len(idle)}명({", ".join(p["name"] for p in idle)}) — '
+                                f'남는 인원은 사내 업무에 넣어 주세요.'})
     return out
 
 
@@ -454,8 +483,38 @@ def _finish(day: str, state: str, result: Dict, by: str = '', plan: Optional[Dic
                          (state, json.dumps(result, ensure_ascii=False), day))
 
 
+def _work_map(plan: Optional[Dict]) -> Dict[str, Dict]:
+    """사내 업무 — {이니셜: {'task', 'with': [같이 하는 사람]}} (할 일이 적힌 것만)."""
+    out: Dict[str, Dict] = {}
+    for c in (plan or {}).get('courses') or []:
+        if is_work(c) and c.get('members') and c.get('memo'):
+            for m in c['members']:
+                out.setdefault(m, {'task': c['memo'], 'with': [x for x in c['members'] if x != m]})
+    return out
+
+
+def _send_work_dms(day: str, plan: Dict, prev: Optional[Dict]) -> Dict[str, int]:
+    """사내 업무 DM — 처음 확정이면 모두, 다시 확정이면 할 일·같이 하는 사람이 바뀐 사람만(11-23 부장님)."""
+    from dashboard.services.visit_assignment_sync import _dm_safe
+    now, before = _work_map(plan), _work_map(prev)
+    who = {p['code']: p for p in va.staff()}
+    sent = failed = 0
+    for code, w in now.items():
+        if before.get(code) == w:
+            continue
+        p = who.get(code)
+        text = (f':office: *{va.day_label(day)} 사내 업무*\n할 일 : {_dm_safe(w["task"])}'
+                + (f'\n함께 : {", ".join(_dm_safe(va.display(x, who)) for x in w["with"])}' if w['with'] else ''))
+        if p and va._dm(p.get('slack_id') or '', text):
+            sent += 1
+        else:
+            failed += 1
+    return {'work_dm': sent, 'work_dm_failed': failed}
+
+
 def _run_confirm(day: str, plan: Dict, by: str, fresh_leads: Callable[[], List[dict]]) -> None:
     from dashboard.services import visit_assignment_sync as vas
+    prev = _loads((_row(day) or {}).get('confirmed_plan'))      # 다시 확정이면 사내 업무 DM 은 바뀐 사람만
     try:
         leads = fresh_leads()            # 확정은 시트를 새로 읽어서(지금 영업 담당자 값과 비교해야 함)
         if not leads:
@@ -477,6 +536,10 @@ def _run_confirm(day: str, plan: Dict, by: str, fresh_leads: Callable[[], List[d
         va.record_online_duty(day, parsed['online_duty'], parsed['online_duty_shifts'])
     except Exception as e:
         logger.warning(f'[방문일정] 온라인 당번 저장 실패: {e}', exc_info=True)
+    try:
+        summary.update(_send_work_dms(day, plan, prev))
+    except Exception as e:
+        logger.warning(f'[방문일정] 사내 업무 DM 실패: {e}', exc_info=True)
     _finish(day, 'done', summary, by, plan)
     try:
         va.request_assignment(day)
@@ -525,6 +588,12 @@ def confirmed_info(day: str) -> Optional[Dict]:
     courses = [c for c in plan.get('courses') or _old_courses(plan) or [] if c.get('members') and c.get('leads')]
     return {'confirmed_at': row['confirmed_at'], 'confirmed_name': _name_of_email(row.get('confirmed_by') or ''),
             'courses': len(courses)}
+
+
+def confirmed_work(day: str) -> List[Dict]:
+    """그룹웨어에서 확정한 날의 사내 업무 — [{'code', 'task'}]. 차량 배정은 이 사람들을 '배정 없음'에서 뺀다(회사 안 일)."""
+    plan = _loads((_row(day) or {}).get('confirmed_plan'))
+    return [{'code': c, 'task': w['task']} for c, w in _work_map(plan).items()]
 
 
 def confirmed_teams(day: str) -> Optional[List[Dict]]:

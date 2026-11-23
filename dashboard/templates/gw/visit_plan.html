@@ -40,7 +40,11 @@
         <section class="gw-vp-coursebox" aria-label="코스">
           <div class="gw-vp-sitehead">
             <h2 class="gw-vp-h">코스 <span id="vpCourseCount"></span></h2>
-            <button type="button" class="btn btn-sm btn-outline-secondary" id="vpAddCourse"><i class="fas fa-plus" aria-hidden="true"></i> 코스 만들기</button>
+            {# 방문 코스 / 사내 업무(11-23 부장님: 문의가 적어 남는 인원에게 회사 안 일 — 할 일만, 현장 없음) #}
+            <div class="gw-vp-addbtns">
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="vpAddCourse"><i class="fas fa-plus" aria-hidden="true"></i> 방문 코스</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="vpAddWork"><i class="fas fa-plus" aria-hidden="true"></i> 사내 업무</button>
+            </div>
           </div>
           <p class="gw-vp-how" id="vpMemoHelp">코스 메모는 그 코스 사람들의 담당자 DM 위쪽에 함께 가요.</p>
           <div class="gw-vp-courses" id="vpCourses"></div>

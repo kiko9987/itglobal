@@ -188,7 +188,9 @@
     var offList = codes.filter(function (c) { return S.off[c] && !whereIs(c); });
     // 온라인 당번은 사무실에 남아 차가 필요 없다 — 방문도 있는 겸업(방문 다녀와 합류)만 명단에 남긴다
     var dutyList = codes.filter(function (c) { return S.online[c] && !S.visits[c] && !S.off[c] && !whereIs(c); });
-    var free = codes.filter(function (c) { return !whereIs(c) && !S.off[c] && dutyList.indexOf(c) === -1; });
+    // 사내 업무(방문 일정에서 정한 회사 안 일)도 차가 필요 없다 — 방문도 있으면 명단에 남긴다
+    var workList = codes.filter(function (c) { return S.work[c] && !S.visits[c] && !S.off[c] && !whereIs(c) && dutyList.indexOf(c) === -1; });
+    var free = codes.filter(function (c) { return !whereIs(c) && !S.off[c] && dutyList.indexOf(c) === -1 && workList.indexOf(c) === -1; });
     // 일정확정 팀(그날 방문을 같이 가는 사람) 중 아직 차 없는 사람이 있는 팀
     var inTeam = {};
     var teams = S.teams.map(function (t) {
@@ -241,6 +243,10 @@
         }).join('') + '</div></div>' : '') +
       group('배정됨', placed, 'done') +
       group('온라인 당번', dutyList, 'off') +
+      (workList.length ? '<div class="gw-va-group off"><div class="gw-va-gtitle">사내 업무 <span>' + workList.length + '</span></div>' +
+        '<div class="gw-va-plist">' + workList.map(function (c) {
+          return person(c, '<small class="gw-va-where">' + esc(S.work[c]) + '</small>');
+        }).join('') + '</div></div>' : '') +
       group('휴무', offList, 'off');
     var how = $('vaStaffHow');
     how.className = 'gw-va-staff-how' + (S.picked ? ' picking' : '');
@@ -443,11 +449,12 @@
       S.day = j.day; S.cars = j.cars; S.staff = j.staff; S.canEdit = !!j.can_edit;
       S.cars.forEach(function (c) { c.pm = Array.isArray(c.pm) ? c.pm : null; });
       S.confirmed = !!j.confirmed_at; S.picked = null;
-      S.names = {}; S.visits = {}; S.places = {}; S.off = {}; S.half = {}; S.online = {};
+      S.names = {}; S.visits = {}; S.places = {}; S.off = {}; S.half = {}; S.online = {}; S.work = {};
       j.staff.forEach(function (p) { S.names[p.code] = p.name; });
       (j.off || []).forEach(function (o) { S.off[o.code] = o.why; });
       (j.half || []).forEach(function (o) { S.half[o.code] = o.why; });
       (j.online || []).forEach(function (o) { S.online[o.code] = '온라인 당번' + (o.shift ? '(' + o.shift + ')' : ''); });
+      (j.work || []).forEach(function (o) { S.work[o.code] = o.task; });     // 방문 일정의 사내 업무(회사 안 일, 11-23)
       S.schedule = j.schedule || [];
       schedPanel(j);
       (j.visitors || []).forEach(function (v) { S.visits[v.code] = v.visits; S.places[v.code] = v.places || []; });

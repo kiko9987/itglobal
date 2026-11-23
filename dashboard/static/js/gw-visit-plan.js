@@ -71,7 +71,21 @@
     for (var i = 0; i < P.plan.courses.length; i++) if (P.plan.courses[i].leads.indexOf(no) !== -1) return i;
     return -1;
   }
-  function label(i) { var c = P.plan.courses[i]; return (c && c.name) || ('코스 ' + (i + 1)); }
+  // 사내 업무(11-23 부장님) = 현장 없이 사람 + 할 일(회사 안 일). 밖에 나가는 일은 기타 방문으로 현장 목록에 나온다
+  function isWork(c) { return !!(c && c.kind === 'work'); }
+  function label(i) {            // 방문 코스는 '코스 N', 사내 업무는 '사내 업무 N' — 종류마다 따로 셈(서버 course_labels 와 같음)
+    var c = P.plan.courses[i];
+    if (!c) return '';
+    if (c.name) return c.name;
+    var w = isWork(c), n = 0;
+    for (var k = 0; k <= i; k++) if (isWork(P.plan.courses[k]) === w) n++;
+    return (w ? '사내 업무 ' : '코스 ') + n;
+  }
+  function visitIdx() {
+    var out = [];
+    P.plan.courses.forEach(function (c, i) { if (!isWork(c)) out.push(i); });
+    return out;
+  }
   function offWhy(code) {
     var o = (P.data.off || []).filter(function (x) { return x.code === code; })[0];
     return o ? o.why : '';
@@ -103,6 +117,8 @@
     var left = P.data.visits.filter(function (v) { return !done[v.lead_no]; }).length;
     if (left) out.push({ level: 'warn', text: '코스·사람이 안 정해진 현장 ' + left + '건 — 담당 DM 이 가지 않아요.' });
     P.plan.courses.forEach(function (c, i) {
+      if (isWork(c) && c.members.length && !c.memo) out.push({ level: 'warn', course: i, text: label(i) + '에 할 일을 적어 주세요.' });
+      if (isWork(c) && c.memo && !c.members.length) out.push({ level: 'warn', course: i, text: label(i) + '에 사람을 넣지 않았어요.' });
       if (c.leads.length && !c.members.length) out.push({ level: 'warn', course: i, text: label(i) + '에 사람을 넣지 않았어요(현장 ' + c.leads.length + '건).' });
       c.members.forEach(function (m) {
         count[m] = (count[m] || 0) + 1;
@@ -122,6 +138,14 @@
       if (offs[o.code]) out.push({ level: blocked(o.code) ? 'error' : 'warn',
         text: '온라인 당번 ' + name(o.code) + '님은 이날 ' + offs[o.code] + '예요' + (blocked(o.code) ? ' — 빼야 확정돼요.' : '.') });
     });
+    // 코스·사내 업무·당번 어디에도 없는 현장 직원 — 남는 인원을 빠뜨리지 않게(막지는 않음)
+    if (P.plan.courses.length && !P.plan.online_shared) {
+      var idle = P.data.people.filter(function (p) {
+        return !p.extra && !coursesWith(p.code).length && !isDuty(p.code) && !offs[p.code];
+      });
+      if (idle.length) out.push({ level: 'warn', text: '아무 데도 안 들어간 사람 ' + idle.length + '명(' +
+        idle.map(function (p) { return p.name; }).join(', ') + ') — 남는 인원은 사내 업무에 넣어 주세요.' });
+    }
     // 확정을 막는 것부터 보이게(단추 줄은 첫 문장만 보임)
     return out.filter(function (w) { return w.level === 'error'; }).concat(out.filter(function (w) { return w.level !== 'error'; }));
   }
@@ -213,6 +237,7 @@
       '<i class="fas fa-car-side" aria-hidden="true"></i> ' + esc(cars.map(function (x) { return x.label; }).join(' · ')) + '</span>';
   }
   function courseCard(c, i, ws) {
+    var work = isWork(c);
     var vs = c.leads.map(function (n) { return P.byNo[n]; }).filter(Boolean);
     var chips = c.members.map(function (m) {
       // 칩을 다른 코스로 끌면 옮기고, 왼쪽 사람 칸으로 끌면 이 코스에서 뺀다(11-22 부장님)
@@ -228,15 +253,23 @@
       // 체크한 현장은 코스 카드에 단추를 늘리지 않고(화면이 출렁임, 11-22 부장님) 위 '체크한 현장 → [코스 N로]' 줄·끌기로 올린다
     }
     // 캔버스2 섹션처럼 한 줄: 코스 N · 차 · 사람 칩 · 메모 · 현장 수 · [지우기] (메모를 제목 줄로, 11-23 부장님)
+    var needTask = work && c.members.length && !c.memo;
     var memo = P.canEdit
-      ? '<label class="gw-vp-memo"><span>메모</span><input type="text" class="form-control form-control-sm" maxlength="200" data-act="memo" data-ci="' + i + '" value="' + esc(c.memo) + '" placeholder="특이사항이 있을 때만 적어 주세요" aria-describedby="vpMemoHelp"></label>'
+      ? '<label class="gw-vp-memo' + (needTask ? ' w' : '') + '"><span>' + (work ? '할 일' : '메모') + '</span>' +
+        '<input type="text" class="form-control form-control-sm" maxlength="200" data-act="memo" data-ci="' + i + '" value="' + esc(c.memo) + '" ' +
+        (work ? 'placeholder="할 일을 적어 주세요"' : 'placeholder="특이사항이 있을 때만 적어 주세요" aria-describedby="vpMemoHelp"') + '></label>'
       : '';
-    var head = '<div class="gw-vp-chead"><strong>' + esc(label(i)) + '</strong>' + carTag(c) +
-      '<div class="gw-va-people">' + (chips || '<span class="gw-va-none' + (vs.length ? ' w' : '') + '">' +
-        (vs.length ? '<i class="fas fa-triangle-exclamation" aria-hidden="true"></i> ' : '') + (P.canEdit ? '여기에 사람을 놓으세요' : '사람 없음') + '</span>') + '</div>' +
-      memo + '<span class="gw-vp-ccount">현장 ' + vs.length + '</span>' +
+    var nobody = vs.length || (work && c.memo);
+    var head = '<div class="gw-vp-chead"><strong>' + esc(label(i)) + '</strong>' + (work ? '' : carTag(c)) +
+      '<div class="gw-va-people">' + (chips || '<span class="gw-va-none' + (nobody ? ' w' : '') + '">' +
+        (nobody ? '<i class="fas fa-triangle-exclamation" aria-hidden="true"></i> ' : '') + (P.canEdit ? '여기에 사람을 놓으세요' : '사람 없음') + '</span>') + '</div>' +
+      memo + (work ? '' : '<span class="gw-vp-ccount">현장 ' + vs.length + '</span>') +
       (P.canEdit ? '<button type="button" class="btn btn-sm btn-link gw-vp-cdel" data-act="delc" data-ci="' + i + '">지우기</button>' : '') + '</div>';
-    var memoText = !P.canEdit && c.memo ? '<p class="gw-vp-memotext"><i class="fas fa-note-sticky" aria-hidden="true"></i> ' + esc(c.memo) + '</p>' : '';
+    var memoText = !P.canEdit && c.memo ? '<p class="gw-vp-memotext"><i class="fas fa-note-sticky" aria-hidden="true"></i> ' + (work ? '할 일 : ' : '') + esc(c.memo) + '</p>' : '';
+    if (work) {
+      return '<section class="gw-va-card gw-vp-course gw-vp-work' + (checkedPeople().length && P.canEdit ? ' can-drop' : '') +
+        '" data-drop="course" data-ci="' + i + '" tabindex="-1" aria-label="' + esc(label(i)) + '">' + head + memoText + '</section>';
+    }
     return '<section class="gw-va-card gw-vp-course' + (checkedPeople().length && P.canEdit ? ' can-drop' : '') +
       '" data-drop="course" data-ci="' + i + '" tabindex="-1" aria-label="' + esc(label(i)) + '">' + head +
       '<ol class="gw-vp-rows">' + vs.map(function (v, k) { return courseRow(v, i, k, vs.length); }).join('') + '</ol>' +
@@ -292,10 +325,11 @@
       return;
     }
     // 코스가 많으면 단추가 두 줄로 넘어가 목록이 밀림 → 4개부터는 목록 상자 하나로
-    var to = P.plan.courses.length > 3
+    var vis = visitIdx();      // 사내 업무에는 현장을 넣지 않는다
+    var to = vis.length > 3
       ? '<select class="form-select form-select-sm gw-vp-liftsel" data-act="liftsel" aria-label="체크한 현장을 올릴 코스"><option value="">코스 고르기</option>' +
-        P.plan.courses.map(function (c, i) { return '<option value="' + i + '">' + esc(label(i)) + '</option>'; }).join('') + '</select>'
-      : P.plan.courses.map(function (c, i) {
+        vis.map(function (i) { return '<option value="' + i + '">' + esc(label(i)) + '</option>'; }).join('') + '</select>'
+      : vis.map(function (i) {
         return '<button type="button" class="btn btn-sm btn-outline-secondary" data-act="lift" data-ci="' + i + '">' + esc(label(i)) + '로</button>';
       }).join('');
     bar.innerHTML = '<strong>체크한 현장 ' + n + '건</strong> → ' + to + '<button type="button" class="btn btn-sm btn-primary" data-act="liftnew">새 코스로</button>' +
@@ -364,10 +398,13 @@
     $('vpPeopleCount').textContent = P.data.people.length + '명';
     $('vpPeople').innerHTML = peoplePanel();
     $('vpPeopleHow').innerHTML = peopleBar();
-    $('vpCourseCount').textContent = P.plan.courses.length ? P.plan.courses.length + '개' : '';
-    $('vpCourses').innerHTML = P.plan.courses.map(function (c, i) { return courseCard(c, i, ws); }).join('') ||
+    var nv = visitIdx().length, nw = P.plan.courses.length - nv;
+    $('vpCourseCount').textContent = (nv ? nv + '개' : '') + (nw ? (nv ? ' · ' : '') + '사내 업무 ' + nw : '');
+    var order = visitIdx().concat(P.plan.courses.map(function (c, i) { return i; }).filter(function (i) { return isWork(P.plan.courses[i]); }));
+    $('vpCourses').innerHTML = order.map(function (i) { return courseCard(P.plan.courses[i], i, ws); }).join('') ||
       '<p class="gw-va-sempty">' + (P.canEdit ? '현장 목록에서 현장을 체크한 뒤 목록 위 [새 코스로]를 눌러 코스를 만들어 주세요.' : '아직 코스가 없어요.') + '</p>';
     $('vpAddCourse').hidden = !P.canEdit;
+    $('vpAddWork').hidden = !P.canEdit;
     $('vpInboxCount').textContent = left.length + '건' + (left.length !== P.data.visits.length ? ' (전체 ' + P.data.visits.length + '건)' : '');
     selBar();
     $('vpInList').innerHTML = inboxRows() ||
@@ -388,8 +425,14 @@
 
   // ── 고치기 ──
   function changed(focusSel) { setDirty(true); P.focus = focusSel || null; render(); }
-  function newCourse() { P.plan.courses.push({ name: '', members: [], leads: [], memo: '' }); return P.plan.courses.length - 1; }
+  function newCourse(kind) {
+    var c = { name: '', members: [], leads: [], memo: '' };
+    if (kind === 'work') c.kind = 'work';
+    P.plan.courses.push(c);
+    return P.plan.courses.length - 1;
+  }
   function moveTo(nos, ci, before) {        // ci = -1 이면 현장 목록으로 내림, before = 이 현장 앞에 끼움
+    if (ci !== -1 && isWork(P.plan.courses[ci])) return;
     nos.forEach(function (no) {
       var from = courseOf(no);
       if (from !== -1) P.plan.courses[from].leads.splice(P.plan.courses[from].leads.indexOf(no), 1);
@@ -430,6 +473,10 @@
   P.pp = {};
   $('vpAddCourse').addEventListener('click', function () {
     var ci = newCourse();
+    changed('.gw-vp-course[data-ci="' + ci + '"]');
+  });
+  $('vpAddWork').addEventListener('click', function () {
+    var ci = newCourse('work');
     changed('.gw-vp-course[data-ci="' + ci + '"]');
   });
   root.addEventListener('click', function (e) {
@@ -544,6 +591,7 @@
     var kind = z.getAttribute('data-drop');
     if (drag.people && kind !== 'course' && !(kind === 'people' && drag.from !== undefined)) return null;   // 사람 칸엔 코스에서 뺄 때만
     if (drag.leads && kind === 'people') return null;
+    if (drag.leads && kind === 'course' && isWork(P.plan.courses[parseInt(z.getAttribute('data-ci'), 10)])) return null;
     if (drag.from !== undefined && kind === 'course' && parseInt(z.getAttribute('data-ci'), 10) === drag.from) return null;
     return z;
   }
@@ -679,11 +727,13 @@
 
   function resultText(r) {
     var bits = ['시트 담당자 ' + (r.sheet || 0) + '건', '담당자 DM ' + (r.dm || 0) + '명'];
+    if (r.work_dm) bits.push('사내 업무 DM ' + r.work_dm + '명');
     if (r.duty) bits.push('당번 DM ' + r.duty + '명');
     if (r.deassign) bits.push('재배정 안내 ' + r.deassign + '명');
     var bad = [];
     if ((r.sheet_failed || []).length) bad.push('시트 저장 실패 ' + r.sheet_failed.length + '건');
     if (r.dm_failed) bad.push('DM 실패 ' + r.dm_failed + '명');
+    if (r.work_dm_failed) bad.push('사내 업무 DM 실패 ' + r.work_dm_failed + '명');
     if (r.list_failed) bad.push('슬랙 List 실패 ' + r.list_failed + '건');
     if ((r.list_missing || []).length) bad.push('슬랙 List 담당자 칸에 선택지가 없는 사람이 있어요(' +
       r.list_missing.map(function (x) { return (x.names || []).join('·'); }).join(', ') + ')');

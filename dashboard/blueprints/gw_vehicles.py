@@ -160,9 +160,11 @@ def api_assign_get():
     try:        # 그룹웨어 방문 일정 확정 한 줄(11-22) — 화면 위에 '○ 방문 일정 확정 · 코스 n개'
         info = vp.confirmed_info(day)
         view['plan'] = {**info, 'can_open': _can_plan()} if info else None
+        view['work'] = vp.confirmed_work(day)      # 사내 업무(차 필요 없음, 11-23)
     except Exception as e:
         logger.warning(f'[차량배정] 방문 일정 확정 정보 실패: {e}')
         view['plan'] = None
+        view['work'] = []
     return jsonify({'success': True, **view, 'day_label': va.day_label(day),
                     'staff': [{'code': p['code'], 'name': p['name']} for p in people], 'visitors': visitors, 'teams': teams,
                     'resolving': resolving, 'schedule': schedule, 'off': off['off'], 'half': off['half'], 'online': online,

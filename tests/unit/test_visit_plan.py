@@ -136,6 +136,40 @@ def test_warnings(db):
     assert {w['level'] for w in vp.warnings(plan, vs, soft, names) if w['kind'] == 'off'} == {'warn'}
 
 
+def test_work_course(db, monkeypatch):
+    """사내 업무(11-23 부장님) — 현장 없이 사람 + 할 일. 이름은 종류마다 따로 세고, 할 일이 바뀐 사람에게만 DM."""
+    raw = {'courses': [{'members': ['YM'], 'leads': ['L-1'], 'memo': ''},
+                       {'kind': 'work', 'members': ['TH', 'LSH'], 'leads': ['L-2'], 'memo': '창고 정비'},
+                       {'kind': 'work', 'members': ['JK'], 'leads': [], 'memo': ''}],
+           'online': [], 'online_shared': False}
+    plan = vp.clean_plan(raw, ['L-1', 'L-2'], ['YM', 'TH', 'LSH', 'JK'])
+    assert plan['courses'][1] == {'name': '', 'members': ['TH', 'LSH'], 'leads': [], 'memo': '창고 정비', 'kind': 'work'}
+    assert 'kind' not in plan['courses'][0]                                   # 방문 코스는 예전 모양 그대로
+    assert vp.course_labels(plan) == ['코스 1', '사내 업무 1', '사내 업무 2']
+    names = {p['code']: p['name'] for p in STAFF}
+    ws = vp.warnings(plan, vp.visits(DAY, LEADS), va.day_off(DAY), names)
+    texts = [w['text'] for w in ws]
+    assert '사내 업무 2에 할 일을 적어 주세요.' in texts
+    assert not any(w['kind'] == 'idle' for w in ws)                           # 남는 현장 직원 없음(오늘=연차)
+    plan['courses'].pop()                                                     # 강해가 남음
+    idle = [w for w in vp.warnings(plan, vp.visits(DAY, LEADS), va.day_off(DAY), names) if w['kind'] == 'idle']
+    assert idle and '강해' in idle[0]['text'] and idle[0]['level'] == 'warn'
+    # DM — 처음은 모두, 다시 확정하면 바뀐 사람만
+    sent = []
+    monkeypatch.setattr(va, '_dm', lambda sid, text: sent.append((sid, text)) or True)
+    assert vp._send_work_dms(DAY, plan, None) == {'work_dm': 2, 'work_dm_failed': 0}
+    assert sent[0][0] == 'UTH' and '할 일 : 창고 정비' in sent[0][1] and '함께 : 이나래' in sent[0][1]
+    sent.clear()
+    assert vp._send_work_dms(DAY, plan, plan) == {'work_dm': 0, 'work_dm_failed': 0}
+    new = {**plan, 'courses': [plan['courses'][0], {**plan['courses'][1], 'members': ['TH']}]}
+    assert vp._send_work_dms(DAY, new, plan)['work_dm'] == 1 and sent[0][0] == 'UTH'   # 같이 하는 사람이 바뀜
+    # 차량 배정은 확정한 사내 업무 사람을 '배정 없음'에서 뺀다
+    saved = vp.save(DAY, plan, 'p@example.com', LEADS)
+    vp._finish(DAY, 'done', {}, 'p@example.com', saved)
+    assert vp.confirmed_work(DAY) == [{'code': 'TH', 'task': '창고 정비'}, {'code': 'LSH', 'task': '창고 정비'}]
+    assert vp.confirmed_info(DAY)['courses'] == 1                            # 방문 코스만 셈
+
+
 def test_editable_only_future():
     today = date(2026, 11, 22)
     assert not vp.editable('2026-11-22', today) and not vp.editable('2026-11-21', today)
