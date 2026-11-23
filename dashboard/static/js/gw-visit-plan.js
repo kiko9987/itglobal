@@ -835,6 +835,9 @@
     if ((r.list_missing || []).length) bad.push('슬랙 List 담당자 칸에 선택지가 없는 사람이 있어요(' +
       r.list_missing.map(function (x) { return (x.names || []).join('·'); }).join(', ') + ')');
     if ((r.cards || []).length) bad.push('캔버스1에 없는 방문 카드 ' + r.cards.length + '건(사장님께 DM 으로 알렸어요)');
+    // 캔버스2 — 봇이 다시 쓰고 /일정확정 해석기로 다시 읽어 대조(11-23)
+    if (r.canvas2 && r.canvas2.ok) bits.push('캔버스2 다시 씀(대조 맞음)');
+    else if (r.canvas2) bad.push(r.canvas2.diff && r.canvas2.diff.length ? '캔버스2 대조 다름 ' + r.canvas2.diff.length + '건(사장님께 DM)' : (r.canvas2.reason || '캔버스2 쓰기 실패'));
     return { ok: bits.join(' · '), bad: bad };
   }
   // 확정 진행 상태 — running 이면 2초마다 다시 묻고, 끝나면 결과를 단추 위에

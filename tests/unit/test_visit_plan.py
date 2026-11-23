@@ -39,6 +39,7 @@ def db(tmp_path, monkeypatch):
     monkeypatch.setattr(vas, '_load_initial_maps',
                         lambda: ({p['code']: p['name'] for p in STAFF}, {p['name']: p['code'] for p in STAFF}))
     monkeypatch.setattr(vp, '_name_of_email', lambda e: {'p@example.com': '박기획'}.get(e, e))
+    monkeypatch.setattr(vp, 'write_canvas2', lambda day, plan, leads, parsed, by: {'ok': True, 'diff': [], 'read': 0})   # 진짜 캔버스2 금지
     gw._invalidate()
     yield d
     gw._invalidate()
@@ -570,3 +571,30 @@ def test_cars_see_sheet_courses_on_past_day(db, monkeypatch):
     assert [(t['label'], t['members']) for t in vp.confirmed_teams(past, leads)] == [('코스 1', ['YM', 'LSH']), ('코스 2', ['TH'])]
     assert vp.confirmed_teams(past) is None                                   # 리드 없이 부르면(옛 호출) 그대로
     assert vp.confirmed_courses(DAY, LEADS) is None and vp.confirmed_teams(DAY, LEADS) is None
+
+
+def test_canvas2_round_trip(db, monkeypatch):
+    """캔버스2를 JW 모양으로 써서(11-23) /일정확정 해석기로 다시 읽으면 그룹웨어 코스와 같아야 한다 — 다르면 diff."""
+    import re as _re
+    from dashboard.services import visit_canvas_sync as vcs
+    leads = [{**_lead(n, '', owner, mark), '고객 연락처': f'010-1111-{i:04d}', '플랫폼': plat}
+             for i, (n, owner, mark, plat) in enumerate([('L-1', '', '', '홈페이지'), ('L-2', '', '', '당근'),
+                                                         ('ETC-3', '서준', '본인 방문 필수', '기타'), ('L-4', '', '', '거래처')])]
+    monkeypatch.setattr(vcs, '_get_initial_map', lambda: {p['name']: p['code'] for p in STAFF})
+    monkeypatch.setattr(vas, '_match_leads_by_phone', lambda parsed: {vas._normalize_phone(l['고객 연락처']): [l] for l in leads})
+    monkeypatch.setattr(vas, '_load_addr_candidates', lambda: [])
+    plan = {'courses': [{'members': ['YM', 'LSH'], 'leads': ['L-1', 'L-2'], 'memo': '메모는 안 씀'},
+                        {'members': ['TH'], 'leads': ['ETC-3'], 'memo': ''},
+                        {'kind': 'work', 'members': ['JK'], 'leads': [], 'memo': '창고 정리'}],
+            'online': [{'code': 'SJ', 'shift': '오후'}], 'online_shared': False}
+    md = vp.canvas2_markdown(DAY, plan, leads, ['JK'], '박기획', at='11/23 16:38')
+    assert md.startswith('# 방문 일정 스케줄 (그룹웨어 확정 11/23 16:38 · 박기획)')
+    assert '### YM+LSH' in md and '### TH' in md and '메모는 안 씀' not in md and '창고 정리' not in md
+    assert '### 온라인\nSJ(오후)' in md and '### 휴무\nJK' in md
+    # 캔버스 HTML 흉내 — 줄마다 <p>
+    html = ''.join('<p>' + _re.sub(r'^(#+ |- |> )', '', ln) + '</p>' for ln in md.split('\n') if ln.strip())
+    chk = vp.canvas2_check(html, plan)
+    assert chk == {'ok': True, 'diff': [], 'read': 3}
+    other = {**plan, 'courses': [{'members': ['YM'], 'leads': ['L-1', 'L-2', 'L-4'], 'memo': ''}] + plan['courses'][1:]}
+    bad = vp.canvas2_check(html, other)
+    assert not bad['ok'] and any('L-1' in d for d in bad['diff']) and any('L-4' in d for d in bad['diff'])

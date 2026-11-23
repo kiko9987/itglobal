@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 from contextlib import contextmanager
@@ -623,6 +624,11 @@ def _run_confirm(day: str, plan: Dict, by: str, fresh_leads: Callable[[], List[d
         summary.update(_send_work_dms(day, plan, prev))
     except Exception as e:
         logger.warning(f'[방문일정] 사내 업무 DM 실패: {e}', exc_info=True)
+    try:        # 캔버스2를 JW 가 쓰던 모양으로 다시 쓰고 /일정확정 해석기로 다시 읽어 대조(11-23 부장님)
+        summary['canvas2'] = write_canvas2(day, plan, leads, parsed, by)
+    except Exception as e:
+        summary['canvas2'] = {'ok': False, 'reason': '캔버스2 쓰기 실패', 'diff': []}
+        logger.warning(f'[방문일정] 캔버스2 쓰기 실패: {e}', exc_info=True)
     _finish(day, 'done', summary, by, plan)
     try:
         va.request_assignment(day)
@@ -640,6 +646,107 @@ def _run_confirm(day: str, plan: Dict, by: str, fresh_leads: Callable[[], List[d
     except Exception as e:
         logger.warning(f'[방문일정] 누락 점검 실패(확정은 정상): {e}', exc_info=True)
     logger.info(f'[방문일정] {day} 확정 — 시트 {summary["sheet"]} · DM {summary["dm"]} · 당번 {summary["duty"]} ({by})')
+
+
+# ── 캔버스2(11-23 부장님) — 지우지 않고, 그룹웨어로 확정할 때마다 JW 가 쓰던 모양 그대로 봇이 다시 쓴다 ──
+#   ① 크로스 체크: 쓴 캔버스2를 /일정확정 해석기로 다시 읽어 그룹웨어 코스와 한 줄씩 맞춰 봄(다르면 결과·사장님 DM)
+#   ② 비상용: 그룹웨어가 멈춘 날에도 캔버스2에 마지막 확정 일정이 있어 고쳐서 /일정확정 하면 됨
+#   해석기가 읽는 것만 쓴다 — 코스 제목(이니셜 조합)·현장 줄(캔버스1 과 같은 글)·온라인·휴무.
+#   코스 메모·사내 업무·KiKO·신입인원·시공팀 칸은 쓰지 않는다(부장님 11-23).
+def canvas2_markdown(day: str, plan: Dict, leads: Iterable[dict], off_codes: Iterable[str], by_name: str,
+                     at: Optional[str] = None) -> str:
+    from dashboard.services import visit_canvas_sync as vcs
+    by_no = {str(l.get('리드 No') or '').strip(): l for l in leads}
+    imap = vcs._get_initial_map()
+    at = at or datetime.now().strftime('%m/%d %H:%M')
+    lines = [f'# 방문 일정 스케줄 (그룹웨어 확정 {at} · {by_name})', '',
+             '> 그룹웨어 영업 > 방문 일정에서 확정할 때마다 봇이 다시 써요. 그룹웨어가 안 될 때만 여기를 고쳐 /일정확정 하세요.', '']
+    for c in _staffed(plan):
+        if is_work(c):
+            continue
+        lines.append('### ' + '+'.join(c['members']))
+        for n in c['leads']:
+            lead = by_no.get(n)
+            lines.append('- ' + (vcs._render_item(lead, imap) if lead else f':warning: {n} 시트에서 못 찾음'))
+        lines.append('')
+    lines.append('### 온라인')
+    if plan.get('online'):
+        lines.append('+'.join(o['code'] + (f"({o['shift']})" if o.get('shift') else '') for o in plan['online']))
+    elif plan.get('online_shared'):
+        lines.append('전인원 공용')
+    lines.append('')
+    lines.append('### 휴무')
+    off = [c for c in dict.fromkeys(off_codes or []) if c]
+    if off:
+        lines.append(', '.join(off))
+    lines.append('')
+    lines.append(f"_마지막 갱신 : {datetime.now().strftime('%Y-%m-%d %H:%M')}_")
+    return '\n'.join(lines)
+
+
+def canvas2_check(html: str, plan: Dict) -> Dict:
+    """쓴 캔버스2를 /일정확정 해석기로 다시 읽어 그룹웨어 코스와 맞춰 본다 → {'ok', 'diff': [글], 'read': n}."""
+    from dashboard.services import visit_assignment_sync as vas
+    pf = vas.parse_assignment_canvas_full(html)
+    phone_map = vas._match_leads_by_phone(pf['assignments'])
+    addr = vas._load_addr_candidates()
+    got: Dict[str, List[str]] = {}
+    diff: List[str] = []
+    for a in pf['assignments']:
+        lead = vas._resolve_lead_for_assignment(a, phone_map, addr)
+        if not lead:
+            diff.append('캔버스2 줄에서 리드를 못 찾음: ' + str(a.get('raw') or '')[:40])
+            continue
+        got[str(lead.get('리드 No') or '').strip()] = sorted(a.get('assign') or [])
+    want = {n: sorted(c['members']) for c in _staffed(plan) if not is_work(c) for n in c['leads']}
+    for n, m in want.items():
+        if n not in got:
+            diff.append(f'{n} — 캔버스2에서 못 읽음')
+        elif got[n] != m:
+            diff.append(f"{n} — 캔버스2는 {'+'.join(got[n]) or '없음'}, 그룹웨어는 {'+'.join(m)}")
+    for n in got:
+        if n not in want:
+            diff.append(f'{n} — 그룹웨어 코스에 없음')
+    if sorted(pf['online_duty']) != sorted(o['code'] for o in plan.get('online') or []):
+        diff.append('온라인 당번이 달라요')
+    return {'ok': not diff, 'diff': diff[:10], 'read': len(got)}
+
+
+def write_canvas2(day: str, plan: Dict, leads: Iterable[dict], parsed: Dict, by: str) -> Dict:
+    import time as _t
+    import requests
+    from dashboard.services import visit_assignment_sync as vas
+    canvas_id = os.getenv('SLACK_VISIT_ASSIGNMENT_CANVAS_ID', '').strip()
+    token = os.getenv('SLACK_VISIT_BOT_TOKEN', '').strip() or os.getenv('SLACK_BOT_TOKEN', '').strip()
+    if os.getenv('PYTEST_CURRENT_TEST'):          # 테스트가 진짜 캔버스2를 덮어쓰지 않게
+        return {'ok': False, 'reason': '테스트', 'diff': []}
+    if not canvas_id or not token:
+        return {'ok': False, 'reason': '캔버스2 설정 없음', 'diff': []}
+    md = canvas2_markdown(day, plan, leads, parsed.get('off_duty') or [], _name_of_email(by))
+    resp = requests.post('https://slack.com/api/canvases.edit',
+                         headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json; charset=utf-8'},
+                         json={'canvas_id': canvas_id, 'changes': [{'operation': 'replace',
+                                                                     'document_content': {'type': 'markdown', 'markdown': md}}]},
+                         timeout=15).json()
+    if not resp.get('ok'):
+        logger.warning(f"[방문일정] 캔버스2 쓰기 응답 오류: {resp.get('error')}")
+        return {'ok': False, 'reason': f"캔버스2 쓰기 실패({resp.get('error')})", 'diff': []}
+    chk: Dict = {'ok': False, 'diff': ['캔버스2를 다시 읽지 못했어요'], 'read': 0}
+    for wait in (1.5, 3.0):          # 고친 직후엔 옛 글이 올 수 있어 한 번 더
+        _t.sleep(wait)
+        html = vas._fetch_canvas_html(token, canvas_id)
+        if html and '그룹웨어 확정' in html:
+            chk = canvas2_check(html, plan)
+            break
+    if not chk['ok']:
+        try:
+            from dashboard.services import visit_canvas_audit as vca
+            vca.send_admin_dm(f':mag: *캔버스2 대조 — 그룹웨어 확정과 달라요* ({va.day_label(day)}, {_name_of_email(by)})\n'
+                              + '\n'.join('• ' + d for d in chk['diff']))
+        except Exception as e:
+            logger.warning(f'[방문일정] 캔버스2 대조 DM 실패: {e}')
+    logger.info(f"[방문일정] {day} 캔버스2 다시 씀 — 대조 {'맞음' if chk['ok'] else '다름 ' + str(len(chk['diff']))}건")
+    return {'ok': chk['ok'], 'reason': '' if chk['ok'] else '대조 다름', 'diff': chk['diff'], 'read': chk.get('read', 0)}
 
 
 def _audit(res: Dict, by: str) -> List[Dict]:
