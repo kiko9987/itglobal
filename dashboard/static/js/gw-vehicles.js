@@ -121,7 +121,7 @@
   var head = document.querySelector('.gw-vh-table thead tr');
   if (head) {
     head.innerHTML = '<th>차량</th><th class="num gw-vh-opt">운행일</th><th class="num gw-vh-opt">운행</th>' +
-      '<th class="num">주행거리</th><th>운전자</th><th class="num gw-vh-opt">같은 동네 방문</th>';
+      '<th class="num">주행거리</th><th>운전자</th><th class="num gw-vh-opt">동일 지역 방문</th>';
   }
 
   // ── 차량 한 대 ──
@@ -164,11 +164,11 @@
     api('/api/vehicles/car?month=' + encodeURIComponent(state.month) + '&plate=' + encodeURIComponent(plate)).then(function (j) {
       $('vhCarTitle').textContent = (j.label ? j.label + ' · ' + j.plate : j.plate) + (j.model ? ' · ' + j.model : '');
       var days = j.days || [];
-      $('vhCarBody').innerHTML = '<p class="gw-vh-sub">' + esc(monthLabel(j.month)) + ' · 최근 날짜부터. 같은 곳 방문은 그날 이 차가 도착한 동네의 방문 일정이에요.</p>' +
+      $('vhCarBody').innerHTML = '<p class="gw-vh-sub">' + esc(monthLabel(j.month)) + ' · 최근 날짜부터. 동일 지역 방문은 그날 이 차가 도착한 지역의 방문 일정이에요.</p>' +
         (days.length ? days.map(function (d) {
           return '<section class="gw-vh-day"><div class="gw-vh-dayhead"><b>' + esc(dayLabel(d.day)) + '</b>' +
             '<span>' + esc(km(d.km)) + '</span><span class="gw-vh-who">' + who(d.drivers, d.source) + '</span></div>' +
-            '<table class="gw-table gw-vh-trips"><thead><tr><th>시각</th><th>도착지</th><th class="num">거리</th><th>같은 곳 방문</th></tr></thead><tbody>' +
+            '<table class="gw-table gw-vh-trips"><thead><tr><th>시각</th><th>도착지</th><th class="num">거리</th><th>동일 지역 방문</th></tr></thead><tbody>' +
             d.trips.map(tripRow).join('') + '</tbody></table></section>';
         }).join('') : '<p class="text-muted">이 달 운행이 없어요.</p>');
     }).catch(function (e) { $('vhCarBody').innerHTML = '<p class="text-danger">' + esc(e.message) + '</p>'; });
