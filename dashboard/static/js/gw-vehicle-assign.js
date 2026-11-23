@@ -60,10 +60,10 @@
   // 시공팀 차(11-23 부장님) — 포터 2대·전기트럭은 평소 시공팀이 끌고 나가고, 영업은 현장 지원·물품 운반 때만.
   //   차 종류 이름(포터·트럭)으로 알아본다(차량 관리 용도는 그대로 '공용'). 영업 차 대수에서 빼고 목록 맨 아래 따로
   function isCrew(c) { return c.usage === 'shared' && /포터|트럭/.test((c.model || '') + ' ' + c.label); }
-  function carsInOrder() {      // 영업 차 → 본인 차량 → 시공팀 차
-    return S.cars.filter(function (c) { return !isCrew(c) && !isOwn(c); })
-      .concat(S.cars.filter(isOwn), S.cars.filter(isCrew));
-  }           // 자차 칸(11-23 — 차가 모자라면 자기 차로)
+  function carsInOrder() {      // 영업 차 → 시공팀 차. 자차 칸은 목록에서 뺐다(11-24 부장님 — 차 없는 코스는 메모 한 줄로)
+    return S.cars.filter(function (c) { return !isCrew(c) && !isOwn(c); }).concat(S.cars.filter(isCrew));
+  }
+  function ownCar() { return S.cars.filter(isOwn)[0] || null; }           // 자차 칸(11-23 — 차가 모자라면 자기 차로)
   function isSplit(c) { return !!c.pm; }
   function pmOf(c) { return c.pm ? c.pm : c.people; }
   function ridersOf(c) {
@@ -200,11 +200,9 @@
     }
     var shared = S.cars.filter(function (c) { return c.usage === 'shared' && !isCrew(c); });
     var fixed = S.cars.filter(function (c) { return c.usage === 'fixed'; });
-    var own = S.cars.filter(isOwn);
     var crew = S.cars.filter(isCrew);
     return (shared.length ? '<optgroup label="회사 차">' + shared.map(opt).join('') + '</optgroup>' : '') +
       (fixed.length ? '<optgroup label="고정 차(빌려 쓰기)">' + fixed.map(opt).join('') + '</optgroup>' : '') +
-      (own.length ? '<optgroup label="본인 차량으로 이동">' + own.map(opt).join('') + '</optgroup>' : '') +   // 다른 칸처럼 묶음 안으로(11-23)
       (crew.length ? '<optgroup label="시공팀 차(현장 지원·물품 운반 때)">' + crew.map(opt).join('') + '</optgroup>' : '');
   }
   function personSel(code, half) {
@@ -263,10 +261,12 @@
       var own = one.length === 1 ? ownCars()[one[0]] : null;
       return '<span class="gw-vc-slot own"><i class="fas fa-car-side" aria-hidden="true"></i> ' + esc(own ? own.label : '각자 고정 차') + '</span>';
     }
+    if (cur && isOwn(carOf(cur))) {     // 차 없는 코스에 메모를 적은 것(예전 자차 칸) — 경고 대신 '회사 차 없이'
+      return '<span class="gw-vc-slot own"><i class="fas fa-note-sticky" aria-hidden="true"></i> 회사 차 없이' + x('회사 차 없이') + '</span>';
+    }
     if (cur) {
       var c = carOf(cur);
-      return '<span class="gw-vc-slot on"><i class="fas ' + (isOwn(c) ? 'fa-user' : 'fa-car-side') + '" aria-hidden="true"></i> ' +
-        esc(c.label) + x(c.label) + '</span>';
+      return '<span class="gw-vc-slot on"><i class="fas fa-car-side" aria-hidden="true"></i> ' + esc(c.label) + x(c.label) + '</span>';
     }
     return '<span class="gw-vc-slot empty"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> 차 없음</span>';
   }
@@ -356,23 +356,27 @@
       '>' + head + carMemo(g) + hint + memo + sites + '</section>';
   }
   // 코스 메모 한 줄(11-24 부장님) — 자차로 가는 사람 같은 드문 예외만 적는다. 그 코스 차의 메모로 저장(배정 DM 에 같이 감)
-  function memoCar(g) {           // 메모를 붙일 차 — 코스가 차 한 대일 때만
+  //   차 없는 코스(자차로 가는 한 사람 등)도 메모를 적으면 그 코스는 '회사 차 없이'로 보고 경고에서 뺀다(안에선 자차 칸에 저장)
+  function memoCar(g) {           // 메모를 붙일 차 — 차 한 대인 코스는 그 차, 차 없는 코스는 자차 칸
     var cur = courseCar(g);
+    if (cur === '') return ownCar();
     return cur && cur.indexOf('__') !== 0 ? carOf(cur) : null;
   }
+  function memoText(g) { return courseCar(g) === '' ? '' : ((memoCar(g) || {}).note || ''); }
   function memoBtn(g) {           // 평소엔 [메모] 단추만(칸이 늘 보이면 복잡, 11-24) — 눌러야 한 줄 칸이 열린다
     var c = memoCar(g);
-    if (!S.canEdit || !c || c.note || S.memoOpen[c.plate]) return '';
-    return '<button type="button" class="gw-va-tool gw-vc-memobtn" data-memoopen="' + esc(c.plate) + '" aria-label="' + esc(g.label) +
+    if (!S.canEdit || !c || memoText(g) || S.memoOpen[g.key]) return '';
+    return '<button type="button" class="gw-va-tool gw-vc-memobtn" data-memoopen="' + esc(g.key) + '" aria-label="' + esc(g.label) +
       ' 메모 쓰기"><i class="fas fa-pen" aria-hidden="true"></i> 메모</button>';
   }
   function carMemo(g) {
-    var c = memoCar(g);
+    var c = memoCar(g), text = memoText(g);
     if (!c) return '';
-    if (!S.canEdit || !(c.note || S.memoOpen[c.plate])) return c.note ? '<p class="gw-vc-cmemo"><i class="fas fa-note-sticky" aria-hidden="true"></i> ' + esc(c.note) + '</p>' : '';
+    if (!S.canEdit || !(text || S.memoOpen[g.key])) return text ? '<p class="gw-vc-cmemo"><i class="fas fa-note-sticky" aria-hidden="true"></i> ' + esc(text) + '</p>' : '';
     return '<div class="gw-vc-cmemo"><i class="fas fa-note-sticky" aria-hidden="true"></i>' +
-      '<input type="text" class="form-control form-control-sm" maxlength="60" data-cmemo="' + esc(c.plate) + '" value="' + esc(c.note || '') +
-      '" placeholder="메모 (예외만 한 줄 — 자차로 가는 사람 등)" aria-label="' + esc(g.label) + ' 메모" autocomplete="off"></div>';
+      '<input type="text" class="form-control form-control-sm" maxlength="60" data-cmemo="' + esc(c.plate) + '" data-ckey="' + esc(g.key) +
+      '" value="' + esc(text) + '" placeholder="' + (isOwn(c) ? '메모 (예: 본인 차량으로 이동)' : '메모 (예외만 한 줄 — 자차로 가는 사람 등)') +
+      '" aria-label="' + esc(g.label) + ' 메모" autocomplete="off"></div>';
   }
   function otherCard(inG) {        // 그 밖 — 코스에 없는데 차를 타는 사람(미팅·자재 심부름 등)
     var list = others(inG);
@@ -643,7 +647,9 @@
     }, 15000);
   }
   function rowsForSave() {
-    return S.cars.map(function (c) { return { plate: c.plate, people: c.people, pm: c.pm || null, note: c.note || '' }; });   // 코스 메모(11-24)
+    return S.cars.map(function (c) {   // 코스 메모(11-24) — 자차 칸은 탄 사람이 없으면 메모도 비움
+      return { plate: c.plate, people: c.people, pm: c.pm || null, note: isOwn(c) && !ridersOf(c).length ? '' : (c.note || '') };
+    });
   }
   // notify: 슬랙으로 알릴지. 확정 전 [저장만]·확정 뒤 [알리지 않고 저장]은 false
   function save(notify) {
@@ -704,8 +710,15 @@
     var t = e.target;
     if (!t.dataset) return;
     if (t.dataset.cmemo) {                    // 코스 메모 — 다시 그리지 않는다(쓰는 중 칸이 흔들리지 않게)
-      carOf(t.dataset.cmemo).note = t.value.trim();
+      var mc = carOf(t.dataset.cmemo), mg = groupByKey(t.dataset.ckey), v = t.value.trim();
+      mc.note = v;
       setDirty(true);
+      if (isOwn(mc) && mg) {                  // 차 없는 코스 — 메모를 적으면 '회사 차 없이', 지우면 다시 '차 없음'
+        var cc = courseCar(mg);
+        if (v && cc === '') setCourse(mg.key, mc.plate);
+        else if (!v && cc === mc.plate) setCourse(mg.key, '');
+        render();
+      }
       return;
     }
     if (t.dataset.pcar) {
@@ -740,7 +753,7 @@
   });
   document.addEventListener('input', function (e) {
     var t = e.target;
-    if (t.dataset && t.dataset.cmemo) { carOf(t.dataset.cmemo).note = t.value.trim(); setDirty(true); }
+    if (t.dataset && t.dataset.cmemo) { carOf(t.dataset.cmemo).note = t.value.trim(); setDirty(true); }   // 코스에 넣기는 change(칸을 떠날 때)
   });
   document.addEventListener('click', function (e) {
     if (S.suppressClick) { S.suppressClick = false; return; }
@@ -748,7 +761,7 @@
     var mo = e.target.closest('[data-memoopen]');
     if (mo) {
       S.memoOpen[mo.dataset.memoopen] = 1;
-      focusAfter('[data-cmemo="' + cssq(mo.dataset.memoopen) + '"]');
+      focusAfter('[data-ckey="' + cssq(mo.dataset.memoopen) + '"]');
       render();
       return;
     }
@@ -764,6 +777,8 @@
     var cl = e.target.closest('[data-clearc]');
     if (cl) {
       setCourse(cl.dataset.clearc, '');
+      var oc = ownCar();
+      if (oc && !ridersOf(oc).length) oc.note = '';
       focusAfter('[data-ccourse="' + cssq(cl.dataset.clearc) + '"]');
       render();
       return;
