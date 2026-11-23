@@ -67,6 +67,11 @@ def _conn():
         if not _table_ready:
             conn.execute(_DDL)
             conn.execute(_URGENT_DDL)
+            for col in ('state', 'result'):      # 11-23 뒤에서 처리(시트·List·DM) 상태 — 먼저 만든 표에 칸 추가
+                try:
+                    conn.execute(f'ALTER TABLE visit_plan_urgent ADD COLUMN {col} TEXT')
+                except Exception:
+                    pass
             conn.commit()
             _table_ready = True
         yield conn
@@ -656,8 +661,9 @@ def _merge_urgent(day: str, plan: Dict, nos: List[str], names: Dict[str, str]) -
     for r in rows:
         members = [m for m in (r.get('members') or '').split(',') if m in names]
         n = r['lead_no']
-        out[n] = {'at': (r.get('at') or '')[11:16], 'by_name': _name_of_email(r.get('by') or ''), 'members': members}
-        if n in placed or n not in nos or not members:
+        out[n] = {'at': (r.get('at') or '')[11:16], 'by_name': _name_of_email(r.get('by') or ''), 'members': members,
+                  'state': r.get('state') or 'done', 'result': _loads(r.get('result')) or {}}
+        if out[n]['state'] == 'failed' or n in placed or n not in nos or not members:
             continue
         c = next((c for c in plan['courses'] if not is_work(c) and c['members'] == members), None)
         if c is None:
@@ -680,10 +686,10 @@ def _slack_of(code: str, name: str) -> str:
         return ''
 
 
-def urgent_assign(day: str, lead_no: str, members: List[str], by: str, leads: Iterable[dict]) -> Dict:
-    """당일 배정 — 시트 영업 담당자 + 슬랙 List + 캔버스1, 맡은 사람에게 긴급 DM. 막는 문제는 ValueError."""
-    from dashboard.services import visit_assignment_sync as vas
-    from dashboard.services.lead_service import update_lead
+def urgent_assign(day: str, lead_no: str, members: List[str], by: str, leads: Iterable[dict],
+                  background: bool = True) -> Dict:
+    """당일 배정 — 확인하고 기록만 남긴 뒤 바로 돌려준다. 시트 영업 담당자·슬랙 List·캔버스1·긴급 DM 은 뒤에서
+    (11-23 부장님: 한 번에 11초쯤 걸려 화면이 멈춘 줄 알았음). 막는 문제는 ValueError / PermissionError."""
     if not can_urgent(by, day):
         raise PermissionError('당일 배정은 오늘 일정만, 일정 담당이나 오늘 온라인 당번이 할 수 있어요.')
     leads = list(leads)
@@ -706,18 +712,41 @@ def urgent_assign(day: str, lead_no: str, members: List[str], by: str, leads: It
     bad = [m for m in members if m in hard]
     if bad:
         raise ValueError(f'{names[bad[0]]}님은 오늘 {hard[bad[0]]}예요.')
-    with _conn() as conn:          # 두 사람이 동시에 눌러도 한 번만(먼저 들어온 것)
+    with _conn() as conn:          # 두 사람이 동시에 눌러도 한 번만(먼저 들어온 것). 실패했던 건은 다시 할 수 있게
+        conn.execute("DELETE FROM visit_plan_urgent WHERE day = ? AND lead_no = ? AND state = 'failed'", (day, lead_no))
         try:
-            conn.execute('INSERT INTO visit_plan_urgent (day, lead_no, members, by, at) VALUES (?,?,?,?,?)',
+            conn.execute("INSERT INTO visit_plan_urgent (day, lead_no, members, by, at, state) VALUES (?,?,?,?,?,'running')",
                          (day, lead_no, ','.join(members), by, _now()))
         except Exception:
             raise ValueError('방금 다른 사람이 이 현장을 당일 배정했어요. 새로 고쳐 주세요.')
     names_txt = ','.join(names[m] for m in members)
-    res = update_lead(lead_no, {'영업 담당자': names_txt})
-    if isinstance(res, dict) and res.get('success') is False:
-        with _conn() as conn:
-            conn.execute('DELETE FROM visit_plan_urgent WHERE day = ? AND lead_no = ?', (day, lead_no))
-        raise ValueError('시트에 담당자를 적지 못했어요. 잠시 뒤 다시 해 주세요.')
+    job = dict(day=day, lead_no=lead_no, lead=lead, v=v, members=members, names=names, names_txt=names_txt, by=by)
+    if background:
+        threading.Thread(target=_urgent_work, kwargs=job, daemon=True, name=f'urgent-{lead_no}').start()
+        return {'names': names_txt, 'state': 'running'}
+    return {'names': names_txt, **_urgent_work(**job)}
+
+
+def _urgent_done(day: str, lead_no: str, state: str, result: Dict) -> None:
+    with _conn() as conn:
+        conn.execute('UPDATE visit_plan_urgent SET state = ?, result = ? WHERE day = ? AND lead_no = ?',
+                     (state, json.dumps(result, ensure_ascii=False), day, lead_no))
+
+
+def _urgent_work(day: str, lead_no: str, lead: Dict, v: Dict, members: List[str], names: Dict[str, str],
+                 names_txt: str, by: str) -> Dict:
+    """뒤에서 — 시트 영업 담당자 → 슬랙 List → 캔버스1 → 긴급 DM. 결과는 visit_plan_urgent.state/result."""
+    from dashboard.services import visit_assignment_sync as vas
+    from dashboard.services.lead_service import update_lead
+    try:
+        res = update_lead(lead_no, {'영업 담당자': names_txt})
+        if isinstance(res, dict) and res.get('success') is False:
+            raise RuntimeError(res.get('message') or '시트 저장 실패')
+    except Exception as e:
+        logger.error(f'[방문일정] 당일 배정 시트 기록 실패 {lead_no}: {e}', exc_info=True)
+        out = {'message': '시트에 담당자를 적지 못했어요. 다시 해 주세요.'}
+        _urgent_done(day, lead_no, 'failed', out)
+        return {'dm': 0, 'dm_failed': 0, **out}
     try:       # 슬랙 List 담당자 칸도 같이(바뀌면 슬랙 쪽이 시트를 List 값으로 덮어써서 맞춰 둔다)
         vas._update_slack_list_managers([{'lead': lead, 'lead_no': lead_no, 'phone': '', 'phone_digits': '',
                                           'assign': members, 'original': None, 'raw': ''}], {}, sheet_leads=None)
@@ -750,8 +779,10 @@ def urgent_assign(day: str, lead_no: str, members: List[str], by: str, leads: It
             sent += 1
         else:
             failed += 1
+    out = {'dm': sent, 'dm_failed': failed}
+    _urgent_done(day, lead_no, 'done', out)
     logger.info(f'[방문일정] {day} 당일 배정 {lead_no} → {names_txt} (DM {sent}/{len(members)}, {by})')
-    return {'names': names_txt, 'dm': sent, 'dm_failed': failed}
+    return out
 
 
 # ── 다른 곳에서 쓰는 것 ──────────────────────────────────────────────────

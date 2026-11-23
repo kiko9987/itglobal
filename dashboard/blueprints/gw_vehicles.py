@@ -235,7 +235,8 @@ def api_plan_urgent():
     body = request.get_json(silent=True) or {}
     day = (body.get('day') or '').strip()
     try:
-        res = vp.urgent_assign(day, str(body.get('lead_no') or '').strip(), body.get('members') or [], _me(), _fresh_leads())
+        # 확인은 캐시된 리드로(빠르게) — 시트 기록·DM 은 뒤에서(11-23: 한 번에 11초쯤 걸렸음)
+        res = vp.urgent_assign(day, str(body.get('lead_no') or '').strip(), body.get('members') or [], _me(), _leads())
     except PermissionError as e:
         return jsonify({'success': False, 'message': str(e)}), 403
     except ValueError as e:

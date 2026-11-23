@@ -171,7 +171,12 @@
   }
   function whenTag(v) {
     var u = (P.data.urgent || {})[v.lead_no];
-    if (u) return '<span class="gw-va-smark gw-vp-when urgent" title="' + esc((u.by_name || '') + ' 님이 당일 배정') + '">당일 배정 ' + esc(u.at) + '</span>';
+    if (u) {
+      var r = u.result || {};
+      var st = u.state === 'running' ? ' · 처리 중' : u.state === 'failed' ? ' 실패' : (r.dm_failed ? ' · DM ' + r.dm_failed + '명 실패' : '');
+      var tip = u.state === 'failed' ? (r.message || '다시 해 주세요') : (u.by_name || '') + ' 님이 당일 배정' + (r.dm_failed ? ' — 못 받은 사람에게 전화로 알려 주세요' : '');
+      return '<span class="gw-va-smark gw-vp-when urgent" title="' + esc(tip) + '">당일 배정 ' + (u.state === 'failed' ? '' : esc(u.at)) + esc(st) + '</span>';
+    }
     if (isLate(v)) return '<span class="gw-va-smark gw-vp-when">확정 뒤 추가 ' + esc(hm(v.reg_at, P.data.confirmed_at.slice(0, 10))) + '</span>';
     if (!P.data.confirmed_at && !P.data.editable && v.reg_at && v.reg_at.slice(0, 10) === P.data.day) {
       return '<span class="gw-va-smark gw-vp-when">당일 등록 ' + esc(v.reg_at.slice(11, 16)) + '</span>';
@@ -796,11 +801,19 @@
       if (!codes.length) { $('vpUrgentMsg').textContent = '맡길 사람을 골라 주세요.'; return; }
       var btn = this;
       btn.disabled = true;
-      post('/api/vehicles/plan/urgent', { day: P.day, lead_no: U.lead, members: codes }).then(function (j) {
+      btn.textContent = '배정하는 중…';
+      $('vpUrgentMsg').textContent = '';
+      var day = P.day;
+      post('/api/vehicles/plan/urgent', { day: day, lead_no: U.lead, members: codes }).then(function (j) {
         $('vpUrgentDlg').close();
-        load(P.day, true);
-        say(j.names + '님에게 당일 배정했어요. ' + (j.dm_failed ? 'DM ' + j.dm_failed + '명은 못 보냈어요 — 전화로 알려 주세요.' : '긴급 DM 을 보냈어요.'), j.dm_failed ? 'err' : 'ok');
-      }).catch(function (e) { $('vpUrgentMsg').textContent = e.message; }).then(function () { btn.disabled = false; });
+        load(day, true);
+        say(j.names + '님에게 당일 배정했어요. 시트 기록과 긴급 DM 은 뒤에서 몇 초 안에 끝나요.', 'ok');
+        // 뒤에서 끝난 결과(DM 실패 등)를 꼬리표에 — 몇 초 뒤 한 번 더 불러온다
+        setTimeout(function () { if (P.day === day && !P.dirty) load(day, true); }, 12000);
+      }).catch(function (e) { $('vpUrgentMsg').textContent = e.message; }).then(function () {
+        btn.disabled = false;
+        btn.textContent = '당일 배정';
+      });
     });
   }
   function resultText(r) {

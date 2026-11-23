@@ -205,20 +205,21 @@ def test_urgent_assign(db, monkeypatch):
     import dashboard.services.visit_canvas_sync as vcs
     monkeypatch.setattr(vcs, 'rebuild_canvas_async', lambda: None)
     with pytest.raises(PermissionError):
-        vp.urgent_assign(today, 'L-7', ['TH'], 'ym@example.com', leads)
+        vp.urgent_assign(today, 'L-7', ['TH'], 'ym@example.com', leads, background=False)
     with pytest.raises(ValueError, match='이미 담당자'):
-        vp.urgent_assign(today, 'L-1', ['TH'], 'jk@example.com', leads)
+        vp.urgent_assign(today, 'L-1', ['TH'], 'jk@example.com', leads, background=False)
     with pytest.raises(ValueError, match='연차'):
-        vp.urgent_assign(today, 'L-7', ['SJ'], 'jk@example.com', leads)
-    res = vp.urgent_assign(today, 'L-7', ['TH'], 'jk@example.com', leads)
+        vp.urgent_assign(today, 'L-7', ['SJ'], 'jk@example.com', leads, background=False)
+    res = vp.urgent_assign(today, 'L-7', ['TH'], 'jk@example.com', leads, background=False)
     assert res == {'names': '서준', 'dm': 1, 'dm_failed': 0}
     assert wrote == {'L-7': {'영업 담당자': '서준'}} and lists == [['TH']]
     assert sent[0][0] == 'UTH' and ':rotating_light:' in sent[0][1] and '당일 배정' in sent[0][1] and 'L-7' in sent[0][1]
     with pytest.raises(ValueError, match='방금 다른 사람'):
-        vp.urgent_assign(today, 'L-7', ['YM'], 'p@example.com', leads)
+        vp.urgent_assign(today, 'L-7', ['YM'], 'p@example.com', leads, background=False)
     d = vp.load(today, leads, 'p@example.com')                               # 시트가 늦게 바뀌어도 코스에 붙어 보임
     assert any('L-7' in c['leads'] and c['members'] == ['TH'] for c in d['plan']['courses'])
-    assert d['urgent']['L-7']['members'] == ['TH']
+    assert d['urgent']['L-7']['members'] == ['TH'] and d['urgent']['L-7']['state'] == 'done'
+    assert d['urgent']['L-7']['result'] == {'dm': 1, 'dm_failed': 0}
     assert next(v for v in d['visits'] if v['lead_no'] == 'L-7')['reg_at'] == today + ' 08:12'
 
 
