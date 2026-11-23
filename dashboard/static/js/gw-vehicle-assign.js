@@ -173,10 +173,10 @@
     if (am && pm) return am.label + ' 오전 · ' + pm.label + ' 오후';
     return am ? am.label + ' 오전만' : pm.label + ' 오후만';
   }
-  function person(code, extra) {   // 왼쪽 명단 한 사람
+  function person(code, extra, done) {   // 왼쪽 명단 한 사람. done = 차는 없지만 배정된 것(본인 차로 방문, 11-23)
     var at = whereIs(code);
     var half = at && !(whereAt(code, 'am') && whereAt(code, 'pm'));
-    var cls = 'gw-va-person' + (at ? ' placed' : '') + (half ? ' halfonly' : '') + (S.picked === code ? ' picked' : '');
+    var cls = 'gw-va-person' + (at || done ? ' placed' : '') + (half ? ' halfonly' : '') + (S.picked === code ? ' picked' : '');
     return '<button type="button" class="' + cls + '" data-person="' + esc(code) + '"' +
       (S.picked === code ? ' aria-pressed="true"' : ' aria-pressed="false"') + '>' +
       '<span class="gw-va-pname">' + esc(name(code)) + '</span>' + visitTag(code) +
@@ -203,7 +203,7 @@
   function placedByCourse(placed, ownIn) {
     var groups = [], seen = {};
     function one(c) {     // 본인 차로 간 사람(MW 스파크 등)은 차 이름 + (본인)
-      return ownIn[c] ? person(c, '<small class="gw-va-where">' + esc(ownIn[c].label) + ' (본인)</small>') : person(c);
+      return ownIn[c] ? person(c, '<small class="gw-va-where">' + esc(ownIn[c].label) + ' (본인)</small>', true) : person(c);
     }
     var src = S.courses ? S.courses.courses.filter(function (c) { return c.kind !== 'work'; })
       : S.teams.filter(function (t) { return t.label; }).map(function (t) { return { label: t.label, members: t.members }; });
