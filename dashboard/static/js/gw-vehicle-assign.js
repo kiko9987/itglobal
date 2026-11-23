@@ -135,11 +135,9 @@
     S.cars.forEach(function (c) { if (c.usage === 'fixed' && c.fixed_user && S.names[c.fixed_user]) own[c.fixed_user] = c; });
     return own;
   }
-  // 자기 고정 차로 가는 사람(그 차를 아무도 빌리지 않았으면 본인 차로 본다 — MW 스파크 등)
-  function byOwnFixed(code) {
-    var own = ownCars()[code];
-    return !!(own && !whereIs(code) && !ridersOf(own).length);
-  }
+  // 고정 차 주인을 '배정 없어도 자기 차로 간다'고 짐작하던 것 없앰(11-24 부장님 — 빈 데서 차를 넣는 화면).
+  //   고정 차도 다른 차처럼 코스에 넣어야 들어간다. (운행일지 운전자 추정의 '고정 사용자'는 그대로)
+  function byOwnFixed() { return false; }
   function noCar(code) { return !S.off[code] && !whereIs(code) && !byOwnFixed(code); }
   function riders() {
     var seen = {};
@@ -207,8 +205,8 @@
   }
   function personSel(code, half) {
     var at = whereAt(code, half === 'pm' ? 'pm' : 'am');
-    var own = ownCars()[code];
-    var none = own ? own.label : '차 없음';    // 고정 차 주인은 차 이름만(본인 차인 줄 다 앎, 11-23)
+    var own = null;
+    var none = '차 없음';
     var hl = half === 'am' ? ' 오전' : half === 'pm' ? ' 오후' : '';
     return '<select class="form-select form-select-sm gw-vc-sel' + (!at && !own ? ' none' : '') + '" data-pcar="' + esc(code) +
       '" data-half="' + half + '" aria-label="' + esc(name(code) + hl) + ' 차">' +
