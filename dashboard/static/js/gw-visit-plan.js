@@ -326,12 +326,8 @@
     }
     var none = !P.plan.online.length && !P.canEdit
       ? '<span class="gw-va-none">' + (P.plan.online_shared ? '전원이 나눠서 받기' : '정하지 않음') + '</span>' : '';
-    var offs = (P.data.off || []).map(function (o) { return o.name + '(' + o.why + ')'; });
-    var halves = (P.data.half || []).map(function (o) { return o.name + '(' + o.why + ')'; });
-    // 한 줄로(11-23 부장님: 당번 칸이 너무 컸음) — 제목·당번·넣기 왼쪽, 휴무는 오른쪽 끝
-    var leave = '<span class="gw-vp-leave" title="그룹웨어 휴가·토요 휴무표에서 자동"><strong>휴무</strong> ' + esc(offs.join(', ') || '없음') +
-      (halves.length ? ' · <strong>반차</strong> ' + esc(halves.join(', ')) : '') + '</span>';
-    return '<div class="gw-vp-drow"><h2 class="gw-vp-h">온라인 당번</h2>' + rows + none + add + leave + '</div>';
+    // 휴무·반차 줄은 뺐다(11-23 부장님) — 사람 칸의 '휴무' 묶음·이름 옆 꼬리표와 겹침
+    return '<div class="gw-vp-drow"><h2 class="gw-vp-h">온라인 당번</h2>' + rows + none + add + '</div>';
   }
   // 확인할 것(11-23 부장님) — 맨 아래 떠 있는 확정 단추 줄 왼쪽에 첫 문장 + [외 n건]. 펼치면 줄 위로 겹쳐 뜬다(화면을 밀지 않음)
   function warnLine(ws) {
