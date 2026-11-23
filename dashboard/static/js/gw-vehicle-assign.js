@@ -141,7 +141,7 @@
   }
   function whereText(code) {       // '레이 6854' / '레이 6854 오전 · 포터 4904 오후' / '레이 6854 오전만'
     var am = whereAt(code, 'am'), pm = whereAt(code, 'pm');
-    if (!am && !pm) return byOwnFixed(code) ? ownCars()[code].label + ' (본인)' : '';
+    if (!am && !pm) return byOwnFixed(code) ? ownCars()[code].label : '';
     if (am && pm && am === pm) return am.label;
     if (am && pm) return am.label + ' 오전 · ' + pm.label + ' 오후';
     return am ? am.label + ' 오전만' : pm.label + ' 오후만';
@@ -200,7 +200,7 @@
   function personSel(code, half) {
     var at = whereAt(code, half === 'pm' ? 'pm' : 'am');
     var own = ownCars()[code];
-    var none = own ? '본인 차 (' + own.label + ')' : '차 없음';
+    var none = own ? own.label : '차 없음';    // 고정 차 주인은 차 이름만(본인 차인 줄 다 앎, 11-23)
     var hl = half === 'am' ? ' 오전' : half === 'pm' ? ' 오후' : '';
     return '<select class="form-select form-select-sm gw-vc-sel' + (!at && !own ? ' none' : '') + '" data-pcar="' + esc(code) +
       '" data-half="' + half + '" aria-label="' + esc(name(code) + hl) + ' 차">' +
@@ -231,7 +231,7 @@
     if (cur === '__own') {
       var one = g.members.filter(function (m) { return !S.off[m]; });
       var own = one.length === 1 ? ownCars()[one[0]] : null;
-      return '<span class="gw-vc-slot own"><i class="fas fa-car-side" aria-hidden="true"></i> ' + esc(own ? own.label + ' (본인)' : '각자 본인 차') + '</span>';
+      return '<span class="gw-vc-slot own"><i class="fas fa-car-side" aria-hidden="true"></i> ' + esc(own ? own.label : '각자 고정 차') + '</span>';
     }
     if (cur) {
       var c = carOf(cur);
