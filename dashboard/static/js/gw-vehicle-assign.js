@@ -56,7 +56,14 @@
 
   function name(code) { return S.names[code] || code; }
   function carOf(plate) { return S.cars.filter(function (c) { return c.plate === plate; })[0]; }
-  function isOwn(c) { return c.usage === 'own'; }           // 자차 칸(11-23 — 차가 모자라면 자기 차로)
+  function isOwn(c) { return c.usage === 'own'; }
+  // 시공팀 차(11-23 부장님) — 포터 2대·전기트럭은 평소 시공팀이 끌고 나가고, 영업은 현장 지원·물품 운반 때만.
+  //   차 종류 이름(포터·트럭)으로 알아본다(차량 관리 용도는 그대로 '공용'). 영업 차 대수에서 빼고 목록 맨 아래 따로
+  function isCrew(c) { return c.usage === 'shared' && /포터|트럭/.test((c.model || '') + ' ' + c.label); }
+  function carsInOrder() {      // 영업 차 → 본인 차량 → 시공팀 차
+    return S.cars.filter(function (c) { return !isCrew(c) && !isOwn(c); })
+      .concat(S.cars.filter(isOwn), S.cars.filter(isCrew));
+  }           // 자차 칸(11-23 — 차가 모자라면 자기 차로)
   function isSplit(c) { return !!c.pm; }
   function pmOf(c) { return c.pm ? c.pm : c.people; }
   function ridersOf(c) {
@@ -187,15 +194,18 @@
     function opt(c) {
       var who = isOwn(c) ? [] : ridersOf(c).filter(function (p) { return except.indexOf(p) === -1; }).map(name);
       // 고른 차는 이름만(같이 탄 사람은 왼쪽 차 목록에), 나머지는 지금 탄 사람 또는 '빈 차'
-      var text = isOwn(c) ? c.label : sel === c.plate ? c.label : c.label + (who.length ? ' · ' + who.join(', ') : ' · 빈 차');
+      var text = isOwn(c) || sel === c.plate ? c.label
+        : c.label + (who.length ? ' · ' + who.join(', ') : isCrew(c) ? '' : ' · 빈 차');   // 시공팀 차는 '빈 차'가 아님
       return '<option value="' + esc(c.plate) + '"' + (sel === c.plate ? ' selected' : '') + '>' + esc(text) + '</option>';
     }
-    var shared = S.cars.filter(function (c) { return c.usage === 'shared'; });
+    var shared = S.cars.filter(function (c) { return c.usage === 'shared' && !isCrew(c); });
     var fixed = S.cars.filter(function (c) { return c.usage === 'fixed'; });
     var own = S.cars.filter(isOwn);
+    var crew = S.cars.filter(isCrew);
     return (shared.length ? '<optgroup label="회사 차">' + shared.map(opt).join('') + '</optgroup>' : '') +
       (fixed.length ? '<optgroup label="고정 차(빌려 쓰기)">' + fixed.map(opt).join('') + '</optgroup>' : '') +
-      (own.length ? '<optgroup label="본인 차량으로 이동">' + own.map(opt).join('') + '</optgroup>' : '');   // 다른 칸처럼 묶음 안으로(11-23)
+      (own.length ? '<optgroup label="본인 차량으로 이동">' + own.map(opt).join('') + '</optgroup>' : '') +   // 다른 칸처럼 묶음 안으로(11-23)
+      (crew.length ? '<optgroup label="시공팀 차(현장 지원·물품 운반 때)">' + crew.map(opt).join('') + '</optgroup>' : '');
   }
   function personSel(code, half) {
     var at = whereAt(code, half === 'pm' ? 'pm' : 'am');
@@ -347,7 +357,7 @@
   }
   // 휴대폰·좁은 화면 — 왼쪽 차 목록이 맨 아래로 내려가니 고르는 코스 카드 안에 차 단추를 한 줄로(PC 에선 CSS 로 숨김)
   function inPick(inG) {
-    return '<div class="gw-vc-inpick" role="group" aria-label="넣을 차">' + S.cars.map(function (c) {
+    return '<div class="gw-vc-inpick" role="group" aria-label="넣을 차">' + carsInOrder().map(function (c) {
       var used = uniq(ridersOf(c).map(function (m) { return (inG[m] || ['그 밖'])[0]; }));
       return '<button type="button" class="gw-vc-inbtn' + (used.length ? ' used' : '') + '" data-pickcar="' + esc(c.plate) + '">' +
         esc(c.label) + (used.length && !isOwn(c) ? ' <small>' + esc(used.join('·')) + '</small>' : '') + '</button>';
@@ -407,7 +417,7 @@
     else who = rs.map(name).join('·');
     var line = rs.length
       ? '<span class="gw-vc-cwho"><span class="gw-vc-clabel">' + esc(labels.join('·')) + '</span> ' + esc(who) + '</span>'
-      : '<span class="gw-vc-cwho none">' + (isOwn(c) ? '차가 모자라면 본인 차량으로'
+      : '<span class="gw-vc-cwho none">' + (isOwn(c) ? '차가 모자라면 본인 차량으로' : isCrew(c) ? '평소 시공팀'
         : c.usage === 'fixed' ? '평소 ' + esc(c.fixed_name || '정해진 사람 없음') : '빈 차') + '</span>';
     var showNote = S.canEdit && (c.note || S.noteOpen[c.plate]);
     var note = showNote
@@ -451,15 +461,19 @@
     $('vcCourses').innerHTML = gs.map(function (g) { return courseCard(g, inG); }).join('') + otherCard(inG) + leftCard() ||
       '<p class="gw-va-none gw-va-noused">이날 방문 일정이 없어요.</p>';
     $('vcStrip').innerHTML = nocarStrip(inG);
-    var used = S.cars.filter(function (c) { return !isOwn(c) && ridersOf(c).length; }).length;
-    var total = S.cars.filter(function (c) { return !isOwn(c); }).length;
-    $('vcCarCount').textContent = '쓰는 차 ' + used + ' / ' + total + '대';
+    var sales = S.cars.filter(function (c) { return !isOwn(c) && !isCrew(c); });     // 영업 차만 센다(시공팀 차 빼고)
+    var used = sales.filter(function (c) { return ridersOf(c).length; }).length;
+    var crewUsed = S.cars.filter(function (c) { return isCrew(c) && ridersOf(c).length; }).length;
+    $('vcCarCount').textContent = '쓰는 차 ' + used + ' / ' + sales.length + '대' + (crewUsed ? ' + 시공팀 차 ' + crewUsed : '');
     var ag = activeGroup();
     $('vcHow').className = 'gw-va-staff-how' + (ag ? ' picking' : '');
     $('vcHow').textContent = !S.canEdit ? '누가 어느 차를 타는지 보기만 해요.'
       : ag ? ag.label + '에 넣을 차를 누르세요. 넣으면 차 없는 다음 코스로 넘어가요.'
       : '오른쪽 코스를 누른 뒤 여기 차를 누르세요.' + (TOUCH ? '' : ' 차를 끌어 코스·사람에 놓아도 돼요.');
-    $('vcCarList').innerHTML = S.cars.map(function (c) { return carRow(c, inG); }).join('');
+    var crewRows = S.cars.filter(isCrew);
+    $('vcCarList').innerHTML = carsInOrder().filter(function (c) { return !isCrew(c); }).map(function (c) { return carRow(c, inG); }).join('') +
+      (crewRows.length ? '<div class="gw-vc-sub">시공팀 차 <small>현장 지원·물품 운반 때만</small></div>' +
+        crewRows.map(function (c) { return carRow(c, inG); }).join('') : '');
     // 아래 바 경고 — 코스 단위로 짧게('차 없는 코스: 코스 1, 코스 3'), 코스 밖 사람만 이름으로
     var missG = gs.filter(function (g) { return g.members.some(noCar); }).map(function (g) { return g.label; });
     var missP = Object.keys(S.visits).filter(function (c) { return S.names[c] && !inG[c] && noCar(c); }).map(name);

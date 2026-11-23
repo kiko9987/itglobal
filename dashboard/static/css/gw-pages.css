@@ -3641,3 +3641,6 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
   .gw-vc-inbtn small { color: #64748b; font-size: 0.74rem; }
   .gw-vc-inbtn:focus-visible { outline: 2px solid #2a3038; outline-offset: 2px; }
 }
+/* 시공팀 차(포터·전기트럭) — 왼쪽 목록 맨 아래 따로(11-23) */
+.gw-vc-sub { margin: 8px 0 0; padding-top: 8px; border-top: 1px dashed #d4d8de; font-size: 0.8rem; font-weight: 700; color: #475569; }
+.gw-vc-sub small { font-weight: 400; color: #64748b; margin-left: 4px; }
