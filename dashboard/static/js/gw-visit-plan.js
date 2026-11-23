@@ -230,34 +230,47 @@
       (acts ? '<div class="gw-vp-cacts">' + acts + '</div>' : '') + memoText + '</section>';
   }
   // 현장 목록 — 지역(region)끼리 모아, 지역은 캔버스1에서 처음 나온 순서대로
+  // 캔버스1처럼 기타 → 거래처 → 온라인 으로 먼저 나누고, 그 안에서 지역 서울 → 인천 → 경기 → 그 밖(11-23 부장님).
+  //   같은 순위끼리는 지역 이름 순, 지역 안은 캔버스1 순서(날짜) 그대로
+  var CATS = [['기타', '기타'], ['거래처', '거래처'], ['온라인 방문', '온라인']];
+  function groupKey(v) { return (v.cat || '온라인 방문') + '|' + (v.region || '지역 모름'); }
   function inboxRows() {
-    var groups = [];
-    inbox().forEach(function (v) {
-      var key = v.region || '지역 모름';
-      var g = groups.filter(function (x) { return x.key === key; })[0];
-      if (!g) { g = { key: key, items: [] }; groups.push(g); }
-      g.items.push(v);
-    });
-    return groups.map(function (g) {
-      var allOn = g.items.every(function (v) { return P.checked[v.lead_no]; });
-      var head = '<h3 class="gw-vp-gtitle">' + esc(g.key) + ' <span>' + g.items.length + '</span>' +
-        (P.canEdit && g.items.length > 1 ? ' <button type="button" class="btn btn-sm btn-link gw-vp-gall" data-act="checkgroup" data-region="' + esc(g.key) + '">' + (allOn ? '체크 풀기' : '모두 체크') + '</button>' : '') + '</h3>';
-      // 체크한 현장은 제목 줄의 '체크한 현장 → [새 코스로]·[코스 N로]' 로 올린다(지역 단추는 두지 않음, 11-22 부장님)
-      return '<div class="gw-vp-group">' + head + '<ul class="gw-vp-inrows">' + g.items.map(function (v) {
-        var on = !!P.checked[v.lead_no];
-        var check = P.canEdit ? '<input type="checkbox" class="form-check-input gw-vp-check" data-act="check" data-lead="' + esc(v.lead_no) + '"' + (on ? ' checked' : '') +
-          ' aria-label="' + esc((v.place || '') + ' ' + v.lead_no) + ' 고르기">' : '';
-        return '<li class="gw-vp-inrow' + (on ? ' on' : '') + '"' + (P.canEdit ? ' draggable="true" data-drag-lead="' + esc(v.lead_no) + '"' : '') + '>' + check +
-          // 현장 목록은 지역 소제목으로 이미 나뉘어 지역 꼬리표는 뺌(11-23 부장님) — 코스 안 줄은 지역이 섞여 꼬리표 유지
-          '<span class="gw-vp-rmain"><span class="gw-vp-vtop">' + marks(v) + '<strong>' + esc(v.date) + '</strong><span class="gw-va-sno">' + esc(v.lead_no) + '</span></span>' +
-          (v.addr ? '<span class="gw-vp-vaddr">' + esc(v.addr) + '</span>' : '') +
-          (v.text ? '<span class="gw-vp-vtext">' + esc(v.text) + '</span>' : '') + '</span>' +
-          // 체크한 줄은 [새 코스로]를 숨긴다 — 체크한 것은 위 [새 코스로]·지역 단추로 함께 올림
-          //   자리는 남겨 둔다(숨김) — 단추가 빠지면 줄 높이가 줄어 아래가 올라감(11-22 부장님)
-          (P.canEdit ? '<button type="button" class="btn btn-sm btn-outline-secondary gw-vp-newc' + (on ? ' gw-vp-keep' : '') + '" data-act="newc" data-lead="' + esc(v.lead_no) + '"' +
-            (on ? ' tabindex="-1" aria-hidden="true" disabled' : '') + '>새 코스로</button>' : '') + '</li>';
-      }).join('') + '</ul></div>';
+    var left = inbox();
+    return CATS.map(function (cat) {
+      var mine = left.filter(function (v) { return (v.cat || '온라인 방문') === cat[0]; });
+      if (!mine.length) return '';
+      var groups = [];
+      mine.forEach(function (v) {
+        var key = v.region || '지역 모름';
+        var g = groups.filter(function (x) { return x.key === key; })[0];
+        if (!g) { g = { key: key, rank: v.region ? (v.region_rank == null ? 3 : v.region_rank) : 4, items: [] }; groups.push(g); }
+        g.items.push(v);
+      });
+      groups.sort(function (a, b) { return a.rank - b.rank || a.key.localeCompare(b.key, 'ko'); });
+      return '<section class="gw-vp-cat"><h3 class="gw-vp-cattitle">' + esc(cat[1]) + ' <span>' + mine.length + '</span></h3>' +
+        groups.map(function (g) { return regionGroup(g, cat[0]); }).join('') + '</section>';
     }).join('');
+  }
+  function regionGroup(g, cat) {
+    var gk = cat + '|' + g.key;
+    var allOn = g.items.every(function (v) { return P.checked[v.lead_no]; });
+    var head = '<h4 class="gw-vp-gtitle">' + esc(g.key) + ' <span>' + g.items.length + '</span>' +
+      (P.canEdit && g.items.length > 1 ? ' <button type="button" class="btn btn-sm btn-link gw-vp-gall" data-act="checkgroup" data-group="' + esc(gk) + '">' + (allOn ? '체크 풀기' : '모두 체크') + '</button>' : '') + '</h4>';
+    // 체크한 현장은 제목 줄의 '체크한 현장 → [새 코스로]·[코스 N로]' 로 올린다(지역 단추는 두지 않음, 11-22 부장님)
+    return '<div class="gw-vp-group">' + head + '<ul class="gw-vp-inrows">' + g.items.map(function (v) {
+      var on = !!P.checked[v.lead_no];
+      var check = P.canEdit ? '<input type="checkbox" class="form-check-input gw-vp-check" data-act="check" data-lead="' + esc(v.lead_no) + '"' + (on ? ' checked' : '') +
+        ' aria-label="' + esc((v.place || '') + ' ' + v.lead_no) + ' 고르기">' : '';
+      return '<li class="gw-vp-inrow' + (on ? ' on' : '') + '"' + (P.canEdit ? ' draggable="true" data-drag-lead="' + esc(v.lead_no) + '"' : '') + '>' + check +
+        // 현장 목록은 지역 소제목으로 이미 나뉘어 지역 꼬리표는 뺌(11-23 부장님) — 코스 안 줄은 지역이 섞여 꼬리표 유지
+        '<span class="gw-vp-rmain"><span class="gw-vp-vtop">' + marks(v) + '<strong>' + esc(v.date) + '</strong><span class="gw-va-sno">' + esc(v.lead_no) + '</span></span>' +
+        (v.addr ? '<span class="gw-vp-vaddr">' + esc(v.addr) + '</span>' : '') +
+        (v.text ? '<span class="gw-vp-vtext">' + esc(v.text) + '</span>' : '') + '</span>' +
+        // 체크한 줄은 [새 코스로]를 숨긴다 — 체크한 것은 위 [새 코스로]·지역 단추로 함께 올림
+        //   자리는 남겨 둔다(숨김) — 단추가 빠지면 줄 높이가 줄어 아래가 올라감(11-22 부장님)
+        (P.canEdit ? '<button type="button" class="btn btn-sm btn-outline-secondary gw-vp-newc' + (on ? ' gw-vp-keep' : '') + '" data-act="newc" data-lead="' + esc(v.lead_no) + '"' +
+          (on ? ' tabindex="-1" aria-hidden="true" disabled' : '') + '>새 코스로</button>' : '') + '</li>';
+    }).join('') + '</ul></div>';
   }
   function selBar() {
     var n = checkedList().length;
@@ -433,11 +446,11 @@
     else if (act === 'liftnew') { var list = checkedList(); if (list.length) moveTo(list, newCourse()); }
     else if (act === 'uncheck') { P.checked = {}; render(); }
     else if (act === 'checkgroup') {
-      var region = b.getAttribute('data-region');
-      var items = inbox().filter(function (v) { return (v.region || '지역 모름') === region; });
+      var gk = b.getAttribute('data-group');
+      var items = inbox().filter(function (v) { return groupKey(v) === gk; });
       var allOn = items.every(function (v) { return P.checked[v.lead_no]; });
       items.forEach(function (v) { if (allOn) delete P.checked[v.lead_no]; else P.checked[v.lead_no] = true; });
-      P.focus = '[data-act="checkgroup"][data-region="' + cssq(region) + '"]';
+      P.focus = '[data-act="checkgroup"][data-group="' + cssq(gk) + '"]';
       render();
     } else if (act === 'out') { moveTo([no], -1); }
     else if (act === 'up' || act === 'down') {

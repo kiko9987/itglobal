@@ -3409,5 +3409,9 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
   .gw-vp-shared input { width: 20px; height: 20px; }
 }
 .gw-vp-gtitle { font-size: 0.86rem; font-weight: 700; color: #1a1c20; margin: 4px 0 6px; }
+/* 현장 목록 1차 묶음(기타·거래처·온라인, 캔버스1 순서) — 지역 소제목보다 한 단계 위 */
+.gw-vp-cattitle { font-size: 0.92rem; font-weight: 700; color: #1a1c20; margin: 0 0 6px; padding-bottom: 4px; border-bottom: 1px solid #e5e7eb; }
+.gw-vp-cattitle span { color: #64748b; font-weight: 400; }
+.gw-vp-cat + .gw-vp-cat { margin-top: 16px; }
 .gw-vp-gtitle:first-child { margin-top: 0; }
 .gw-vp-gtitle span { color: #64748b; font-weight: 400; }

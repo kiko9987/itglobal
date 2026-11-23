@@ -126,6 +126,10 @@ def visits(day: str, leads: Iterable[dict]) -> List[Dict]:
 
 
 _BIG_CITIES = ('서울', '인천', '부산', '대구', '광주', '대전', '울산')
+# 경기 시·군(축약 주소엔 '경기'가 없음) — 현장 목록 지역 순서 서울 → 인천 → 경기 → 그 밖(11-23 부장님)
+_GYEONGGI = ('수원', '성남', '고양', '용인', '부천', '안산', '안양', '남양주', '화성', '평택', '의정부', '시흥', '파주',
+             '김포', '광명', '광주', '군포', '하남', '오산', '이천', '안성', '의왕', '양주', '구리', '포천', '동두천',
+             '과천', '여주', '양평', '가평', '연천')
 
 
 def _where(addr: str, vl) -> Dict[str, str]:
@@ -136,7 +140,10 @@ def _where(addr: str, vl) -> Dict[str, str]:
     town = town if town.endswith(('읍', '면')) else ''          # '…동'은 도로명 주소의 단위가 아님
     region = (f'{city} {gu}'.strip() if city in _BIG_CITIES else city) or gu or ''
     place = ' '.join(x for x in (city, gu, town) if x) or ''
-    return {'place': place, 'region': region}
+    # 광주는 구가 있으면 광주광역시(동구·서구 …), 없으면 경기 광주시
+    rank = (0 if city == '서울' else 1 if city == '인천' else
+            2 if city in _GYEONGGI and not (city == '광주' and gu) else 3 if city else 4)
+    return {'place': place, 'region': region, 'region_rank': rank}
 
 
 def people(vs: List[Dict]) -> List[Dict]:

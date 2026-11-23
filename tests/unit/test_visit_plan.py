@@ -84,6 +84,14 @@ def test_cars_by_person(db, monkeypatch):
     assert vp.cars_by_person(DAY) == {}
 
 
+def test_region_rank():
+    """현장 목록 지역 순서 서울 → 인천 → 경기 → 그 밖(11-23 부장님). 축약 주소엔 '경기'가 없어 시 이름으로."""
+    from dashboard.services import vehicle_log as vl
+    ranks = {a: vp._where(a, vl)['region_rank'] for a in
+             ('마포구 양화로 45', '인천 서구 가정로 1', '용인 기흥구 동백로 1', '광주 오포읍 1', '광주 동구 금남로 1', '천안 서북구 1')}
+    assert list(ranks.values()) == [0, 1, 2, 2, 3, 3]
+
+
 def test_clean_plan_rules():
     codes, nos = ['YM', 'TH'], ['L-1', 'L-2']
     raw = {'courses': [{'name': '  평택  라인 ', 'members': ['ym', 'YM'], 'leads': ['L-2', 'L-1', 'L-1'], 'memo': '  평택\n끝나고  '},
