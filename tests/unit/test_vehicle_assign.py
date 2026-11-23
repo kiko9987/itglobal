@@ -132,10 +132,10 @@ def test_day_off_from_groupware_leave_and_saturday(db, monkeypatch):
     monkeypatch.setattr(sat_off, 'month_row', lambda m: {'status': sat_off.CONFIRMED})
     sat = va.day_off('2026-11-21')
     assert sat['off'] == [{'code': 'YM', 'name': '김가람', 'why': '연차'},          # 휴가가 토요 휴무보다 먼저
-                          {'code': 'MJ', 'name': '박다솜', 'why': '토요 휴무'}]
+                          {'code': 'MJ', 'name': '박다솜', 'why': '토요 휴무', 'soft': False}]
     assert sat['half'] == [{'code': 'LSH', 'name': '이나래', 'why': '오전 반차'}]
     monkeypatch.setattr(sat_off, 'month_row', lambda m: {'status': sat_off.OPEN})
-    assert va.day_off('2026-11-21')['off'][1]['why'] == '토요 휴무(확정 전)'
+    assert va.day_off('2026-11-21')['off'][1] == {'code': 'MJ', 'name': '박다솜', 'why': '토요 휴무(확정 전)', 'soft': True}
     assert [o['code'] for o in va.day_off('2026-11-20')['off']] == ['YM']        # 평일엔 휴무표 안 봄
 
 

@@ -3280,6 +3280,11 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
 .gw-va-chip.w { border-color: #ea580c; background: #fff7ed; color: #9a3412; }
 .gw-va-chip.w .fa-triangle-exclamation { font-size: 0.7rem; margin-right: 3px; }
 .gw-va-chip.w .gw-va-leave { color: #9a3412; }
+/* 휴가자(11-23 부장님): 이름 오른쪽 주황 꼬리표, 체크·끌기 없이 흐리게 */
+.gw-va-leave.gw-vp-offtag { background: #fff7ed; color: #9a3412; border: 1px solid #fdba74; }
+.gw-vp-pperson.gw-vp-blocked { cursor: not-allowed; background: #f8fafc; }
+.gw-vp-pperson.gw-vp-blocked .gw-va-pname { color: #64748b; }
+.gw-vp-nocheck { display: inline-block; visibility: hidden; }
 .gw-va-none.w { color: #9a3412; font-weight: 600; }
 .gw-va-smark.w, .gw-vp-inrow.on .gw-va-smark.w { border-color: #ea580c; background: #fff7ed; color: #9a3412; }
 .gw-va-smark.w .fa-triangle-exclamation { font-size: 0.64rem; }

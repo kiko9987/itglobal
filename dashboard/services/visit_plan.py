@@ -257,7 +257,8 @@ def editable(day: str, today: Optional[date] = None) -> bool:
 
 
 def warnings(plan: Dict, vs: List[Dict], off: Dict[str, List[Dict]], names: Dict[str, str]) -> List[Dict]:
-    """확정 전 점검 — 모두 확인만 받는다(level 'warn')."""
+    """확정 전 점검 — 대부분 확인만 받는다(level 'warn').
+    휴가자(반차·확정 전 토요 휴무 빼고)를 코스·당번에 넣었으면 'error' — 빼야 확정된다(11-23 부장님)."""
     out: List[Dict] = []
     by_no = {v['lead_no']: v for v in vs}
     done = {n for c in _staffed(plan) for n in c['leads']}
@@ -266,6 +267,7 @@ def warnings(plan: Dict, vs: List[Dict], off: Dict[str, List[Dict]], names: Dict
         out.append({'level': 'warn', 'kind': 'left',
                     'text': f'코스·사람이 안 정해진 현장 {len(left)}건 — 담당 DM 이 가지 않아요.'})
     offs = {o['code']: o['why'] for o in off.get('off', [])}
+    hard = {o['code'] for o in off.get('off', []) if not o.get('soft')}
     count: Dict[str, int] = {}
     for i, c in enumerate(plan['courses']):
         label = course_label(c, i)
@@ -274,7 +276,10 @@ def warnings(plan: Dict, vs: List[Dict], off: Dict[str, List[Dict]], names: Dict
                         'text': f'{label}에 사람을 넣지 않았어요(현장 {len(c["leads"])}건).'})
         for m in c['members']:
             count[m] = count.get(m, 0) + 1
-            if m in offs:
+            if m in hard:
+                out.append({'level': 'error', 'kind': 'off', 'course': i,
+                            'text': f'{label}의 {names.get(m, m)}님은 이날 {offs[m]}예요 — 빼야 확정돼요.'})
+            elif m in offs:
                 out.append({'level': 'warn', 'kind': 'off', 'course': i,
                             'text': f'{label}의 {names.get(m, m)}님은 이날 {offs[m]}예요.'})
         for n in c['leads'] if c['members'] else []:
@@ -288,8 +293,10 @@ def warnings(plan: Dict, vs: List[Dict], off: Dict[str, List[Dict]], names: Dict
             out.append({'level': 'warn', 'kind': 'twice', 'text': f'{names.get(m, m)}님이 코스 {n}곳에 들어가 있어요.'})
     for o in plan['online']:
         if o['code'] in offs:
-            out.append({'level': 'warn', 'kind': 'off',
-                        'text': f'온라인 당번 {names.get(o["code"], o["code"])}님은 이날 {offs[o["code"]]}예요.'})
+            bad = o['code'] in hard
+            out.append({'level': 'error' if bad else 'warn', 'kind': 'off',
+                        'text': f'온라인 당번 {names.get(o["code"], o["code"])}님은 이날 {offs[o["code"]]}예요'
+                                + (' — 빼야 확정돼요.' if bad else '.')})
     return out
 
 

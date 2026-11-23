@@ -127,8 +127,13 @@ def test_warnings(db):
     assert '2건' in by['left']['text']                              # L-1(사람 없는 코스)·L-4(코스 없음)
     assert by['nobody']['text'] == '코스 1에 사람을 넣지 않았어요(현장 1건).'
     assert by['owner']['text'].startswith('고덕의 본인 방문 필수 현장')
-    assert [w['kind'] for w in ws].count('off') == 2                # 코스에도, 온라인 당번에도 연차인 오늘
-    assert 'twice' in by and all(w['level'] == 'warn' for w in ws)
+    offs = [w for w in ws if w['kind'] == 'off']
+    assert len(offs) == 2                                            # 코스에도, 온라인 당번에도 연차인 오늘
+    assert all(w['level'] == 'error' and '빼야 확정돼요' in w['text'] for w in offs)   # 휴가자는 확정을 막음(11-23)
+    assert 'twice' in by and all(w['level'] == 'warn' for w in ws if w['kind'] != 'off')
+    # 확정 전 토요 휴무는 막지 않고 경고만
+    soft = {'off': [{'code': 'SJ', 'name': '오늘', 'why': '토요 휴무(확정 전)', 'soft': True}], 'half': []}
+    assert {w['level'] for w in vp.warnings(plan, vs, soft, names) if w['kind'] == 'off'} == {'warn'}
 
 
 def test_editable_only_future():
@@ -178,6 +183,8 @@ def test_confirm_runs_and_locks_slack(db, monkeypatch):
     assert vp.confirmed_upcoming_day() is None
     with pytest.raises(ValueError, match='코스가 없어요'):
         vp.start_confirm(DAY, {'courses': [{'members': [], 'leads': ['L-1']}]}, 'p@example.com', LEADS, lambda: LEADS)
+    with pytest.raises(ValueError, match='빼야 확정돼요'):       # 연차인 오늘(SJ)을 넣으면 확정 안 됨(11-23)
+        vp.start_confirm(DAY, {'courses': [{'members': ['SJ'], 'leads': ['L-1']}]}, 'p@example.com', LEADS, lambda: LEADS)
     assert vp.start_confirm(DAY, plan, 'p@example.com', LEADS, lambda: LEADS) == {'state': 'running'}
     assert seen['target'] == date.fromisoformat(DAY) and seen['req'] == DAY
     st = vp.run_state(DAY)
