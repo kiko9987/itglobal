@@ -3547,3 +3547,68 @@ button.gw-vp-rgn:focus-visible { outline: 2px solid #2a3038; outline-offset: 2px
   .gw-vp-rgn { flex: 1 1 auto; }
   button.gw-vp-rgn { min-height: 32px; }
 }
+
+/* 차량 배정 — 코스 중심(11-23 부장님 1안): 왼쪽 차 목록 · 오른쪽 방문 일정과 같은 코스 카드에서 차 고르기 */
+.gw-va-board.gw-vc-board { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 14px; align-items: start; }
+.gw-vc-main { min-width: 0; }
+.gw-vc-main .gw-vp-courses { margin-top: 0; }
+.gw-vc-cars { padding: 12px; }
+#vcCarList { display: flex; flex-direction: column; gap: 6px; }
+.gw-vc-car { border: 1px solid #e5e7eb; border-radius: 10px; padding: 7px 10px; background: #fafbfc; display: flex; flex-direction: column; gap: 3px; }
+.gw-vc-car.used { background: #fff; border-color: #cbd0d8; }
+.gw-vc-car.own { border-style: dashed; }
+.gw-vc-board.editing .gw-vc-car { cursor: grab; user-select: none; }
+.gw-vc-carhead { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.gw-vc-carhead strong { font-size: 0.9rem; white-space: nowrap; }
+.gw-vc-carhead strong i { font-size: 0.76rem; color: #64748b; }
+.gw-vc-carhead small { color: #64748b; font-size: 0.74rem; white-space: nowrap; }
+.gw-vc-carhead .gw-va-tool { margin-left: auto; }
+.gw-vc-cwho { font-size: 0.82rem; color: #1a1c20; overflow-wrap: anywhere; }
+.gw-vc-cwho.none { color: #64748b; }
+.gw-vc-clabel { color: #475569; font-weight: 600; }
+.gw-vc-car .gw-va-note { font-size: 0.8rem; }
+.gw-vc-car .gw-va-notetext { font-size: 0.78rem; }
+.gw-vc-strip { margin: 0 0 10px; font-size: 0.82rem; color: #475569; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 10px; padding: 6px 10px; }
+.gw-vc-strip > span:first-child { font-weight: 700; color: #1a1c20; margin-right: 4px; }
+.gw-vc-strip strong { color: #334155; }
+.gw-vc-cc { display: inline-flex; align-items: center; gap: 5px; margin: 0; }
+.gw-vc-cc > i { color: #64748b; font-size: 0.8rem; }
+.gw-vc-cc.w .gw-vc-sel { border-color: #ea580c; }
+.gw-vc-sel { width: auto; max-width: 230px; font-size: 0.8rem; padding-top: 2px; padding-bottom: 2px; padding-left: 8px; }
+.gw-vc-sel.none { border-color: #ea580c; color: #9a3412; }
+/* 사람 칩 = 이름 + 차 고르기(갈라 타면 사람마다) */
+.gw-vc-p { gap: 6px; padding: 2px 4px 2px 10px; }
+.gw-vc-p .gw-va-cname { padding: 2px 0; }
+.gw-vc-p.off { padding-right: 10px; background: #f8fafc; color: #64748b; }
+.gw-vc-p.split { border-radius: 12px; flex-wrap: wrap; }
+.gw-vc-half { display: inline-flex; align-items: center; gap: 4px; }
+.gw-vc-half small { color: #475569; font-size: 0.72rem; }
+.gw-vc-join { padding: 0 8px; }
+.gw-vc-ptext { color: #475569; font-size: 0.78rem; }
+.gw-vc-p.over { box-shadow: 0 0 0 2px #2a3038; }
+.gw-vc-course.over { border-color: #2a3038; box-shadow: 0 0 0 2px #2a3038; background: #f2f3f6; }
+.gw-vc-hint { margin: 0; color: #9a3412; font-size: 0.8rem; }
+.gw-vc-route { margin: 0; color: #475569; font-size: 0.82rem; }
+.gw-vc-route i { font-size: 0.74rem; margin-right: 2px; }
+.gw-vc-sites > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; cursor: pointer; list-style: none; color: #475569; font-size: 0.84rem; padding: 2px 4px; border-radius: 6px; }
+.gw-vc-sites > summary::-webkit-details-marker { display: none; }
+.gw-vc-sites > summary:hover { background: #f7f8f9; }
+.gw-vc-sites > summary:focus-visible { outline: 2px solid #2a3038; outline-offset: 2px; }
+.gw-vc-sites[open] .gw-va-cfold { transform: rotate(90deg); }
+.gw-vc-sites > ul { list-style: none; margin: 4px 0 0; padding: 0 4px 0 20px; }
+.gw-vc-other { background: #fcfcfd; }
+.gw-vc-add { max-width: 200px; }
+.gw-vc-left strong { color: #9a3412; }
+.gw-vc-warn { margin-right: auto; align-self: center; color: #9a3412; font-size: 0.86rem; font-weight: 600; }
+@media (max-width: 991.98px) {
+  .gw-va-board.gw-vc-board { grid-template-columns: minmax(0, 1fr); }
+  .gw-vc-cars { order: 2; position: static; max-height: none; }
+}
+@media (max-width: 767.98px) {
+  .gw-vc-sel { font-size: 16px; max-width: 100%; min-height: 40px; }
+  .gw-vc-p { flex-wrap: wrap; border-radius: 12px; }
+  .gw-vc-warn { flex-basis: 100%; }
+}
+.gw-vc-p .gw-va-cname { white-space: nowrap; }
+.gw-vc-p .gw-va-leave { white-space: nowrap; }
+.gw-vc-half small { white-space: nowrap; }
