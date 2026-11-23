@@ -188,6 +188,16 @@
       (v.addr ? '<span class="gw-vp-vaddr">' + esc(v.addr) + '</span>' : '') +
       (v.text ? '<span class="gw-vp-vtext">' + esc(v.text) + '</span>' : '') + '</span>' + acts + '</li>';
   }
+  // 차량 배정에서 이 코스 사람에게 정한 차 — 보기만(고치는 건 차량 배정 화면, 11-23 부장님)
+  function carTag(c) {
+    var seen = {}, cars = [];
+    c.members.forEach(function (m) {
+      ((P.data.cars || {})[m] || []).forEach(function (car) { if (!seen[car.plate]) { seen[car.plate] = 1; cars.push(car); } });
+    });
+    if (!cars.length) return '';
+    return '<span class="gw-vp-car" title="차량 배정에서 정한 차: ' + esc(cars.map(function (x) { return x.label + ' ' + x.plate; }).join(', ')) + '">' +
+      '<i class="fas fa-car-side" aria-hidden="true"></i> ' + esc(cars.map(function (x) { return x.label; }).join(' · ')) + '</span>';
+  }
   function courseCard(c, i, ws) {
     var vs = c.leads.map(function (n) { return P.byNo[n]; }).filter(Boolean);
     var chips = c.members.map(function (m) {
@@ -203,20 +213,21 @@
     if (P.canEdit) {
       // 체크한 현장은 코스 카드에 단추를 늘리지 않고(화면이 출렁임, 11-22 부장님) 위 '체크한 현장 → [코스 N로]' 줄·끌기로 올린다
     }
-    // 캔버스2 섹션처럼 한 줄: 코스 N · 사람 칩 · 현장 수 · [지우기]
-    var head = '<div class="gw-vp-chead"><strong>' + esc(label(i)) + '</strong>' +
-      '<div class="gw-va-people">' + (chips || '<span class="gw-va-none' + (vs.length ? ' w' : '') + '">' +
-        (vs.length ? '<i class="fas fa-triangle-exclamation" aria-hidden="true"></i> ' : '') + (P.canEdit ? '여기에 사람을 놓으세요' : '사람 없음') + '</span>') + '</div>' +
-      '<span class="gw-vp-ccount">현장 ' + vs.length + '</span>' +
-      (P.canEdit ? '<button type="button" class="btn btn-sm btn-link gw-vp-cdel" data-act="delc" data-ci="' + i + '">지우기</button>' : '') + '</div>';
+    // 캔버스2 섹션처럼 한 줄: 코스 N · 차 · 사람 칩 · 메모 · 현장 수 · [지우기] (메모를 제목 줄로, 11-23 부장님)
     var memo = P.canEdit
       ? '<label class="gw-vp-memo"><span>메모</span><input type="text" class="form-control form-control-sm" maxlength="200" data-act="memo" data-ci="' + i + '" value="' + esc(c.memo) + '" aria-describedby="vpMemoHelp"></label>'
-      : (c.memo ? '<p class="gw-vp-memotext"><i class="fas fa-note-sticky" aria-hidden="true"></i> ' + esc(c.memo) + '</p>' : '');
+      : '';
+    var head = '<div class="gw-vp-chead"><strong>' + esc(label(i)) + '</strong>' + carTag(c) +
+      '<div class="gw-va-people">' + (chips || '<span class="gw-va-none' + (vs.length ? ' w' : '') + '">' +
+        (vs.length ? '<i class="fas fa-triangle-exclamation" aria-hidden="true"></i> ' : '') + (P.canEdit ? '여기에 사람을 놓으세요' : '사람 없음') + '</span>') + '</div>' +
+      memo + '<span class="gw-vp-ccount">현장 ' + vs.length + '</span>' +
+      (P.canEdit ? '<button type="button" class="btn btn-sm btn-link gw-vp-cdel" data-act="delc" data-ci="' + i + '">지우기</button>' : '') + '</div>';
+    var memoText = !P.canEdit && c.memo ? '<p class="gw-vp-memotext"><i class="fas fa-note-sticky" aria-hidden="true"></i> ' + esc(c.memo) + '</p>' : '';
     return '<section class="gw-va-card gw-vp-course' + (checkedPeople().length && P.canEdit ? ' can-drop' : '') +
       '" data-drop="course" data-ci="' + i + '" aria-label="' + esc(label(i)) + '">' + head +
       '<ol class="gw-vp-rows">' + vs.map(function (v, k) { return courseRow(v, i, k, vs.length); }).join('') + '</ol>' +
-      (!vs.length ? '<p class="gw-vp-tempty">' + (P.canEdit ? '아래 현장 목록에서 끌어 올리거나, 체크해서 올려 주세요.' : '현장 없음') + '</p>' : '') +
-      (acts ? '<div class="gw-vp-cacts">' + acts + '</div>' : '') + memo + '</section>';
+      (!vs.length ? '<p class="gw-vp-tempty">' + (P.canEdit ? '현장 목록에서 끌어 놓거나, 체크해서 옮겨 주세요.' : '현장 없음') + '</p>' : '') +
+      (acts ? '<div class="gw-vp-cacts">' + acts + '</div>' : '') + memoText + '</section>';
   }
   // 현장 목록 — 지역(region)끼리 모아, 지역은 캔버스1에서 처음 나온 순서대로
   function inboxRows() {
@@ -252,7 +263,7 @@
     var bar = $('vpSelBar');
     if (!P.canEdit) { bar.innerHTML = ''; return; }
     if (!n) {
-      bar.innerHTML = '<span class="gw-vp-how">같은 지역끼리 모아 보여 줘요. 위 코스로 끌어 올리거나(코스 안 줄 위에 놓으면 그 앞에), 체크해서 한꺼번에 올리세요.</span>';
+      bar.innerHTML = '<span class="gw-vp-how">같은 지역끼리 모아 보여 줘요. 코스로 끌어 놓거나(코스 안 줄 위에 놓으면 그 앞에), 체크해서 한꺼번에 옮기세요.</span>';
       return;
     }
     // 코스가 많으면 단추가 두 줄로 넘어가 목록이 밀림 → 4개부터는 목록 상자 하나로
@@ -334,7 +345,7 @@
     $('vpPeopleHow').innerHTML = peopleBar();
     $('vpCourseCount').textContent = P.plan.courses.length ? P.plan.courses.length + '개' : '';
     $('vpCourses').innerHTML = P.plan.courses.map(function (c, i) { return courseCard(c, i, ws); }).join('') ||
-      '<p class="gw-va-sempty">' + (P.canEdit ? '아래 현장의 [새 코스로]를 누르거나, 현장을 체크한 뒤 [새 코스로]를 눌러 코스를 만들어 주세요.' : '아직 코스가 없어요.') + '</p>';
+      '<p class="gw-va-sempty">' + (P.canEdit ? '현장 목록의 [새 코스로]를 누르거나, 현장을 체크한 뒤 [새 코스로]를 눌러 코스를 만들어 주세요.' : '아직 코스가 없어요.') + '</p>';
     $('vpAddCourse').hidden = !P.canEdit;
     $('vpInboxCount').textContent = left.length + '건' + (left.length !== P.data.visits.length ? ' (전체 ' + P.data.visits.length + '건)' : '');
     selBar();

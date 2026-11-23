@@ -72,6 +72,18 @@ def test_who_tag(db):
     assert all('본인 방문 필수' not in v['marks'] for v in vs.values())                 # 이름과 한 꼬리표로
 
 
+def test_cars_by_person(db, monkeypatch):
+    """코스 제목 줄 차 꼬리표(11-23) — 차량 배정에 저장된 차를 사람별로, 오후 사람도. 못 읽으면 빈 값."""
+    monkeypatch.setattr(va, '_day_rows', lambda day: {'11가1111': va._row(['YM', 'TH'], '', ['YM', 'JK']),
+                                                      '22나2222': va._row([])})
+    monkeypatch.setattr(va, 'fleet', lambda include_inactive=False: [{'plate': '11가1111', 'label': '스타렉스'}])
+    cars = vp.cars_by_person(DAY)
+    assert cars == {'YM': [{'plate': '11가1111', 'label': '스타렉스'}], 'TH': [{'plate': '11가1111', 'label': '스타렉스'}],
+                    'JK': [{'plate': '11가1111', 'label': '스타렉스'}]}
+    monkeypatch.setattr(va, '_day_rows', lambda day: (_ for _ in ()).throw(RuntimeError('db')))
+    assert vp.cars_by_person(DAY) == {}
+
+
 def test_clean_plan_rules():
     codes, nos = ['YM', 'TH'], ['L-1', 'L-2']
     raw = {'courses': [{'name': '  평택  라인 ', 'members': ['ym', 'YM'], 'leads': ['L-2', 'L-1', 'L-1'], 'memo': '  평택\n끝나고  '},

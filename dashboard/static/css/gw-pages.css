@@ -3285,7 +3285,17 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
 .gw-va-smark.w .fa-triangle-exclamation { font-size: 0.64rem; }
 .gw-vp-course.over, .gw-vp-inbox.over { border-color: #2a3038; background: #f2f3f6; }
 .gw-vp-chead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
-.gw-vp-chead .gw-va-people { flex: 1 1 auto; min-height: 30px; }
+.gw-vp-chead .gw-va-people { flex: 0 1 auto; min-height: 30px; }
+/* 메모는 코스 제목 줄 남는 자리(11-23 부장님) · 차는 차량 배정에서 정한 것 보기만 */
+.gw-vp-chead .gw-vp-memo { flex: 1 1 220px; min-width: 160px; gap: 6px; }
+.gw-vp-chead .gw-vp-memo input { min-width: 0; }
+.gw-vp-car { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border: 1px solid #cbd0d8; border-radius: 999px; background: #f8fafc; color: #334155; font-size: 0.78rem; line-height: 1.7; white-space: nowrap; }
+.gw-vp-car .fa-car-side { font-size: 0.72rem; }
+/* 넓은 화면은 세 칸: 사람 | 코스 | 현장 목록(현장 목록은 화면에 붙어 따라옴) — 그보다 좁으면 코스 아래 현장 목록 */
+@media (min-width: 1600px) {
+  .gw-vp-main { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); column-gap: 14px; align-items: start; }
+  .gw-vp-main > .gw-vp-inbox { position: sticky; top: 8px; max-height: calc(100vh - 90px); overflow: auto; margin-top: 0; }
+}
 .gw-vp-cacts { display: flex; flex-wrap: wrap; gap: 6px; }
 .gw-vp-row.before { box-shadow: 0 -3px 0 #2a3038; }
 .gw-vp-memo { flex-direction: row !important; align-items: center; }
@@ -3393,6 +3403,7 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
   .gw-vp-newc { margin-left: auto; }
   .gw-vp-memo { flex-direction: column !important; align-items: stretch; }
   .gw-vp-memo input { min-height: 44px; font-size: 16px; }
+  .gw-vp-chead .gw-vp-memo { flex: 1 1 100%; order: 10; }
   .gw-page .gw-vp-duty .gw-vp-addduty, .gw-page .gw-vp-duty .gw-vp-shift { height: 44px; min-height: 44px; font-size: 16px; }
   .gw-vp-warn { flex: 1 1 100%; }
   .gw-vp-warnmore { min-height: 44px; }

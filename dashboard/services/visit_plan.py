@@ -330,7 +330,28 @@ def load(day: str, leads: Iterable[dict], me: str = '') -> Dict:
         'warnings': warnings(plan, vs, off, names),
         'run': _state(row),
         'editable': editable(day), 'can_plan': can_plan(me),
+        'cars': cars_by_person(day),
     }
+
+
+def cars_by_person(day: str) -> Dict[str, List[Dict]]:
+    """그날 차량 배정에 저장된 차 — {이니셜: [{plate, label}]}. 방문 일정 코스 제목 줄에 보기만(11-23 부장님).
+    고치는 것은 차량 배정 화면에서만. 못 읽어도 방문 일정은 그대로 보이게 빈 값."""
+    try:
+        rows = va._day_rows(day)
+        if not rows:
+            return {}
+        fl = {c['plate']: c for c in va.fleet(True)}
+        out: Dict[str, List[Dict]] = {}
+        for plate, r in rows.items():
+            car = {'plate': plate, 'label': (fl.get(plate) or {}).get('label') or plate}
+            for code in va.riders(r):
+                if car not in out.setdefault(code, []):
+                    out[code].append(car)
+        return out
+    except Exception as e:
+        logger.warning(f'[방문일정] 차량 배정 읽기 실패: {e}')
+        return {}
 
 
 def save(day: str, raw: Dict, by: str, leads: Iterable[dict]) -> Dict:

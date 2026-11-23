@@ -35,13 +35,16 @@
         </aside>
         <section class="gw-vp-duty" id="vpDuty" aria-label="온라인 당번"></section>
       </div>
+      {# 넓은 화면(1600px 이상)은 코스 | 현장 목록 나란히 — 사람까지 세 칸(11-23 부장님: 여백·위아래 왕복 줄이기). 그보다 좁으면 코스 아래 현장 목록 #}
       <div class="gw-vp-main">
+        <div class="gw-vp-coursecol">
         <div class="gw-vp-sitehead">
           <h2 class="gw-vp-h">코스 <span id="vpCourseCount"></span></h2>
           <button type="button" class="btn btn-sm btn-outline-secondary" id="vpAddCourse"><i class="fas fa-plus" aria-hidden="true"></i> 코스 만들기</button>
         </div>
         <p class="gw-vp-how" id="vpMemoHelp">코스 메모는 그 코스 사람들의 담당자 DM 위쪽에 함께 가요.</p>
         <div class="gw-vp-courses" id="vpCourses"></div>
+        </div>
         <section class="gw-vp-inbox" id="vpInbox" data-drop="inbox" aria-label="코스에 안 넣은 현장">
           <div class="gw-vp-sitehead">
             <h2 class="gw-vp-h">현장 목록 <span id="vpInboxCount"></span></h2>
