@@ -100,7 +100,8 @@ _table_ready = False
 #   배정 저장·확정 기록은 그대로 된다. 다듬은 뒤 True 로.
 CAR_DM_ON: bool = False
 
-_DEFAULT_ASSIGNERS = ('sj@itg-aircon.com',)      # 빈승정 대리 — 인사 관리자는 따로 늘 가능
+# 빈승정 대리 + JW(11-24 부장님 — 방문 일정을 확정하고 바로 차량 배정 탭에서 차를 넣음). 인사 관리자는 따로 늘 가능
+_DEFAULT_ASSIGNERS = ('sj@itg-aircon.com', 'jw@itg-aircon.com')
 
 
 def _db():
@@ -702,10 +703,14 @@ def notify_changes(day: str, cars: Dict[str, Dict], old: Dict[str, Dict], new: D
     return n
 
 
-def request_assignment(day: Optional[str] = None) -> int:
-    """/일정확정 뒤 — 배정하는 사람에게 '내일 차량 배정해 주세요' DM(그날 이미 확정했거나 이미 보냈으면 안 보냄)."""
+def request_assignment(day: Optional[str] = None, by: str = '') -> int:
+    """/일정확정 뒤 — 배정하는 사람에게 '내일 차량 배정해 주세요' DM(그날 이미 확정했거나 이미 보냈으면 안 보냄).
+    by = 방문 일정을 확정한 사람. 그 사람이 배정 담당(JW 등)이면 보내지 않는다 — 확정하고 바로 차량 배정 탭으로 넘어가
+    직접 넣으므로(11-24 부장님). 대표님처럼 배정 담당이 아닌 사람이 확정하면 그대로 보낸다."""
     day = day if day and valid_day(day) else next_workday()
     if not CAR_DM_ON:
+        return 0
+    if by and by.strip().lower() in assigners():
         return 0
     info = _day_info(day) or {}
     if info.get('confirmed_at') or info.get('requested_at'):

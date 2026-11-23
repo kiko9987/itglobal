@@ -258,7 +258,8 @@ def test_routes_view_for_all_edit_for_assigner(db, monkeypatch):
 
 
 def test_dev_preview_only_kiko(db, monkeypatch):
-    """토요일 휴무·차량은 개발 중 — 부장님만 들어가고, 다른 사람은 '아직 개발 중' 안내·API 403(11-21)."""
+    """토요일 휴무·차량은 개발 중 — 부장님만 들어가고, 다른 사람은 '아직 개발 중' 안내·API 403(11-21).
+    차량 배정 화면만 배정 담당(SJ·JW)에게 먼저(11-24)."""
     import dashboard.auth as auth
     from dashboard.blueprints import gw_satoff as so_bp
     from dashboard.blueprints import gw_vehicles as bp
@@ -278,9 +279,12 @@ def test_dev_preview_only_kiko(db, monkeypatch):
     with app.test_client() as cl:
         with cl.session_transaction() as s:
             s['user'] = {'email': ASSIGNER, 'permission_level': 'admin'}
-        for path in ('/vehicles/assign', '/vehicles', '/leave/saturday'):
+        # 차량 배정 화면만 배정 담당에게 먼저 열림(11-24 — JW 가 방문 일정 확정 뒤 바로 차를 넣음). 다른 차량 화면은 그대로 개발 중
+        assert cl.get('/vehicles/assign').get_data(as_text=True) == 'gw/vehicle_assign.html'
+        assert cl.get('/api/vehicles/assign?day=2026-11-21').get_json()['success']
+        for path in ('/vehicles', '/leave/saturday'):
             assert cl.get(path).get_data(as_text=True) == 'gw/dev_preview.html', path
-        for path in ('/api/vehicles/assign', '/api/vehicles', '/api/satoff'):
+        for path in ('/api/vehicles', '/api/satoff'):
             r = cl.get(path)
             assert r.status_code == 403 and '개발 중' in r.get_json()['message'], path
         assert cl.post('/api/satoff/toggle', json={}).status_code == 403
@@ -451,3 +455,14 @@ def test_no_draft_on_empty_day(db):
     for v in (va.day_view('2026-11-21', teams), va.day_view('2026-11-21')):
         assert not _rows(v) and v['draft_kind'] is None and v['draft_from'] is None
     assert _rows(va.day_view('2026-11-20')) == {'231허6854': ['SJ', 'KMW'], '03모8021': ['JW', 'TH']}
+
+
+def test_request_skipped_when_confirmer_assigns(db, monkeypatch):
+    """방문 일정을 확정한 사람이 배정 담당(JW)이면 '차량 배정해 주세요' DM 안 보냄 — 바로 차량 배정 탭으로(11-24)."""
+    monkeypatch.setattr(va, 'CAR_DM_ON', True)
+    monkeypatch.setattr(gw, 'DEV_PREVIEW_USERS', ())
+    sent = []
+    monkeypatch.setattr(va, '_dm', lambda sid, text: sent.append(sid) or True)
+    assert set(va._DEFAULT_ASSIGNERS) == {'jw@itg-aircon.com', 'sj@itg-aircon.com'}     # 기본 배정 담당 = SJ + JW
+    monkeypatch.setattr(va, 'assigners', lambda: ['sj@example.com', 'jw@example.com'])
+    assert va.request_assignment('2026-11-26', 'JW@example.com') == 0 and sent == []      # JW 가 확정 → 안 보냄

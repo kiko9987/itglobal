@@ -31,9 +31,20 @@ def _plan_admin() -> bool:
     return gw.VISIT_PLAN_ADMIN_ONLY and _is_admin() and not _is_field()
 
 
+_ASSIGN_PATHS = ('/vehicles/assign', '/api/vehicles/assign')
+
+
+def _assign_open() -> bool:
+    """차량 배정 화면만 배정 담당(SJ·JW)에게 먼저(11-24 부장님 — JW 가 방문 일정 확정 뒤 바로 차를 넣음).
+    운행일지·차량 관리 등 다른 차량 화면은 여전히 개발 중 명단만."""
+    return not _is_field() and va.can_assign(_me())
+
+
 def _gate():
-    """개발 중 — 부장님만(11-21). 방문 일정만 관리자에게 먼저(11-23)."""
+    """개발 중 — 부장님만(11-21). 방문 일정만 관리자에게 먼저(11-23), 차량 배정은 배정 담당에게 먼저(11-24)."""
     if request.path.startswith(_PLAN_PATHS) and _plan_admin():
+        return None
+    if request.path.startswith(_ASSIGN_PATHS) and _assign_open():
         return None
     return dev_preview_gate()
 
@@ -124,8 +135,9 @@ def _day() -> str:
 def _vtabs() -> dict:
     """방문 일정 ↔ 차량 배정 탭(11-24 부장님) — 각 화면을 열 수 있는지. 둘 다 될 때만 탭 줄을 보인다.
     차량 배정 = 개발 중 문(dev_preview) 통과, 방문 일정 = page_visit_plan 과 같은 조건(관리자 먼저 열림 포함)."""
-    cars = gw.dev_preview_ok(_me())
-    plan = _plan_admin() or (cars and (_can_plan() or (not _is_field() and vp.is_duty_today(_me()))))
+    dev = gw.dev_preview_ok(_me())
+    cars = dev or _assign_open()
+    plan = _plan_admin() or ((dev or _assign_open()) and (_can_plan() or (not _is_field() and vp.is_duty_today(_me()))))
     return {'plan': bool(plan), 'cars': bool(cars)}
 
 
@@ -248,6 +260,7 @@ def api_plan_get():
         logger.error(f'[방문일정] 불러오기 실패: {e}', exc_info=True)
         return jsonify({'success': False, 'message': '불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요.'}), 500
     data['can_edit'] = bool(data.pop('can_plan')) and data['editable'] and not _is_field()
+    data['to_cars'] = bool(_assign_open())     # 확정이 끝나면 차량 배정 탭으로 바로 넘어갈 사람(배정 담당, 11-24)
     data['can_urgent'] = not _is_field() and vp.can_urgent(_me(), day)
     return jsonify({'success': True, **data})
 

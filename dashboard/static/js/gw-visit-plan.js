@@ -885,6 +885,16 @@
       say('확정했어요. ' + t.ok + (t.bad.length ? ' — 확인 필요: ' + t.bad.join(' / ') : ''), t.bad.length ? 'warn' : 'ok');
       load(P.day, true).then(function () {
         say('확정했어요. ' + t.ok + (t.bad.length ? ' — 확인 필요: ' + t.bad.join(' / ') : ''), t.bad.length ? 'warn' : 'ok');
+        // 배정 담당(JW 등)은 확정이 깔끔하게 끝나면 같은 날 차량 배정 탭으로 바로 넘어간다(11-24 부장님).
+        //   '확인 필요'가 있으면 결과를 읽어야 하니 넘어가지 않고 단추만
+        if (P.data.to_cars && !t.bad.length) {
+          var day = P.day;
+          say('확정했어요. ' + t.ok + ' — 잠시 뒤 차량 배정으로 넘어가요.', 'ok');
+          setTimeout(function () {
+            if (P.day === day && !P.dirty) location.href = '/vehicles/assign?day=' + encodeURIComponent(day);
+          }, 2500);
+          return;
+        }
         var link = document.createElement('a');
         link.className = 'btn btn-sm btn-outline-primary gw-vp-next'; link.textContent = '차량 배정으로';
         link.href = '/vehicles/assign?day=' + encodeURIComponent(P.day);

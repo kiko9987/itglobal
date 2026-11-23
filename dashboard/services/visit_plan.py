@@ -698,7 +698,7 @@ def _run_confirm(day: str, plan: Dict, by: str, fresh_leads: Callable[[], List[d
         logger.warning(f'[방문일정] 캔버스2 쓰기 실패: {e}', exc_info=True)
     _finish(day, 'done', summary, by, plan)
     try:
-        va.request_assignment(day)
+        va.request_assignment(day, by)      # 확정한 사람이 배정 담당이면 안 보냄(바로 차량 배정 탭으로, 11-24)
     except Exception as e:
         logger.warning(f'[방문일정] 차량 배정 요청 DM 실패: {e}', exc_info=True)
     try:        # 다시 확정해서 코스 사람이 바뀌었으면 — 차량 배정을 이미 해 둔 날만 배정 담당에게(11-23 부장님)

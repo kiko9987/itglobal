@@ -263,7 +263,7 @@ def test_confirm_runs_and_locks_slack(db, monkeypatch):
     monkeypatch.setattr(vas, 'commit_plan', fake_commit)
     monkeypatch.setattr(vp.threading, 'Thread', _NowThread)
     monkeypatch.setattr(vp, '_audit', lambda res, by: [])
-    monkeypatch.setattr(va, 'request_assignment', lambda day=None: seen.setdefault('req', day))
+    monkeypatch.setattr(va, 'request_assignment', lambda day=None, by='': seen.setdefault('req', day))
     monkeypatch.setattr(va, 'next_workday', lambda today=None: DAY)
     plan = {'courses': [{'name': '', 'members': ['YM', 'LSH'], 'leads': ['L-1', 'L-2'], 'memo': '오전 먼저'},
                         {'name': '', 'members': ['TH'], 'leads': ['L-3'], 'memo': ''}],
@@ -415,7 +415,7 @@ def test_plan_routes_permission(db, monkeypatch):
     monkeypatch.setattr(vp.threading, 'Thread', _NowThread)
     monkeypatch.setattr(vas, 'commit_plan', lambda parsed, target_date=None: {'ok': True, 'dm': {}})
     monkeypatch.setattr(vp, '_audit', lambda res, by: [])
-    monkeypatch.setattr(va, 'request_assignment', lambda day=None: 0)
+    monkeypatch.setattr(va, 'request_assignment', lambda day=None, by='': 0)
     monkeypatch.setattr('dashboard.services.visit_assignment_sync.PLANNER_EMAILS', ('p@example.com',))
     monkeypatch.setattr(bp, 'render_template', lambda name, **k: name)
     app = Flask(__name__)
@@ -498,7 +498,7 @@ def _confirm(monkeypatch, plan, notices=None):
     monkeypatch.setattr(vas, 'commit_plan', lambda parsed, target_date=None: {'ok': True, 'dm': {}})
     monkeypatch.setattr(vp.threading, 'Thread', _NowThread)
     monkeypatch.setattr(vp, '_audit', lambda res, by: [])
-    monkeypatch.setattr(va, 'request_assignment', lambda day=None: 0)
+    monkeypatch.setattr(va, 'request_assignment', lambda day=None, by='': 0)
     monkeypatch.setattr(vp, '_staff', lambda: [dict(p) for p in STAFF])
     if notices is not None:
         monkeypatch.setattr(va, 'notify_plan_changed', lambda day, text: notices.append((day, text)) or 1)
