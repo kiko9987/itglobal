@@ -134,6 +134,10 @@
       });
     });
     Object.keys(count).forEach(function (m) { if (count[m] > 1) out.push({ level: 'warn', text: name(m) + '님이 코스 ' + count[m] + '곳에 들어가 있어요.' }); });
+    // 같은 주소의 다른 리드가 있는 현장(11-23) — 중복 등록·이미 다녀온 현장일 수 있음
+    var same = P.data.visits.filter(function (v) { return ((P.data.same_site || {})[v.lead_no] || []).length; });
+    if (same.length) out.push({ level: 'warn', text: '같은 주소에 다른 리드가 있는 현장 ' + same.length + '건(' +
+      same.map(function (v) { return v.lead_no; }).join(', ') + ') — 중복 등록·이미 다녀온 현장인지 확인해 주세요.' });
     P.plan.online.forEach(function (o) {
       if (offs[o.code]) out.push({ level: blocked(o.code) ? 'error' : 'warn',
         text: '온라인 당번 ' + name(o.code) + '님은 이날 ' + offs[o.code] + '예요' + (blocked(o.code) ? ' — 빼야 확정돼요.' : '.') });
@@ -183,9 +187,19 @@
     }
     return '';
   }
+  // 같은 주소의 다른 리드(11-23 부장님: L-04642 ↔ L-04650 같은 현장 두 번 등록) — 주황, 마우스를 올리면 자세히
+  function siteTag(v) {
+    var list = (P.data.same_site || {})[v.lead_no];
+    if (!list || !list.length) return '';
+    var f = list[0];
+    var line = function (x) { return x.lead_no + ' ' + (x.name || '') + ' · ' + x.date + ' ' + (x.status || '') + (x.who ? ' · ' + x.who : ''); };
+    return '<span class="gw-va-smark w gw-vp-same" title="' + esc('같은 주소의 다른 리드 — 같은 현장이면 중복 등록이에요\n' + list.map(line).join('\n')) + '">' +
+      '<i class="fas fa-clone" aria-hidden="true"></i> 같은 주소 ' + esc(f.lead_no) + ' · ' + esc(f.date + ' ' + (f.status || '')) +
+      (list.length > 1 ? ' 외 ' + (list.length - 1) : '') + '</span>';
+  }
   function marks(v, miss) {
     return (v.platform ? '<span class="gw-va-smark plat">' + esc(v.platform) + '</span>' : '') + who(v, miss) +
-      v.marks.map(function (m) { return '<span class="gw-va-smark">' + esc(m) + '</span>'; }).join('') + whenTag(v);
+      v.marks.map(function (m) { return '<span class="gw-va-smark">' + esc(m) + '</span>'; }).join('') + whenTag(v) + siteTag(v);
   }
   function placeTag(v) { return v.place ? '<span class="gw-vp-place">' + esc(v.place) + '</span>' : ''; }
   function personTag(c) {

@@ -458,7 +458,74 @@ def load(day: str, leads: Iterable[dict], me: str = '') -> Dict:
         'editable': editable(day), 'can_plan': can_plan(me),
         'cars': cars_by_person(day),
         'urgent': urgent_map,
+        'same_site': _safe_same_site(day, leads, vs),
     }
+
+
+# ── 같은 주소의 다른 리드(11-23 부장님) — L-04642(대표님 11/22 등록)와 L-04650(MJ 11/23 다시 등록)이 같은 현장이라
+#   MJ 가 L-04650 에 사진을 올려 그쪽만 방문 완료, L-04642 는 다음 날 YM 코스로 다시 잡혔음. 코스에 넣기 전에 보이게.
+SAME_SITE_DAYS = 14
+
+
+def same_site(day: str, leads: Iterable[dict], vs: List[Dict]) -> Dict[str, List[Dict]]:
+    """그날 현장마다 같은 주소(시 + 도로명·번지)의 다른 리드 — 앞뒤 14일 안 방문, 드랍·취소 뺌.
+    {리드 No: [{lead_no, name, status, date, who}]}. 같은 건물 다른 가게일 수도 있어 막지는 않고 보여만 준다.
+    문의 리드(L-)끼리만 — 기타 방문(ETC-: A/S·계약서·현장 핸들링)은 원래 같은 현장에 여러 번 가서 뺀다."""
+    from dashboard.services import vehicle_log as vl
+    from dashboard.services import visit_assignment_sync as vas
+    from dashboard.services.lead_sync import _addr_core
+    d = date.fromisoformat(day)
+    lo, hi = d - timedelta(days=SAME_SITE_DAYS), d + timedelta(days=SAME_SITE_DAYS)
+
+    def key(addr: str, core: str) -> tuple:
+        return (vl.area(addr)[0], core)
+    mine: Dict[tuple, List[str]] = {}
+    for v in vs:
+        if str(v['lead_no']).startswith('ETC-'):
+            continue
+        addr = str(v.get('addr') or '')
+        core = _addr_core(addr)
+        if core:
+            mine.setdefault(key(addr, core), []).append(v['lead_no'])
+    if not mine:
+        return {}
+    cores = {k[1] for k in mine}
+    out: Dict[str, List[Dict]] = {}
+    for lead in leads:
+        if str(lead.get('리드 No') or '').strip().startswith('ETC-'):
+            continue
+        addr = str(lead.get('방문 주소') or '')
+        core = _addr_core(addr)
+        if not core or core not in cores:
+            continue
+        k = key(addr, core)
+        if k not in mine:
+            continue
+        st = str(lead.get('상태') or '').strip()
+        if '드랍' in st or '취소' in st:
+            continue
+        s = vas._parse_visit_date_start(lead.get('방문 예정일'))
+        if not s:
+            continue
+        e = vas._parse_visit_date_end(lead.get('방문 예정일'))
+        e = e if e and e >= s else s
+        if e < lo or s > hi:
+            continue
+        no = str(lead.get('리드 No') or '').strip()
+        item = {'lead_no': no, 'name': str(lead.get('고객명') or '').strip()[:20], 'status': st,
+                'date': f'{s.month}/{s.day}' + (f'~{e.day}' if e != s else ''), 'who': str(lead.get('영업 담당자') or '').strip()}
+        for m in mine[k]:
+            if m != no:
+                out.setdefault(m, []).append(item)
+    return out
+
+
+def _safe_same_site(day: str, leads: Iterable[dict], vs: List[Dict]) -> Dict[str, List[Dict]]:
+    try:
+        return same_site(day, leads, vs)
+    except Exception as e:
+        logger.warning(f'[방문일정] 같은 주소 찾기 실패: {e}')
+        return {}
 
 
 def cars_by_person(day: str) -> Dict[str, List[Dict]]:

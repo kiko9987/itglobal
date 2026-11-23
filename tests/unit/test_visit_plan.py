@@ -598,3 +598,20 @@ def test_canvas2_round_trip(db, monkeypatch):
     other = {**plan, 'courses': [{'members': ['YM'], 'leads': ['L-1', 'L-2', 'L-4'], 'memo': ''}] + plan['courses'][1:]}
     bad = vp.canvas2_check(html, other)
     assert not bad['ok'] and any('L-1' in d for d in bad['diff']) and any('L-4' in d for d in bad['diff'])
+
+
+def test_same_site(db):
+    """같은 주소의 다른 리드(11-23 L-04642 ↔ L-04650) — 문의 리드끼리, 앞뒤 14일, 드랍·취소 빼고. 기타(ETC-)는 안 봄."""
+    addr = '인천 영종구 하늘별빛로65번길 8 비씨디몰'
+    past = (date.fromisoformat(DAY) - timedelta(days=1)).isoformat()
+    leads = LEADS + [
+        {**_lead('L-40'), '방문 주소': addr, '방문 예정일': f'{past}~{DAY[-2:]}'},              # 원래 등록(이틀짜리)
+        {**_lead('L-41'), '방문 주소': addr + ' 1층', '방문 예정일': past, '상태': '방문 완료', '영업 담당자': '박민재'},   # 다시 등록
+        {**_lead('L-42'), '방문 주소': addr, '방문 예정일': past, '상태': '문의 드랍'},           # 드랍은 안 봄
+        {**_lead('ETC-43'), '방문 주소': addr, '방문 예정일': past, '상태': '방문 완료'},         # 기타 방문은 안 봄
+        {**_lead('L-44'), '방문 주소': '부산 영종구 하늘별빛로65번길 8', '방문 예정일': past}]     # 다른 시
+    vs = vp.visits(DAY, leads)
+    r = vp.same_site(DAY, leads, vs)
+    assert list(r) == ['L-40'] and [x['lead_no'] for x in r['L-40']] == ['L-41']
+    assert r['L-40'][0]['status'] == '방문 완료' and r['L-40'][0]['who'] == '박민재'
+    assert 'same_site' in vp.load(DAY, leads, 'p@example.com')
