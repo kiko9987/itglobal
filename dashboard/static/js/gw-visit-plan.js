@@ -369,7 +369,7 @@
     $('vpPeopleHow').innerHTML = peopleBar();
     $('vpCourseCount').textContent = P.plan.courses.length ? P.plan.courses.length + '개' : '';
     $('vpCourses').innerHTML = P.plan.courses.map(function (c, i) { return courseCard(c, i, ws); }).join('') ||
-      '<p class="gw-va-sempty">' + (P.canEdit ? '현장 목록에서 [새 코스로]를 눌러 코스를 만들어 주세요. 여러 현장을 체크하면 한 코스로 묶여요.' : '아직 코스가 없어요.') + '</p>';
+      '<p class="gw-va-sempty">' + (P.canEdit ? '현장 목록에서 [새 코스로]를 눌러 코스를 만들어 주세요. 여러 현장을 체크한 뒤 누르면 한 코스로 묶여요.' : '아직 코스가 없어요.') + '</p>';
     $('vpAddCourse').hidden = !P.canEdit;
     $('vpInboxCount').textContent = left.length + '건' + (left.length !== P.data.visits.length ? ' (전체 ' + P.data.visits.length + '건)' : '');
     selBar();
