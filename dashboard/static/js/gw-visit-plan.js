@@ -248,7 +248,8 @@
         var check = P.canEdit ? '<input type="checkbox" class="form-check-input gw-vp-check" data-act="check" data-lead="' + esc(v.lead_no) + '"' + (on ? ' checked' : '') +
           ' aria-label="' + esc((v.place || '') + ' ' + v.lead_no) + ' 고르기">' : '';
         return '<li class="gw-vp-inrow' + (on ? ' on' : '') + '"' + (P.canEdit ? ' draggable="true" data-drag-lead="' + esc(v.lead_no) + '"' : '') + '>' + check +
-          '<span class="gw-vp-rmain"><span class="gw-vp-vtop">' + placeTag(v) + marks(v) + '<strong>' + esc(v.date) + '</strong><span class="gw-va-sno">' + esc(v.lead_no) + '</span></span>' +
+          // 현장 목록은 지역 소제목으로 이미 나뉘어 지역 꼬리표는 뺌(11-23 부장님) — 코스 안 줄은 지역이 섞여 꼬리표 유지
+          '<span class="gw-vp-rmain"><span class="gw-vp-vtop">' + marks(v) + '<strong>' + esc(v.date) + '</strong><span class="gw-va-sno">' + esc(v.lead_no) + '</span></span>' +
           (v.addr ? '<span class="gw-vp-vaddr">' + esc(v.addr) + '</span>' : '') +
           (v.text ? '<span class="gw-vp-vtext">' + esc(v.text) + '</span>' : '') + '</span>' +
           // 체크한 줄은 [새 코스로]를 숨긴다 — 체크한 것은 위 [새 코스로]·지역 단추로 함께 올림
