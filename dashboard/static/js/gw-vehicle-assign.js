@@ -200,8 +200,11 @@
     return out.join(' → ');
   }
   // 배정됨 — 코스 순서대로 묶어 보기(11-23 부장님). 두 코스에 든 사람은 앞 코스에, 코스에 없는 사람은 맨 아래 '그 밖'
-  function placedByCourse(placed) {
+  function placedByCourse(placed, ownIn) {
     var groups = [], seen = {};
+    function one(c) {     // 본인 차로 간 사람(MW 스파크 등)은 차 이름 + (본인)
+      return ownIn[c] ? person(c, '<small class="gw-va-where">' + esc(ownIn[c].label) + ' (본인)</small>') : person(c);
+    }
     var src = S.courses ? S.courses.courses.filter(function (c) { return c.kind !== 'work'; })
       : S.teams.filter(function (t) { return t.label; }).map(function (t) { return { label: t.label, members: t.members }; });
     src.forEach(function (c) {
@@ -210,10 +213,10 @@
       if (list.length) groups.push({ label: c.label, list: list });
     });
     var rest = placed.filter(function (m) { return !seen[m]; });
-    if (!groups.length) return '<div class="gw-va-plist">' + placed.map(function (c) { return person(c); }).join('') + '</div>';
+    if (!groups.length) return '<div class="gw-va-plist">' + placed.map(one).join('') + '</div>';
     if (rest.length) groups.push({ label: '그 밖', list: rest });
     return groups.map(function (g) {
-      return '<div class="gw-va-psub">' + esc(g.label) + '</div><div class="gw-va-plist">' + g.list.map(function (c) { return person(c); }).join('') + '</div>';
+      return '<div class="gw-va-psub">' + esc(g.label) + '</div><div class="gw-va-plist">' + g.list.map(one).join('') + '</div>';
     }).join('');
   }
   function staffPanel() {
@@ -255,7 +258,15 @@
       return u;
     }).filter(function (t) { return t.left.length; });
     var freeOther = free.filter(function (c) { return !inTeam[c] && ownList.indexOf(c) === -1; });
-    var placed = codes.filter(function (c) { return whereIs(c); });
+    // 본인 차로 방문을 다녀오는 사람은 '배정됨'에 그 코스와 함께(11-23 부장님: 개인 차여도 현장을 갔다 왔으니 배정된 것)
+    //   방문이 없는 고정 차 주인만 '본인 차량'에 남는다
+    var inCourse = courseMembers();
+    var ownIn = {};
+    ownList = ownList.filter(function (c) {
+      if (S.visits[c] || inCourse[c]) { ownIn[c] = own[c]; return false; }
+      return true;
+    });
+    var placed = codes.filter(function (c) { return whereIs(c) || ownIn[c]; });
     function group(title, list, cls) {
       if (!list.length) return '';
       return '<div class="gw-va-group ' + (cls || '') + '"><div class="gw-va-gtitle">' + esc(title) + ' <span>' + list.length + '</span></div>' +
@@ -295,7 +306,7 @@
         }).join('') + '</div></div>' : '') +
       (placed.length ? '<details class="gw-va-group done" id="vaDoneGroup"' + (S.doneOpen ? ' open' : '') + '><summary class="gw-va-gtitle">' +
         '<i class="fas fa-chevron-right gw-va-gfold" aria-hidden="true"></i> 배정됨 <span>' + placed.length + '</span></summary>' +
-        placedByCourse(placed) + '</details>' : '') +
+        placedByCourse(placed, ownIn) + '</details>' : '') +
       group('온라인 당번', dutyList, 'off') +
       (workList.length ? '<div class="gw-va-group off"><div class="gw-va-gtitle">사내 업무 <span>' + workList.length + '</span></div>' +
         '<div class="gw-va-plist">' + workList.map(function (c) {
