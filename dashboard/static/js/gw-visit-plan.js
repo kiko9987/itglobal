@@ -186,7 +186,7 @@
       '<span class="gw-vp-no" aria-hidden="true">' + (k + 1) + '</span><span class="gw-vp-rmain">' +
       '<span class="gw-vp-vtop">' + placeTag(v) + marks(v, ownerMissing(v, i)) + '<span class="gw-va-sno">' + esc(v.date) + ' · ' + esc(v.lead_no) + '</span></span>' +
       (v.addr ? '<span class="gw-vp-vaddr">' + esc(v.addr) + '</span>' : '') +
-      (v.text ? '<span class="gw-vp-vtext">' + esc(v.text) + '</span>' : '') + '</span>' + acts + '</li>';
+      (v.text ? '<span class="gw-vp-vtext" title="' + esc(v.text) + '">' + esc(v.text) + '</span>' : '') + '</span>' + acts + '</li>';
   }
   // 차량 배정에서 이 코스 사람에게 정한 차 — 보기만(고치는 건 차량 배정 화면, 11-23 부장님)
   function carTag(c) {
@@ -265,7 +265,7 @@
         // 현장 목록은 지역 소제목으로 이미 나뉘어 지역 꼬리표는 뺌(11-23 부장님) — 코스 안 줄은 지역이 섞여 꼬리표 유지
         '<span class="gw-vp-rmain"><span class="gw-vp-vtop">' + marks(v) + '<strong>' + esc(v.date) + '</strong><span class="gw-va-sno">' + esc(v.lead_no) + '</span></span>' +
         (v.addr ? '<span class="gw-vp-vaddr">' + esc(v.addr) + '</span>' : '') +
-        (v.text ? '<span class="gw-vp-vtext">' + esc(v.text) + '</span>' : '') + '</span>' +
+        (v.text ? '<span class="gw-vp-vtext" title="' + esc(v.text) + '">' + esc(v.text) + '</span>' : '') + '</span>' +
         // 체크한 줄은 [새 코스로]를 숨긴다 — 체크한 것은 위 [새 코스로]·지역 단추로 함께 올림
         //   자리는 남겨 둔다(숨김) — 단추가 빠지면 줄 높이가 줄어 아래가 올라감(11-22 부장님)
         (P.canEdit ? '<button type="button" class="btn btn-sm btn-outline-secondary gw-vp-newc' + (on ? ' gw-vp-keep' : '') + '" data-act="newc" data-lead="' + esc(v.lead_no) + '"' +

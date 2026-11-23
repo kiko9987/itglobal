@@ -3307,7 +3307,8 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
   .gw-vp-row .gw-vp-rmain, .gw-vp-inrow .gw-vp-rmain { flex-direction: row; align-items: center; gap: 8px; }
   .gw-vp-row .gw-vp-vtop, .gw-vp-inrow .gw-vp-vtop { flex: 0 0 auto; flex-wrap: nowrap; }
   .gw-vp-row .gw-vp-vaddr, .gw-vp-inrow .gw-vp-vaddr { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
-  .gw-vp-row .gw-vp-vtext, .gw-vp-inrow .gw-vp-vtext { flex: 1 1 0; min-width: 0; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* 문의 내용은 두 줄까지(11-23 부장님: 1400px 에서 한 줄로 잘림) — 더 길면 말줄임, 마우스를 올리면 전부 */
+  .gw-vp-row .gw-vp-vtext, .gw-vp-inrow .gw-vp-vtext { flex: 1 1 0; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal; overflow: hidden; }
 }
 .gw-vp-row[draggable="true"], .gw-vp-inrow[draggable="true"] { cursor: grab; }
 /* 체크한 현장도 사람과 같은 남색 채움·흰 글자(11-22 부장님) */
