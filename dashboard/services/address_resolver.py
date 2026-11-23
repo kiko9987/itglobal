@@ -787,6 +787,10 @@ _TAIL_STOP_WORDS = [
     '신축', '상담', '견적', '문의', '연락', '전화', '에어컨', '설치', '예정',
     '냉방', '냉난방', '제품', '면적', '평수', '평형', '시스템',
     '천장형', '스탠드형', '벽걸이', '중고 ',   # 제품 형태 (2026-11-23 L-04077)
+    # 현장 사정 설명 (2026-11-23 L-03841: 리 지번 tail 을 읽게 되며 '현재 카페로 업종
+    #   변경을 위해 …리모델링중'이 주소에 붙음). '현재 '는 넣지 않음 — 담당자가 적은
+    #   '1층 현재 미용실 자리'(L-04342)·'현재 공실'까지 잘림. '현재 ○○로'는 아래 정규식.
+    '업종', '리모델링', '위해 ',
     '예정입니다', '있습니다', '합니다', '드립니다', '부탁', '바랍니다',
     '필요합니다', '희망', '원합니다',
     # 모호 명사 (의미 없이 뒤따라붙는 단어들) — "집/카페/식당"은 빌딩명에 흔히 들어가므로 제외
@@ -935,7 +939,9 @@ def _extract_building_tail(text: str, require_signal: bool = True) -> str:
     #    '동' 없는 N가 법정동(명륜4가·을지로3가·종로5가)도 지원 (2026-10-12 L-03251: 뒤 '2층
     #    토리기조쿠 (예정)'이 tail 로 안 잡혀 상호·(예정) 유실).
     m = re.search(
-        r'[가-힣]+(?:동(?:\s*\d+가)?|\d+가)\s*\d+(?:-\d+)?(?:번지)?\s*[,\s]+(.+)',
+        # 읍·면의 리 지번('아미리 723-2')도 (2026-11-23 L-04665: 뒤 '삼성홈플렉스2 405호'
+        #   건물명 유실). '사거리 3 …'은 제외.
+        r'[가-힣]+(?:동(?:\s*\d+가)?|\d+가|(?<!거)리)\s*\d+(?:-\d+)?(?:번지)?\s*[,\s]+(.+)',
         first_line,
     )
     if m:
@@ -1010,6 +1016,10 @@ def _extract_building_tail(text: str, require_signal: bool = True) -> str:
         _mp = re.search(rf'\s{PYEONG_AREA}', tail)
         if _mp and _mp.start() < cut_pos:
             cut_pos = _mp.start()
+        # '현재 카페로 …'(현재 ○○(으)로 + 뒤 문장)는 현장 사정 설명 (2026-11-23 L-03841)
+        _mc = re.search(r'(?:^|\s)현재\s+\S+로\s', tail)
+        if _mc and _mc.start() < cut_pos:
+            cut_pos = _mc.start()
         tail = tail[:cut_pos].strip()
         # 트레일링 부호/공백 정리
         tail = re.sub(r'[,.\s]+$', '', tail).strip()
@@ -1056,10 +1066,13 @@ def _append_missing_bare_name(addr: str, text: str) -> str:
     first = re.sub(r'\s+', ' ', (text or '').strip().split('\n', 1)[0])
     m = (re.search(r'[가-힣]{2,}\d*(?:로|길)(?:\s*\d+(?:번|[가나다라마바사아자차카타파하])?안?(?:로|길))?'
                    r'\s*\d+(?:-\d+)?(?:번지|번길)?\s*[,\s]\s*(\S+)$', first)
-         or re.search(r'[가-힣]+(?:동(?:\s*\d+가)?|\d+가)\s*\d+(?:-\d+)?(?:번지)?\s*[,\s]\s*(\S+)$', first))
+         or re.search(r'[가-힣]+(?:동(?:\s*\d+가)?|\d+가|(?<!거)리)\s*\d+(?:-\d+)?(?:번지)?\s*[,\s]\s*(\S+)$', first))
     if not m:
         return addr
     word = m.group(1).rstrip('.,')
+    # 법인 표기 '(주)'·'㈜'는 떼고 이름만 붙임 (2026-11-23 L-04661 부장님: '클레로보틱스(주)'가
+    #   괄호 때문에 통째 유실 → '클레로보틱스'만). 이 경로(빠진 상호 다시 붙이기)에서만.
+    word = re.sub(r'\((?:주|유|사|재)\)|㈜', '', word).strip()
     from dashboard.services.lead_helpers import _mask_stop_exempt
     if (not 2 <= len(word) <= 20
             or not re.search(r'[가-힣A-Za-z]', word)

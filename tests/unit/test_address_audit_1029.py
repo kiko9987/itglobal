@@ -501,5 +501,29 @@ def test_address_detail_second_line_l04648(line, expected):
     assert ar.is_address_detail_line(line) is expected
 
 
+@pytest.mark.parametrize('raw, expected', [
+    # L-04661: 번지 뒤 법인 표기 붙은 상호가 괄호 때문에 통째 빠지던 것 → 이름만 붙임
+    ('군포시 당정동 352-8 클레로보틱스(주)', '군포시 당정동 352-8 클레로보틱스'),
+    ('군포시 당정동 352-8 ㈜클레로보틱스', '군포시 당정동 352-8 클레로보틱스'),
+    # 괄호 설명은 그대로 제외
+    ('군포시 당정동 352-8 단독건물(주택)', '군포시 당정동 352-8'),
+])
+def test_corp_mark_bare_name_kept_l04661(raw, expected):
+    assert ar._append_missing_bare_name('군포시 당정동 352-8', raw) == expected
+
+
+@pytest.mark.parametrize('raw, expected', [
+    # L-04665: 읍·면 리 지번 뒤 건물명·호수
+    ('경기 이천시 부발읍 아미리 723-2 삼성홈플렉스2 405호', '삼성홈플렉스2 405호'),
+    ('양평군 서종면 문호리 100 2층 카페', '2층 카페'),
+    # '사거리'는 리 지번 아님
+    ('강남구 역삼동 사거리 3 출구', ''),
+    # 리 지번 뒤 현장 사정 설명은 건물명 아님 (L-03841)
+    ('화성시 매송면 어천리 107-2 현재 카페로 업종 변경을 위해 오픈현천장으로 리모델링중입니다.', ''),
+])
+def test_ri_jibun_building_tail_l04665(raw, expected):
+    assert ar._extract_building_tail(raw) == expected
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
