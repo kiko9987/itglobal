@@ -187,7 +187,7 @@
     function opt(c) {
       var who = isOwn(c) ? [] : ridersOf(c).filter(function (p) { return except.indexOf(p) === -1; }).map(name);
       // 고른 차는 이름만(같이 탄 사람은 왼쪽 차 목록에), 나머지는 지금 탄 사람 또는 '빈 차'
-      var text = isOwn(c) ? '자차' : sel === c.plate ? c.label : c.label + (who.length ? ' · ' + who.join(', ') : ' · 빈 차');
+      var text = isOwn(c) ? c.label : sel === c.plate ? c.label : c.label + (who.length ? ' · ' + who.join(', ') : ' · 빈 차');
       return '<option value="' + esc(c.plate) + '"' + (sel === c.plate ? ' selected' : '') + '>' + esc(text) + '</option>';
     }
     var shared = S.cars.filter(function (c) { return c.usage === 'shared'; });
@@ -233,7 +233,7 @@
       var ms = g.members.filter(function (m) { return !S.off[m]; });
       var names = [];
       var add = function (t) { if (t && names.indexOf(t) === -1) names.push(t); };
-      var lab = function (c) { return isOwn(c) ? '자차' : c.label; };
+      var lab = function (c) { return c.label; };
       ms.forEach(function (m) {
         var am = whereAt(m, 'am'), pm = whereAt(m, 'pm');
         if (am) add(lab(am));
@@ -252,7 +252,7 @@
     if (cur) {
       var c = carOf(cur);
       return '<span class="gw-vc-slot on"><i class="fas ' + (isOwn(c) ? 'fa-user' : 'fa-car-side') + '" aria-hidden="true"></i> ' +
-        esc(isOwn(c) ? '자차' : c.label) + x(isOwn(c) ? '자차' : c.label) + '</span>';
+        esc(c.label) + x(c.label) + '</span>';
     }
     return '<span class="gw-vc-slot empty"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> 차 없음</span>';
   }
@@ -350,7 +350,7 @@
     return '<div class="gw-vc-inpick" role="group" aria-label="넣을 차">' + S.cars.map(function (c) {
       var used = uniq(ridersOf(c).map(function (m) { return (inG[m] || ['그 밖'])[0]; }));
       return '<button type="button" class="gw-vc-inbtn' + (used.length ? ' used' : '') + '" data-pickcar="' + esc(c.plate) + '">' +
-        esc(isOwn(c) ? '자차' : c.label) + (used.length && !isOwn(c) ? ' <small>' + esc(used.join('·')) + '</small>' : '') + '</button>';
+        esc(c.label) + (used.length && !isOwn(c) ? ' <small>' + esc(used.join('·')) + '</small>' : '') + '</button>';
     }).join('') + '</div>';
   }
   function otherCard(inG) {        // 그 밖 — 코스에 없는데 차를 타는 사람(미팅·자재 심부름 등)
@@ -420,7 +420,7 @@
     var fixed = c.usage === 'fixed' && S.canEdit ? '<div class="gw-va-tilefixed">평소 ' + fixedSelect(c) + '</div>' : '';
     return '<div class="gw-vc-car' + (rs.length ? ' used' : '') + (isOwn(c) ? ' own' : '') + '" data-car="' + esc(c.plate) + '">' +
       '<div class="gw-vc-carhead">' + (S.canEdit
-        ? '<button type="button" class="gw-vc-pick" data-pickcar="' + esc(c.plate) + '" aria-label="' + esc((isOwn(c) ? '자차' : c.label) +
+        ? '<button type="button" class="gw-vc-pick" data-pickcar="' + esc(c.plate) + '" aria-label="' + esc((c.label) +
           (activeGroup() ? ' — ' + activeGroup().label + '에 넣기' : '')) + '">'
         : '<span class="gw-vc-pick">') +
       '<strong>' + (isOwn(c) ? '<i class="fas fa-user" aria-hidden="true"></i> ' : '') + esc(c.label) + '</strong>' +
@@ -576,7 +576,10 @@
       if (my !== S.seq) return;
       board();
       S.day = j.day; S.cars = j.cars; S.staff = j.staff; S.canEdit = !!j.can_edit; S.dmOff = !!j.dm_off;
-      S.cars.forEach(function (c) { c.pm = Array.isArray(c.pm) ? c.pm : null; });
+      S.cars.forEach(function (c) {
+        c.pm = Array.isArray(c.pm) ? c.pm : null;
+        if (isOwn(c)) c.label = '본인 차량 (자차)';     // 화면에서 부르는 이름(11-23 부장님 — '자차'만으론 어색)
+      });
       S.confirmed = !!j.confirmed_at;
       S.names = {}; S.visits = {}; S.places = {}; S.off = {}; S.half = {}; S.online = {}; S.work = {};
       S.noteOpen = {}; S.splitOpen = {}; S.splitCourse = {}; S.extra = []; S.active = null;
