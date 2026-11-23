@@ -3318,7 +3318,6 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
 .gw-vp-row[draggable="true"], .gw-vp-inrow[draggable="true"] { cursor: grab; }
 /* 체크한 현장도 사람과 같은 남색 채움·흰 글자(11-22 부장님) */
 .gw-vp-inrow.on { border-color: #2a3038; background: #2a3038; color: #ffffff; }
-.gw-vp-newc.gw-vp-keep { visibility: hidden; }
 .gw-vp-inrow.on .gw-va-sno, .gw-vp-inrow.on .gw-vp-vtext { color: #e2e8f0; }
 .gw-vp-inrow.on .gw-va-smark { background: #ffffff; border-color: #ffffff; color: #2a3038; }
 /* 누구 현장인지(11-23): 거래처·기타 담당은 테두리, 본인 방문 필수는 진한 채움(.must = 기본 꼬리표 모양) */
@@ -3366,7 +3365,6 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
 .gw-vp-group + .gw-vp-group { margin-top: 10px; }
 .gw-vp-gall { padding: 0 4px; font-size: 0.78rem; vertical-align: baseline; }
 .gw-vp-check { flex: 0 0 auto; width: 18px; height: 18px; margin-top: 2px; }
-.gw-vp-newc { flex: 0 0 auto; white-space: nowrap; }
 .gw-vp-vtop { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
 .gw-vp-vaddr { overflow-wrap: anywhere; }
 .gw-vp-vtext { color: #475569; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -3392,7 +3390,7 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
 .gw-vp-next { margin-left: 6px; }
 @media (max-width: 767.98px) {
   .gw-vp-board { grid-template-columns: minmax(0, 1fr); }
-  .gw-vp-people .gw-va-staff-how .btn-link, .gw-vp-gall, .gw-vp-cdel, .gw-vp-selbar .btn, .gw-vp-newc, #vpAddCourse { min-height: 44px; }
+  .gw-vp-people .gw-va-staff-how .btn-link, .gw-vp-gall, .gw-vp-cdel, .gw-vp-selbar .btn, #vpAddCourse { min-height: 44px; }
   .gw-vp-selbar .gw-vp-liftsel { min-height: 44px; font-size: 16px; }
   .gw-vp-people .gw-va-staff-how { height: 48px; }
   .gw-vp-people .gw-va-staff-how .gw-vp-liftsel { min-height: 44px; font-size: 16px; }
@@ -3403,7 +3401,6 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
   .gw-vp-racts { width: 100%; justify-content: flex-end; }
   .gw-vp-inrow { flex-wrap: wrap; }
   .gw-vp-check { width: 24px; height: 24px; }
-  .gw-vp-newc { margin-left: auto; }
   .gw-vp-memo { flex-direction: column !important; align-items: stretch; }
   .gw-vp-memo input { min-height: 44px; font-size: 16px; }
   .gw-vp-chead .gw-vp-memo { flex: 1 1 100%; order: 10; }

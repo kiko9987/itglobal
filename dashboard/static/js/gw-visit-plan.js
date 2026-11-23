@@ -1,6 +1,6 @@
 /* 방문 일정 (2026-11-22 부장님, 영업 > 방문 일정 /visits/plan) — 슬랙 캔버스2 + /일정확정 대신 그룹웨어에서 다음 날 방문을 코스로 묶고 사람을 넣어 확정한다.
    차량 배정과 같은 모양(11-22 부장님): 위 코스 카드(= 차 카드), 왼쪽 사람 → 코스에 넣기.
-   JW 가 메모장에서 하던 순서 — 아래 현장 목록(캔버스1, 지역끼리 모아 보임)을 하나씩 [새 코스로]·끌어 올리기 또는
+   JW 가 메모장에서 하던 순서 — 아래 현장 목록(캔버스1, 지역끼리 모아 보임)을 체크해 [새 코스로]·끌어 올리기 또는
    체크해서 [코스 N으로] 한꺼번에 올려 코스를 먼저 묶고 → 사람 넣기 → 넣었다 뺐다. 휴대폰·키보드는 끌기 대신 단추.
    [임시 저장]은 DM 없이 저장, [일정 확정]은 /일정확정과 같은 처리(시트·슬랙 List·담당자/당번 DM·캔버스1)를 뒤에서 돌린다.
    확정하면 [차량 배정으로] — 차량 배정(/vehicles/assign)은 확정한 코스를 팀으로 받아 쓴다. 서버에서 온 글자는 모두 esc() 로만 넣는다. */
@@ -279,11 +279,8 @@
         // 현장 목록은 지역 소제목으로 이미 나뉘어 지역 꼬리표는 뺌(11-23 부장님) — 코스 안 줄은 지역이 섞여 꼬리표 유지
         '<span class="gw-vp-rmain"><span class="gw-vp-vtop">' + marks(v) + '<strong>' + esc(v.date) + '</strong><span class="gw-va-sno">' + esc(v.lead_no) + '</span></span>' +
         (v.addr ? '<span class="gw-vp-vaddr">' + esc(v.addr) + '</span>' : '') +
-        (v.text ? '<span class="gw-vp-vtext" title="' + esc(v.text) + '">' + esc(v.text) + '</span>' : '') + '</span>' +
-        // 체크한 줄은 [새 코스로]를 숨긴다 — 체크한 것은 위 [새 코스로]·지역 단추로 함께 올림
-        //   자리는 남겨 둔다(숨김) — 단추가 빠지면 줄 높이가 줄어 아래가 올라감(11-22 부장님)
-        (P.canEdit ? '<button type="button" class="btn btn-sm btn-outline-secondary gw-vp-newc' + (on ? ' gw-vp-keep' : '') + '" data-act="newc" data-lead="' + esc(v.lead_no) + '"' +
-          (on ? ' tabindex="-1" aria-hidden="true" disabled' : '') + '>새 코스로</button>' : '') + '</li>';
+        (v.text ? '<span class="gw-vp-vtext" title="' + esc(v.text) + '">' + esc(v.text) + '</span>' : '') + '</span></li>';
+        // 줄마다 있던 [새 코스로]는 뺐다(11-23 부장님) — 줄을 눌러 체크한 뒤 목록 위 '체크한 현장 → [새 코스로]·[코스 N로]' 하나로
     }).join('') + '</ul></div>';
   }
   function selBar() {
@@ -291,7 +288,7 @@
     var bar = $('vpSelBar');
     if (!P.canEdit) { bar.innerHTML = ''; return; }
     if (!n) {
-      bar.innerHTML = '<span class="gw-vp-how">같은 지역끼리 모아 보여 줘요. 코스로 끌어 놓거나(코스 안 줄 위에 놓으면 그 앞에), 체크해서 한꺼번에 옮기세요.</span>';
+      bar.innerHTML = '<span class="gw-vp-how">줄을 눌러 체크한 뒤 여기서 코스로 옮기세요. 코스로 끌어 놓아도 돼요.</span>';
       return;
     }
     // 코스가 많으면 단추가 두 줄로 넘어가 목록이 밀림 → 4개부터는 목록 상자 하나로
@@ -369,7 +366,7 @@
     $('vpPeopleHow').innerHTML = peopleBar();
     $('vpCourseCount').textContent = P.plan.courses.length ? P.plan.courses.length + '개' : '';
     $('vpCourses').innerHTML = P.plan.courses.map(function (c, i) { return courseCard(c, i, ws); }).join('') ||
-      '<p class="gw-va-sempty">' + (P.canEdit ? '현장 목록에서 [새 코스로]를 눌러 코스를 만들어 주세요. 여러 현장을 체크한 뒤 누르면 한 코스로 묶여요.' : '아직 코스가 없어요.') + '</p>';
+      '<p class="gw-va-sempty">' + (P.canEdit ? '현장 목록에서 현장을 체크한 뒤 목록 위 [새 코스로]를 눌러 코스를 만들어 주세요.' : '아직 코스가 없어요.') + '</p>';
     $('vpAddCourse').hidden = !P.canEdit;
     $('vpInboxCount').textContent = left.length + '건' + (left.length !== P.data.visits.length ? ' (전체 ' + P.data.visits.length + '건)' : '');
     selBar();
@@ -436,7 +433,7 @@
     changed('.gw-vp-course[data-ci="' + ci + '"] [data-act="memo"]');
   });
   root.addEventListener('click', function (e) {
-    // 현장 목록 줄은 아무 곳이나 눌러도 체크(11-22 부장님) — [새 코스로] 단추·체크 칸 자체는 그대로
+    // 현장 목록 줄은 아무 곳이나 눌러도 체크(11-22 부장님) — 체크 칸 자체는 그대로
     var inrow = P.canEdit && e.target.closest('.gw-vp-inrow');
     if (inrow && !e.target.closest('button, input, a, select')) {
       var cb = inrow.querySelector('[data-act="check"]');
@@ -454,7 +451,6 @@
     if (b.matches('input')) return;                          // 체크·메모 칸은 change/input 에서
     var act = b.getAttribute('data-act'), no = b.getAttribute('data-lead'), ci = parseInt(b.getAttribute('data-ci'), 10);
     if (act === 'punchk') { P.pp = {}; P.focus = '#vpPeople [data-act="pcheck"]'; render(); }
-    else if (act === 'newc') { moveTo([no], newCourse()); }
     else if (act === 'lift') { moveTo(checkedList(), ci); }
     else if (act === 'liftnew') { var list = checkedList(); if (list.length) moveTo(list, newCourse()); }
     else if (act === 'uncheck') { P.checked = {}; render(); }
