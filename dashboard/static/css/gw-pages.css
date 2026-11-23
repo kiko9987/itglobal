@@ -3644,3 +3644,18 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 /* 시공팀 차(포터·전기트럭) — 왼쪽 목록 맨 아래 따로(11-23) */
 .gw-vc-sub { margin: 8px 0 0; padding-top: 8px; border-top: 1px dashed #d4d8de; font-size: 0.8rem; font-weight: 700; color: #475569; }
 .gw-vc-sub small { font-weight: 400; color: #64748b; margin-left: 4px; }
+/* 차 줄 체크(11-24) — 방문 일정 사람 줄과 같게: 체크하면 진하게 채움, 위 한 줄은 높이 고정 */
+.gw-vc-carhead .gw-vp-check { margin-top: 0; }
+.gw-vc-board.editing .gw-vc-car { cursor: pointer; }
+.gw-vc-car.on { border-color: #2a3038; background: #2a3038; color: #ffffff; }
+.gw-vc-car.on .gw-vc-carhead small, .gw-vc-car.on .gw-vc-carhead strong i, .gw-vc-car.on .gw-vc-cwho, .gw-vc-car.on .gw-vc-cwho.none,
+.gw-vc-car.on .gw-vc-clabel, .gw-vc-car.on .gw-va-tilefixed { color: #ffffff; }
+.gw-vc-car.on .gw-vp-check { border-color: #ffffff; background-color: #ffffff; }
+.gw-vc-car.on .gw-vp-check:checked { background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%232a3038' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='m6 10 3 3 6-6'/%3e%3c/svg%3e"); }
+.gw-vc-bar { display: flex; align-items: center; flex-wrap: nowrap; gap: 6px; min-height: 40px; }
+.gw-vc-bar > strong { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gw-vc-bar .gw-vp-liftsel { width: auto; flex: 1 1 0; min-width: 0; }
+.gw-vc-bar .btn-link { flex: 0 0 auto; padding: 2px 4px; }
+@media (max-width: 991.98px) {
+  .gw-vc-bar .gw-vp-liftsel { min-height: 44px; font-size: 16px; }
+}
