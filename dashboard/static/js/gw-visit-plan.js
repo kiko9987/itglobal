@@ -229,7 +229,7 @@
     }
     // 캔버스2 섹션처럼 한 줄: 코스 N · 차 · 사람 칩 · 메모 · 현장 수 · [지우기] (메모를 제목 줄로, 11-23 부장님)
     var memo = P.canEdit
-      ? '<label class="gw-vp-memo"><span>메모</span><input type="text" class="form-control form-control-sm" maxlength="200" data-act="memo" data-ci="' + i + '" value="' + esc(c.memo) + '" aria-describedby="vpMemoHelp"></label>'
+      ? '<label class="gw-vp-memo"><span>메모</span><input type="text" class="form-control form-control-sm" maxlength="200" data-act="memo" data-ci="' + i + '" value="' + esc(c.memo) + '" placeholder="특이사항이 있을 때만 적어 주세요" aria-describedby="vpMemoHelp"></label>'
       : '';
     var head = '<div class="gw-vp-chead"><strong>' + esc(label(i)) + '</strong>' + carTag(c) +
       '<div class="gw-va-people">' + (chips || '<span class="gw-va-none' + (vs.length ? ' w' : '') + '">' +
@@ -238,7 +238,7 @@
       (P.canEdit ? '<button type="button" class="btn btn-sm btn-link gw-vp-cdel" data-act="delc" data-ci="' + i + '">지우기</button>' : '') + '</div>';
     var memoText = !P.canEdit && c.memo ? '<p class="gw-vp-memotext"><i class="fas fa-note-sticky" aria-hidden="true"></i> ' + esc(c.memo) + '</p>' : '';
     return '<section class="gw-va-card gw-vp-course' + (checkedPeople().length && P.canEdit ? ' can-drop' : '') +
-      '" data-drop="course" data-ci="' + i + '" aria-label="' + esc(label(i)) + '">' + head +
+      '" data-drop="course" data-ci="' + i + '" tabindex="-1" aria-label="' + esc(label(i)) + '">' + head +
       '<ol class="gw-vp-rows">' + vs.map(function (v, k) { return courseRow(v, i, k, vs.length); }).join('') + '</ol>' +
       (!vs.length ? '<p class="gw-vp-tempty">' + (P.canEdit ? '현장 목록에서 끌어 놓거나, 체크해서 옮겨 주세요.' : '현장 없음') + '</p>' : '') +
       (acts ? '<div class="gw-vp-cacts">' + acts + '</div>' : '') + memoText + '</section>';
@@ -401,7 +401,7 @@
       if (at === -1) at = leads.length;
       Array.prototype.splice.apply(leads, [at, 0].concat(nos));
     }
-    changed(ci === -1 ? '#vpInList [data-act="check"]' : '.gw-vp-course[data-ci="' + ci + '"] [data-act="memo"]');
+    changed(ci === -1 ? '#vpInList [data-act="check"]' : '.gw-vp-course[data-ci="' + ci + '"]');
     say(ci === -1 ? '현장 목록으로 내렸어요.' : label(ci) + '에 현장 ' + nos.length + '건을 올렸어요.', 'info');
   }
   function movePerson(code, from, ci) {     // ci = -1 이면 코스에서 빼기(왼쪽 사람 칸에 놓음)
@@ -430,7 +430,7 @@
   P.pp = {};
   $('vpAddCourse').addEventListener('click', function () {
     var ci = newCourse();
-    changed('.gw-vp-course[data-ci="' + ci + '"] [data-act="memo"]');
+    changed('.gw-vp-course[data-ci="' + ci + '"]');
   });
   root.addEventListener('click', function (e) {
     // 현장 목록 줄은 아무 곳이나 눌러도 체크(11-22 부장님) — 체크 칸 자체는 그대로
@@ -470,7 +470,7 @@
     } else if (act === 'rmp') {
       var cm = P.plan.courses[ci], code = b.getAttribute('data-code');
       cm.members.splice(cm.members.indexOf(code), 1);
-      changed('.gw-vp-course[data-ci="' + ci + '"] [data-act="memo"]');
+      changed('.gw-vp-course[data-ci="' + ci + '"]');
     } else if (act === 'delc') {
       var dc = P.plan.courses[ci];
       if ((dc.leads.length || dc.members.length) && !window.confirm(label(ci) + '를 지울까요?\n현장 ' + dc.leads.length + '건은 현장 목록으로 돌아가요.')) return;
