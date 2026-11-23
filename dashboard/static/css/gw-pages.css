@@ -3274,7 +3274,8 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
 .gw-vp-left > .gw-va-staff { position: static; max-height: none; overflow: visible; }
 .gw-vp-sitehead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; margin-bottom: 6px; }
 .gw-vp-main { min-width: 0; }
-.gw-vp-courses { display: flex; flex-direction: column; gap: 10px; margin: 6px 0 16px; }
+.gw-vp-courses { display: flex; flex-direction: column; gap: 10px; margin: 8px 0 0; }
+.gw-vp-coursebox { border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; padding: 12px; margin-bottom: 12px; }
 .gw-vp-course { gap: 8px; }
 /* 확인할 것은 카드 전체가 아니라 그 자리(칩·꼬리표·'여기에 사람을 놓으세요')만 주황 — 줄은 늘지 않음(11-23 부장님) */
 .gw-va-chip.w { border-color: #ea580c; background: #fff7ed; color: #9a3412; }

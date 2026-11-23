@@ -36,12 +36,15 @@
         <section class="gw-vp-duty" id="vpDuty" aria-label="온라인 당번"></section>
       </div>
       <div class="gw-vp-main">
-        <div class="gw-vp-sitehead">
-          <h2 class="gw-vp-h">코스 <span id="vpCourseCount"></span></h2>
-          <button type="button" class="btn btn-sm btn-outline-secondary" id="vpAddCourse"><i class="fas fa-plus" aria-hidden="true"></i> 코스 만들기</button>
-        </div>
-        <p class="gw-vp-how" id="vpMemoHelp">코스 메모는 그 코스 사람들의 담당자 DM 위쪽에 함께 가요.</p>
-        <div class="gw-vp-courses" id="vpCourses"></div>
+        {# 코스도 현장 목록처럼 큰 상자 하나로 묶음(11-23 부장님) #}
+        <section class="gw-vp-coursebox" aria-label="코스">
+          <div class="gw-vp-sitehead">
+            <h2 class="gw-vp-h">코스 <span id="vpCourseCount"></span></h2>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="vpAddCourse"><i class="fas fa-plus" aria-hidden="true"></i> 코스 만들기</button>
+          </div>
+          <p class="gw-vp-how" id="vpMemoHelp">코스 메모는 그 코스 사람들의 담당자 DM 위쪽에 함께 가요.</p>
+          <div class="gw-vp-courses" id="vpCourses"></div>
+        </section>
         <section class="gw-vp-inbox" id="vpInbox" data-drop="inbox" aria-label="코스에 안 넣은 현장">
           <div class="gw-vp-sitehead">
             <h2 class="gw-vp-h">현장 목록 <span id="vpInboxCount"></span></h2>
