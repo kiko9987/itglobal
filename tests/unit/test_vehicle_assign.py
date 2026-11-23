@@ -218,7 +218,7 @@ def test_routes_view_for_all_edit_for_assigner(db, monkeypatch):
     monkeypatch.setattr(auth, '_validate_session', lambda require_admin=False: None)
     monkeypatch.setattr(gw, 'can_use', lambda e: True)
     monkeypatch.setattr(hr, 'hr_admins', lambda: [])
-    monkeypatch.setattr(bp, 'render_template', lambda name: name)
+    monkeypatch.setattr(bp, 'render_template', lambda name, **k: name)
     from tests.unit.test_vehicle_log import _lead
     monkeypatch.setattr(bp, '_leads', lambda: [_lead('L-1', '2026-11-21', '부천 길주로 1', '서준')])
     monkeypatch.setattr(va, 'day_off', lambda d: {'off': [{'code': 'JK', 'name': '강해', 'why': '연차'}], 'half': []})   # 휴가 DB 안 읽게
@@ -267,8 +267,8 @@ def test_dev_preview_only_kiko(db, monkeypatch):
     monkeypatch.setattr(gw, 'DEV_PREVIEW_USERS', (kiko,))
     monkeypatch.setattr(auth, '_validate_session', lambda require_admin=False: None)
     monkeypatch.setattr(gw, 'can_use', lambda e: True)
-    monkeypatch.setattr(bp, 'render_template', lambda name: name)
-    monkeypatch.setattr(hr_bp, 'render_template', lambda name: name)
+    monkeypatch.setattr(bp, 'render_template', lambda name, **k: name)
+    monkeypatch.setattr(hr_bp, 'render_template', lambda name, **k: name)
     monkeypatch.setattr(bp, '_leads', lambda: [])
     monkeypatch.setattr(va, 'day_off', lambda d: {'off': [], 'half': []})
     app = Flask(__name__)

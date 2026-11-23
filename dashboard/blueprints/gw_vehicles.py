@@ -121,10 +121,18 @@ def _day() -> str:
     return d if va.valid_day(d) else va.next_workday()
 
 
+def _vtabs() -> dict:
+    """방문 일정 ↔ 차량 배정 탭(11-24 부장님) — 각 화면을 열 수 있는지. 둘 다 될 때만 탭 줄을 보인다.
+    차량 배정 = 개발 중 문(dev_preview) 통과, 방문 일정 = page_visit_plan 과 같은 조건(관리자 먼저 열림 포함)."""
+    cars = gw.dev_preview_ok(_me())
+    plan = _plan_admin() or (cars and (_can_plan() or (not _is_field() and vp.is_duty_today(_me()))))
+    return {'plan': bool(plan), 'cars': bool(cars)}
+
+
 @gw_vehicles_bp.route('/vehicles/assign')
 @gw_page
 def page_assign():
-    return render_template('gw/vehicle_assign.html')
+    return render_template('gw/vehicle_assign.html', vtabs=_vtabs(), vtab_on='cars')
 
 
 @gw_vehicles_bp.route('/api/vehicles/assign', methods=['GET'])
@@ -221,7 +229,7 @@ def page_visit_plan():
     # 일정 담당 + 오늘 온라인 당번(당일 배정하려고, 11-23)
     if not (_can_plan() or _plan_admin()) and (_is_field() or not vp.is_duty_today(_me())):
         return redirect('/vehicles/assign')
-    return render_template('gw/visit_plan.html')
+    return render_template('gw/visit_plan.html', vtabs=_vtabs(), vtab_on='plan')
 
 
 def _fresh_leads() -> list:

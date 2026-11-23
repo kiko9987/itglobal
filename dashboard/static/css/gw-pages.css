@@ -3659,3 +3659,10 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 @media (max-width: 991.98px) {
   .gw-vc-bar .gw-vp-liftsel { min-height: 44px; font-size: 16px; }
 }
+/* 방문 일정 ↔ 차량 배정 탭(11-24) — 두 화면 맨 위 같은 줄, 지금 화면은 밑줄 */
+.gw-vtabs { display: flex; gap: 4px; margin: 0 0 12px; border-bottom: 1px solid #e5e7eb; }
+.gw-vtab { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px 7px; border-bottom: 3px solid transparent;
+  color: #475569; font-weight: 600; font-size: 0.95rem; text-decoration: none; }
+.gw-vtab:hover { color: #1a1c20; text-decoration: none; }
+.gw-vtab[aria-current="page"] { color: #1a1c20; border-bottom-color: #2a3038; cursor: default; }
+.gw-vtab:focus-visible { outline: 2px solid #2a3038; outline-offset: 2px; }

@@ -615,3 +615,22 @@ def test_same_site(db):
     assert list(r) == ['L-40'] and [x['lead_no'] for x in r['L-40']] == ['L-41']
     assert r['L-40'][0]['status'] == '방문 완료' and r['L-40'][0]['who'] == '박민재'
     assert 'same_site' in vp.load(DAY, leads, 'p@example.com')
+
+
+def test_visit_tabs_only_when_both_open(db, monkeypatch):
+    """방문 일정 ↔ 차량 배정 탭(11-24) — 두 화면을 다 열 수 있을 때만. 관리자(방문 일정만 먼저 열림)는 탭 없음."""
+    from flask import Flask
+    from dashboard.blueprints import gw_vehicles as bp
+    monkeypatch.setattr(gw, 'DEV_PREVIEW_USERS', ('p@example.com', 'boss@example.com'))
+    monkeypatch.setattr(gw, 'VISIT_PLAN_ADMIN_ONLY', True)
+    monkeypatch.setattr('dashboard.services.visit_assignment_sync.PLANNER_EMAILS', ('p@example.com',))
+    app = Flask(__name__)
+    app.secret_key = 'x'
+    cases = [('p@example.com', 'user', {'plan': True, 'cars': True}),          # 일정 담당 + 개발 중 명단
+             ('boss@example.com', 'user', {'plan': False, 'cars': True}),      # 차량만(일정 담당 아님) — 탭 줄 안 보임
+             ('admin@example.com', 'admin', {'plan': True, 'cars': False})]    # 방문 일정만 먼저 열린 관리자
+    for email, level, want in cases:
+        with app.test_request_context('/visits/plan'):
+            from flask import session
+            session['user'] = {'email': email, 'permission_level': level}
+            assert bp._vtabs() == want, email

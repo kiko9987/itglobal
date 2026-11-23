@@ -1,0 +1,19 @@
+{# 방문 일정 ↔ 차량 배정 탭(11-24 부장님 — 예전 한 화면 탭 방식이 나음). 두 화면 맨 위에 같은 줄.
+   탭을 누르면 지금 보고 있는 날짜 그대로 넘어간다. 두 화면을 다 열 수 있는 사람에게만 보인다.
+   vtab_on = 'plan' | 'cars' #}
+{% if vtabs and vtabs.plan and vtabs.cars %}
+<nav class="gw-vtabs" aria-label="방문 일정·차량 배정">
+  <a class="gw-vtab" href="/visits/plan" data-vtab{% if vtab_on == 'plan' %} aria-current="page"{% endif %}>방문 일정</a>
+  <a class="gw-vtab" href="/vehicles/assign" data-vtab{% if vtab_on == 'cars' %} aria-current="page"{% endif %}>차량 배정</a>
+</nav>
+<script>
+  (function () {
+    document.addEventListener('click', function (e) {
+      var a = e.target.closest && e.target.closest('[data-vtab]');
+      if (!a || a.getAttribute('aria-current') === 'page') { if (a) e.preventDefault(); return; }
+      var day = new URLSearchParams(location.search).get('day');      // 두 화면 모두 주소에 보고 있는 날을 적어 둔다
+      if (day && /^\d{4}-\d{2}-\d{2}$/.test(day)) a.href = a.getAttribute('href').split('?')[0] + '?day=' + day;
+    });
+  })();
+</script>
+{% endif %}
