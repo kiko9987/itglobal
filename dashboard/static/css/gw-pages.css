@@ -3443,3 +3443,26 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
 .gw-vp-cat + .gw-vp-cat { margin-top: 16px; }
 .gw-vp-gtitle:first-child { margin-top: 0; }
 .gw-vp-gtitle span { color: #64748b; font-weight: 400; }
+
+/* 차량 배정 ↔ 방문 일정 코스(11-23 부장님) — 화면 폭은 방문 일정과 같게 1400 가운데 */
+.gw-page.gw-va { max-width: 1400px; margin-left: auto; margin-right: auto; }
+.gw-va-course + .gw-va-course { margin-top: 12px; padding-top: 10px; border-top: 1px solid #eef0f3; }
+.gw-va-course h3 { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 0.9rem; font-weight: 700; color: #1a1c20; margin: 0 0 4px; }
+.gw-va-cwho { font-weight: 600; color: #475569; }
+.gw-va-ccars { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
+.gw-va-ccar { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border: 1px solid #cbd0d8; border-radius: 999px; background: #fff; color: #475569; font-size: 0.76rem; font-weight: 500; line-height: 1.7; }
+.gw-va-ccar.none { border-color: #fdba74; background: #fff7ed; color: #9a3412; font-weight: 600; }
+.gw-va-course.work .gw-va-ccar { margin-left: auto; }
+.gw-va-course.left h3 { color: #9a3412; }
+.gw-va-course ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.gw-va-cmemo { margin: 0 0 4px; padding: 4px 8px; background: #f8fafc; border-radius: 6px; font-size: 0.84rem; color: #1a1c20; overflow-wrap: anywhere; }
+.gw-va-cmemo strong { color: #475569; margin-right: 2px; }
+.gw-va-teamroute { display: block; color: #475569; font-size: 0.76rem; line-height: 1.35; overflow-wrap: anywhere; }
+.gw-va-teammemo { display: block; color: #1a1c20; font-size: 0.76rem; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.gw-va-person.blocked { cursor: default; opacity: 0.8; }
+.gw-va-chip.leave { border-color: #fdba74; background: #fff7ed; }
+.gw-va-planline.stale { border-color: #fdba74; background: #fff7ed; }
+.gw-va-stale { color: #9a3412; font-weight: 600; }
+@media (max-width: 767.98px) {
+  .gw-va-ccars { margin-left: 0; width: 100%; }
+}

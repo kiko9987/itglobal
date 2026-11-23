@@ -438,6 +438,10 @@ def save_day(day: str, rows: Iterable[Dict], by: str, confirm: bool = False, not
     old = _day_rows(day)
     info = _day_info(day)
     was_confirmed = bool(info and info.get('confirmed_at'))
+    if confirm or (was_confirmed and notify):
+        bad = off_riders(day, new)
+        if bad:
+            raise ValueError(f"휴무인 {', '.join(bad)} 님이 차에 있어요. 빼야 확정·알림이 돼요.")
     now = _now()
     changed = []
     with _conn() as conn:
@@ -784,6 +788,43 @@ def request_assignment(day: Optional[str] = None) -> int:
             conn.execute('INSERT INTO vehicle_assign_day (day, requested_at) VALUES (?,?) '
                          'ON CONFLICT(day) DO UPDATE SET requested_at = excluded.requested_at', (day, _now()))
     return n
+
+
+def last_saved_at(day: str) -> str:
+    """그날 차량 배정을 마지막으로 저장한 때('' = 저장한 적 없음) — 방문 일정이 그 뒤에 다시 확정됐는지 보려고."""
+    with _conn() as conn:
+        r = conn.execute('SELECT MAX(updated_at) FROM vehicle_assign WHERE day = ?', (day,)).fetchone()
+    return (r[0] if r and r[0] else '') or ''
+
+
+def notify_plan_changed(day: str, change: str) -> int:
+    """방문 일정을 다시 확정해 코스 사람이 바뀜(11-23 부장님) — 차량 배정을 이미 저장한 날만 배정 담당에게 DM.
+    아직 배정이 없으면 보내지 않는다(화면을 열면 바뀐 코스대로 초안이 잡힘)."""
+    if not any(r['people'] or r.get('pm') for r in _day_rows(day).values()):
+        return 0
+    from dashboard.services import groupware as gw
+    from dashboard.services import hr
+    n = 0
+    for email in assigners():
+        if not gw.dev_preview_ok(email):     # 화면을 못 여는 사람에게는 보내지 않음(request_assignment 와 같음)
+            continue
+        sid = ((hr.find_by_email(email) or {}).get('slack_id')) or ''
+        if _dm(sid, f":arrows_counterclockwise: {day_label(day)} 방문 일정이 다시 확정됐어요 — {change}.\n"
+                    f"차량 배정을 확인해 주세요. <{_page_url(day)}|차량 배정 열기>"):
+            n += 1
+    return n
+
+
+def off_riders(day: str, rows: Dict[str, Dict]) -> List[str]:
+    """차에 넣은 사람 중 그날 종일 쉬는 사람(승인 휴가·확정된 토요 휴무) 이름 — 확정·알리기를 막는다(방문 일정과 같게, 11-23).
+    확정 전 토요 휴무(soft)는 막지 않는다. 휴가를 못 읽으면 막지 않는다."""
+    try:
+        off = {o['code']: o['name'] for o in day_off(day)['off'] if not o.get('soft')}
+    except Exception as e:
+        logger.warning(f'[차량배정] 휴가 확인 실패(막지 않음): {e}')
+        return []
+    seen = list(dict.fromkeys(p for r in rows.values() for p in riders(r)))
+    return [off[p] for p in seen if p in off]
 
 
 def teams(day: str, leads: Iterable[dict]) -> List[Dict]:

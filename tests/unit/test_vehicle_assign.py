@@ -411,3 +411,30 @@ def test_seed_fix_only_untouched_rows(db):
     va._table_ready = False
     cars = {c['plate']: c for c in va.fleet()}
     assert cars['53우1783']['usage'] == va.FIXED and cars['143고9687']['usage'] == va.SHARED
+
+
+def test_plan_changed_dm_only_when_cars_saved(db, monkeypatch):
+    """방문 일정을 다시 확정하면(11-23) — 차량 배정을 저장해 둔 날만 배정 담당에게 DM, 저장 시각도 돌려줌."""
+    sent = db
+    monkeypatch.setattr(hr, 'find_by_email', lambda e: {'slack_id': 'USJ'} if e == ASSIGNER else None)
+    assert va.notify_plan_changed('2026-11-24', '추가 서준') == 0 and not sent and va.last_saved_at('2026-11-24') == ''
+    va.save_day('2026-11-24', [{'plate': '237허5358', 'people': ['TH']}], ASSIGNER)
+    assert va.last_saved_at('2026-11-24')
+    assert va.notify_plan_changed('2026-11-24', '추가 서준') == 1
+    assert sent[0][0] == 'USJ' and '추가 서준' in sent[0][1] and '/vehicles/assign?day=2026-11-24' in sent[0][1]
+
+
+def test_off_person_blocks_confirm(db, monkeypatch):
+    """휴무(종일)인 사람을 차에 넣은 채로는 확정·알림이 안 됨(방문 일정과 같게, 11-23). 저장만은 됨, 확정 전 토요 휴무는 막지 않음."""
+    off = {'off': [{'code': 'TH', 'name': '서준', 'why': '연차'},
+                   {'code': 'YM', 'name': '김가람', 'why': '토요 휴무(확정 전)', 'soft': True}], 'half': []}
+    monkeypatch.setattr(va, 'day_off', lambda day: off)
+    rows = [{'plate': '237허5358', 'people': ['TH', 'JSH']}, {'plate': '03모8021', 'people': ['YM']}]
+    assert va.save_day('2026-11-24', rows, ASSIGNER)['changed']                  # 저장만
+    with pytest.raises(ValueError, match='휴무인 서준'):
+        va.save_day('2026-11-24', rows, ASSIGNER, confirm=True)
+    ok = [{'plate': '237허5358', 'people': ['JSH']}, {'plate': '03모8021', 'people': ['YM']}]
+    assert va.save_day('2026-11-24', ok, ASSIGNER, confirm=True)['confirmed']
+    with pytest.raises(ValueError, match='휴무인 서준'):                          # 확정 뒤 알리며 고칠 때도
+        va.save_day('2026-11-24', rows, ASSIGNER)
+    assert va.save_day('2026-11-24', rows, ASSIGNER, notify=False)['changed']   # 알리지 않고 저장은 됨

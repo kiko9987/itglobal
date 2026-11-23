@@ -628,6 +628,12 @@ def _run_confirm(day: str, plan: Dict, by: str, fresh_leads: Callable[[], List[d
         va.request_assignment(day)
     except Exception as e:
         logger.warning(f'[방문일정] 차량 배정 요청 DM 실패: {e}', exc_info=True)
+    try:        # 다시 확정해서 코스 사람이 바뀌었으면 — 차량 배정을 이미 해 둔 날만 배정 담당에게(11-23 부장님)
+        change = plan_change_text(prev, plan, {p['code']: p['name'] for p in _staff()})
+        if change:
+            summary['car_notice'] = va.notify_plan_changed(day, change)
+    except Exception as e:
+        logger.warning(f'[방문일정] 차량 배정 변경 알림 실패: {e}', exc_info=True)
     try:
         summary['cards'] = _audit(res, by)
         _finish(day, 'done', summary, by, plan)
@@ -844,15 +850,93 @@ def confirmed_work(day: str) -> List[Dict]:
     return [{'code': c, 'task': w['task']} for c, w in _work_map(plan).items()]
 
 
+def _courses_of(plan: Optional[Dict]) -> List[Dict]:
+    return (plan or {}).get('courses') or _old_courses(plan or {}) or []
+
+
+def _labeled(plan: Optional[Dict]) -> List[tuple]:
+    """[(코스 이름, 코스)] — 화면과 같은 번호(방문 코스·사내 업무 따로 셈)."""
+    cs = _courses_of(plan)
+    return list(zip(course_labels({'courses': cs}), cs))
+
+
 def confirmed_teams(day: str) -> Optional[List[Dict]]:
-    """그룹웨어에서 확정한 날의 팀(같이 가는 사람 묶음) — 차량 배정이 시트(캐시)보다 먼저 쓴다. 없으면 None.
-    [{'members', 'visits', 'big'}] (va.teams 와 같은 모양·같은 묶는 규칙)"""
-    from collections import Counter
+    """그룹웨어에서 확정한 날의 팀 = 방문 코스 그대로(차량 배정이 시트 캐시보다 먼저 쓴다). 없으면 None.
+    [{'members', 'visits', 'big', 'label', 'memo', 'leads', 'also'}] — 코스 순서대로(11-23 부장님: JW·SJ 가 같은 말로 '코스 1').
+    한 사람이 두 코스에 있으면 앞 코스 팀에 두고 also = {이니셜: [뒤 코스 이름]}(오전·오후 나눠 탈 수 있게).
+    사람이 똑같은 코스가 또 있으면 이름만 이어 붙인다('코스 1 · 코스 3')."""
     plan = _loads((_row(day) or {}).get('confirmed_plan'))
     if not plan:
         return None
-    combos: Counter = Counter()
-    for c in plan.get('courses') or _old_courses(plan) or []:
-        if c.get('members') and c.get('leads'):
-            combos[tuple(c['members'])] += len(c['leads'])
-    return va.teams_from_combos(combos)
+    out: List[Dict] = []
+    team_of: Dict[str, Dict] = {}
+    for label, c in _labeled(plan):
+        if is_work(c) or not c.get('members') or not c.get('leads'):
+            continue
+        same = next((t for t in out if t['members'] == list(c['members'])), None)
+        if same:
+            same['label'] += ' · ' + label
+            same['visits'] += len(c['leads'])
+            same['leads'] += list(c['leads'])
+            continue
+        rest = [m for m in c['members'] if m not in team_of]
+        for m in c['members']:
+            if m in team_of:
+                team_of[m]['also'].setdefault(m, []).append(label)
+        if not rest:
+            continue
+        t = {'members': rest, 'visits': len(c['leads']), 'big': len(rest) >= va.BIG_TEAM, 'label': label,
+             'memo': c.get('memo') or '', 'leads': list(c['leads']), 'also': {}}
+        for m in rest:
+            team_of[m] = t
+        out.append(t)
+    return out
+
+
+def confirmed_courses(day: str, leads: Iterable[dict]) -> Optional[Dict]:
+    """차량 배정 위 '방문 일정' 칸을 코스로(11-23 부장님) — 그룹웨어에서 확정한 날만, 아니면 None.
+    {'courses': [{label, kind, members, memo, task, sites:[현장]}], 'left': [코스에 없는 현장]}
+    현장 = visits() 한 줄(지난 날도 보이게 방문 완료 포함). 그날 목록에 없는 리드(날짜를 옮김 등)는 번호만."""
+    plan = _loads((_row(day) or {}).get('confirmed_plan'))
+    if not plan:
+        return None
+    vs = visits(day, leads, done=True)
+    by_no = {v['lead_no']: v for v in vs}
+    keep = ('lead_no', 'date', 'platform', 'phone', 'addr', 'text', 'marks', 'cat', 'place', 'contact', 'must')
+    used, out = set(), []
+    for label, c in _labeled(plan):
+        work = is_work(c)
+        if not c.get('members') and not c.get('leads'):
+            continue
+        sites = []
+        for n in ([] if work else c.get('leads') or []):
+            used.add(n)
+            v = by_no.get(n)
+            sites.append({k: v.get(k) for k in keep} if v else {'lead_no': n, 'missing': True})
+        out.append({'label': label, 'kind': 'work' if work else 'visit', 'members': list(c.get('members') or []),
+                    'memo': '' if work else c.get('memo') or '', 'task': (c.get('memo') or '') if work else '',
+                    'sites': sites})      # 사내 업무의 할 일은 memo 칸에 들어 있다
+    left = [{k: v.get(k) for k in keep} for v in vs if v['lead_no'] not in used]
+    return {'courses': out, 'left': left}
+
+
+def plan_change_text(prev: Optional[Dict], plan: Dict, names: Dict[str, str]) -> str:
+    """다시 확정할 때 방문 코스 사람이 바뀌었는지 — '추가 서준 · 빠짐 한별' / '같이 가는 사람이 바뀜' / ''(그대로·처음 확정)."""
+    if not prev:
+        return ''
+
+    def sig(p):
+        return sorted(tuple(c['members']) for c in _courses_of(p) if not is_work(c) and c.get('members') and c.get('leads'))
+    old, new = sig(prev), sig(plan)
+    if old == new:
+        return ''
+    o = list(dict.fromkeys(m for t in old for m in t))
+    n = list(dict.fromkeys(m for t in new for m in t))
+    bits = []
+    add = [m for m in n if m not in o]
+    gone = [m for m in o if m not in n]
+    if add:
+        bits.append('추가 ' + ', '.join(names.get(m, m) for m in add))
+    if gone:
+        bits.append('빠짐 ' + ', '.join(names.get(m, m) for m in gone))
+    return ' · '.join(bits) or '같이 가는 사람이 바뀜'

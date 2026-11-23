@@ -277,8 +277,9 @@ def test_confirm_runs_and_locks_slack(db, monkeypatch):
     st = vp.run_state(DAY)
     assert st['state'] == 'done' and st['result']['dm'] == 3 and st['result']['sheet'] == 2
     assert va.online_duty(DAY) == [{'code': 'JK', 'name': '강해', 'shift': '오후'}]
-    assert vp.confirmed_teams(DAY) == [{'members': ['YM', 'LSH'], 'visits': 2, 'big': False},
-                                       {'members': ['TH'], 'visits': 1, 'big': False}]
+    assert vp.confirmed_teams(DAY) == [
+        {'members': ['YM', 'LSH'], 'visits': 2, 'big': False, 'label': '코스 1', 'memo': '오전 먼저', 'leads': ['L-1', 'L-2'], 'also': {}},
+        {'members': ['TH'], 'visits': 1, 'big': False, 'label': '코스 2', 'memo': '', 'leads': ['L-3'], 'also': {}}]
     assert vp.confirmed_upcoming_day() == {'day': DAY, 'label': va.day_label(DAY), 'by': '박기획'}
     data = vp.load(DAY, LEADS, 'p@example.com')
     assert data['source'] == 'saved' and data['confirmed_name'] == '박기획' and not data['changed_since_confirm']
@@ -490,3 +491,66 @@ def test_admin_only_open(db, monkeypatch):
         assert cl.get(f'/api/vehicles/plan?day={DAY}').status_code == 403
     assert gw_bp._planner_menu('a@example.com', 'admin') and gw_bp._planner_menu('a@example.com', 'super_admin')
     assert not gw_bp._planner_menu('p@example.com', 'user')
+
+
+def _confirm(monkeypatch, plan, notices=None):
+    monkeypatch.setattr(vas, 'commit_plan', lambda parsed, target_date=None: {'ok': True, 'dm': {}})
+    monkeypatch.setattr(vp.threading, 'Thread', _NowThread)
+    monkeypatch.setattr(vp, '_audit', lambda res, by: [])
+    monkeypatch.setattr(va, 'request_assignment', lambda day=None: 0)
+    monkeypatch.setattr(vp, '_staff', lambda: [dict(p) for p in STAFF])
+    if notices is not None:
+        monkeypatch.setattr(va, 'notify_plan_changed', lambda day, text: notices.append((day, text)) or 1)
+    vp.start_confirm(DAY, plan, 'p@example.com', LEADS, lambda: LEADS)
+    assert vp.run_state(DAY)['state'] == 'done'
+
+
+def test_confirmed_teams_follow_courses(db, monkeypatch):
+    """차량 배정 팀 = 방문 코스 그대로(11-23) — 코스 순서·이름·메모, 두 코스에 든 사람은 앞 코스에 두고 also, 같은 사람 코스는 이름만 이어 붙임."""
+    plan = {'courses': [{'members': ['TH'], 'leads': ['L-3'], 'memo': '자재 싣고'},
+                        {'members': ['YM', 'LSH'], 'leads': ['L-1'], 'memo': ''},
+                        {'members': ['TH', 'JK'], 'leads': ['L-4'], 'memo': ''},
+                        {'kind': 'work', 'members': ['SJ'], 'leads': [], 'memo': '창고 정리'},
+                        {'members': ['YM', 'LSH'], 'leads': ['L-2'], 'memo': ''}],
+            'online': [], 'online_shared': False}
+    monkeypatch.setattr(va, 'day_off', lambda day: {'off': [], 'half': []})
+    _confirm(monkeypatch, plan)
+    t = vp.confirmed_teams(DAY)
+    assert [(x['label'], x['members'], x['visits']) for x in t] == [
+        ('코스 1', ['TH'], 1), ('코스 2 · 코스 4', ['YM', 'LSH'], 2), ('코스 3', ['JK'], 1)]
+    assert t[0]['memo'] == '자재 싣고' and t[0]['also'] == {'TH': ['코스 3']} and t[1]['leads'] == ['L-1', 'L-2']
+
+
+def test_confirmed_courses_panel(db, monkeypatch):
+    """차량 배정 위 칸을 코스로(11-23) — 코스마다 사람·메모·현장(지역 꼬리표), 사내 업무는 할 일, 코스에 없는 현장·사라진 리드."""
+    plan = {'courses': [{'members': ['YM', 'LSH'], 'leads': ['L-1', 'L-2'], 'memo': '오전 먼저'},
+                        {'kind': 'work', 'members': ['JK'], 'leads': [], 'memo': '창고 정리'}],
+            'online': [], 'online_shared': False}
+    _confirm(monkeypatch, plan)
+    assert vp.confirmed_courses((date.today() + timedelta(days=5)).isoformat(), LEADS) is None   # 확정 안 한 날
+    c = vp.confirmed_courses(DAY, LEADS)
+    v1, w1 = c['courses']
+    assert (v1['label'], v1['kind'], v1['members'], v1['memo']) == ('코스 1', 'visit', ['YM', 'LSH'], '오전 먼저')
+    assert [s['lead_no'] for s in v1['sites']] == ['L-1', 'L-2'] and v1['sites'][0]['addr'] == '가상시 L-1로 1'
+    assert 'place' in v1['sites'][0] and 'who' not in v1['sites'][0]
+    assert (w1['label'], w1['kind'], w1['task'], w1['memo'], w1['sites']) == ('사내 업무 1', 'work', '창고 정리', '', [])
+    assert [s['lead_no'] for s in c['left']] == ['L-3', 'L-4', 'L-5']
+    gone = vp.confirmed_courses(DAY, [l for l in LEADS if l['리드 No'] != 'L-2'])     # 날짜를 옮긴 리드
+    assert gone['courses'][0]['sites'][1] == {'lead_no': 'L-2', 'missing': True}
+
+
+def test_reconfirm_tells_car_assigner(db, monkeypatch):
+    """다시 확정해 코스 사람이 바뀌면 차량 배정 쪽에 알림(11-23) — 처음 확정·사람 그대로면 안 보냄."""
+    notices = []
+    base = {'courses': [{'members': ['YM', 'LSH'], 'leads': ['L-1']}, {'members': ['TH'], 'leads': ['L-3']}],
+            'online': [], 'online_shared': False}
+    _confirm(monkeypatch, base, notices)
+    assert notices == []                                                       # 처음 확정
+    _confirm(monkeypatch, {**base, 'courses': [{**base['courses'][0], 'memo': '메모만'}, base['courses'][1]]}, notices)
+    assert notices == []                                                       # 사람 그대로
+    _confirm(monkeypatch, {**base, 'courses': [{'members': ['YM'], 'leads': ['L-1']}, {'members': ['TH', 'JK'], 'leads': ['L-3']}]}, notices)
+    assert notices == [(DAY, '추가 강해 · 빠짐 이나래')]
+    names = {p['code']: p['name'] for p in STAFF}
+    swap = {'courses': [{'members': ['YM', 'TH'], 'leads': ['L-1']}, {'members': ['JK'], 'leads': ['L-3']}]}
+    assert vp.plan_change_text({'courses': [{'members': ['YM'], 'leads': ['L-1']}, {'members': ['TH', 'JK'], 'leads': ['L-3']}]},
+                               swap, names) == '같이 가는 사람이 바뀜'
