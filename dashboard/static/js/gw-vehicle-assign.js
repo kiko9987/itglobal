@@ -622,7 +622,9 @@
       $('vaDay').value = j.day;
       try { history.replaceState(null, '', '/vehicles/assign?day=' + j.day); } catch (e) { /* 무시 */ }
       status(j);
+      var moved = S.canEdit ? followCourses() : [];
       render();
+      if (moved.length) msg('방문 일정 코스대로 차에 넣었어요 — ' + moved.join(', ') + '. 저장해 주세요.', 'info', true);
       S.placeTries = 0;
       placesLater(j.resolving);
     }).catch(function (e) { if (my === S.seq) msg(e.message, 'err'); });
@@ -693,6 +695,22 @@
     msg(g.label + '에 ' + c.label + ' 넣었어요.', 'ok');
     focusAfter('[data-carcheck="' + cssq(c.plate) + '"]');
     render();
+  }
+  // 확정한 방문 일정 기준(11-24 부장님) — 코스에 차가 이미 한 대 들어가 있는데 차 없는 사람이 있으면(배정 뒤 코스에 더해진 사람 등)
+  //   그 코스 차에 넣는다. 차를 고르는 게 아니라 코스 묶음을 따르는 것. 저장해야 반영. 돌려주는 값: ['김민욱 님 → 쏘렌토 4041', …]
+  function followCourses() {
+    if (!S.courses) return [];
+    var inG = groupOf(), out = [];
+    groups().forEach(function (g) {
+      var ms = g.members.filter(function (m) { return !S.off[m] && (inG[m] || []).length < 2; });
+      var cars = uniq(ms.map(whereIs).filter(Boolean));
+      if (cars.length !== 1 || isOwn(cars[0])) return;          // 차가 없거나 여러 대·'회사 차 없이' 코스는 그대로
+      ms.filter(noCar).forEach(function (m) {
+        setCar(m, cars[0].plate, 'all');
+        out.push(name(m) + ' 님 → ' + g.label + ' ' + cars[0].label);
+      });
+    });
+    return out;
   }
   function setCourse(key, plate) {   // 코스 사람 모두(휴무 빼고) 종일 같은 차 / '' = 모두 뺀다
     var g = groupByKey(key);
