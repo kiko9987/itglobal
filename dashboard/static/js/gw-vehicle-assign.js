@@ -227,7 +227,23 @@
       return S.canEdit ? '<button type="button" class="gw-va-x" data-clearc="' + esc(g.key) + '" aria-label="' + esc(g.label) + '에서 ' +
         esc(label) + ' 빼기"><i class="fas fa-xmark" aria-hidden="true"></i></button>' : '';
     };
-    if (cur === '__mixed') return '<span class="gw-vc-slot mixed"><i class="fas fa-car-side" aria-hidden="true"></i> 사람마다 다름</span>';
+    // 갈라 탄 코스 — '사람마다 다름' 대신 실제 차를 나열하고, 차 없는 사람은 주황으로 따로(11-23 부장님)
+    //   예) '쏘렌토 8021 · 자차' / '쏘렌토 4041' + '차 없음 1명' / '쏘렌토 8021 · 레이 5358(오후)'
+    if (cur === '__mixed') {
+      var ms = g.members.filter(function (m) { return !S.off[m]; });
+      var names = [];
+      var add = function (t) { if (t && names.indexOf(t) === -1) names.push(t); };
+      var lab = function (c) { return isOwn(c) ? '자차' : c.label; };
+      ms.forEach(function (m) {
+        var am = whereAt(m, 'am'), pm = whereAt(m, 'pm');
+        if (am) add(lab(am));
+        if (pm && pm !== am) add(lab(pm) + '(오후)');
+        if (!am && !pm && byOwnFixed(m)) add(ownCars()[m].label);
+      });
+      var miss = ms.filter(noCar).length;
+      return (names.length ? '<span class="gw-vc-slot on"><i class="fas fa-car-side" aria-hidden="true"></i> ' + esc(names.join(' · ')) + '</span>' : '') +
+        (miss ? '<span class="gw-vc-slot empty"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> 차 없음 ' + miss + '명</span>' : '');
+    }
     if (cur === '__own') {
       var one = g.members.filter(function (m) { return !S.off[m]; });
       var own = one.length === 1 ? ownCars()[one[0]] : null;
