@@ -424,9 +424,12 @@ def fixed_users() -> Dict[str, str]:
 def visitors(day: str, leads: Iterable[dict]) -> List[Dict]:
     """그날 방문 일정이 있는 사람(리드 시트 방문 예정일·영업 담당자) — 배정 화면에서 '차 없는 사람'을 짚는 데 쓴다.
     [{code, name, visits, places:[{label, addr}]}] — 이니셜이 없는 이름(외부 인원 등)은 뺀다.
-    places = 그 사람이 갈 곳(동 단위 이름·방문 주소, 11-21 부장님) — 배정 화면 명단과 차 카드에 보인다.
+    places = 그 사람이 갈 곳(이름·방문 주소) — 배정 화면 코스 카드에 보인다.
+    이름은 방문 일정과 같은 도로명 기준(시·구·읍·면, '용인 수지구'). 행안부로 찾은 지번 동('용인 풍덕천동')은
+    구주소라 쓰지 않는다(11-24 부장님: 방문 일정은 도로명) — 동은 운행일지 운전자 추정에만.
     고객명은 넣지 않는다(차 고르는 데는 위치만 있으면 됨)."""
     from dashboard.services import vehicle_log as vl
+    from dashboard.services.visit_plan import _where
     by_name = {p['name']: p for p in staff()}
     count: Dict[str, int] = {}
     places: Dict[str, List[Dict]] = {}
@@ -436,7 +439,7 @@ def visitors(day: str, leads: Iterable[dict]) -> List[Dict]:
                 count[n] = count.get(n, 0) + 1
                 mine = places.setdefault(n, [])
                 if all(p['addr'] != v['addr'] for p in mine):
-                    mine.append({'label': vl.place_label(v['area'], v['addr']), 'addr': v['addr']})
+                    mine.append({'label': _where(v['addr'], vl)['place'] or v['addr'][:20], 'addr': v['addr']})
     return [{'code': by_name[n]['code'], 'name': n, 'visits': c, 'places': places.get(n, [])}
             for n, c in sorted(count.items())]
 

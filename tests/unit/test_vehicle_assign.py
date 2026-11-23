@@ -99,8 +99,9 @@ def test_visitors_with_visits_that_day(db):
          'places': [{'label': '용인 수지구', 'addr': '용인 수지구 심곡로 11'}]}]
 
 
-def test_visitor_places_use_found_dong(db):
-    """갈 곳은 동까지 — 찾아 둔 동이 있으면 '용인 풍덕천동', 같은 주소 두 번은 한 곳(11-21 부장님)."""
+def test_visitor_places_use_road_units(db):
+    """갈 곳은 방문 일정과 같은 도로명 기준 — 찾아 둔 지번 동('풍덕천동')이 있어도 '용인 수지구'(11-24 부장님),
+    같은 주소 두 번은 한 곳."""
     from tests.unit.test_vehicle_log import _lead
     with vl._conn() as conn:
         conn.execute('INSERT INTO vehicle_addr_dong (addr, dong, checked_at) VALUES (?,?,?)',
@@ -108,7 +109,7 @@ def test_visitor_places_use_found_dong(db):
     leads = [_lead('L-1', '2026-11-21', '용인 수지구 심곡로 11', '김가람'),
              _lead('L-2', '2026-11-21', '용인 수지구 심곡로 11', '김가람')]
     v = va.visitors('2026-11-21', leads)
-    assert v[0]['visits'] == 2 and v[0]['places'] == [{'label': '용인 풍덕천동', 'addr': '용인 수지구 심곡로 11'}]
+    assert v[0]['visits'] == 2 and v[0]['places'] == [{'label': '용인 수지구', 'addr': '용인 수지구 심곡로 11'}]
     assert vl.unresolved(leads, '2026-11-21', '2026-11-21') == []
 
 

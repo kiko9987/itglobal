@@ -305,14 +305,14 @@
     });
     return out.map(function (p) { return n[p] > 1 ? p + ' ' + n[p] : p; }).join(' · ');
   }
-  function placeRoute(members) {   // 슬랙으로 확정한 날 — 사람들이 갈 동(구)을 한 줄로
-    var seen = {}, out = [];
+  function placeRoute(members) {   // 슬랙으로 확정한 날 — 사람들이 갈 곳(도로명 기준 시·구, 11-24)을 코스 줄과 같은 모양으로
+    var seen = {}, sites = [];
     members.forEach(function (m) {
       (S.places[m] || []).forEach(function (p) {
-        if (!seen[p.label]) { seen[p.label] = 1; out.push(p.label); }
+        if (!seen[p.addr]) { seen[p.addr] = 1; sites.push({ place: p.label }); }   // 같은 현장(주소)은 한 번만
       });
     });
-    return out.join(' · ');
+    return siteRoute(sites);
   }
   function courseSite(s) {
     if (s.missing) {
