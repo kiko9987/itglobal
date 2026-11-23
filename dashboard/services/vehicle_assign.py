@@ -90,6 +90,11 @@ _DDL = [
     )''',
 ]
 _table_ready = False
+# 차량 DM 스위치(11-23 부장님: "차량은 더 다듬어야 하니 차량 배정 DM 은 보내지 마") — 끄면 아래가 모두 안 나간다.
+#   확정한 사람들에게 가는 차량 DM·바뀐 사람 DM, 배정 담당 요청·방문 일정 변경 DM, 저녁 운전자 묻기(vehicle_driver.send_asks).
+#   배정 저장·확정 기록은 그대로 된다. 다듬은 뒤 True 로.
+CAR_DM_ON: bool = False
+
 _DEFAULT_ASSIGNERS = ('sj@itg-aircon.com',)      # 빈승정 대리 — 인사 관리자는 따로 늘 가능
 
 
@@ -469,7 +474,7 @@ def save_day(day: str, rows: Iterable[Dict], by: str, confirm: bool = False, not
         notified = notify_people(day, cars, new, who, everyone=True)
     elif was_confirmed and changed and notify:
         notified = notify_changes(day, cars, old, new, who)
-    return {'changed': changed, 'notified': notified, 'confirmed': confirm or was_confirmed}
+    return {'changed': changed, 'notified': notified, 'confirmed': confirm or was_confirmed, 'dm_off': not CAR_DM_ON}
 
 
 def person_car(day: str, code: str) -> Optional[Dict]:
@@ -736,6 +741,8 @@ def _person_view(code: str, rows: Dict[str, Dict]) -> tuple:
 
 def notify_people(day: str, cars: Dict[str, Dict], rows: Dict[str, Dict], who: Dict[str, Dict],
                   everyone: bool = True, only: Optional[set] = None) -> int:
+    if not CAR_DM_ON:
+        return 0
     n = 0
     for code in _where(rows):
         if only is not None and code not in only:
@@ -749,6 +756,8 @@ def notify_people(day: str, cars: Dict[str, Dict], rows: Dict[str, Dict], who: D
 def notify_changes(day: str, cars: Dict[str, Dict], old: Dict[str, Dict], new: Dict[str, Dict],
                    who: Dict[str, Dict]) -> int:
     """확정 뒤 고친 경우 — 차(오전·오후)·같이 타는 사람·운전·메모가 바뀐 사람에게만."""
+    if not CAR_DM_ON:
+        return 0
     ow, nw = _where(old), _where(new)
     n = 0
     for code in set(ow) | set(nw):
@@ -770,6 +779,8 @@ def notify_changes(day: str, cars: Dict[str, Dict], old: Dict[str, Dict], new: D
 def request_assignment(day: Optional[str] = None) -> int:
     """/일정확정 뒤 — 배정하는 사람에게 '내일 차량 배정해 주세요' DM(그날 이미 확정했거나 이미 보냈으면 안 보냄)."""
     day = day if day and valid_day(day) else next_workday()
+    if not CAR_DM_ON:
+        return 0
     info = _day_info(day) or {}
     if info.get('confirmed_at') or info.get('requested_at'):
         return 0
@@ -800,6 +811,8 @@ def last_saved_at(day: str) -> str:
 def notify_plan_changed(day: str, change: str) -> int:
     """방문 일정을 다시 확정해 코스 사람이 바뀜(11-23 부장님) — 차량 배정을 이미 저장한 날만 배정 담당에게 DM.
     아직 배정이 없으면 보내지 않는다(화면을 열면 바뀐 코스대로 초안이 잡힘)."""
+    if not CAR_DM_ON:
+        return 0
     if not any(r['people'] or r.get('pm') for r in _day_rows(day).values()):
         return 0
     from dashboard.services import groupware as gw

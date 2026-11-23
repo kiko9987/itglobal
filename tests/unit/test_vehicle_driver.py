@@ -25,6 +25,7 @@ def db(tmp_path, monkeypatch):
     monkeypatch.setattr(va, 'staff', lambda: [dict(p) for p in STAFF])
     monkeypatch.setattr(va, 'assigners', lambda: [ASSIGNER])
     monkeypatch.setattr(va, '_dm', lambda sid, text: True)
+    monkeypatch.setattr(va, 'CAR_DM_ON', True)         # 운영에선 꺼 둠(11-23)
     calls = []
 
     def fake_slack(method, payload):

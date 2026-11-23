@@ -186,7 +186,7 @@ def api_assign_get():
     return jsonify({'success': True, **view, 'day_label': va.day_label(day),
                     'staff': [{'code': p['code'], 'name': p['name']} for p in people], 'visitors': visitors, 'teams': teams,
                     'resolving': resolving, 'schedule': schedule, 'off': off['off'], 'half': off['half'], 'online': online,
-                    'can_edit': _can_assign(), 'can_see_log': _hr_admin()})
+                    'can_edit': _can_assign(), 'can_see_log': _hr_admin(), 'dm_off': not va.CAR_DM_ON})
 
 
 @gw_vehicles_bp.route('/api/vehicles/assign', methods=['POST'])

@@ -560,7 +560,8 @@
     if ($('vaBoard')) $('vaBoard').classList.toggle('editing', S.canEdit);
     $('vaBar').hidden = !S.canEdit;
     // 확정 뒤에도 '알리지 않고 저장'을 남긴다 — 메모 오타 하나에 그 차 사람 모두에게 DM 이 가던 것(11-21 점검)
-    $('vaConfirm').textContent = S.confirmed ? '저장하고 바뀐 사람에게 알리기' : '확정하고 알리기';
+    $('vaConfirm').textContent = S.dmOff ? (S.confirmed ? '저장(DM 꺼짐)' : '확정(DM 꺼짐)')
+      : (S.confirmed ? '저장하고 바뀐 사람에게 알리기' : '확정하고 알리기');
     $('vaSave').textContent = S.confirmed ? '알리지 않고 저장' : '저장만';
     $('vaSave').hidden = false;
     setDirty(S.dirty);
@@ -626,7 +627,7 @@
     var my = ++S.seq;     // ◀ ▶ 를 빨리 누르면 늦게 온 앞 날짜 응답이 덮지 않게
     return api('/api/vehicles/assign' + (day ? '?day=' + encodeURIComponent(day) : '')).then(function (j) {
       if (my !== S.seq) return;
-      S.day = j.day; S.cars = j.cars; S.staff = j.staff; S.canEdit = !!j.can_edit;
+      S.day = j.day; S.cars = j.cars; S.staff = j.staff; S.canEdit = !!j.can_edit; S.dmOff = !!j.dm_off;
       S.cars.forEach(function (c) { c.pm = Array.isArray(c.pm) ? c.pm : null; });
       S.confirmed = !!j.confirmed_at; S.picked = null;
       S.names = {}; S.visits = {}; S.places = {}; S.off = {}; S.half = {}; S.online = {}; S.work = {};
@@ -683,7 +684,12 @@
   function save(notify) {
     var label = $('vaStatus').querySelector('strong');
     var dayText = label ? label.textContent : S.day;
-    if (notify && !S.confirmed) {
+    if (notify && S.dmOff) {          // 차량 DM 꺼 둠(11-23 부장님) — 확정 기록만 남고 슬랙은 안 나간다
+      var miss0 = staffNoCar();
+      if (!window.confirm(dayText + ' 배정을 ' + (S.confirmed ? '저장할까요?' : '확정할까요?') +
+          (miss0.length ? '\n\n방문이 있는데 아직 배정 없는 사람: ' + miss0.join(', ') : '') +
+          '\n\n지금은 차량 DM 을 꺼 두어서 슬랙으로는 알리지 않아요.')) return;
+    } else if (notify && !S.confirmed) {
       var miss = staffNoCar();
       if (!window.confirm(dayText + ' 배정을 확정하고, 차에 넣은 ' + riders() + '명에게 슬랙으로 알릴까요?' +
           (miss.length ? '\n\n방문이 있는데 아직 배정 없는 사람: ' + miss.join(', ') : '') +
@@ -699,6 +705,7 @@
         S.dirty = false;
         var t = j.changed.length ? '저장했어요.' : '바뀐 내용이 없어요.';
         if (j.notified) t += ' ' + j.notified + '명에게 슬랙으로 알렸어요.';
+        else if (notify && j.dm_off) t += ' 차량 DM 은 꺼 두어서 슬랙으로는 알리지 않았어요.';
         else if (notify && j.changed.length) t += ' 슬랙으로 알릴 사람이 없었어요.';
         return load(S.day).then(function () { msg(t, 'ok', true); });
       }).catch(function (e) { msg(e.message, 'err', true); })

@@ -181,6 +181,8 @@ def send_asks(day: Optional[str] = None) -> Dict:
     """그날 저녁 — 확정한 날, 탄 사람이 둘 이상이고 아직 답이 없는 차마다 탄 사람 모두에게 DM.
     한 명뿐인 차는 묻지 않고 그 사람으로 적는다. 이미 보낸 사람에게는 다시 안 보낸다."""
     from dashboard.services import vehicle_assign as va
+    if not va.CAR_DM_ON:          # 차량 DM 꺼 둠(11-23 부장님)
+        return {'skipped': 'car_dm_off'}
     day = day or date.today().isoformat()
     who = va._who_map()
     sent = auto = 0

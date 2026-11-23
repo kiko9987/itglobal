@@ -28,6 +28,7 @@ def db(tmp_path, monkeypatch):
     monkeypatch.setattr(va, 'staff', lambda: [dict(p) for p in STAFF])
     monkeypatch.setattr(va, 'assigners', lambda: [ASSIGNER])
     monkeypatch.setattr(gw, 'DEV_PREVIEW_USERS', ())   # 개발 중 문은 아래 test_dev_preview_* 에서 따로 본다
+    monkeypatch.setattr(va, 'CAR_DM_ON', True)         # 운영에선 꺼 둠(11-23) — 꺼진 때는 test_car_dm_off 에서
     sent = []
     monkeypatch.setattr(va, '_dm', lambda sid, text: sent.append((sid, text)) or True)
     gw._invalidate()
@@ -440,3 +441,19 @@ def test_off_person_blocks_confirm(db, monkeypatch):
     with pytest.raises(ValueError, match='휴무인 서준'):                          # 확정 뒤 알리며 고칠 때도
         va.save_day('2026-11-24', rows, ASSIGNER)
     assert va.save_day('2026-11-24', rows, ASSIGNER, notify=False)['changed']   # 알리지 않고 저장은 됨
+
+
+def test_car_dm_off(db, monkeypatch):
+    """차량 DM 스위치를 끄면(11-23 부장님) 확정·변경·배정 요청·방문 일정 변경·저녁 운전자 묻기 DM 이 하나도 안 나가고, 저장·확정 기록은 된다."""
+    from dashboard.services import vehicle_driver as vd
+    sent = db
+    monkeypatch.setattr(va, 'CAR_DM_ON', False)
+    monkeypatch.setattr(hr, 'find_by_email', lambda e: {'slack_id': 'USJ'})
+    rows = [{'plate': '237허5358', 'people': ['TH', 'JSH']}]
+    res = va.save_day('2026-11-24', rows, ASSIGNER, confirm=True)
+    assert res['confirmed'] and res['notified'] == 0 and res['dm_off']
+    assert va.day_view('2026-11-24')['confirmed_at']
+    assert va.save_day('2026-11-24', [{'plate': '237허5358', 'people': ['TH']}], ASSIGNER)['notified'] == 0
+    assert va.request_assignment('2026-11-25') == 0 and va.notify_plan_changed('2026-11-24', '추가 서준') == 0
+    assert vd.send_asks('2026-11-24') == {'skipped': 'car_dm_off'}
+    assert not sent
