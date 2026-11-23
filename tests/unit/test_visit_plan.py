@@ -453,3 +453,40 @@ def test_menu_planner_only():
     on = labels(gw.build_nav('/visits/plan', 'user', planner=True))
     assert on.index('방문 일정') == on.index('고객 리드') + 1
     assert '방문 일정' not in [c['label'] for a in gw.build_nav('/home', 'field', field=True)['areas'] for c in a['children']]
+
+
+def test_admin_only_open(db, monkeypatch):
+    """방문 일정만 관리자에게 먼저(11-23) — 관리자는 보기, 고치기는 일정 담당만. 차량 배정은 여전히 개발 중, 일반 직원은 못 들어옴."""
+    import dashboard.auth as auth
+    from flask import Flask
+    from dashboard.blueprints import gw_vehicles as bp
+    from dashboard.blueprints import groupware as gw_bp
+    from dashboard.blueprints import hr as hr_bp
+    monkeypatch.setattr(auth, '_validate_session', lambda require_admin=False: None)
+    monkeypatch.setattr(gw, 'can_use', lambda e: True)
+    monkeypatch.setattr(gw, 'DEV_PREVIEW_USERS', ('boss@example.com',))
+    monkeypatch.setattr(gw, 'VISIT_PLAN_ADMIN_ONLY', True)
+    monkeypatch.setattr(bp, '_leads', lambda: LEADS)
+    monkeypatch.setattr(bp, 'render_template', lambda name, **k: name)
+    monkeypatch.setattr(hr_bp, 'render_template', lambda name, **k: name)
+    monkeypatch.setattr('dashboard.services.visit_assignment_sync.PLANNER_EMAILS', ('p@example.com',))
+    app = Flask(__name__)
+    app.secret_key = 'x'
+    app.register_blueprint(bp.gw_vehicles_bp)
+    plan = {'courses': [{'members': ['TH'], 'leads': ['L-3'], 'memo': ''}], 'online': [], 'online_shared': False}
+    with app.test_client() as cl:
+        with cl.session_transaction() as s:
+            s['user'] = {'email': 'admin@example.com', 'permission_level': 'admin'}
+        assert cl.get('/visits/plan').get_data(as_text=True) == 'gw/visit_plan.html'
+        assert cl.get(f'/api/vehicles/plan?day={DAY}').get_json()['can_edit'] is False
+        assert cl.post('/api/vehicles/plan', json={'day': DAY, 'plan': plan}).status_code == 403
+        assert cl.get('/vehicles/assign').get_data(as_text=True) == 'gw/dev_preview.html'
+        with cl.session_transaction() as s:
+            s['user'] = {'email': 'p@example.com', 'permission_level': 'admin'}
+        assert cl.get(f'/api/vehicles/plan?day={DAY}').get_json()['can_edit'] is True
+        with cl.session_transaction() as s:
+            s['user'] = {'email': 'staff@example.com', 'permission_level': 'user'}
+        assert cl.get('/visits/plan').get_data(as_text=True) == 'gw/dev_preview.html'
+        assert cl.get(f'/api/vehicles/plan?day={DAY}').status_code == 403
+    assert gw_bp._planner_menu('a@example.com', 'admin') and gw_bp._planner_menu('a@example.com', 'super_admin')
+    assert not gw_bp._planner_menu('p@example.com', 'user')

@@ -231,8 +231,10 @@ def _sat_off_menu(email: str) -> bool:
         return False
 
 
-def _planner_menu(email: str) -> bool:
-    """영업 > 방문 일정 메뉴 — 일정 담당(JW·대표님·부장님, 11-22)."""
+def _planner_menu(email: str, level: str = '') -> bool:
+    """영업 > 방문 일정 메뉴 — 일정 담당(JW·대표님·부장님, 11-22). 지금은 관리자에게만 먼저 연 상태(11-23)."""
+    if gw.VISIT_PLAN_ADMIN_ONLY:
+        return level in gw.ADMIN_LEVELS
     try:
         from dashboard.services.visit_plan import can_plan, is_duty_today
         return can_plan(email) or is_duty_today(email)      # 오늘 온라인 당번도(당일 배정, 11-23)
@@ -260,7 +262,7 @@ def inject_groupware_layout():
             'gw_layout': True,
             'gw_nav': gw.build_nav(request.path, user.get('permission_level', ''), hr.is_hr_admin(email),
                                    leave_all=hr.can_view_all_leave(email), sat_off=_sat_off_menu(email),
-                                   planner=_planner_menu(email)),
+                                   planner=_planner_menu(email, user.get('permission_level', ''))),
         }
     except Exception as e:
         logger.warning(f'[GW] 틀 고르기 실패 → 기존 틀: {e}')

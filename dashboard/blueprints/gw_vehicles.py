@@ -10,7 +10,8 @@ from datetime import date
 
 from flask import Blueprint, jsonify, redirect, render_template, request
 
-from dashboard.blueprints.hr import _hr_admin, _is_field, _me, _my_person, dev_preview_gate, gw_page
+from dashboard.blueprints.hr import _hr_admin, _is_admin, _is_field, _me, _my_person, dev_preview_gate, gw_page
+from dashboard.services import groupware as gw
 from dashboard.services import hr
 from dashboard.services import vehicle_assign as va
 from dashboard.services import vehicle_driver as vd
@@ -22,7 +23,22 @@ from dashboard.utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 gw_vehicles_bp = Blueprint('gw_vehicles', __name__)
-gw_vehicles_bp.before_request(dev_preview_gate)   # 개발 중 — 부장님만(11-21)
+_PLAN_PATHS = ('/visits/plan', '/api/vehicles/plan')
+
+
+def _plan_admin() -> bool:
+    """방문 일정을 관리자에게 먼저 연 동안(11-23 부장님) — 관리자(사무실 세션)면 들어온다."""
+    return gw.VISIT_PLAN_ADMIN_ONLY and _is_admin() and not _is_field()
+
+
+def _gate():
+    """개발 중 — 부장님만(11-21). 방문 일정만 관리자에게 먼저(11-23)."""
+    if request.path.startswith(_PLAN_PATHS) and _plan_admin():
+        return None
+    return dev_preview_gate()
+
+
+gw_vehicles_bp.before_request(_gate)
 _MONTH_RE = re.compile(r'^\d{4}-(0[1-9]|1[0-2])$')
 _resolving = threading.Lock()
 
@@ -201,7 +217,7 @@ def _can_plan() -> bool:
 @gw_page
 def page_visit_plan():
     # 일정 담당 + 오늘 온라인 당번(당일 배정하려고, 11-23)
-    if not _can_plan() and (_is_field() or not vp.is_duty_today(_me())):
+    if not (_can_plan() or _plan_admin()) and (_is_field() or not vp.is_duty_today(_me())):
         return redirect('/vehicles/assign')
     return render_template('gw/visit_plan.html')
 
