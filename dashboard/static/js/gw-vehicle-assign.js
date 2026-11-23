@@ -48,7 +48,10 @@
   var S = { day: '', cars: [], staff: [], names: {}, canEdit: false, confirmed: false, dirty: false,
             visits: {}, places: {}, teams: [], picked: null, seq: 0, focus: null,
             placeTries: 0, placeTimer: null,
-            off: {}, half: {}, online: {}, schedule: [], courses: null, plan: null, dayLabel: '' };
+            off: {}, half: {}, online: {}, schedule: [], courses: null, plan: null, dayLabel: '',
+            noteOpen: {}, doneOpen: false, carWhen: '', draftNote: '' };
+  // 화면 정리(11-23 부장님 "너무 어지럽다"): 쓰는 차만 큰 카드·빈 차는 아래 작은 칸, 메모·나누기는 카드 머리 작은 단추,
+  //   명단 '배정됨'은 접어 두기, 코스는 한 줄씩(눌러서 현장 펼침), 위 안내는 한 줄로
   // courses = 그룹웨어에서 확정한 방문 일정의 코스(위 칸, 11-23) — 슬랙으로 확정한 날은 null(캔버스1 모양 그대로)
   // online = {이니셜: '온라인 당번(오전)'} 그날 사무실 문의 당번(/일정확정 때 캔버스2 '온라인' 섹션, 11-21)
   // picked = 'YM' 또는 팀 'YM,LSH' · places = {이니셜: [{label, addr}]} 그날 갈 곳(차 카드)
@@ -273,7 +276,9 @@
         '<div class="gw-va-plist">' + ownList.map(function (c) {
           return person(c, '<small class="gw-va-where">' + esc(own[c].label) + '</small>');
         }).join('') + '</div></div>' : '') +
-      group('배정됨', placed, 'done') +
+      (placed.length ? '<details class="gw-va-group done" id="vaDoneGroup"' + (S.doneOpen ? ' open' : '') + '><summary class="gw-va-gtitle">' +
+        '<i class="fas fa-chevron-right gw-va-gfold" aria-hidden="true"></i> 배정됨 <span>' + placed.length + '</span></summary>' +
+        '<div class="gw-va-plist">' + placed.map(function (c) { return person(c); }).join('') + '</div></details>' : '') +
       group('온라인 당번', dutyList, 'off') +
       (workList.length ? '<div class="gw-va-group off"><div class="gw-va-gtitle">사내 업무 <span>' + workList.length + '</span></div>' +
         '<div class="gw-va-plist">' + workList.map(function (c) {
@@ -348,20 +353,37 @@
       body = ['am', 'pm'].map(function (h) {
         return '<div class="gw-va-half"' + (S.canEdit ? ' data-drop="car" data-plate="' + esc(c.plate) + '" data-half="' + h + '"' : '') + '>' +
           '<div class="gw-va-halfhead">' + (h === 'am' ? '오전' : '오후') + '</div>' + zone(h === 'am' ? c.people : c.pm, h) + '</div>';
-      }).join('') + (S.canEdit ? '<button type="button" class="btn btn-sm btn-link gw-va-splitbtn" data-unsplit="' + esc(c.plate) +
-        '">오후도 오전과 같게</button>' : '');
+      }).join('');
     } else {
-      body = zone(c.people, 'all') + (S.canEdit && c.people.length ? '<button type="button" class="btn btn-sm btn-link gw-va-splitbtn" data-split="' +
-        esc(c.plate) + '">오전·오후 나누기</button>' : '');
+      body = zone(c.people, 'all');
     }
-    var note = S.canEdit && (ridersOf(c).length || c.note)
+    // 메모는 적었거나 [메모]를 눌렀을 때만 칸이 보인다(늘 붙어 있어 카드가 길었음, 11-23)
+    var showNote = S.canEdit && (c.note || S.noteOpen[c.plate]);
+    var note = showNote
       ? '<input type="text" class="form-control form-control-sm gw-va-note" maxlength="60" placeholder="메모" data-note="' +
         esc(c.plate) + '" value="' + esc(c.note || '') + '" aria-label="' + esc(c.label) + ' 메모" autocomplete="off">'
       : (c.note ? '<div class="gw-va-notetext">' + esc(c.note) + '</div>' : '');
+    var tools = '';
+    if (S.canEdit) {
+      if (!showNote) tools += '<button type="button" class="gw-va-tool" data-noteopen="' + esc(c.plate) + '" aria-label="' + esc(c.label) + ' 메모 쓰기">' +
+        '<i class="fas fa-pen" aria-hidden="true"></i> 메모</button>';
+      if (isSplit(c)) tools += '<button type="button" class="gw-va-tool" data-unsplit="' + esc(c.plate) + '">오후도 오전과 같게</button>';
+      else if (c.people.length) tools += '<button type="button" class="gw-va-tool" data-split="' + esc(c.plate) + '">오전·오후 나누기</button>';
+    }
     var drop = S.canEdit && !isSplit(c) ? ' data-drop="car" data-half="all"' : '';
     return '<div class="gw-va-card' + (S.picked ? ' can-drop' : '') + (isSplit(c) ? ' split' : '') + '" data-plate="' + esc(c.plate) + '"' + drop + '>' +
-      '<div class="gw-va-car"><strong>' + esc(c.label) + '</strong><span>' + esc(sub) + '</span>' + fixed + '</div>' +
-      carPlaces(c) + body + note + '</div>';
+      '<div class="gw-va-cardhead"><div class="gw-va-car"><strong>' + esc(c.label) + '</strong><span>' + esc(sub) + '</span></div>' +
+      (tools ? '<div class="gw-va-tools">' + tools + '</div>' : '') + '</div>' + fixed +
+      (S.courses ? '' : carPlaces(c)) + body + note + '</div>';
+  }
+  // 빈 차 — 작은 칸. 사람을 놓으면 위 큰 카드로 올라간다(11-23)
+  function tile(c) {
+    var fixed = c.usage === 'fixed'
+      ? '<div class="gw-va-tilefixed">평소 ' + (S.canEdit ? fixedSelect(c) : esc(c.fixed_name || '없음')) + '</div>' : '';
+    var put = S.canEdit && S.picked ? '<span class="gw-va-tileput"><i class="fas fa-plus" aria-hidden="true"></i> 넣기</span>' : '';
+    return '<div class="gw-va-tile' + (S.picked ? ' can-drop' : '') + '" data-plate="' + esc(c.plate) + '"' +
+      (S.canEdit ? ' data-drop="car" data-half="all"' : '') + '>' +
+      '<div class="gw-va-car"><strong>' + esc(c.label) + '</strong><span>' + esc(c.plate) + '</span></div>' + fixed + put + '</div>';
   }
   // ── 그날 방문 일정 칸(차 목록 위, 11-21 부장님) ──
   // 캔버스1(봇 자동)과 같은 묶음·표시를 리드 시트에서 바로 그린다. 줄마다 /일정확정으로 들어간 영업 담당자.
@@ -414,9 +436,12 @@
   }
   function courseCars(members) {   // 코스 사람들이 지금 넣어 둔 차 — 차 없는 사람은 주황
     var cars = [], none = [];
+    var own = ownCars();
     members.forEach(function (m) {
       if (S.off[m]) return;
       var w = whereText(m);
+      // 고정 차 주인(MW 스파크·YG 카니발)이 자기 차를 아무도 안 빌렸으면 본인 차로 간 것(11-23)
+      if (!w && own[m] && !ridersOf(own[m]).length) w = own[m].label + ' (본인)';
       if (!w) none.push(name(m)); else if (cars.indexOf(w) === -1) cars.push(w);
     });
     return cars.map(function (w) { return '<span class="gw-va-ccar"><i class="fas fa-car" aria-hidden="true"></i> ' + esc(w) + '</span>'; }).join('') +
@@ -427,22 +452,33 @@
       el.innerHTML = courseCars(String(el.getAttribute('data-ccars')).split(',').filter(Boolean));
     });
   }
+  function siteRoute(sites) {
+    var out = [];
+    sites.forEach(function (s) { var p = s.place; if (p && out[out.length - 1] !== p) out.push(p); });
+    return out.join(' → ');
+  }
   function courseBody() {
     var C = S.courses;
     var body = C.courses.map(function (c) {
       var who = c.members.map(name).join(' + ') || '사람 없음';
       if (c.kind === 'work') {
-        return '<div class="gw-va-course work"><h3>' + esc(c.label) + ' <span class="gw-va-cwho">' + esc(who) + '</span>' +
-          '<span class="gw-va-ccar">차 필요 없음</span></h3>' + (c.task ? '<p class="gw-va-cmemo">' + esc(c.task) + '</p>' : '') + '</div>';
+        return '<div class="gw-va-cline work"><div class="gw-va-csum"><span class="gw-va-clabel">' + esc(c.label) + '</span>' +
+          '<span class="gw-va-cwho">' + esc(who) + '</span>' + (c.task ? '<span class="gw-va-croute">' + esc(c.task) + '</span>' : '') +
+          '<span class="gw-va-ccars"><span class="gw-va-ccar">차 필요 없음</span></span></div></div>';
       }
-      return '<div class="gw-va-course"><h3>' + esc(c.label) + ' <span class="gw-va-cwho">' + esc(who) + '</span>' +
-        '<span class="gw-va-ccars" data-ccars="' + esc(c.members.join(',')) + '"></span></h3>' +
-        (c.memo ? '<p class="gw-va-cmemo"><strong>메모</strong> ' + esc(c.memo) + '</p>' : '') +
-        '<ul>' + c.sites.map(courseSite).join('') + '</ul></div>';
+      var route = siteRoute(c.sites);
+      return '<details class="gw-va-cline"><summary class="gw-va-csum">' +
+        '<i class="fas fa-chevron-right gw-va-cfold" aria-hidden="true"></i><span class="gw-va-clabel">' + esc(c.label) + '</span>' +
+        '<span class="gw-va-cwho">' + esc(who) + '</span>' + (route ? '<span class="gw-va-croute">' + esc(route) + '</span>' : '') +
+        '<span class="gw-va-ccars" data-ccars="' + esc(c.members.join(',')) + '"></span>' +
+        (c.memo ? '<span class="gw-va-cmemoline" title="' + esc(c.memo) + '"><strong>메모</strong> ' + esc(c.memo) + '</span>' : '') +
+        '</summary><ul>' + c.sites.map(courseSite).join('') + '</ul></details>';
     }).join('');
     if (C.left.length) {
-      body += '<div class="gw-va-course left"><h3>코스에 없는 현장 <span class="gw-va-cwho">' + C.left.length + '건</span></h3>' +
-        '<ul>' + C.left.map(courseSite).join('') + '</ul></div>';
+      body += '<details class="gw-va-cline left"><summary class="gw-va-csum">' +
+        '<i class="fas fa-chevron-right gw-va-cfold" aria-hidden="true"></i><span class="gw-va-clabel">코스에 없는 현장</span>' +
+        '<span class="gw-va-cwho">' + C.left.length + '건</span><span class="gw-va-croute">' + esc(siteRoute(C.left)) + '</span>' +
+        '</summary><ul>' + C.left.map(courseSite).join('') + '</ul></details>';
     }
     return body || '<p class="gw-va-sempty">이날 방문 일정이 없어요.</p>';
   }
@@ -476,18 +512,22 @@
     el.innerHTML = '<summary><i class="fas fa-calendar-day" aria-hidden="true"></i><span class="gw-va-stitle">' +
       esc(j.day_label || '') + ' 방문 일정</span><span class="gw-va-ssum">' + esc(sum) + '</span>' +
       '<i class="fas fa-chevron-down gw-va-fold" aria-hidden="true"></i></summary>' +
-      '<div class="gw-va-sbody">' + leave + body + '</div>';
+      '<div class="gw-va-sbody' + (C ? ' courses' : '') + '">' + leave + body + '</div>';
     el.open = wasOpen;
     el.hidden = false;
     el.dataset.ready = '1';
     refreshCourseCars();
   }
   function render() {
-    $('vaShared').innerHTML = S.cars.filter(function (c) { return c.usage !== 'fixed'; }).map(card).join('') ||
-      '<p class="gw-empty">공용 차가 없어요.</p>';
-    var fixedCars = S.cars.filter(function (c) { return c.usage === 'fixed'; });
-    $('vaFixed').innerHTML = fixedCars.map(card).join('');
-    $('vaFixedHead').hidden = !fixedCars.length;   // 지금은 고정 차 없음(파나메라·벤츠·랜드로버는 배정에서 뺌, 11-20)
+    var used = S.cars.filter(function (c) { return ridersOf(c).length || c.note; });
+    var empty = S.cars.filter(function (c) { return used.indexOf(c) === -1; });
+    $('vaShared').innerHTML = used.map(card).join('') ||
+      '<p class="gw-va-none gw-va-noused">' + (S.canEdit ? '아직 넣은 차가 없어요. 아래 빈 차에 사람을 놓으세요.' : '이날 차량 배정이 없어요.') + '</p>';
+    $('vaFixedHead').innerHTML = '빈 차 <span class="gw-va-sec-n">' + empty.length + '대</span>' +
+      (S.canEdit ? '<span class="gw-va-sec-sub">사람을 놓으면 위로 올라가요. 고정 차는 평소엔 정해진 사람이 타요.</span>' : '');
+    $('vaFixedHead').hidden = !empty.length;
+    $('vaFixed').className = 'gw-va-tiles';
+    $('vaFixed').innerHTML = empty.map(tile).join('');
     staffPanel();
     if ($('vaBoard')) $('vaBoard').classList.toggle('editing', S.canEdit);
     $('vaBar').hidden = !S.canEdit;
@@ -497,7 +537,7 @@
     $('vaSave').hidden = false;
     setDirty(S.dirty);
     refreshCourseCars();
-    planLine();
+    statusLine();
     restoreFocus();
   }
   // 방문 일정(영업 > 방문 일정)을 그룹웨어에서 확정했으면 한 줄 — 팀이 어디서 왔는지(11-22 부장님)
@@ -509,60 +549,47 @@
     });
     return seen;
   }
-  function planLine() {
-    var el = $('vaPlanLine');
-    if (!el) return;
+  // 차량 배정을 저장한 뒤 방문 일정이 다시 확정됐고, 지금 배정과 코스가 어긋나면(차 없는 코스 사람·코스에서 빠진 사람) 경고 글
+  function staleText() {
     var p = S.plan;
-    if ((!p || !p.confirmed_at) && S.courses && S.courses.source === 'sheet') {   // 슬랙으로 정한 오늘·지난 날(11-23)
-      el.className = 'gw-va-planline';
-      el.innerHTML = '<i class="fas fa-route" aria-hidden="true"></i> ' + esc(S.dayLabel) +
-        ' 방문 일정 — 슬랙 /일정확정으로 정한 날이라 시트 영업 담당자대로 코스를 묶어 보여 줘요.';
-      el.hidden = false;
-      return;
-    }
-    if (!p || !p.confirmed_at) { el.hidden = true; el.innerHTML = ''; el.className = 'gw-va-planline'; return; }
-    var text = esc(S.dayLabel) + ' 방문 일정 확정 ' + esc(p.confirmed_at.slice(11, 16)) + (p.confirmed_name ? ' · ' + esc(p.confirmed_name) : '') +
-      ' · 코스 ' + p.courses + '개';
-    var tail = ' <span>— 코스대로 팀을 미리 넣어 두었어요.</span>';
-    // 차량 배정을 저장한 뒤 방문 일정이 다시 확정됐고, 지금 배정과 코스가 어긋나면(차 없는 코스 사람·코스에서 빠진 사람)
-    var stale = p.cars_saved_at && p.confirmed_at > p.cars_saved_at;
-    var cls = 'gw-va-planline';
-    if (stale && S.canEdit) {
-      var inCourse = courseMembers();
-      var none = staffNoCar();
-      var out = [];
-      S.cars.forEach(function (c) { ridersOf(c).forEach(function (m) { if (!inCourse[m] && !S.visits[m] && out.indexOf(name(m)) === -1) out.push(name(m)); }); });
-      if (none.length || out.length) {
-        tail = ' <span class="gw-va-stale">— 차량 배정 뒤에 다시 확정됐어요.' +
-          (none.length ? ' 차 없음: ' + esc(none.join(', ')) + '.' : '') + (out.length ? ' 코스에서 빠짐: ' + esc(out.join(', ')) + '.' : '') + '</span>';
-        cls += ' stale';
-      } else {
-        tail = ' <span>— 다시 확정된 코스와 지금 배정이 맞아요.</span>';
-      }
-    }
-    el.className = cls;
-    el.innerHTML = '<i class="fas fa-route" aria-hidden="true"></i> ' +
-      (p.can_open ? '<a href="/visits/plan?day=' + encodeURIComponent(S.day) + '">' + text + '</a>' : text) + tail;
-    el.hidden = false;
+    if (!S.canEdit || !p || !p.confirmed_at || !p.cars_saved_at || !(p.confirmed_at > p.cars_saved_at)) return '';
+    var inCourse = courseMembers();
+    var none = staffNoCar();
+    var out = [];
+    S.cars.forEach(function (c) { ridersOf(c).forEach(function (m) { if (!inCourse[m] && !S.visits[m] && out.indexOf(name(m)) === -1) out.push(name(m)); }); });
+    if (!none.length && !out.length) return '';
+    return '차량 배정 뒤에 방문 일정이 다시 확정됐어요.' + (none.length ? ' 차 없음: ' + none.join(', ') + '.' : '') +
+      (out.length ? ' 코스에서 빠짐: ' + out.join(', ') + '.' : '');
   }
-  function status(j) {
-    var el = $('vaStatus');
-    var parts = ['<strong>' + esc(j.day_label) + '</strong>'];
-    if (j.confirmed_at) {
-      parts.push('<span class="gw-badge gw-badge-ok">확정</span> <span class="gw-va-when">' + esc(j.confirmed_at.slice(5, 16)) +
-        (j.confirmed_name ? ' · ' + esc(j.confirmed_name) : '') + '</span>');
-    } else {
-      parts.push('<span class="gw-badge gw-badge-wait">확정 전</span>');
-    }
+  function status(j) {           // 불러올 때 — 한 줄에 쓸 것만 담아 둔다
+    S.carWhen = j.confirmed_at ? j.confirmed_at.slice(5, 16).replace('-', '/') + (j.confirmed_name ? ' · ' + j.confirmed_name : '') : '';
     var drafted = j.cars.some(function (c) { return c.people.length; });
-    if (j.draft_kind === 'teams' && drafted && S.canEdit) {
-      parts.push('<span class="gw-va-draft">' + (courseMode() ? '방문 일정 코스대로, 각 코스가' : '일정확정 팀대로, 각 팀이') +
-        ' 최근에 탄 차에 미리 넣어 두었어요. 바뀐 곳만 고치고 확정해 주세요.</span>');
-    } else if (j.draft_from && S.canEdit) {
-      parts.push('<span class="gw-va-draft">아직 배정이 없어서 ' + esc(j.draft_from.slice(5).replace('-', '/')) +
-        ' 배정을 미리 넣어 두었어요. 바뀐 곳만 고치고 확정해 주세요.</span>');
+    S.draftNote = '';
+    if (j.draft_kind === 'teams' && drafted) S.draftNote = (courseMode() ? '코스대로' : '일정확정 팀대로') + ' 최근 탄 차에 미리 넣어 두었어요 — 바뀐 곳만 고쳐 확정해 주세요';
+    else if (j.draft_from) S.draftNote = j.draft_from.slice(5).replace('-', '/') + ' 배정을 미리 넣어 두었어요 — 바뀐 곳만 고쳐 확정해 주세요';
+    statusLine();
+  }
+  function statusLine() {        // 날짜 · 확정 상태 · 방문 일정 · 초안 안내 · (경고) — 한 줄(11-23 부장님: 위 안내가 세 줄이라 어지러움)
+    var el = $('vaStatus');
+    if (!el) return;
+    var pl = $('vaPlanLine');
+    if (pl) { pl.hidden = true; pl.innerHTML = ''; }
+    var head = '<strong>' + esc(S.dayLabel) + '</strong> ' + (S.confirmed
+      ? '<span class="gw-badge gw-badge-ok">확정</span>' + (S.carWhen ? ' <span class="gw-va-when">' + esc(S.carWhen) + '</span>' : '')
+      : '<span class="gw-badge gw-badge-wait">확정 전</span>');
+    var bits = [];
+    var p = S.plan;
+    if (p && p.confirmed_at) {
+      var t = '방문 일정 확정 ' + p.confirmed_at.slice(11, 16) + (p.confirmed_name ? ' · ' + p.confirmed_name : '');
+      bits.push('<i class="fas fa-route" aria-hidden="true"></i> ' +
+        (p.can_open ? '<a href="/visits/plan?day=' + encodeURIComponent(S.day) + '">' + esc(t) + '</a>' : esc(t)));
+    } else if (S.courses && S.courses.source === 'sheet') {
+      bits.push('<i class="fas fa-route" aria-hidden="true"></i> 슬랙으로 정한 날 — 시트 담당자대로 코스');
     }
-    el.innerHTML = parts.join(' ');
+    if (S.draftNote && S.canEdit && !S.confirmed) bits.push(esc(S.draftNote));
+    var warn = staleText();
+    el.innerHTML = head + (bits.length ? '<span class="gw-va-sinfo">' + bits.join('<span class="gw-va-dot">·</span>') + '</span>' : '') +
+      (warn ? '<span class="gw-va-stale" role="status">' + esc(warn) + '</span>' : '');
   }
 
   // ── 불러오기·저장 ──
@@ -575,6 +602,7 @@
       S.cars.forEach(function (c) { c.pm = Array.isArray(c.pm) ? c.pm : null; });
       S.confirmed = !!j.confirmed_at; S.picked = null;
       S.names = {}; S.visits = {}; S.places = {}; S.off = {}; S.half = {}; S.online = {}; S.work = {};
+      S.noteOpen = {};
       j.staff.forEach(function (p) { S.names[p.code] = p.name; });
       // 확정 전 토요 휴무는 바뀔 수 있어 반차처럼 꼬리표만(방문 일정과 같게 — 코스에 넣을 수 있음, 11-23)
       (j.off || []).forEach(function (o) { if (o.soft) S.half[o.code] = o.why; else S.off[o.code] = o.why; });
@@ -766,6 +794,13 @@
       render();
       return;
     }
+    var no = e.target.closest('[data-noteopen]');
+    if (no) {
+      S.noteOpen[no.dataset.noteopen] = 1;
+      focusAfter('[data-note="' + cssq(no.dataset.noteopen) + '"]');
+      render();
+      return;
+    }
     var sp = e.target.closest('[data-split]');
     if (sp) {                                   // 오전·오후 나누기 — 오후에 오전 사람을 그대로 옮겨 놓고 시작
       var spc = carOf(sp.dataset.split);
@@ -809,6 +844,9 @@
       pick(S.picked, was && was.closest && (was.closest('[data-team]') || was.closest('.gw-va-chip')) ? was : null);
     }
   });
+  document.addEventListener('toggle', function (e) {
+    if (e.target && e.target.id === 'vaDoneGroup') S.doneOpen = e.target.open;
+  }, true);
   // 방문 일정 칸을 직접 접고 펼친 것만 기억(다시 그릴 때 코드로 여닫는 것은 빼고)
   document.addEventListener('click', function (e) {
     var s = e.target.closest && e.target.closest('#vaSched > summary');
