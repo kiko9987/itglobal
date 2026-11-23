@@ -10,7 +10,7 @@
 {# 방문 일정(11-22 부장님, 영업 > 방문 일정) — 슬랙 캔버스2·/일정확정 대신 여기서 다음 날 방문을 코스로 묶고 사람을 넣어 확정한다.
    일정 담당(JW·대표님·부장님)만 고친다. 규칙은 services/visit_plan.py, 화면은 gw-visit-plan.js.
    확정하면 차량 배정(/vehicles/assign)이 코스를 팀으로 받아 쓰고, 배정 담당(SJ)에게 DM 이 간다. #}
-<div class="gw-page gw-va" id="vpPage">
+<div class="gw-page gw-va gw-vp-page" id="vpPage">
   <div class="gw-page-head">
     <h1 class="gw-page-title">방문 일정</h1>
     <div class="gw-page-actions gw-va-daynav">
@@ -35,16 +35,13 @@
         </aside>
         <section class="gw-vp-duty" id="vpDuty" aria-label="온라인 당번"></section>
       </div>
-      {# 넓은 화면(1600px 이상)은 코스 | 현장 목록 나란히 — 사람까지 세 칸(11-23 부장님: 여백·위아래 왕복 줄이기). 그보다 좁으면 코스 아래 현장 목록 #}
       <div class="gw-vp-main">
-        <div class="gw-vp-coursecol">
         <div class="gw-vp-sitehead">
           <h2 class="gw-vp-h">코스 <span id="vpCourseCount"></span></h2>
           <button type="button" class="btn btn-sm btn-outline-secondary" id="vpAddCourse"><i class="fas fa-plus" aria-hidden="true"></i> 코스 만들기</button>
         </div>
         <p class="gw-vp-how" id="vpMemoHelp">코스 메모는 그 코스 사람들의 담당자 DM 위쪽에 함께 가요.</p>
         <div class="gw-vp-courses" id="vpCourses"></div>
-        </div>
         <section class="gw-vp-inbox" id="vpInbox" data-drop="inbox" aria-label="코스에 안 넣은 현장">
           <div class="gw-vp-sitehead">
             <h2 class="gw-vp-h">현장 목록 <span id="vpInboxCount"></span></h2>

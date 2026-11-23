@@ -3291,11 +3291,8 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
 .gw-vp-chead .gw-vp-memo input { min-width: 0; }
 .gw-vp-car { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border: 1px solid #cbd0d8; border-radius: 999px; background: #f8fafc; color: #334155; font-size: 0.78rem; line-height: 1.7; white-space: nowrap; }
 .gw-vp-car .fa-car-side { font-size: 0.72rem; }
-/* 넓은 화면은 세 칸: 사람 | 코스 | 현장 목록(현장 목록은 화면에 붙어 따라옴) — 그보다 좁으면 코스 아래 현장 목록 */
-@media (min-width: 1600px) {
-  .gw-vp-main { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); column-gap: 14px; align-items: start; }
-  .gw-vp-main > .gw-vp-inbox { position: sticky; top: 8px; max-height: calc(100vh - 90px); overflow: auto; margin-top: 0; }
-}
+/* 방문 일정은 가운데 1400px — 넓은 모니터에서 줄이 끝없이 늘어나 단추가 멀어지던 것(11-23 부장님, 세 칸 대신) */
+.gw-page.gw-vp-page { max-width: 1400px; margin-left: auto; margin-right: auto; }
 .gw-vp-cacts { display: flex; flex-wrap: wrap; gap: 6px; }
 .gw-vp-row.before { box-shadow: 0 -3px 0 #2a3038; }
 .gw-vp-memo { flex-direction: row !important; align-items: center; }
