@@ -420,10 +420,8 @@
     else who = rs.map(name).join('·');
     var line = rs.length
       ? '<span class="gw-vc-cwho"><span class="gw-vc-clabel">' + esc(labels.join('·')) + '</span> ' + esc(who) + '</span>'
-      : '<span class="gw-vc-cwho none">' + (isOwn(c) ? '차가 모자라면 본인 차량으로' : isCrew(c) ? '평소 시공팀'
-        : c.usage === 'fixed' ? '평소 ' + esc(c.fixed_name || '정해진 사람 없음') : '빈 차') + '</span>';
+      : '<span class="gw-vc-cwho none">빈 차</span>';      // '평소 ○○'·'평소 시공팀' 글은 뺐다(11-24 부장님) — 아무도 안 탄 차는 모두 '빈 차'
     // 차 줄의 메모 칸은 없앴다(11-24 부장님 — 예외는 코스 메모 한 줄로)
-    // 고정 차 '평소 [사람 고르기]' 칸은 뺐다(11-24 부장님) — 평소 사용자는 줄 글('평소 ○○')로만 보인다
     var on = S.canEdit && S.pick === c.plate;
     var check = S.canEdit ? '<input type="checkbox" class="form-check-input gw-vp-check" data-carcheck="' + esc(c.plate) + '"' +
       (on ? ' checked' : '') + ' aria-label="' + esc(c.label) + ' 고르기">' : '';
