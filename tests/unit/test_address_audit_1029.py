@@ -467,5 +467,18 @@ def test_dong_typo_and_underscore_l04637(raw, expected):
     assert N(raw) == expected
 
 
+@pytest.mark.parametrize('line, expected', [
+    # L-04648: 방문 주소 둘째 줄이 건물·층이면 주소에 이어 붙임
+    ('아라비즈타워 6층', True), ('101동 1203호', True), ('B동 3층', True),
+    ('원일테크노2 4층 402호', True), ('지하1층', True), ('3층', True),
+    # 메모는 그대로 특이사항
+    ('현장은 3층', False), ('3층 사용 중이시고', False), ('1층 50평', False),
+    ('오전 9시 방문', False), ('방문 전 연락 요망', False), ('실외기 9층옥상', False),
+    ('1층 한우집 짝', False),
+])
+def test_address_detail_second_line_l04648(line, expected):
+    assert ar.is_address_detail_line(line) is expected
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))

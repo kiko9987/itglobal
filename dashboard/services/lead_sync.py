@@ -2738,7 +2738,20 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                 ln.strip() for ln in re.split(r'\r?\n', addr_raw_full) if ln.strip()
             ]
             addr_raw = _addr_lines_raw[0] if _addr_lines_raw else ''
-            extra_notes = ' / '.join(_addr_lines_raw[1:]) if len(_addr_lines_raw) > 1 else ''
+            _rest_lines = _addr_lines_raw[1:]
+            # 바로 다음 줄이 건물·층·호 같은 주소 상세면 주소에 이어 붙임 (2026-11-23 L-04648:
+            #   '문래로83 ↵ 아라비즈타워 6층' 의 둘째 줄을 특이사항으로 떼어 층이 빠짐)
+            _merged_detail = False
+            try:
+                from dashboard.services.address_resolver import is_address_detail_line
+                while _rest_lines and is_address_detail_line(_rest_lines[0]):
+                    addr_raw = f'{addr_raw} {_rest_lines.pop(0)}'
+                    _merged_detail = True
+            except Exception as _exc:
+                logger.warning(f'[SYNC/방문주소] 주소 상세 줄 판별 실패: {_exc}')
+            extra_notes = ' / '.join(_rest_lines)
+            if _merged_detail and not extra_notes:
+                update_cells.append((f"I{sheet_row}", addr_raw))   # 여러 줄 → 한 줄
             # 인라인 노트 분리 (2026-08-04 L-03524): 한 줄에 붙여쓴 지시문/노트성 괄호
             #   ('(현장은 3층) YG 소통 하세요')도 상담으로 이동 — 개행 분리로는 못 잡던 갭.
             try:

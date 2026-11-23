@@ -2753,6 +2753,32 @@ def _note_is_addr_token(t: str) -> bool:
     return False
 
 
+# 둘째 줄이 메모가 아니라 주소 상세(건물·층·호)인지 (2026-11-23 L-04648): 매니저가 방문 주소를
+#   '영등포구 문래로83 ↵ 아라비즈타워 6층' 처럼 두 줄로 적으면 둘째 줄을 특이사항으로 떼어
+#   층이 빠졌음. '건물 이름(낱말 0~3개) + 층·호·동' 또는 '…타워·빌딩 등 건물 이름'만으로 된
+#   줄이고 메모 신호가 없을 때만 주소로 본다('1층 50평'·'3층 사용 중이시고'는 메모).
+_DU = r'(?:지하\s*\d+\s*층|\d+\s*층|\d+(?:-\d+)?\s*호|(?:[A-Za-z]|\d+|상가|본|별|신)\s*동)'
+_DN = r'[가-힣A-Za-z0-9&().\-]+'
+_DETAIL_LINE_RE = re.compile(
+    rf'(?:{_DN}\s+){{0,3}}{_DU}(?:\s*,?\s*{_DU})*'
+    rf'|(?:{_DN}\s+){{0,2}}[가-힣A-Za-z0-9]*(?:타워|빌딩|프라자|플라자|센터|오피스텔|아파트|상가|빌라|맨션|타운|스퀘어|밸리)')
+_DETAIL_MEMO_RE = re.compile(
+    r'연락|전화|방문|요망|부탁|주세요|예정|오전|오후|\d+\s*시(?![가-힣])|문의|견적|설치|철거|작업'
+    r'|공사|주차|확인|담당|010|미팅|도착|사장|대표|실장|과장|부장|팀장|평|대(?![가-힣])|실외기|옥상|현장|[가-힣](?:은|는|에서)\s')
+
+
+def is_address_detail_line(line: str) -> bool:
+    s = (line or '').strip()
+    if not s or len(s) > 40:
+        return False
+    if _DETAIL_MEMO_RE.search(s) or not _DETAIL_LINE_RE.fullmatch(s):
+        return False
+    try:
+        return not split_address_notes(s)[1]
+    except Exception:
+        return False
+
+
 def split_address_notes(addr: str) -> Tuple[str, str]:
     """방문 주소에서 매니저 지시 노트(트레일링 지시문 + 노트성 괄호)를 분리.
 
