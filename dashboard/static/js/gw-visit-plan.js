@@ -316,29 +316,34 @@
         g.items.push(v);
       });
       groups.sort(function (a, b) { return a.rank - b.rank || a.key.localeCompare(b.key, 'ko'); });
-      return '<section class="gw-vp-cat"><h3 class="gw-vp-cattitle">' + esc(cat[1]) + ' <span>' + mine.length + '</span></h3>' +
-        groups.map(function (g) { return regionGroup(g, cat[0]); }).join('') + '</section>';
+      // 기타·거래처·온라인을 상자 하나씩, 지역은 소제목 대신 줄 맨 앞 칸(11-23 부장님 2안 — 지역당 1건이 많아 소제목이 줄만큼 생겼음)
+      return '<section class="gw-vp-cat gw-vp-catbox"><h3 class="gw-vp-cattitle">' + esc(cat[1]) + ' <span>' + mine.length + '</span></h3>' +
+        '<ul class="gw-vp-inrows">' + groups.map(function (g) { return regionRows(g, cat[0]); }).join('') + '</ul></section>';
     }).join('');
   }
-  function regionGroup(g, cat) {
+  function regionRows(g, cat) {
     var gk = cat + '|' + g.key;
     var allOn = g.items.every(function (v) { return P.checked[v.lead_no]; });
-    var head = '<h4 class="gw-vp-gtitle">' + esc(g.key) + ' <span>' + g.items.length + '</span>' +
-      (P.canEdit && g.items.length > 1 ? ' <button type="button" class="btn btn-sm btn-link gw-vp-gall" data-act="checkgroup" data-group="' + esc(gk) + '">' + (allOn ? '체크 풀기' : '모두 체크') + '</button>' : '') + '</h4>';
     // 체크한 현장은 제목 줄의 '체크한 현장 → [새 코스로]·[코스 N로]' 로 올린다(지역 단추는 두지 않음, 11-22 부장님)
-    return '<div class="gw-vp-group">' + head + '<ul class="gw-vp-inrows">' + g.items.map(function (v) {
+    return g.items.map(function (v, k) {
       var on = !!P.checked[v.lead_no];
       var check = P.canEdit ? '<input type="checkbox" class="form-check-input gw-vp-check" data-act="check" data-lead="' + esc(v.lead_no) + '"' + (on ? ' checked' : '') +
         ' aria-label="' + esc((v.place || '') + ' ' + v.lead_no) + ' 고르기">' : '';
-      return '<li class="gw-vp-inrow' + (on ? ' on' : '') + '"' + (P.canEdit ? ' draggable="true" data-drag-lead="' + esc(v.lead_no) + '"' : '') + '>' + check +
-        // 현장 목록은 지역 소제목으로 이미 나뉘어 지역 꼬리표는 뺌(11-23 부장님) — 코스 안 줄은 지역이 섞여 꼬리표 유지
+      // 지역 칸 — 같은 지역이 이어지면 둘째 줄부터 흐리게. 2건 이상이면 첫 줄 지역 칸을 눌러 그 지역 모두 체크
+      var rgn = k > 0
+        ? '<span class="gw-vp-rgn same" aria-hidden="true">' + esc(g.key) + '</span>'
+        : (P.canEdit && g.items.length > 1
+          ? '<button type="button" class="gw-vp-rgn multi" data-act="checkgroup" data-group="' + esc(gk) + '" title="' + esc(g.key + ' ' + g.items.length + '건 ' + (allOn ? '체크 풀기' : '모두 체크')) + '">' +
+            esc(g.key) + ' <small>' + g.items.length + '</small></button>'
+          : '<span class="gw-vp-rgn">' + esc(g.key) + (g.items.length > 1 ? ' <small>' + g.items.length + '</small>' : '') + '</span>');
+      return '<li class="gw-vp-inrow' + (on ? ' on' : '') + (k > 0 ? ' cont' : '') + '"' + (P.canEdit ? ' draggable="true" data-drag-lead="' + esc(v.lead_no) + '"' : '') + '>' + check + rgn +
         '<span class="gw-vp-rmain"><span class="gw-vp-vtop">' + marks(v) + '<strong>' + esc(v.date) + '</strong><span class="gw-va-sno">' + esc(v.lead_no) + '</span></span>' +
         (v.addr ? '<span class="gw-vp-vaddr">' + esc(v.addr) + '</span>' : '') +
         (v.text ? '<span class="gw-vp-vtext" title="' + esc(v.text) + '">' + esc(v.text) + '</span>' : '') + '</span>' +
         (!P.canEdit && P.data.can_urgent ? '<button type="button" class="btn btn-sm btn-outline-secondary gw-vp-urgentbtn" data-act="urgent" data-lead="' + esc(v.lead_no) + '">당일 배정</button>' : '') +
         '</li>';
         // 줄마다 있던 [새 코스로]는 뺐다(11-23 부장님) — 줄을 눌러 체크한 뒤 목록 위 '체크한 현장 → [새 코스로]·[코스 N로]' 하나로
-    }).join('') + '</ul></div>';
+    }).join('');
   }
   function selBar() {
     var n = checkedList().length;
