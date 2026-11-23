@@ -520,10 +520,7 @@
   }
   function status(j) {
     S.carWhen = j.confirmed_at ? j.confirmed_at.slice(5, 16).replace('-', '/') + (j.confirmed_name ? ' · ' + j.confirmed_name : '') : '';
-    var drafted = j.cars.some(function (c) { return c.people.length; });
-    S.draftNote = '';
-    if (j.draft_kind === 'teams' && drafted) S.draftNote = (courseMode() ? '코스대로' : '일정확정 팀대로') + ' 최근 탄 차에 미리 넣어 두었어요 — 바뀐 곳만 고쳐 확정해 주세요';
-    else if (j.draft_from) S.draftNote = j.draft_from.slice(5).replace('-', '/') + ' 배정을 미리 넣어 두었어요 — 바뀐 곳만 고쳐 확정해 주세요';
+    S.draftNote = '';      // 초안 없앰(11-23 부장님 — 타는 차·인원이 매일 달라서). 빈 날은 비어서 열린다
   }
   function statusLine() {        // 날짜 · 확정 상태 · 방문 일정 · 초안 안내 · (경고) — 한 줄
     var el = $('vaStatus');
@@ -573,7 +570,7 @@
       (j.visitors || []).forEach(function (v) { S.visits[v.code] = v.visits; S.places[v.code] = v.places || []; });
       S.teams = j.teams || [];
       schedPanel(j);
-      S.dirty = !!(j.draft_kind && S.canEdit && j.cars.some(function (c) { return c.people.length; }));
+      S.dirty = false;
       $('vaDay').value = j.day;
       try { history.replaceState(null, '', '/vehicles/assign?day=' + j.day); } catch (e) { /* 무시 */ }
       status(j);

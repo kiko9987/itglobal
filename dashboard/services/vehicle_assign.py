@@ -287,113 +287,23 @@ def _day_info(day: str) -> Optional[Dict]:
     return dict(r) if r else None
 
 
-def _previous_day_with_rows(day: str) -> Optional[str]:
-    with _conn() as conn:
-        r = conn.execute("SELECT MAX(day) FROM vehicle_assign WHERE day < ? AND people != ''", (day,)).fetchone()
-    return r[0] if r and r[0] else None
-
-
-def _recent_cars(day: str, back_days: int = 30) -> Dict[str, str]:
-    """사람 → 그날 이전에 마지막으로 탄 차."""
-    start = (date.fromisoformat(day) - timedelta(days=back_days)).isoformat()
-    with _conn() as conn:
-        rows = conn.execute('SELECT day, plate, people FROM vehicle_assign WHERE day >= ? AND day < ? AND plate != ? '
-                            'ORDER BY day', (start, day, OWN)).fetchall()
-    out: Dict[str, str] = {}
-    for r in rows:
-        for p in _split(r['people']):
-            out[p] = r['plate']
-    return out
-
-
-def _pairs(day: str, back_days: int = 60) -> Dict[frozenset, int]:
-    """그날 이전 배정에서 같은 차를 탄 짝 — {frozenset({A, B}): 횟수}."""
-    start = (date.fromisoformat(day) - timedelta(days=back_days)).isoformat()
-    with _conn() as conn:
-        rows = conn.execute('SELECT people, pm_people FROM vehicle_assign WHERE day >= ? AND day < ? AND plate != ?',
-                            (start, day, OWN)).fetchall()
-    out: Dict[frozenset, int] = {}
-    for r in rows:
-        groups = [_split(r['people'])] + ([_split(r['pm_people'])] if r['pm_people'] is not None else [])
-        for ppl in groups:
-            for i, a in enumerate(ppl):
-                for b in ppl[i + 1:]:
-                    k = frozenset((a, b))
-                    out[k] = out.get(k, 0) + 1
-    return out
-
-
 BIG_TEAM = 3   # 이 인원 이상인 일정확정 팀은 방문 뒤 현장별로 갈라질 수 있다(11-22 부장님: JW+YM+TH+LJW → 8021·레이 2대)
 
 
-def split_team(members: List[str], pairs: Dict[frozenset, int]) -> Optional[List[List[str]]]:
-    """큰 팀을 평소 같은 차를 타는 짝대로 나눈다(짝 기록으로 이어진 사람끼리 한 묶음). 작은 팀은 그대로.
-    큰 팀인데 짝 기록이 하나도 없으면 None — 한 차에 몰아넣지 않고 승정 대리가 나누게 둔다."""
-    if len(members) < BIG_TEAM:
-        return [list(members)]
-    adj = {m: set() for m in members}
-    for i, a in enumerate(members):
-        for b in members[i + 1:]:
-            if pairs.get(frozenset((a, b))):
-                adj[a].add(b)
-                adj[b].add(a)
-    if not any(adj.values()):
-        return None
-    groups, seen = [], set()
-    for m in members:
-        if m in seen:
-            continue
-        comp, stack = [], [m]
-        while stack:
-            x = stack.pop()
-            if x in seen:
-                continue
-            seen.add(x)
-            comp.append(x)
-            stack.extend(adj[x] - seen)
-        groups.append(sorted(comp, key=members.index))
-    return groups
-
-
-def _team_draft(day: str, teams: List[Dict], cars: List[Dict]) -> Dict[str, Dict]:
-    """일정확정 팀마다 그 팀 사람이 최근에 탄 차(비어 있으면)에 넣은 초안. 탄 적 없으면 넣지 않는다.
-    큰 팀(3명 이상)은 짝 기록으로 나눠 묶음마다 따로 넣고, 짝 기록이 없으면 넣지 않는다(11-22)."""
-    recent = _recent_cars(day)
-    pairs = _pairs(day)
-    shared = {c['plate'] for c in cars if c['usage'] == SHARED}
-    rows: Dict[str, Dict] = {}
-    for t in teams:
-        for g in split_team(t['members'], pairs) or []:
-            plate = next((recent[p] for p in g if recent.get(p) in shared and recent[p] not in rows), None)
-            if plate:
-                rows[plate] = _row(g)
-    return rows
-
-
 def day_view(day: str, teams: Optional[List[Dict]] = None) -> Dict:
-    """배정 화면 한 날짜 — 차량마다 사람·메모. 아직 아무것도 없으면 초안:
-    일정확정 팀이 있으면 팀대로(각 팀이 최근 탄 차), 없으면 직전 배정(공용 차만)."""
+    """배정 화면 한 날짜 — 차량마다 사람·메모. 저장한 것만 보인다.
+    초안(최근 탄 차·짝 기록·전날 배정 복사)은 없앴다 — 타는 차·인원이 매일 달라 맞지 않음(11-23 부장님).
+    teams 는 예전 호출과 맞추려고 받기만 한다."""
     cars = fleet()
     rows = _day_rows(day)
     info = _day_info(day)
-    draft_from = draft_kind = None
-    if not any(r['people'] for r in rows.values()) and teams:
-        rows, draft_kind = _team_draft(day, teams, cars), 'teams'
-    elif not any(r['people'] for r in rows.values()):
-        prev = _previous_day_with_rows(day)
-        if prev:
-            draft_kind = 'prev'
-            prev_rows = _day_rows(prev)
-            shared = {c['plate'] for c in cars if c['usage'] == SHARED}
-            rows = {p: _row(r['people']) for p, r in prev_rows.items() if p in shared and r['people']}
-            draft_from = prev
     out = []
     for c in cars + [OWN_CAR]:          # 자차 칸은 맨 끝(11-23)
         r = rows.get(c['plate'], _empty())
         out.append({**{k: c[k] for k in ('plate', 'label', 'model', 'fuel', 'corp', 'usage', 'fixed_user',
                                          'needs_log', 'uplus')},
                     'people': r['people'], 'pm': r.get('pm'), 'note': r['note']})
-    return {'day': day, 'cars': out, 'draft_from': draft_from, 'draft_kind': draft_kind,
+    return {'day': day, 'cars': out, 'draft_from': None, 'draft_kind': None,
             'confirmed_at': (info or {}).get('confirmed_at'), 'confirmed_by': (info or {}).get('confirmed_by')}
 
 

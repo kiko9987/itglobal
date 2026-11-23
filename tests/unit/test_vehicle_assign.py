@@ -85,16 +85,6 @@ def test_teams_from_schedule(db):
     assert t == {('SJ', 'KMW'): 2, ('JK',): 1, ('TH', 'LJW'): 1, ('YM',): 1}
 
 
-def test_team_draft_uses_recent_car(db):
-    va.save_day('2026-11-20', [{'plate': '231허6854', 'people': ['SJ']},
-                               {'plate': '03모8021', 'people': ['TH']}], ASSIGNER)
-    teams = va.teams('2026-11-21', _leads_1121())
-    v = va.day_view('2026-11-21', teams)
-    assert v['draft_kind'] == 'teams'
-    assert _rows(v) == {'231허6854': ['SJ', 'KMW'], '03모8021': ['TH', 'LJW']}   # 탄 적 없는 팀(JK·YM)은 비워 둠
-    assert va.day_view('2026-11-21')['draft_kind'] == 'prev'                     # 팀 정보 없으면 전날 배정
-
-
 def test_visitors_with_visits_that_day(db):
     from tests.unit.test_vehicle_log import _lead
     leads = [_lead('L-1', '2026-11-21', '용인 수지구 심곡로 11', '김가람, 이나래'),
@@ -190,15 +180,6 @@ def test_save_confirm_and_change_dms(db):
                                      {'plate': '03모8021', 'people': ['JW']}], ASSIGNER, notify=False)
     assert res['changed'] == ['237허5358'] and res['notified'] == 0 and not sent and res['confirmed']
     assert va.day_view('2026-11-21')['cars'][0]['note'] == '유리 용접'
-
-
-def test_day_view_draft_from_previous_shared_only(db):
-    va.update_car('133가6633', {'usage': va.FIXED}, ASSIGNER)     # 고정 차(빌려 쓰기)는 초안에 안 따라옴
-    va.save_day('2026-11-20', [{'plate': '237허5358', 'people': ['TH']},
-                               {'plate': '133가6633', 'people': ['MJ']}], ASSIGNER)
-    v = va.day_view('2026-11-21')
-    assert v['draft_from'] == '2026-11-20' and _rows(v) == {'237허5358': ['TH']}   # 빌려 쓴 고정 차는 안 따라옴
-    assert va.day_view('2026-11-20')['draft_from'] is None
 
 
 def test_request_assignment_once(db, monkeypatch):
@@ -339,24 +320,6 @@ def test_online_duty_saved_at_schedule_confirm(db):
     assert va.day_view('2026-11-23')['confirmed_at']                               # 당번 저장이 확정을 지우지 않음
 
 
-# ── 11-22 부장님: 큰 팀은 짝 기록대로 나눠 초안, 한 차를 오전·오후 다른 사람이 운전 ──
-def test_split_big_team_by_pairs(db):
-    pairs = {frozenset(('JW', 'TH')): 3, frozenset(('YM', 'LJW')): 2}
-    assert va.split_team(['JW', 'TH', 'YM', 'LJW'], pairs) == [['JW', 'TH'], ['YM', 'LJW']]
-    assert va.split_team(['JW', 'TH', 'YM', 'LJW'], {}) is None                # 짝 기록 없으면 몰아넣지 않음
-    assert va.split_team(['MJ', 'KMW'], {}) == [['MJ', 'KMW']]                 # 2명은 그대로
-    assert va.split_team(['YG', 'JK', 'LSH'], {frozenset(('YG', 'JK')): 1}) == [['YG', 'JK'], ['LSH']]
-
-
-def test_team_draft_splits_with_history(db):
-    va.save_day('2026-11-20', [{'plate': '03모8021', 'people': ['JW', 'TH']},
-                               {'plate': '231허6854', 'people': ['YM', 'LJW']}], ASSIGNER)
-    teams = [{'members': ['JW', 'TH', 'YM', 'LJW'], 'visits': 4, 'big': True}]
-    v = va.day_view('2026-11-23', teams)
-    assert _rows(v) == {'03모8021': ['JW', 'TH'], '231허6854': ['YM', 'LJW']}
-    assert not _rows(va.day_view('2026-11-23', [{'members': ['MJ', 'KMW', 'SJ'], 'visits': 1, 'big': True}]))
-
-
 def test_halves_saved_and_validated(db):
     """오전·오후 나누기(11-22) — 같은 사람은 반나절에 한 차, 오전 레이·오후 포터 가능."""
     with pytest.raises(ValueError, match='오전에 두 차'):
@@ -477,5 +440,13 @@ def test_own_car_slot(db):
     assert va.OWN not in va.car_rows('2026-11-24') and '03모8021' in va.car_rows('2026-11-24')
     assert all(k[1] != va.OWN for k in va.assigned_halves('2026-11-24', '2026-11-24'))
     assert all(p != va.OWN for p, _ in vd._cars_to_ask_all('2026-11-24'))
-    assert va.OWN not in va._recent_cars('2026-11-25').values()
-    assert frozenset(('JH', 'YM')) not in va._pairs('2026-11-25')
+
+
+def test_no_draft_on_empty_day(db):
+    """빈 날은 비어서 열린다 — 최근 탄 차·전날 배정으로 미리 넣던 초안 없앰(11-23 부장님: 타는 차·인원이 매일 다름)."""
+    va.save_day('2026-11-20', [{'plate': '231허6854', 'people': ['SJ', 'KMW']},
+                               {'plate': '03모8021', 'people': ['JW', 'TH']}], ASSIGNER)
+    teams = [{'members': ['SJ', 'KMW'], 'visits': 2, 'big': False}, {'members': ['JW', 'TH', 'YM'], 'visits': 3, 'big': True}]
+    for v in (va.day_view('2026-11-21', teams), va.day_view('2026-11-21')):
+        assert not _rows(v) and v['draft_kind'] is None and v['draft_from'] is None
+    assert _rows(va.day_view('2026-11-20')) == {'231허6854': ['SJ', 'KMW'], '03모8021': ['JW', 'TH']}
