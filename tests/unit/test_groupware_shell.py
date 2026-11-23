@@ -72,7 +72,7 @@ def test_build_nav_active_and_admin_only():
     assert nav['areas'][3]['active'] and [i['label'] for i in nav['items']] == ['월별 수금']
     ap = gw.build_nav('/approval/archive', 'editor')
     assert ap['areas'][1]['active'] and [i['label'] for i in ap['items'] if i['active']] == ['플렉스 보관함']
-    assert '시공사례' in [i['label'] for i in gw.build_nav('/projects', 'admin')['items']]
+    assert '시공 사례' in [i['label'] for i in gw.build_nav('/projects', 'admin')['items']]
 
     hr_nav = gw.build_nav('/hr/me', 'editor')
     assert [i['label'] for i in hr_nav['items']] == ['내 정보', '연말정산']     # 구성원·연말정산 현황은 HR 관리자만
@@ -109,7 +109,7 @@ def test_context_processor_picks_layout(db):
         assert render_template_string(tpl) == 'False|False|'
     with app.test_request_context('/projects'):
         session['user'] = {'email': 'kiko@itg-aircon.com', 'permission_level': 'super_admin'}
-        assert render_template_string(tpl) == 'True|False|프로젝트,고객 리드,방문 일정,입찰 공고,시공사례,매출 통계'   # 일정 담당(11-22)
+        assert render_template_string(tpl) == 'True|False|프로젝트,고객 리드,방문 일정,입찰 공고,시공 사례,매출 통계'   # 일정 담당(11-22)
     with app.test_request_context('/projects'):
         session['user'] = {'email': 'kiko@itg-aircon.com', 'permission_level': 'super_admin'}
         session['gw_off'] = True

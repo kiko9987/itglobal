@@ -177,7 +177,7 @@ AREAS = [
             {'href': '/leads', 'label': '고객 리드', 'icon': 'fas fa-user-tie'},
             {'href': '/visits/plan', 'label': '방문 일정', 'icon': 'fas fa-route', 'planner': True},   # 캔버스2·/일정확정 대신(11-22)
             {'href': '/bids', 'label': '입찰 공고', 'icon': 'fas fa-gavel'},   # 나라장터(11-18)
-            {'href': '/case-posts', 'label': '시공사례', 'icon': 'fas fa-camera', 'admin': True},
+            {'href': '/case-posts', 'label': '시공 사례', 'icon': 'fas fa-camera', 'admin': True},
             {'href': '/stats', 'label': '매출 통계', 'icon': 'fas fa-chart-bar'},
         ],
     },
