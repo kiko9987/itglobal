@@ -3445,7 +3445,7 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
 .gw-vp-gtitle span { color: #64748b; font-weight: 400; }
 
 /* 차량 배정 ↔ 방문 일정 코스(11-23 부장님) — 화면 폭은 방문 일정과 같게 1400 가운데 */
-.gw-page.gw-va, .gw-page.gw-vm { max-width: 1400px; margin-left: auto; margin-right: auto; }   /* 차량 관리도 같게(11-23 부장님) */
+.gw-page.gw-va, .gw-page.gw-vm, .gw-page.gw-vh { max-width: 1400px; margin-left: auto; margin-right: auto; }   /* 차량 관리도 같게(11-23 부장님) */
 .gw-va-course + .gw-va-course { margin-top: 12px; padding-top: 10px; border-top: 1px solid #eef0f3; }
 .gw-va-course h3 { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 0.9rem; font-weight: 700; color: #1a1c20; margin: 0 0 4px; }
 .gw-va-cwho { font-weight: 600; color: #475569; }
