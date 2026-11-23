@@ -200,7 +200,8 @@ def _can_plan() -> bool:
 @gw_vehicles_bp.route('/visits/plan')
 @gw_page
 def page_visit_plan():
-    if not _can_plan():
+    # 일정 담당 + 오늘 온라인 당번(당일 배정하려고, 11-23)
+    if not _can_plan() and (_is_field() or not vp.is_duty_today(_me())):
         return redirect('/vehicles/assign')
     return render_template('gw/visit_plan.html')
 
@@ -221,7 +222,28 @@ def api_plan_get():
         logger.error(f'[방문일정] 불러오기 실패: {e}', exc_info=True)
         return jsonify({'success': False, 'message': '불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요.'}), 500
     data['can_edit'] = bool(data.pop('can_plan')) and data['editable'] and not _is_field()
+    data['can_urgent'] = not _is_field() and vp.can_urgent(_me(), day)
     return jsonify({'success': True, **data})
+
+
+@gw_vehicles_bp.route('/api/vehicles/plan/urgent', methods=['POST'])
+@gw_page
+def api_plan_urgent():
+    """당일 배정(11-23) — 오늘 생긴 현장을 근처 매니저에게. 일정 담당·오늘 온라인 당번."""
+    if _is_field():
+        return jsonify({'success': False, 'message': '사무실에서만 할 수 있어요.'}), 403
+    body = request.get_json(silent=True) or {}
+    day = (body.get('day') or '').strip()
+    try:
+        res = vp.urgent_assign(day, str(body.get('lead_no') or '').strip(), body.get('members') or [], _me(), _fresh_leads())
+    except PermissionError as e:
+        return jsonify({'success': False, 'message': str(e)}), 403
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        logger.error(f'[방문일정] 당일 배정 실패: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': '당일 배정하지 못했어요. 잠시 뒤 다시 해 주세요.'}), 500
+    return jsonify({'success': True, **res})
 
 
 def _plan_body():

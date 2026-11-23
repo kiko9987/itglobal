@@ -161,9 +161,26 @@
       '<i class="fas ' + (miss ? 'fa-triangle-exclamation' : 'fa-user') + '" aria-hidden="true"></i> ' + esc(v.contact) + (v.must ? ' · 본인 방문 필수' : '') +
       (miss ? '<span class="visually-hidden"> — 이 코스에 없음</span>' : '') + '</span>';
   }
+  // 언제 생긴 현장인지(11-23 부장님) — 확정한 뒤 등록됐으면 '확정 뒤 추가', 슬랙으로 정한 날은 '당일 등록', 당일 배정한 건 '당일 배정'
+  function isLate(v) {
+    var c = P.data.confirmed_at;
+    return !!(c && v.reg_at && v.reg_at > c.slice(0, 16));
+  }
+  function hm(at, base) {        // 같은 날이면 시:분, 다른 날이면 월/일 시:분
+    return at.slice(0, 10) === base ? at.slice(11, 16) : +at.slice(5, 7) + '/' + +at.slice(8, 10) + ' ' + at.slice(11, 16);
+  }
+  function whenTag(v) {
+    var u = (P.data.urgent || {})[v.lead_no];
+    if (u) return '<span class="gw-va-smark gw-vp-when urgent" title="' + esc((u.by_name || '') + ' 님이 당일 배정') + '">당일 배정 ' + esc(u.at) + '</span>';
+    if (isLate(v)) return '<span class="gw-va-smark gw-vp-when">확정 뒤 추가 ' + esc(hm(v.reg_at, P.data.confirmed_at.slice(0, 10))) + '</span>';
+    if (!P.data.confirmed_at && !P.data.editable && v.reg_at && v.reg_at.slice(0, 10) === P.data.day) {
+      return '<span class="gw-va-smark gw-vp-when">당일 등록 ' + esc(v.reg_at.slice(11, 16)) + '</span>';
+    }
+    return '';
+  }
   function marks(v, miss) {
     return (v.platform ? '<span class="gw-va-smark plat">' + esc(v.platform) + '</span>' : '') + who(v, miss) +
-      v.marks.map(function (m) { return '<span class="gw-va-smark">' + esc(m) + '</span>'; }).join('');
+      v.marks.map(function (m) { return '<span class="gw-va-smark">' + esc(m) + '</span>'; }).join('') + whenTag(v);
   }
   function placeTag(v) { return v.place ? '<span class="gw-vp-place">' + esc(v.place) + '</span>' : ''; }
   function personTag(c) {
@@ -312,7 +329,9 @@
         // 현장 목록은 지역 소제목으로 이미 나뉘어 지역 꼬리표는 뺌(11-23 부장님) — 코스 안 줄은 지역이 섞여 꼬리표 유지
         '<span class="gw-vp-rmain"><span class="gw-vp-vtop">' + marks(v) + '<strong>' + esc(v.date) + '</strong><span class="gw-va-sno">' + esc(v.lead_no) + '</span></span>' +
         (v.addr ? '<span class="gw-vp-vaddr">' + esc(v.addr) + '</span>' : '') +
-        (v.text ? '<span class="gw-vp-vtext" title="' + esc(v.text) + '">' + esc(v.text) + '</span>' : '') + '</span></li>';
+        (v.text ? '<span class="gw-vp-vtext" title="' + esc(v.text) + '">' + esc(v.text) + '</span>' : '') + '</span>' +
+        (!P.canEdit && P.data.can_urgent ? '<button type="button" class="btn btn-sm btn-outline-secondary gw-vp-urgentbtn" data-act="urgent" data-lead="' + esc(v.lead_no) + '">당일 배정</button>' : '') +
+        '</li>';
         // 줄마다 있던 [새 코스로]는 뺐다(11-23 부장님) — 줄을 눌러 체크한 뒤 목록 위 '체크한 현장 → [새 코스로]·[코스 N로]' 하나로
     }).join('') + '</ul></div>';
   }
@@ -323,7 +342,8 @@
       // 고칠 수 없는 날(지난 날·일정 담당 아님) — 남은 현장은 '배정 안 된 현장'이라고 분명히(11-23 부장님)
       var nLeft = inbox().length;
       bar.innerHTML = nLeft ? '<span class="gw-vp-unassigned"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> ' +
-        (P.data.source === 'sheet' ? '시트에 영업 담당자가 없어 코스에 넣지 못한 현장이에요.' : '코스·사람이 정해지지 않아 담당 DM 이 가지 않은 현장이에요.') + '</span>' : '';
+        (P.data.can_urgent ? '줄 끝 [당일 배정]으로 근처 매니저에게 맡길 수 있어요.'
+          : P.data.source === 'sheet' ? '시트에 영업 담당자가 없어 코스에 넣지 못한 현장이에요.' : '코스·사람이 정해지지 않아 담당 DM 이 가지 않은 현장이에요.') + '</span>' : '';
       return;
     }
     if (!n) {
@@ -396,6 +416,8 @@
     var notes = [];
     if (d.dropped) notes.push('저장한 뒤 날짜가 바뀌거나 취소된 현장 ' + d.dropped + '건은 코스에서 뺐어요.');
     if (d.changed_since_confirm || (d.confirmed_at && P.dirty)) notes.push('확정한 뒤 고친 내용이 있어요. 다시 확정해야 담당자 DM 이 바뀌어요.');
+    var late = P.canEdit && d.confirmed_at ? inbox().filter(isLate).length : 0;
+    if (late) notes.push('확정 뒤 새로 생긴 현장 ' + late + '건 — 코스에 넣고 다시 확정해 주세요.');
     if (!d.editable) notes.push('오늘과 지난 날 일정은 고칠 수 없어요.' +
       (d.source === 'sheet' ? ' 시트 영업 담당자대로 보여 줘요(방문 완료한 현장 포함).' : ''));
     else if (!P.canEdit) notes.push('방문 일정은 일정 담당자만 고칠 수 있어요.');
@@ -505,6 +527,8 @@
       if (pcb) { pcb.checked = !pcb.checked; pcb.dispatchEvent(new Event('change', { bubbles: true })); }
       return;
     }
+    var ub = e.target.closest('[data-act="urgent"]');
+    if (ub && P.data.can_urgent) { openUrgent(ub.getAttribute('data-lead')); return; }
     var b = e.target.closest('[data-act]');
     if (!b || b.disabled || !P.canEdit) return;
     if (b.matches('input')) return;                          // 체크·메모 칸은 change/input 에서
@@ -737,6 +761,48 @@
     }).catch(function (e) { lock(false); setDirty(P.dirty); say(e.message, 'err'); });
   });
 
+  // ── 당일 배정(11-23 부장님) — 오늘 생긴 현장을 근처 매니저에게. 이름 옆에 오늘 가는 곳, 등록한 현장 직원은 미리 골라 둠 ──
+  var U = { lead: '' };
+  function todayPlaces(code) {
+    var seen = {}, out = [];
+    P.plan.courses.forEach(function (c) {
+      if (isWork(c) || c.members.indexOf(code) === -1) return;
+      c.leads.forEach(function (n) { var v = P.byNo[n]; var r = v && (v.region || v.place); if (r && !seen[r]) { seen[r] = 1; out.push(r); } });
+    });
+    return out;
+  }
+  function openUrgent(no) {
+    var v = P.byNo[no];
+    var dlg = $('vpUrgentDlg');
+    if (!v || !dlg) return;
+    U.lead = no;
+    var pre = P.data.people.filter(function (p) { return p.name === v.contact; }).map(function (p) { return p.code; })[0] || '';
+    $('vpUrgentTitle').textContent = (v.addr || no) + ' 당일 배정';
+    $('vpUrgentMsg').textContent = '';
+    $('vpUrgentList').innerHTML = P.data.people.filter(function (p) { return !blocked(p.code); }).map(function (p) {
+      var where = todayPlaces(p.code);
+      var tag = where.length ? where.join(' · ') : (isDuty(p.code) ? '온라인 당번' : '오늘 방문 없음');
+      return '<label class="gw-vp-upick"><input type="checkbox" class="form-check-input" value="' + esc(p.code) + '"' + (p.code === pre ? ' checked' : '') + '>' +
+        '<span class="gw-va-pname">' + esc(p.name) + '</span><small>' + esc(tag) + '</small>' + personTag(p.code) + '</label>';
+    }).join('');
+    try { dlg.showModal(); } catch (e) { dlg.setAttribute('open', ''); }
+    var first = dlg.querySelector('input:checked') || dlg.querySelector('input');
+    if (first) first.focus();
+  }
+  if ($('vpUrgentDlg')) {
+    $('vpUrgentCancel').addEventListener('click', function () { $('vpUrgentDlg').close(); });
+    $('vpUrgentOk').addEventListener('click', function () {
+      var codes = [].map.call($('vpUrgentList').querySelectorAll('input:checked'), function (x) { return x.value; });
+      if (!codes.length) { $('vpUrgentMsg').textContent = '맡길 사람을 골라 주세요.'; return; }
+      var btn = this;
+      btn.disabled = true;
+      post('/api/vehicles/plan/urgent', { day: P.day, lead_no: U.lead, members: codes }).then(function (j) {
+        $('vpUrgentDlg').close();
+        load(P.day, true);
+        say(j.names + '님에게 당일 배정했어요. ' + (j.dm_failed ? 'DM ' + j.dm_failed + '명은 못 보냈어요 — 전화로 알려 주세요.' : '긴급 DM 을 보냈어요.'), j.dm_failed ? 'err' : 'ok');
+      }).catch(function (e) { $('vpUrgentMsg').textContent = e.message; }).then(function () { btn.disabled = false; });
+    });
+  }
   function resultText(r) {
     var bits = ['시트 담당자 ' + (r.sheet || 0) + '건', '담당자 DM ' + (r.dm || 0) + '명'];
     if (r.work_dm) bits.push('사내 업무 DM ' + r.work_dm + '명');

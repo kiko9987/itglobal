@@ -186,6 +186,42 @@ def test_past_day_from_sheet(db, monkeypatch):
     assert vp.load(DAY, LEADS, 'p@example.com')['source'] == 'empty'
 
 
+def test_urgent_assign(db, monkeypatch):
+    """당일 배정(11-23 부장님) — 오늘만, 일정 담당·오늘 온라인 당번. 시트·List·긴급 DM, 두 번은 안 됨."""
+    today = date.today().isoformat()
+    leads = [{**_lead('L-1', '김가람'), '방문 예정일': today},
+             {**_lead('L-7', '', '서준'), '방문 예정일': today, '플랫폼': '기타', '상담 시간': today.replace('-', '.') + '. 08:12'}]
+    monkeypatch.setattr(vp, 'can_plan', lambda e: e == 'p@example.com')
+    monkeypatch.setattr(va, 'online_duty', lambda d: [{'code': 'JK', 'name': '강해', 'shift': ''}])
+    assert vp.can_urgent('p@example.com', today) and vp.can_urgent('jk@example.com', today)       # 담당·당번
+    assert not vp.can_urgent('ym@example.com', today) and not vp.can_urgent('p@example.com', DAY)  # 그 밖·오늘 아님
+    assert vp.is_duty_today('jk@example.com') and not vp.is_duty_today('p@example.com')
+    wrote, sent, lists = {}, [], []
+    import dashboard.services.lead_service as ls
+    monkeypatch.setattr(ls, 'update_lead', lambda no, vals: wrote.update({no: vals}) or {'success': True})
+    monkeypatch.setattr(vas, '_update_slack_list_managers', lambda a, pm, sheet_leads=None: lists.append(a[0]['assign']) or (1, 0, []))
+    monkeypatch.setattr(vas, '_get_visit_client', lambda: None)
+    monkeypatch.setattr(va, '_dm', lambda sid, text: sent.append((sid, text)) or True)
+    import dashboard.services.visit_canvas_sync as vcs
+    monkeypatch.setattr(vcs, 'rebuild_canvas_async', lambda: None)
+    with pytest.raises(PermissionError):
+        vp.urgent_assign(today, 'L-7', ['TH'], 'ym@example.com', leads)
+    with pytest.raises(ValueError, match='이미 담당자'):
+        vp.urgent_assign(today, 'L-1', ['TH'], 'jk@example.com', leads)
+    with pytest.raises(ValueError, match='연차'):
+        vp.urgent_assign(today, 'L-7', ['SJ'], 'jk@example.com', leads)
+    res = vp.urgent_assign(today, 'L-7', ['TH'], 'jk@example.com', leads)
+    assert res == {'names': '서준', 'dm': 1, 'dm_failed': 0}
+    assert wrote == {'L-7': {'영업 담당자': '서준'}} and lists == [['TH']]
+    assert sent[0][0] == 'UTH' and ':rotating_light:' in sent[0][1] and '당일 배정' in sent[0][1] and 'L-7' in sent[0][1]
+    with pytest.raises(ValueError, match='방금 다른 사람'):
+        vp.urgent_assign(today, 'L-7', ['YM'], 'p@example.com', leads)
+    d = vp.load(today, leads, 'p@example.com')                               # 시트가 늦게 바뀌어도 코스에 붙어 보임
+    assert any('L-7' in c['leads'] and c['members'] == ['TH'] for c in d['plan']['courses'])
+    assert d['urgent']['L-7']['members'] == ['TH']
+    assert next(v for v in d['visits'] if v['lead_no'] == 'L-7')['reg_at'] == today + ' 08:12'
+
+
 def test_editable_only_future():
     today = date(2026, 11, 22)
     assert not vp.editable('2026-11-22', today) and not vp.editable('2026-11-21', today)

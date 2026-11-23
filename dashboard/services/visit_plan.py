@@ -47,6 +47,15 @@ _DDL = '''CREATE TABLE IF NOT EXISTS visit_plan_day (
     run_by TEXT,
     run_result TEXT
 )'''
+# 당일 배정(11-23 부장님) — 그날 생긴 현장을 온라인 당번·일정 담당이 근처 매니저에게 바로 맡긴 기록
+_URGENT_DDL = '''CREATE TABLE IF NOT EXISTS visit_plan_urgent (
+    day TEXT,
+    lead_no TEXT,
+    members TEXT,
+    by TEXT,
+    at TEXT,
+    PRIMARY KEY (day, lead_no)
+)'''
 _table_ready = False
 _run_lock = threading.Lock()
 
@@ -57,6 +66,7 @@ def _conn():
     with va._db()._get_connection() as conn:
         if not _table_ready:
             conn.execute(_DDL)
+            conn.execute(_URGENT_DDL)
             conn.commit()
             _table_ready = True
         yield conn
@@ -122,8 +132,17 @@ def visits(day: str, leads: Iterable[dict], done: bool = False) -> List[Dict]:
             item = {k: v for k, v in it.items() if k != 'who'}      # 시트 담당자(=캔버스2 결과)는 보이지 않는다
             item['marks'] = [m for m in item['marks'] if m != '본인 방문 필수']     # 이름과 한 꼬리표로(아래 must)
             out.append({**item, 'cat': g['cat'], 'title': g['title'], 'owner': owner, 'contact': contact, 'must': must,
-                        **_where(it['addr'], vl)})
+                        'reg_at': _reg_at((by_no.get(it['lead_no']) or {}).get('상담 시간')), **_where(it['addr'], vl)})
     return out
+
+
+def _reg_at(raw) -> str:
+    """시트 '상담 시간'('2026.11.23. 08:12') → '2026-11-23 08:12'. 못 읽으면 ''."""
+    m = re.search(r'(\d{4})\D+(\d{1,2})\D+(\d{1,2})\D+(\d{1,2}):(\d{2})', str(raw or ''))
+    if not m:
+        return ''
+    y, mo, d, h, mi = m.groups()
+    return f'{y}-{int(mo):02d}-{int(d):02d} {int(h):02d}:{mi}'
 
 
 _BIG_CITIES = ('서울', '인천', '부산', '대구', '광주', '대전', '울산')
@@ -388,6 +407,7 @@ def load(day: str, leads: Iterable[dict], me: str = '') -> Dict:
         plan = _empty_plan()
         source = 'empty'
     confirmed_plan = _loads((row or {}).get('confirmed_plan'))
+    urgent_map = _merge_urgent(day, plan, [v['lead_no'] for v in vs], names)
     return {
         'day': day, 'day_label': va.day_label(day), 'visits': vs, 'people': ppl,
         'off': off['off'], 'half': off['half'], 'plan': plan, 'source': source, 'dropped': dropped,
@@ -399,6 +419,7 @@ def load(day: str, leads: Iterable[dict], me: str = '') -> Dict:
         'run': _state(row),
         'editable': editable(day), 'can_plan': can_plan(me),
         'cars': cars_by_person(day),
+        'urgent': urgent_map,
     }
 
 
@@ -592,6 +613,145 @@ def _audit(res: Dict, by: str) -> List[Dict]:
 
 def run_state(day: str) -> Dict:
     return _state(_row(day))
+
+
+# ── 당일 배정(11-23 부장님) ──────────────────────────────────────────────
+#    그날 생긴 현장은 온라인 당번이 고객과 통화한 뒤 근처 매니저에게 바로 보낸다 — 그 결과를 시트·List 에 남기고
+#    매니저에게 긴급 DM(주소·연락처·문의). 이미 정한 코스는 건드리지 않는다. 오늘만.
+def _local(email: str) -> str:
+    return (email or '').strip().lower().split('@')[0].upper()
+
+
+def can_urgent(email: str, day: str) -> bool:
+    """당일 배정 — 오늘만, 일정 담당 또는 그날 온라인 당번."""
+    if day != date.today().isoformat() or not email:
+        return False
+    if can_plan(email):
+        return True
+    try:
+        return _local(email) in {o['code'] for o in va.online_duty(day)}
+    except Exception:
+        return False
+
+
+def is_duty_today(email: str) -> bool:
+    """오늘 온라인 당번 — 방문 일정 메뉴·화면을 열어 준다(당일 배정하려고)."""
+    return can_urgent(email, date.today().isoformat()) and not can_plan(email)
+
+
+def _urgent_rows(day: str) -> List[Dict]:
+    with _conn() as conn:
+        return [dict(r) for r in conn.execute('SELECT * FROM visit_plan_urgent WHERE day = ? ORDER BY at', (day,)).fetchall()]
+
+
+def _merge_urgent(day: str, plan: Dict, nos: List[str], names: Dict[str, str]) -> Dict[str, Dict]:
+    """당일 배정 기록을 코스에 붙인다(같은 사람 코스가 있으면 그 끝, 없으면 새 코스) → {리드 No: {at, by_name, members}}."""
+    out: Dict[str, Dict] = {}
+    try:
+        rows = _urgent_rows(day)
+    except Exception as e:
+        logger.warning(f'[방문일정] 당일 배정 읽기 실패: {e}')
+        return out
+    placed = {n for c in plan['courses'] for n in c['leads']}
+    for r in rows:
+        members = [m for m in (r.get('members') or '').split(',') if m in names]
+        n = r['lead_no']
+        out[n] = {'at': (r.get('at') or '')[11:16], 'by_name': _name_of_email(r.get('by') or ''), 'members': members}
+        if n in placed or n not in nos or not members:
+            continue
+        c = next((c for c in plan['courses'] if not is_work(c) and c['members'] == members), None)
+        if c is None:
+            c = {'name': '', 'members': members, 'leads': [], 'memo': ''}
+            plan['courses'].append(c)
+        c['leads'].append(n)
+        placed.add(n)
+    return out
+
+
+def _slack_of(code: str, name: str) -> str:
+    p = next((p for p in va.staff() if p['code'] == code), None)
+    if p and p.get('slack_id'):
+        return p['slack_id']
+    try:
+        from dashboard.services import hr
+        r = hr._rows("SELECT slack_id FROM hr_people WHERE name = ? AND status = '재직'", (name,))
+        return (r[0].get('slack_id') or '') if r else ''
+    except Exception:
+        return ''
+
+
+def urgent_assign(day: str, lead_no: str, members: List[str], by: str, leads: Iterable[dict]) -> Dict:
+    """당일 배정 — 시트 영업 담당자 + 슬랙 List + 캔버스1, 맡은 사람에게 긴급 DM. 막는 문제는 ValueError."""
+    from dashboard.services import visit_assignment_sync as vas
+    from dashboard.services.lead_service import update_lead
+    if not can_urgent(by, day):
+        raise PermissionError('당일 배정은 오늘 일정만, 일정 담당이나 오늘 온라인 당번이 할 수 있어요.')
+    leads = list(leads)
+    vs = visits(day, leads, done=True)
+    v = next((x for x in vs if x['lead_no'] == lead_no), None)
+    lead = next((l for l in leads if str(l.get('리드 No') or '').strip() == lead_no), None)
+    if not v or not lead:
+        raise ValueError('그 현장을 오늘 방문 일정에서 찾지 못했어요. 새로 고친 뒤 다시 해 주세요.')
+    if str(lead.get('영업 담당자') or '').strip() not in ('', '-'):
+        raise ValueError('이미 담당자가 정해진 현장이에요. 새로 고친 뒤 확인해 주세요.')
+    saved = _loads((_row(day) or {}).get('plan')) or {}
+    if any(lead_no in (c.get('leads') or []) for c in saved.get('courses') or []):
+        raise ValueError('이미 코스에 들어 있는 현장이에요.')
+    ppl = people(vs)
+    names = {p['code']: p['name'] for p in ppl}
+    members = [m for m in dict.fromkeys(str(x or '').strip().upper() for x in members or []) if m]
+    if not members or any(m not in names for m in members):
+        raise ValueError('맡길 사람을 골라 주세요.')
+    hard = {o['code']: o['why'] for o in va.day_off(day)['off'] if not o.get('soft')}
+    bad = [m for m in members if m in hard]
+    if bad:
+        raise ValueError(f'{names[bad[0]]}님은 오늘 {hard[bad[0]]}예요.')
+    with _conn() as conn:          # 두 사람이 동시에 눌러도 한 번만(먼저 들어온 것)
+        try:
+            conn.execute('INSERT INTO visit_plan_urgent (day, lead_no, members, by, at) VALUES (?,?,?,?,?)',
+                         (day, lead_no, ','.join(members), by, _now()))
+        except Exception:
+            raise ValueError('방금 다른 사람이 이 현장을 당일 배정했어요. 새로 고쳐 주세요.')
+    names_txt = ','.join(names[m] for m in members)
+    res = update_lead(lead_no, {'영업 담당자': names_txt})
+    if isinstance(res, dict) and res.get('success') is False:
+        with _conn() as conn:
+            conn.execute('DELETE FROM visit_plan_urgent WHERE day = ? AND lead_no = ?', (day, lead_no))
+        raise ValueError('시트에 담당자를 적지 못했어요. 잠시 뒤 다시 해 주세요.')
+    try:       # 슬랙 List 담당자 칸도 같이(바뀌면 슬랙 쪽이 시트를 List 값으로 덮어써서 맞춰 둔다)
+        vas._update_slack_list_managers([{'lead': lead, 'lead_no': lead_no, 'phone': '', 'phone_digits': '',
+                                          'assign': members, 'original': None, 'raw': ''}], {}, sheet_leads=None)
+    except Exception as e:
+        logger.warning(f'[방문일정] 당일 배정 List 실패 {lead_no}: {e}')
+    try:
+        from dashboard.services.visit_canvas_sync import rebuild_canvas_async
+        rebuild_canvas_async()
+    except Exception as e:
+        logger.warning(f'[방문일정] 당일 배정 캔버스 실패: {e}')
+    link = ''
+    try:
+        client = vas._get_visit_client()
+        link = vas._get_visit_card_permalink(client, lead_no) if client else ''
+    except Exception:
+        link = ''
+    safe = vas._dm_safe
+    by_name = _name_of_email(by)
+    sent = failed = 0
+    for m in members:
+        others = [names[x] for x in members if x != m]
+        text = (f':rotating_light: *{va.day_label(day)} 당일 배정 — 오늘 추가 방문*\n'
+                f'{safe(v.get("addr") or "-")}\n'
+                + (f'연락처 : {safe(v["phone"])}\n' if v.get('phone') else '')
+                + (f'{safe(v["text"])}\n' if v.get('text') else '')
+                + (f'함께 : {safe(", ".join(others))}\n' if others else '')
+                + f'배정 : {safe(by_name)} · {lead_no}'
+                + (f'\n<{link}|방문 카드 보기>' if link else ''))
+        if va._dm(_slack_of(m, names[m]), text):
+            sent += 1
+        else:
+            failed += 1
+    logger.info(f'[방문일정] {day} 당일 배정 {lead_no} → {names_txt} (DM {sent}/{len(members)}, {by})')
+    return {'names': names_txt, 'dm': sent, 'dm_failed': failed}
 
 
 # ── 다른 곳에서 쓰는 것 ──────────────────────────────────────────────────

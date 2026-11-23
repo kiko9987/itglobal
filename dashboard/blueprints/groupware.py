@@ -234,8 +234,8 @@ def _sat_off_menu(email: str) -> bool:
 def _planner_menu(email: str) -> bool:
     """영업 > 방문 일정 메뉴 — 일정 담당(JW·대표님·부장님, 11-22)."""
     try:
-        from dashboard.services.visit_plan import can_plan
-        return can_plan(email)
+        from dashboard.services.visit_plan import can_plan, is_duty_today
+        return can_plan(email) or is_duty_today(email)      # 오늘 온라인 당번도(당일 배정, 11-23)
     except Exception:
         return False
 
