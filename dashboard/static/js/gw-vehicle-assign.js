@@ -187,7 +187,7 @@
     function opt(c) {
       var who = isOwn(c) ? [] : ridersOf(c).filter(function (p) { return except.indexOf(p) === -1; }).map(name);
       // 고른 차는 이름만(같이 탄 사람은 왼쪽 차 목록에), 나머지는 지금 탄 사람 또는 '빈 차'
-      var text = isOwn(c) ? '자차 (자기 차로 이동)' : sel === c.plate ? c.label : c.label + (who.length ? ' · ' + who.join(', ') : ' · 빈 차');
+      var text = isOwn(c) ? '자차' : sel === c.plate ? c.label : c.label + (who.length ? ' · ' + who.join(', ') : ' · 빈 차');
       return '<option value="' + esc(c.plate) + '"' + (sel === c.plate ? ' selected' : '') + '>' + esc(text) + '</option>';
     }
     var shared = S.cars.filter(function (c) { return c.usage === 'shared'; });
@@ -195,7 +195,7 @@
     var own = S.cars.filter(isOwn);
     return (shared.length ? '<optgroup label="회사 차">' + shared.map(opt).join('') + '</optgroup>' : '') +
       (fixed.length ? '<optgroup label="고정 차(빌려 쓰기)">' + fixed.map(opt).join('') + '</optgroup>' : '') +
-      own.map(opt).join('');
+      (own.length ? '<optgroup label="자기 차로 이동">' + own.map(opt).join('') + '</optgroup>' : '');   // 다른 칸처럼 묶음 안으로(11-23)
   }
   function personSel(code, half) {
     var at = whereAt(code, half === 'pm' ? 'pm' : 'am');
@@ -205,7 +205,7 @@
     return '<select class="form-select form-select-sm gw-vc-sel' + (!at && !own ? ' none' : '') + '" data-pcar="' + esc(code) +
       '" data-half="' + half + '" aria-label="' + esc(name(code) + hl) + ' 차">' +
       '<option value=""' + (at ? '' : ' selected') + '>' + esc(none) + '</option>' + carOptions(at ? at.plate : '', [code]) +
-      (half === 'all' ? '<option value="__split">오전·오후 따로 고르기…</option>' : '') + '</select>';
+      (half === 'all' ? '<optgroup label="나누기"><option value="__split">오전·오후 따로 고르기…</option></optgroup>' : '') + '</select>';
   }
   // 코스의 차 — 모두 같은 차(종일)면 그 번호판, 아무도 없으면 '', 섞였으면 '__mixed', 모두 자기 고정 차면 '__own'
   function courseCar(g) {
