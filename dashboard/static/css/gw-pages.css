@@ -3673,3 +3673,12 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 @media (max-width: 991.98px) {
   .gw-vc-cmemo input { min-height: 44px; font-size: 16px; }
 }
+/* 차량 배정 코스 현장 줄(11-24) — 방문 일정 현장 줄 모양 그대로, 다만 주소·문의는 줄을 나눠 다 보이게(PC 문단 잇기·말줄임 안 씀) */
+.gw-vc-sites > ol.gw-vc-srows { margin: 6px 0 0; padding: 0; }
+.gw-vp-row.gw-vc-srow { align-items: flex-start; }
+.gw-vp-row.gw-vc-srow .gw-vp-rmain { display: flex; flex-direction: column; gap: 2px; overflow: visible; -webkit-line-clamp: unset; line-height: 1.5; }
+.gw-vp-row.gw-vc-srow .gw-vp-vtop { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 6px; margin-right: 0; }
+.gw-vp-row.gw-vc-srow .gw-vp-vaddr { display: block; margin-right: 0; }
+.gw-vp-row.gw-vc-srow .gw-vp-vtext { display: block; -webkit-line-clamp: unset; overflow: visible; }
+.gw-vc-sphone { font-size: 0.84rem; white-space: nowrap; color: #1a1c20; text-decoration: underline; text-decoration-color: #cbd0d8; text-underline-offset: 2px; }
+.gw-vc-sphone:hover { color: #1a1c20; text-decoration-color: #1a1c20; }

@@ -316,19 +316,27 @@
     });
     return siteRoute(sites);
   }
-  function courseSite(s) {
+  // 코스 현장 한 줄 — 모양은 방문 일정과 같게(번호 동그라미·지역 파란 꼬리표·담당 꼬리표), 글 구성은 차량 배정 그대로
+  //   (첫 줄 꼬리표·전화·날짜·번호 / 둘째 줄 주소 / 셋째 줄 문의, 11-24 부장님)
+  function whoMark(s) {           // 방문 일정 who() 와 같은 모양 — 본인 방문 필수는 진한 채움, 담당만은 테두리
+    if (!s.contact) return s.must ? '<span class="gw-va-smark">본인 방문 필수</span>' : '';
+    return '<span class="gw-va-smark ' + (s.must ? 'must' : 'who') + '"><i class="fas fa-user" aria-hidden="true"></i> ' +
+      esc(s.contact) + (s.must ? ' · 본인 방문 필수' : '') + '</span>';
+  }
+  function courseSite(s, k) {
     if (s.missing) {
-      return '<li class="gw-va-sitem"><div class="gw-va-sline"><span class="gw-va-sno">' + esc(s.lead_no) +
-        '</span><span class="gw-va-swho none">그날 현장 목록에 없어요(날짜가 바뀌었을 수 있어요)</span></div></li>';
+      return '<li class="gw-vp-row gw-vc-srow"><span class="gw-vp-no" aria-hidden="true">' + (k + 1) + '</span><span class="gw-vp-rmain">' +
+        '<span class="gw-vp-vtop"><span class="gw-va-sno">' + esc(s.lead_no) + '</span></span>' +
+        '<span class="gw-vp-vtext">그날 현장 목록에 없어요(날짜가 바뀌었을 수 있어요)</span></span></li>';
     }
-    var marks = (s.platform ? '<span class="gw-va-smark plat">' + esc(s.platform) + '</span>' : '') +
-      (s.marks || []).map(function (m) { return '<span class="gw-va-smark">' + esc(m) + '</span>'; }).join('') +
-      (s.contact ? '<span class="gw-va-smark plat">' + esc(s.contact + (s.must ? ' · 본인 방문 필수' : '')) + '</span>' : '');
-    var phone = s.phone ? '<a href="tel:' + esc(s.phone.replace(/[^\d+]/g, '')) + '">' + esc(s.phone) + '</a>' : '';
-    return '<li class="gw-va-sitem"><div class="gw-va-sline">' + (s.place ? '<strong>' + esc(s.place) + '</strong>' : '') + marks +
-      (phone ? '<span>' + phone + '</span>' : '') + '<span class="gw-va-sno">' + esc(s.lead_no) + '</span></div>' +
-      (s.addr ? '<div class="gw-va-saddr">' + esc(s.addr) + '</div>' : '') +
-      (s.text ? '<div class="gw-va-stext">' + esc(s.text) + '</div>' : '') + '</li>';
+    var tags = (s.place ? '<span class="gw-vp-place">' + esc(s.place) + '</span>' : '') +
+      (s.platform ? '<span class="gw-va-smark plat">' + esc(s.platform) + '</span>' : '') + whoMark(s) +
+      (s.marks || []).map(function (m) { return '<span class="gw-va-smark">' + esc(m) + '</span>'; }).join('');
+    var phone = s.phone ? '<a class="gw-vc-sphone" href="tel:' + esc(s.phone.replace(/[^\d+]/g, '')) + '">' + esc(s.phone) + '</a>' : '';
+    return '<li class="gw-vp-row gw-vc-srow"><span class="gw-vp-no" aria-hidden="true">' + (k + 1) + '</span><span class="gw-vp-rmain">' +
+      '<span class="gw-vp-vtop">' + tags + phone + '<span class="gw-va-sno">' + esc((s.date ? s.date + ' · ' : '') + s.lead_no) + '</span></span>' +
+      (s.addr ? '<span class="gw-vp-vaddr">' + esc(s.addr) + '</span>' : '') +
+      (s.text ? '<span class="gw-vp-vtext">' + esc(s.text) + '</span>' : '') + '</span></li>';
   }
   function courseCard(g, inG) {
     var route = g.sites.length ? siteRoute(g.sites) : placeRoute(g.members);
@@ -346,7 +354,7 @@
     var memo = g.memo ? '<p class="gw-vp-memotext"><i class="fas fa-note-sticky" aria-hidden="true"></i> ' + esc(g.memo) + '</p>' : '';
     var sites = g.sites.length
       ? '<details class="gw-vc-sites"><summary><i class="fas fa-chevron-right gw-va-cfold" aria-hidden="true"></i>' +
-        '<span>' + esc(route || '현장') + '</span></summary><ul>' + g.sites.map(courseSite).join('') + '</ul></details>'
+        '<span>' + esc(route || '현장') + '</span></summary><ol class="gw-vp-rows gw-vc-srows">' + g.sites.map(courseSite).join('') + '</ol></details>'
       : (route ? '<p class="gw-vc-route"><i class="fas fa-location-dot" aria-hidden="true"></i> ' + esc(route) + '</p>' : '');
     var pk = S.canEdit && S.pick ? carOf(S.pick) : null;     // 차를 체크했으면 코스 카드를 눌러 그 차를 넣는다
     return '<section class="gw-va-card gw-vp-course gw-vc-course' + (pk ? ' pickable' : '') +
@@ -397,7 +405,7 @@
     if (!left.length) return '';
     return '<section class="gw-va-card gw-vp-course gw-vc-course gw-vc-left"><details class="gw-vc-sites"><summary>' +
       '<i class="fas fa-chevron-right gw-va-cfold" aria-hidden="true"></i><strong>코스에 없는 현장 ' + left.length + '건</strong>' +
-      '<span>' + esc(siteRoute(left)) + '</span></summary><ul>' + left.map(courseSite).join('') + '</ul></details></section>';
+      '<span>' + esc(siteRoute(left)) + '</span></summary><ol class="gw-vp-rows gw-vc-srows">' + left.map(courseSite).join('') + '</ol></details></section>';
   }
   function nocarStrip(inG) {       // 차가 필요 없는 사람 — 사내 업무·온라인 당번(방문 없음)·휴무
     var codes = S.staff.map(function (p) { return p.code; });
