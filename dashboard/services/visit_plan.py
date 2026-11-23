@@ -100,11 +100,12 @@ def _open_leads(leads: Iterable[dict]) -> List[dict]:
     return [l for l in leads if visit_open(l, rc)]
 
 
-def visits(day: str, leads: Iterable[dict]) -> List[Dict]:
+def visits(day: str, leads: Iterable[dict], done: bool = False) -> List[Dict]:
     """그날 현장(캔버스1과 같은 리드·묶음) 을 한 줄로 — 카드 하나 = 리드 하나.
-    본인 방문 필수면 owner = 상담한 사람 이니셜(온라인 상담자)."""
+    본인 방문 필수면 owner = 상담한 사람 이니셜(온라인 상담자).
+    done=True(오늘·지난 날 보기)면 방문 완료한 것까지 — 그날 실제로 간 현장(11-23 부장님)."""
     from dashboard.services import vehicle_log as vl
-    leads = _open_leads(leads)
+    leads = list(leads) if done else _open_leads(leads)
     by_name = _code_maps()
     by_no = {str(l.get('리드 No') or '').strip(): l for l in leads}
     out = []
@@ -146,18 +147,38 @@ def _where(addr: str, vl) -> Dict[str, str]:
     return {'place': place, 'region': region, 'region_rank': rank}
 
 
-def people(vs: List[Dict]) -> List[Dict]:
-    """팀에 넣을 수 있는 사람 — 현장 명단 + 본인 방문 필수 건을 상담한 다른 사람(사무직 등)."""
+def people(vs: List[Dict], more: Iterable[str] = ()) -> List[Dict]:
+    """팀에 넣을 수 있는 사람 — 현장 명단 + 본인 방문 필수 건을 상담한 다른 사람(사무직 등).
+    more = 지난 날 시트 담당자처럼 명단 밖이어도 보여 줄 이니셜."""
     out = [{'code': p['code'], 'name': p['name']} for p in va.staff()]
     have = {p['code'] for p in out}
     from dashboard.services.visit_assignment_sync import _load_initial_maps
     ini_to_name, _ = _load_initial_maps()
-    for v in vs:
-        c = v.get('owner') or ''
+    for c in [v.get('owner') or '' for v in vs] + list(more):
         if c and c not in have and c in ini_to_name:
             have.add(c)
             out.append({'code': c, 'name': ini_to_name[c], 'extra': True})
     return out
+
+
+def _sheet_plan(day: str, leads: Iterable[dict], vs: List[Dict]) -> Dict:
+    """그룹웨어에 일정이 없는 오늘·지난 날(슬랙 /일정확정으로 정한 날) — 시트 영업 담당자대로 코스를 묶어 보여 준다.
+    같은 담당자 조합 = 한 코스, 현장은 그날 순서대로. 담당자가 비어 있는 현장은 현장 목록에 남는다. 보기만(저장·DM 없음)."""
+    by_name = _code_maps()
+    nos = {v['lead_no'] for v in vs}
+    groups: Dict[tuple, List[str]] = {}
+    for g in va.day_schedule(day, leads):
+        for it in g['items']:
+            n = it.get('lead_no')
+            codes = tuple(dict.fromkeys(by_name[w] for w in it.get('who') or [] if w in by_name))
+            if n in nos and codes:
+                groups.setdefault(codes, []).append(n)
+    try:
+        online = [{'code': o['code'], 'shift': o.get('shift') or ''} for o in va.online_duty(day)]
+    except Exception:
+        online = []
+    return {'courses': [{'name': '', 'members': list(k), 'leads': v, 'memo': ''} for k, v in groups.items()],
+            'online': online, 'online_shared': False}
 
 
 def _empty_plan() -> Dict:
@@ -346,14 +367,18 @@ def _state(row: Optional[Dict]) -> Dict:
 
 def load(day: str, leads: Iterable[dict], me: str = '') -> Dict:
     leads = list(leads)
-    vs = visits(day, leads)
-    ppl = people(vs)
-    names = {p['code']: p['name'] for p in ppl}
-    off = va.day_off(day)
+    past = not editable(day)          # 오늘·지난 날 — 방문 완료한 현장까지 보여 줌(고치지는 못함)
+    vs = visits(day, leads, done=past)
     row = _row(day)
     saved = _loads((row or {}).get('plan'))
+    sheet = _sheet_plan(day, leads, vs) if past and not saved else None
+    ppl = people(vs, [m for c in (sheet or {}).get('courses', []) for m in c['members']])
+    names = {p['code']: p['name'] for p in ppl}
+    off = va.day_off(day)
     dropped = 0
-    if saved:
+    if sheet is not None:
+        plan, source = clean_plan(sheet, [v['lead_no'] for v in vs], names, strict=False), 'sheet'
+    elif saved:
         plan = clean_plan(saved, [v['lead_no'] for v in vs], names, strict=False)
         before = sum(len(c.get('leads') or []) for c in (saved.get('courses') or _old_courses(saved) or [])
                      if isinstance(c, dict))

@@ -170,6 +170,22 @@ def test_work_course(db, monkeypatch):
     assert vp.confirmed_info(DAY)['courses'] == 1                            # 방문 코스만 셈
 
 
+def test_past_day_from_sheet(db, monkeypatch):
+    """오늘·지난 날(슬랙 /일정확정으로 정한 날) — 방문 완료까지, 시트 영업 담당자 조합대로 코스(보기만, 11-23 부장님)."""
+    past = (date.today() - timedelta(days=1)).isoformat()
+    leads = [{**l, '방문 예정일': past} for l in LEADS] + [{**_lead('L-9', '서준'), '방문 예정일': past, '상태': '방문 완료'}]
+    monkeypatch.setattr(va, 'online_duty', lambda d: [{'code': 'JK', 'name': '강해', 'shift': '오후'}])
+    d = vp.load(past, leads, 'p@example.com')
+    assert d['source'] == 'sheet' and not d['editable']
+    assert 'L-9' in [v['lead_no'] for v in d['visits']]                      # 방문 완료도 보임
+    assert [(c['members'], c['leads']) for c in d['plan']['courses']] == [(['YM', 'LSH'], ['L-1', 'L-2']), (['TH'], ['L-3', 'L-9'])]
+    assert d['plan']['online'] == [{'code': 'JK', 'shift': '오후'}]
+    with vp._conn() as conn:                                                  # 보기만 — 저장하지 않음
+        assert conn.execute('SELECT COUNT(*) FROM visit_plan_day WHERE day = ?', (past,)).fetchone()[0] == 0
+    # 앞으로 짤 날은 그대로 캔버스1 기준(시트 담당자로 묶지 않음)
+    assert vp.load(DAY, LEADS, 'p@example.com')['source'] == 'empty'
+
+
 def test_editable_only_future():
     today = date(2026, 11, 22)
     assert not vp.editable('2026-11-22', today) and not vp.editable('2026-11-21', today)

@@ -381,6 +381,8 @@
     if (d.confirmed_at) {
       parts.push('<span class="gw-badge gw-badge-ok">확정</span> <span class="gw-va-when">' + esc(d.confirmed_at.slice(5, 16)) +
         (d.confirmed_name ? ' · ' + esc(d.confirmed_name) : '') + '</span>');
+    } else if (d.source === 'sheet') {
+      parts.push('<span class="gw-badge gw-badge-ok">슬랙에서 확정</span>');     // /일정확정으로 정한 날(시트 담당자대로 보임)
     } else {
       parts.push('<span class="gw-badge gw-badge-wait">확정 전</span>');
     }
@@ -388,7 +390,8 @@
     var notes = [];
     if (d.dropped) notes.push('저장한 뒤 날짜가 바뀌거나 취소된 현장 ' + d.dropped + '건은 코스에서 뺐어요.');
     if (d.changed_since_confirm || (d.confirmed_at && P.dirty)) notes.push('확정한 뒤 고친 내용이 있어요. 다시 확정해야 담당자 DM 이 바뀌어요.');
-    if (!d.editable) notes.push('오늘과 지난 날 일정은 고칠 수 없어요.');
+    if (!d.editable) notes.push('오늘과 지난 날 일정은 고칠 수 없어요.' +
+      (d.source === 'sheet' ? ' 시트 영업 담당자대로 보여 줘요(방문 완료한 현장 포함).' : ''));
     else if (!P.canEdit) notes.push('방문 일정은 일정 담당자만 고칠 수 있어요.');
     $('vpStatus').innerHTML = parts.join(' ') + notes.map(function (n) { return '<span class="gw-va-draft">' + esc(n) + '</span>'; }).join('');
   }
