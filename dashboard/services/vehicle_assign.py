@@ -596,7 +596,7 @@ def car_rows(day: str) -> Dict[str, Dict]:
 
 def _car_text(plate: str, cars: Dict[str, Dict]) -> str:
     if plate == OWN:
-        return '*자차* (자기 차로 이동)'
+        return '*본인 차량 (자차)* 로 이동'
     c = cars.get(plate) or {}
     return f"*{c.get('label') or plate}* ({plate})"
 

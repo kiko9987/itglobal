@@ -195,7 +195,7 @@
     var own = S.cars.filter(isOwn);
     return (shared.length ? '<optgroup label="회사 차">' + shared.map(opt).join('') + '</optgroup>' : '') +
       (fixed.length ? '<optgroup label="고정 차(빌려 쓰기)">' + fixed.map(opt).join('') + '</optgroup>' : '') +
-      (own.length ? '<optgroup label="자기 차로 이동">' + own.map(opt).join('') + '</optgroup>' : '');   // 다른 칸처럼 묶음 안으로(11-23)
+      (own.length ? '<optgroup label="본인 차량으로 이동">' + own.map(opt).join('') + '</optgroup>' : '');   // 다른 칸처럼 묶음 안으로(11-23)
   }
   function personSel(code, half) {
     var at = whereAt(code, half === 'pm' ? 'pm' : 'am');
@@ -407,7 +407,7 @@
     else who = rs.map(name).join('·');
     var line = rs.length
       ? '<span class="gw-vc-cwho"><span class="gw-vc-clabel">' + esc(labels.join('·')) + '</span> ' + esc(who) + '</span>'
-      : '<span class="gw-vc-cwho none">' + (isOwn(c) ? '차가 모자라면 자기 차로'
+      : '<span class="gw-vc-cwho none">' + (isOwn(c) ? '차가 모자라면 본인 차량으로'
         : c.usage === 'fixed' ? '평소 ' + esc(c.fixed_name || '정해진 사람 없음') : '빈 차') + '</span>';
     var showNote = S.canEdit && (c.note || S.noteOpen[c.plate]);
     var note = showNote
