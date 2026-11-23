@@ -343,6 +343,33 @@ def test_leave_app_handlers_registered():
         assert fn in names
 
 
+def test_submit_sends_cards(db, monkeypatch):
+    """11-23 #16: 신청 창의 시작일 변수 `start` 가 카드·승인 DM 을 보내는 start(row) 를 가려
+    'datetime.date' object is not callable — 장부엔 저장됐지만 승인자에게 아무것도 안 갔다."""
+    from slack_bolt import App
+    from dashboard.blueprints import slack_leave as sl
+    _seed(left=3)
+    sent = []
+    monkeypatch.setattr(sl, 'start', lambda row: sent.append(row['id']))
+    monkeypatch.setattr(sl, 'read_view', lambda view: {'type': lv.ANNUAL, 'sub': '', 'start': '2026-12-14',
+                                                       'end': '2026-12-15', 'reason': '개인 사유'})
+    monkeypatch.setattr(sl._eap(), '_ack_completing_step', lambda ack, body: (lambda: ack()))
+
+    class _Now:
+        def __init__(self, target, daemon=None):
+            self.t = target
+
+        def start(self):
+            self.t()
+    monkeypatch.setattr(sl.threading, 'Thread', _Now)
+    app = App(token='xoxb-test', signing_secret='s', token_verification_enabled=False)
+    sl.register_leave_handlers(app)
+    fn = next(l.ack_function for l in app._listeners if l.ack_function.__name__ == 'handle_leave_submit')
+    acks = []
+    fn(ack=lambda **k: acks.append(k), body={'user': {'id': MW}}, view={'private_metadata': '{}'})
+    assert acks == [{}] and len(sent) == 1 and lv.get(sent[0])['start'] == '2026-12-14'
+
+
 def test_first_approver_double_click_cannot_final_approve(db):
     """보안 점검 2차 #11 (2026-11-13): 1차 승인자가 승인을 두 번 눌러도 2차(대표) 단계는 처리되지 않는다.
 

@@ -564,14 +564,15 @@ def register_leave_handlers(app) -> None:
             ack(response_action='errors', errors={'lv_reason': '사유를 적어 주세요.'})
             return
         ltype, sub = vals.get('type', ''), vals.get('sub', '')
-        start = lv._d(vals.get('start'))
-        end = start if ltype in lv.HALF_TYPES else (lv._d(vals.get('end')) or start)
+        # start_d — 모듈 함수 start(row)(카드·승인 DM 보내기)를 가리지 않게 (11-23 #16 'date' not callable)
+        start_d = lv._d(vals.get('start'))
+        end = start_d if ltype in lv.HALF_TYPES else (lv._d(vals.get('end')) or start_d)
         meta = json.loads(view.get('private_metadata') or '{}')
         if meta.get('edit'):
             # 고치기(승인 대기)·변경 신청(승인된 휴가) — 11-18
             change = meta.get('mode') == 'change'
             fn = lv.change_request if change else lv.edit_request
-            row, errs = fn(int(meta['edit']), ltype, sub, start, end, vals.get('reason', ''), uid, name)
+            row, errs = fn(int(meta['edit']), ltype, sub, start_d, end, vals.get('reason', ''), uid, name)
             if errs:
                 msg = errs.pop('_', '')
                 if msg:
@@ -593,11 +594,11 @@ def register_leave_handlers(app) -> None:
                                  extra={'force_alert': True})
             threading.Thread(target=_bg_edit, daemon=True).start()
             return
-        errs = lv.validate(name, ltype, sub, start, end)
+        errs = lv.validate(name, ltype, sub, start_d, end)
         if errs:
             ack(response_action='errors', errors=_errors(errs))
             return
-        row = lv.create(name, uid, uid, name, ltype, sub, start, end,
+        row = lv.create(name, uid, uid, name, ltype, sub, start_d, end,
                         vals.get('reason', ''))
         if not row:
             ack(response_action='errors', errors={'lv_start': '그 사이 남은 연차가 바뀌었어요. 다시 확인해 주세요.'})
