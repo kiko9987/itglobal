@@ -764,7 +764,8 @@
     }
     if (!window.confirm(lines.join('\n'))) return;
     lock(true);
-    say('확정하는 중이에요. 30초쯤 걸려요…', 'info');
+    P.runStart = Date.now();
+    say('확정하는 중이에요 · 1분~1분 30초쯤 걸려요…', 'info');
     post('/api/vehicles/plan/confirm', body()).then(function (j) {
       setDirty(false);
       runState(j.run, true);
@@ -842,7 +843,10 @@
     run = run || {};
     if (run.state === 'running') {
       lock(true);
-      say((run.by ? run.by + '님이 ' : '') + '확정하는 중이에요. 30초쯤 걸려요…', 'info');
+      // 걸린 시간을 같이 보여 준다(11-23 JW 첫 확정: 실제 77초인데 '30초쯤'으로 멈춰 있어 보였음)
+      if (!P.runStart) P.runStart = Date.now();
+      var sec = Math.round((Date.now() - P.runStart) / 1000);
+      say((run.by ? run.by + '님이 ' : '') + '확정하는 중이에요 · ' + (sec >= 4 ? sec + '초 지남 · ' : '') + '1분~1분 30초쯤 걸려요…', 'info');
       var my = P.seq, day = P.day;
       P.poll = setTimeout(function () {
         api('/api/vehicles/plan/state?day=' + encodeURIComponent(day)).then(function (j) {
@@ -852,6 +856,7 @@
       return;
     }
     lock(false); setDirty(P.dirty);
+    P.runStart = 0;
     if (!fresh) {
       if (run.state === 'stale') say('지난 확정이 중간에 끊겼어요. 다시 확정해 주세요.', 'err');
       else if (run.state === 'failed' && !P.data.confirmed_at) say('지난 확정이 안 됐어요: ' + ((run.result || {}).message || ''), 'err');
@@ -859,6 +864,8 @@
     }
     if (run.state === 'done') {
       var t = resultText(run.result || {});
+      // 끝났다는 것부터 바로 보이고, 화면 자료는 뒤이어 새로 받는다
+      say('확정했어요. ' + t.ok + (t.bad.length ? ' — 확인 필요: ' + t.bad.join(' / ') : ''), t.bad.length ? 'warn' : 'ok');
       load(P.day, true).then(function () {
         say('확정했어요. ' + t.ok + (t.bad.length ? ' — 확인 필요: ' + t.bad.join(' / ') : ''), t.bad.length ? 'warn' : 'ok');
         var link = document.createElement('a');
