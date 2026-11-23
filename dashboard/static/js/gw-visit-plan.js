@@ -863,7 +863,8 @@
       // 걸린 시간을 같이 보여 준다(11-23 JW 첫 확정: 실제 77초인데 '30초쯤'으로 멈춰 있어 보였음)
       if (!P.runStart) P.runStart = Date.now();
       var sec = Math.round((Date.now() - P.runStart) / 1000);
-      say((run.by ? run.by + '님이 ' : '') + '확정하는 중이에요 · ' + (sec >= 4 ? sec + '초 지남 · ' : '') + '1분~1분 30초쯤 걸려요…', 'info');
+      say((run.by ? run.by + '님이 ' : '') + '확정하는 중이에요 · ' + (sec >= 4 ? sec + '초 지남 · ' : '') + '1분~1분 30초쯤 걸려요.' +
+        (P.data.to_cars ? ' 끝나면 차량 배정으로 넘어가요.' : ''), 'info');      // 배정 담당은 끝나면 차량 배정 탭으로(11-24)
       var my = P.seq, day = P.day;
       P.poll = setTimeout(function () {
         api('/api/vehicles/plan/state?day=' + encodeURIComponent(day)).then(function (j) {
