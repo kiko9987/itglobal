@@ -250,6 +250,7 @@ def test_routes_view_for_all_edit_for_assigner(db, monkeypatch):
             s['user'] = {'email': 'staff@example.com', 'permission_level': 'user'}
         j = cl.get('/api/vehicles/assign?day=2026-11-21').get_json()
         assert j['success'] and not j['can_edit'] and len(j['cars']) == 12 and j['day_label'] == '11/21(토)'   # 11대 + 자차 칸(11-23)
+        assert 'recent' in j   # [코스대로 자동 채우기]가 쓰는 사람별 최근 탄 차(11-23)
         assert j['visitors'] == [{'code': 'TH', 'name': '서준', 'visits': 1,
                                   'places': [{'label': '부천', 'addr': '부천 길주로 1'}]}]
         # 지난 날(슬랙으로 정한 날)은 시트 담당자 코스로 — 방문 일정 화면과 같게(11-23)

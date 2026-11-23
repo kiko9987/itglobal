@@ -48,7 +48,7 @@
   var S = { day: '', cars: [], staff: [], names: {}, canEdit: false, confirmed: false, dirty: false,
             visits: {}, places: {}, teams: [], seq: 0, focus: null, placeTries: 0, placeTimer: null,
             off: {}, half: {}, online: {}, work: {}, schedule: [], courses: null, plan: null, dayLabel: '',
-            noteOpen: {}, splitOpen: {}, splitCourse: {}, active: null, extra: [], carWhen: '', draftNote: '' };
+            noteOpen: {}, splitOpen: {}, splitCourse: {}, active: null, extra: [], recent: {}, carWhen: '', draftNote: '' };
   // active = 지금 차를 넣을 코스(카드 테두리 진하게) · splitCourse = [갈라 타기]를 연 코스
   // courses = 그룹웨어에서 확정한 방문 일정의 코스 — 슬랙으로 확정한 날은 null(그땐 일정확정 팀을 카드로)
   // splitOpen = {이니셜: 1} 오전·오후 따로 고르는 중 · extra = '그 밖'에 더한 사람(코스에 없는 사람 — 미팅 등)
@@ -436,6 +436,7 @@
     $('vcHow').textContent = !S.canEdit ? '누가 어느 차를 타는지 보기만 해요.'
       : ag ? ag.label + '에 넣을 차를 누르세요. 넣으면 차 없는 다음 코스로 넘어가요.'
       : '오른쪽 코스를 누른 뒤 여기 차를 누르세요.' + (TOUCH ? '' : ' 차를 끌어 코스·사람에 놓아도 돼요.');
+    autoBox(gs);
     $('vcCarList').innerHTML = S.cars.map(function (c) { return carRow(c, inG); }).join('');
     // 아래 바 경고 — 코스 단위로 짧게('차 없는 코스: 코스 1, 코스 3'), 코스 밖 사람만 이름으로
     var missG = gs.filter(function (g) { return g.members.some(noCar); }).map(function (g) { return g.label; });
@@ -455,6 +456,67 @@
     setDirty(S.dirty);
     statusLine();
     restoreFocus();
+  }
+  // [코스대로 자동 채우기](11-23 부장님) — 차 없는 코스만 채운다(넣어 둔 코스는 그대로). 초안이라 확인·고친 뒤 확정.
+  //   ① 코스 사람이 최근에 탄 회사 차가 비어 있으면 그 차(3명 이상이면 쏘렌토일 때만)
+  //   ② 아니면 인원으로 — 1~2명은 레이·모닝 먼저, 3명 이상은 쏘렌토 먼저(5명 이상은 쏘렌토만)
+  //   포터·전기트럭(자재용)과 고정 차(카니발·스파크 — 주인이 따로 탐), 자차는 자동으로 넣지 않는다.
+  //   큰 코스부터 고른다(쏘렌토를 작은 코스가 먼저 가져가지 않게). 차가 모자라면 남은 코스는 '차 없음'으로 둔다.
+  function bigCar(c) { return /쏘렌토|카니발/.test((c.model || '') + c.label); }
+  function autoCars() {
+    return S.cars.filter(function (c) { return c.usage === 'shared' && !/포터|트럭/.test((c.model || '') + c.label); });
+  }
+  function emptyGroups(gs) { return (gs || groups()).filter(function (g) { return courseCar(g) === ''; }); }
+  function autoFill() {
+    var free = function (c) { return c && !ridersOf(c).length; };
+    var cars = autoCars();
+    var todo = emptyGroups().map(function (g, i) {
+      return { g: g, i: i, ms: g.members.filter(function (m) { return !S.off[m]; }) };
+    }).sort(function (a, b) { return (b.ms.length - a.ms.length) || (a.i - b.i); });
+    var got = [], left = [];
+    // 먼저 최근 탄 차부터 모든 코스에 잡고(작은 코스가 다른 사람의 평소 차를 먼저 가져가지 않게), 그다음 인원대로
+    var picks = {};
+    todo.forEach(function (t) {
+      var n = t.ms.length;
+      t.ms.forEach(function (m) {
+        var c = carOf(S.recent[m] || '');
+        if (!picks[t.g.key] && c && cars.indexOf(c) !== -1 && free(c) && (n < 3 || bigCar(c)) &&
+            !Object.keys(picks).some(function (k) { return picks[k] === c; })) picks[t.g.key] = c;
+      });
+    });
+    var taken = function (c) { return !free(c) || Object.keys(picks).some(function (k) { return picks[k] === c; }); };
+    todo.forEach(function (t) {
+      if (picks[t.g.key]) return;
+      var n = t.ms.length;
+      var small = cars.filter(function (c) { return !bigCar(c); });
+      var big = cars.filter(bigCar);
+      var order = n >= 5 ? big : n >= 3 ? big.concat(small) : small.concat(big);
+      var c = order.filter(function (x) { return !taken(x); })[0];
+      if (c) picks[t.g.key] = c;
+    });
+    todo.slice().sort(function (a, b) { return a.i - b.i; }).forEach(function (t) {
+      if (picks[t.g.key]) { setCourse(t.g.key, picks[t.g.key].plate); got.push(t.g.label); } else left.push(t.g.label);
+    });
+    S.active = nextEmpty(null);
+    render();
+    if (!got.length) msg('넣을 수 있는 빈 차가 없어요.' + (left.length ? ' 차 없는 코스: ' + left.join(', ') : ''), 'info', true);
+    else msg('코스 ' + got.length + '개에 차를 넣었어요. 확인하고 바꿀 곳만 고쳐 주세요.' +
+      (left.length ? ' 빈 차가 모자라 못 넣은 코스: ' + left.join(', ') + '(자차·고정 차로 넣어 주세요)' : ''), left.length ? 'info' : 'ok', true);
+  }
+  function autoBox(gs) {
+    var box = $('vcAuto');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'vcAuto';
+      $('vcHow').insertAdjacentElement('afterend', box);
+    }
+    box.hidden = !S.canEdit;
+    if (!S.canEdit) { box.innerHTML = ''; return; }
+    var n = emptyGroups(gs).length;
+    // 채운 뒤에도 단추는 남겨 둔다(꺼짐) — 사라지면 아래 차 목록이 위로 당겨짐
+    box.innerHTML = '<button type="button" class="btn btn-sm btn-outline-secondary gw-vc-auto" data-auto="1"' + (n ? '' : ' disabled') + '>' +
+      '<i class="fas fa-wand-magic-sparkles" aria-hidden="true"></i> 코스대로 자동 채우기' + (n ? ' (' + n + ')' : '') + '</button>' +
+      '<small class="gw-vc-autohelp">차 없는 코스만 — 최근 탄 차, 없으면 인원대로(3명↑ 쏘렌토)</small>';
   }
   // 슬랙으로 확정한 날(코스 없음) — 위에 그날 방문 일정(캔버스1 묶음)을 접어서 둔다
   var SCHED_KEY = 'gw.va.schedOpen';
@@ -572,6 +634,7 @@
       S.dayLabel = j.day_label || '';
       (j.visitors || []).forEach(function (v) { S.visits[v.code] = v.visits; S.places[v.code] = v.places || []; });
       S.teams = j.teams || [];
+      S.recent = j.recent || {};       // 사람 → 최근에 탄 차(서버 재시작 전엔 없음 — 그땐 인원대로만)
       schedPanel(j);
       S.dirty = !!(j.draft_kind && S.canEdit && j.cars.some(function (c) { return c.people.length; }));
       $('vaDay').value = j.day;
@@ -698,6 +761,7 @@
       render();
       return;
     }
+    if (e.target.closest('[data-auto]')) { autoFill(); return; }
     var pc = e.target.closest('[data-pickcar]');
     if (pc) {
       var ag = activeGroup();
