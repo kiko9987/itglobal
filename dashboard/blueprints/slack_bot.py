@@ -749,6 +749,12 @@ def _register_payment_handlers(app):
                                     f"통합입금 분할 {len(_splits)}건 · {_total:,}원", d.get("text", "")))
                         except Exception:
                             pass
+                    _recs_now = None
+                    try:
+                        from dashboard.services.project_service import get_project_records
+                        _recs_now = get_project_records() or []
+                    except Exception:
+                        _recs_now = None
                     for _s in _splits:
                         _pc = (_s.get("project_code") or "").strip()
                         _stg = (_s.get("stage") or "").strip()
@@ -756,6 +762,14 @@ def _register_payment_handlers(app):
                         if not _pc or _stg not in ("계약금", "중도금", "잔금") or _amt <= 0:
                             _failed.append(_s)
                             continue
+                        # 지정 뒤 공사 금액이 바뀌었으면 금액 경고를 지금 값으로 (2026-11-23 R4272-YM)
+                        if _recs_now is not None:
+                            _s["warns"], _s["warn_notes"] = _refresh_amount_warns(
+                                _pc, _stg, _amt, _preview, d.get("text", ""),
+                                _s.get("warns"), _s.get("warn_notes"),
+                                extra_paid=sum(int(x.get("amount") or 0) for x in _splits
+                                               if x is not _s and (x.get("project_code") or "").strip() == _pc),
+                                records=_recs_now)
                         # 나눠 내는 공사 — 사람 칸·차수 결정(옛 지정은 입금자명으로 자동 맞춤, 2026-10-20)
                         _res = _resolve_intake_payer(_pc, _stg, _amt, _preview.get("partner") or "",
                                                      _s.get("installment") or "")
@@ -845,6 +859,10 @@ def _register_payment_handlers(app):
                     _intake_ephemeral(client, channel, user,
                                       ":warning: 금액이 자동 인식되지 않았습니다. 스레드에서 확인 후 수동 처리해주세요.")
                     return
+                # 지정 뒤 공사 금액이 바뀌었으면 금액 경고를 지금 값으로 (2026-11-23 R4272-YM)
+                _des_warns, _des_notes = _refresh_amount_warns(
+                    project_code, stage, amount, d.get("preview") or {}, memo,
+                    des.get("warns"), des.get("warn_notes"))
                 # 나눠 내는 공사 — 기록할 사람 칸·차수 결정 (2026-10-20). 새 지정(사람+차수)은 그대로,
                 #   옛 지정('수금 단계'를 들어온 순서로 고른 것)은 입금자명으로 사람을 찾아 그 칸에 기록하고
                 #   지정 단계는 차수로 남긴다. 사람을 모르면 기록하지 않고 재지정 요청(카드는 대기 그대로).
@@ -855,7 +873,7 @@ def _register_payment_handlers(app):
                     _intake_ephemeral(client, channel, user, f":warning: {project_code} — {_res['error']}")
                     return
                 _who, _inst = _res.get("who", ""), _res.get("installment", "")
-                _warns_done = list(des.get("warns") or [])
+                _warns_done = list(_des_warns)
                 if _who and _res.get("moved"):
                     _warns_done.append(f"부담자 칸으로 기록 — 지정 {stage} → {_res['stage']} 칸({_who})")
                     logger.info(f"[SLACK/수금봇] 부담자 칸 자동 맞춤: {project_code} 지정 {stage} → "
@@ -893,7 +911,7 @@ def _register_payment_handlers(app):
                         pass
                 ok, old_num, new_num, err = _commit_intake_to_sheet(
                     project_code, stage, amount, memo, user,
-                    note_extra=_compose_warn_notes(des.get("warn_notes"), des.get("by", ""), user),
+                    note_extra=_compose_warn_notes(_des_notes, des.get("by", ""), user),
                     installment=_inst)
                 if not ok:
                     _intake_release(rc, intake_id, project_code, stage)  # 재시도 허용
@@ -913,7 +931,7 @@ def _register_payment_handlers(app):
                     _intake_ephemeral(client, channel, user, f":warning: 기록 실패: {err}")
                     return
                 _intake_mark_done(rc, intake_id, project_code, stage)  # 성공 후에만 마커
-                _notify_fund_move_bg(des.get("by", ""), project_code, des.get("warn_notes"))
+                _notify_fund_move_bg(des.get("by", ""), project_code, _des_notes)
                 if channel and ts:
                     client.chat_update(
                         channel=channel, ts=ts,
@@ -2709,6 +2727,66 @@ def _notify_fund_move_bg(by_user, code, notes):
         except Exception as exc:
             logger.error(f"[SLACK/수금봇] 법인 간 이체 결재 안내 실패 ({code}): {exc}", exc_info=True)
     threading.Thread(target=_run, daemon=True).start()
+
+
+# 금액에 따라 달라지는 경고 — (kind, 카드 줄 머리, 메모 줄 머리). 지정과 확인 사이에 공사 금액이 바뀌면
+#   (예: 부가세 별도→없음) 지정 때 계산한 경고가 틀린 채 카드·시트 메모에 남았다(2026-11-23 R4272-YM
+#   '입금 후에도 280,000원 남음' — 확인 때는 이미 미수금 0). 확인 때 이것만 다시 계산한다.
+_AMOUNT_WARN_KINDS = (
+    ('overpay', '과입금 의심', '⚠️ 과입금:'),
+    ('short_final', '잔금 후 미수금 남음', '⚠️ 잔금 후 미수금:'),
+    ('payer_over', '부담자 과입금 의심', '⚠️ 부담자 과입금:'),
+)
+
+
+def _amount_warn_kind(text, idx):
+    t = (text or '').strip()
+    return next((k[0] for k in _AMOUNT_WARN_KINDS if t.startswith(k[idx])), None)
+
+
+def _refresh_amount_warns(project_code, stage, amount, preview, memo, warns, warn_notes,
+                          extra_paid=0, records=None):
+    """확인 시점 공사 금액으로 금액 경고만 다시 계산 → (warns, warn_notes).
+
+    지정 때 있던 금액 경고만 대상: 지금도 맞으면 지금 숫자로 바꾸고, 더 이상 아니면 뺀다. 지정 때 없던
+    경고는 새로 붙이지 않는다(매니저가 못 본 경고라 이력에 남길 근거가 없음). 계좌 불일치 등 다른 경고는
+    그대로. 공사를 못 찾으면 손대지 않는다."""
+    warns, warn_notes = list(warns or []), list(warn_notes or [])
+    old_kinds = ({_amount_warn_kind(x, 1) for x in warns} | {_amount_warn_kind(x, 2) for x in warn_notes}) - {None}
+    if not old_kinds:
+        return warns, warn_notes
+    try:
+        if records is None:
+            from dashboard.services.project_service import get_project_records
+            records = get_project_records() or []
+        code = (project_code or '').strip()
+        if not any(str(r.get('프로젝트 코드') or '').strip() == code for r in records):
+            return warns, warn_notes
+        fresh = {w['kind']: w for w in _intake_warnings(code, amount, preview, memo, records=records,
+                                                         stage=stage, extra_paid=extra_paid)
+                 if w.get('kind') in old_kinds}
+    except Exception as exc:
+        logger.warning(f"[SLACK/수금봇] 확인 시 금액 경고 재계산 실패(지정 때 경고 유지): {exc}")
+        return warns, warn_notes
+
+    def _swap(items, idx, field):
+        out = []
+        for x in items:
+            k = _amount_warn_kind(x, idx)
+            if not k:
+                out.append(x)
+            elif k in fresh:
+                new = fresh[k].get(field) or ''
+                # 메모 줄 꼬리(' — 지정 시 경고 미표시' 등)는 지정 때 그대로 유지
+                tail = x.split(' — ', 1)[1] if (field == 'note' and ' — ' in x) else ''
+                out.append(f"{new} — {tail}" if tail else new)
+        return out
+
+    new_warns, new_notes = _swap(warns, 1, 'line'), _swap(warn_notes, 2, 'note')
+    if new_warns != warns or new_notes != warn_notes:
+        logger.info(f"[SLACK/수금봇] 확인 시 금액 경고 재계산: {project_code} {stage} "
+                    f"{old_kinds} → {set(fresh)}")
+    return new_warns, new_notes
 
 
 def _compose_warn_notes(notes, by_user, checker):
