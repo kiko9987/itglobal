@@ -860,12 +860,33 @@ def _labeled(plan: Optional[Dict]) -> List[tuple]:
     return list(zip(course_labels({'courses': cs}), cs))
 
 
-def confirmed_teams(day: str) -> Optional[List[Dict]]:
+def _car_plan(day: str, leads: Optional[Iterable[dict]] = None) -> tuple:
+    """차량 배정이 쓰는 그날 코스 — (plan, source).
+    그룹웨어에서 확정했으면 그 코스('confirmed'). 아니고 오늘·지난 날이면(슬랙 /일정확정으로 정한 날, 11-23 부장님)
+    방문 일정 화면과 같게 시트 영업 담당자 조합대로 묶은 코스 + 당일 배정('sheet', 방문 완료 포함). 그 밖은 (None, '')."""
+    plan = _loads((_row(day) or {}).get('confirmed_plan'))
+    if plan:
+        return plan, 'confirmed'
+    if leads is None or editable(day):
+        return None, ''
+    leads = list(leads)
+    vs = visits(day, leads, done=True)
+    nos = [v['lead_no'] for v in vs]
+    names = {p['code']: p['name'] for p in _staff()}
+    sheet = clean_plan(_sheet_plan(day, leads, vs), nos, names, strict=False)
+    _merge_urgent(day, sheet, nos, names)
+    if not any(c['members'] and c['leads'] for c in sheet['courses']):
+        return None, ''
+    return sheet, 'sheet'
+
+
+def confirmed_teams(day: str, leads: Optional[Iterable[dict]] = None) -> Optional[List[Dict]]:
     """그룹웨어에서 확정한 날의 팀 = 방문 코스 그대로(차량 배정이 시트 캐시보다 먼저 쓴다). 없으면 None.
     [{'members', 'visits', 'big', 'label', 'memo', 'leads', 'also'}] — 코스 순서대로(11-23 부장님: JW·SJ 가 같은 말로 '코스 1').
     한 사람이 두 코스에 있으면 앞 코스 팀에 두고 also = {이니셜: [뒤 코스 이름]}(오전·오후 나눠 탈 수 있게).
-    사람이 똑같은 코스가 또 있으면 이름만 이어 붙인다('코스 1 · 코스 3')."""
-    plan = _loads((_row(day) or {}).get('confirmed_plan'))
+    사람이 똑같은 코스가 또 있으면 이름만 이어 붙인다('코스 1 · 코스 3').
+    leads 를 주면 그룹웨어 확정이 없는 오늘·지난 날도 시트 코스로(_car_plan)."""
+    plan, _src = _car_plan(day, leads)
     if not plan:
         return None
     out: List[Dict] = []
@@ -896,8 +917,10 @@ def confirmed_teams(day: str) -> Optional[List[Dict]]:
 def confirmed_courses(day: str, leads: Iterable[dict]) -> Optional[Dict]:
     """차량 배정 위 '방문 일정' 칸을 코스로(11-23 부장님) — 그룹웨어에서 확정한 날만, 아니면 None.
     {'courses': [{label, kind, members, memo, task, sites:[현장]}], 'left': [코스에 없는 현장]}
-    현장 = visits() 한 줄(지난 날도 보이게 방문 완료 포함). 그날 목록에 없는 리드(날짜를 옮김 등)는 번호만."""
-    plan = _loads((_row(day) or {}).get('confirmed_plan'))
+    현장 = visits() 한 줄(지난 날도 보이게 방문 완료 포함). 그날 목록에 없는 리드(날짜를 옮김 등)는 번호만.
+    source = 'confirmed'(그룹웨어 확정) / 'sheet'(슬랙으로 확정한 오늘·지난 날 — 시트 영업 담당자 기준, 11-23)."""
+    leads = list(leads)
+    plan, source = _car_plan(day, leads)
     if not plan:
         return None
     vs = visits(day, leads, done=True)
@@ -917,7 +940,7 @@ def confirmed_courses(day: str, leads: Iterable[dict]) -> Optional[Dict]:
                     'memo': '' if work else c.get('memo') or '', 'task': (c.get('memo') or '') if work else '',
                     'sites': sites})      # 사내 업무의 할 일은 memo 칸에 들어 있다
     left = [{k: v.get(k) for k in keep} for v in vs if v['lead_no'] not in used]
-    return {'courses': out, 'left': left}
+    return {'courses': out, 'left': left, 'source': source}
 
 
 def plan_change_text(prev: Optional[Dict], plan: Dict, names: Dict[str, str]) -> str:

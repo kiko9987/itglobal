@@ -136,7 +136,7 @@ def api_assign_get():
         leads = _leads()
         visitors, teams = va.visitors(day, leads), va.teams(day, leads)
         try:    # 그룹웨어에서 확정한 날은 그 팀 그대로(시트 캐시가 늦게 바뀌어도, 11-22)
-            teams = vp.confirmed_teams(day) or teams
+            teams = vp.confirmed_teams(day, leads) or teams     # 슬랙으로 정한 오늘·지난 날은 시트 코스(11-23)
         except Exception as e:
             logger.warning(f'[차량배정] 방문 일정 팀 읽기 실패: {e}')
         # 갈 곳을 동까지 보이게 — 아직 못 찾은 방문 주소는 뒤에서 찾고(행안부), 화면이 잠시 뒤 다시 받아 간다
@@ -177,7 +177,7 @@ def api_assign_get():
         info = vp.confirmed_info(day)
         view['plan'] = {**info, 'can_open': _can_plan() or _plan_admin(), 'cars_saved_at': va.last_saved_at(day)} if info else None
         view['work'] = vp.confirmed_work(day)      # 사내 업무(차 필요 없음, 11-23)
-        view['courses'] = vp.confirmed_courses(day, leads) if info else None     # 위 칸을 코스로(11-23)
+        view['courses'] = vp.confirmed_courses(day, leads)     # 위 칸을 코스로(11-23) — 확정한 날 + 슬랙으로 정한 오늘·지난 날
     except Exception as e:
         logger.warning(f'[차량배정] 방문 일정 확정 정보 실패: {e}')
         view['plan'] = None

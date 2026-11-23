@@ -251,7 +251,9 @@ def test_routes_view_for_all_edit_for_assigner(db, monkeypatch):
         assert j['success'] and not j['can_edit'] and len(j['cars']) == 11 and j['day_label'] == '11/21(토)'
         assert j['visitors'] == [{'code': 'TH', 'name': '서준', 'visits': 1,
                                   'places': [{'label': '부천', 'addr': '부천 길주로 1'}]}]
-        assert j['teams'] == [{'members': ['TH'], 'visits': 1, 'big': False}]
+        # 지난 날(슬랙으로 정한 날)은 시트 담당자 코스로 — 방문 일정 화면과 같게(11-23)
+        assert [(t['label'], t['members'], t['visits']) for t in j['teams']] == [('코스 1', ['TH'], 1)]
+        assert j['courses']['source'] == 'sheet'
         assert j['resolving'] and resolve == [('2026-11-21', '2026-11-21')]   # 동은 뒤에서 찾고 화면이 다시 받아 감
         assert j['off'] == [{'code': 'JK', 'name': '강해', 'why': '연차'}] and j['half'] == []
         assert [g['cat'] for g in j['schedule']] == ['온라인 방문'] and j['schedule'][0]['items'][0]['who'] == ['서준']

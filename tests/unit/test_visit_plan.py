@@ -554,3 +554,19 @@ def test_reconfirm_tells_car_assigner(db, monkeypatch):
     swap = {'courses': [{'members': ['YM', 'TH'], 'leads': ['L-1']}, {'members': ['JK'], 'leads': ['L-3']}]}
     assert vp.plan_change_text({'courses': [{'members': ['YM'], 'leads': ['L-1']}, {'members': ['TH', 'JK'], 'leads': ['L-3']}]},
                                swap, names) == '같이 가는 사람이 바뀜'
+
+
+def test_cars_see_sheet_courses_on_past_day(db, monkeypatch):
+    """차량 배정도 슬랙으로 정한 오늘·지난 날은 시트 담당자 코스로(11-23) — 앞으로 짤 날은 그룹웨어 확정 전엔 없음."""
+    past = (date.today() - timedelta(days=1)).isoformat()
+    leads = [{**l, '방문 예정일': past} for l in LEADS] + [{**_lead('L-9', '서준'), '방문 예정일': past, '상태': '방문 완료'}]
+    monkeypatch.setattr(va, 'online_duty', lambda d: [])
+    monkeypatch.setattr(vp, '_staff', lambda: [dict(p) for p in STAFF])
+    c = vp.confirmed_courses(past, leads)
+    assert c['source'] == 'sheet'
+    assert [(x['label'], x['members'], [s['lead_no'] for s in x['sites']]) for x in c['courses']] == [
+        ('코스 1', ['YM', 'LSH'], ['L-1', 'L-2']), ('코스 2', ['TH'], ['L-3', 'L-9'])]
+    assert [s['lead_no'] for s in c['left']] == ['L-4', 'L-5']
+    assert [(t['label'], t['members']) for t in vp.confirmed_teams(past, leads)] == [('코스 1', ['YM', 'LSH']), ('코스 2', ['TH'])]
+    assert vp.confirmed_teams(past) is None                                   # 리드 없이 부르면(옛 호출) 그대로
+    assert vp.confirmed_courses(DAY, LEADS) is None and vp.confirmed_teams(DAY, LEADS) is None

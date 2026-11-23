@@ -513,6 +513,13 @@
     var el = $('vaPlanLine');
     if (!el) return;
     var p = S.plan;
+    if ((!p || !p.confirmed_at) && S.courses && S.courses.source === 'sheet') {   // 슬랙으로 정한 오늘·지난 날(11-23)
+      el.className = 'gw-va-planline';
+      el.innerHTML = '<i class="fas fa-route" aria-hidden="true"></i> ' + esc(S.dayLabel) +
+        ' 방문 일정 — 슬랙 /일정확정으로 정한 날이라 시트 영업 담당자대로 코스를 묶어 보여 줘요.';
+      el.hidden = false;
+      return;
+    }
     if (!p || !p.confirmed_at) { el.hidden = true; el.innerHTML = ''; el.className = 'gw-va-planline'; return; }
     var text = esc(S.dayLabel) + ' 방문 일정 확정 ' + esc(p.confirmed_at.slice(11, 16)) + (p.confirmed_name ? ' · ' + esc(p.confirmed_name) : '') +
       ' · 코스 ' + p.courses + '개';
