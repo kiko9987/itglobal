@@ -267,10 +267,11 @@
       '<span class="gw-va-cname">' + esc(name(code)) + '</span>' + tagsOf(code) + ctl +
       (w ? '<span class="visually-hidden"> — 차 없음</span>' : '') + '</span>';
   }
+  // 코스가 가는 지역 — 현장을 넣은 순서일 뿐 이동 순서가 아니라 화살표 없이, 같은 지역은 한 번만(11-23 부장님)
   function siteRoute(sites) {
     var out = [];
-    sites.forEach(function (s) { var p = s.place; if (p && out[out.length - 1] !== p) out.push(p); });
-    return out.join(' → ');
+    sites.forEach(function (s) { var p = s.place; if (p && out.indexOf(p) === -1) out.push(p); });
+    return out.join(' · ');
   }
   function placeRoute(members) {   // 슬랙으로 확정한 날 — 사람들이 갈 동(구)을 한 줄로
     var seen = {}, out = [];
