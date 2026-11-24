@@ -224,6 +224,8 @@
     var rest = ms.filter(function (m) { return !onOwn(m); });
     return rest.length ? rest : ms;
   }
+  // 현장 꼬리표 — '공사확정'은 차량 배정에서는 안 보인다(11-24 부장님: 차를 넣는 데 필요 없음). 방문 일정 화면은 그대로
+  function marksOf(ms) { return (ms || []).filter(function (m) { return m !== '공사확정'; }); }
   function courseCar(g) {
     var ms = g.members.filter(function (m) { return !S.off[m]; });
     if (!ms.length) return '__none';
@@ -405,7 +407,7 @@
     }
     var tags = (s.place ? '<span class="gw-vp-place">' + esc(s.place) + '</span>' : '') +
       (s.platform ? '<span class="gw-va-smark plat">' + esc(s.platform) + '</span>' : '') + whoMark(s) +
-      (s.marks || []).map(function (m) { return '<span class="gw-va-smark">' + esc(m) + '</span>'; }).join('');
+      marksOf(s.marks).map(function (m) { return '<span class="gw-va-smark">' + esc(m) + '</span>'; }).join('');
     var phone = s.phone ? '<a class="gw-vc-sphone" href="tel:' + esc(s.phone.replace(/[^\d+]/g, '')) + '">' + esc(s.phone) + '</a>' : '';
     return '<li class="gw-vp-row gw-vc-srow"><span class="gw-vp-no" aria-hidden="true">' + (k + 1) + '</span><span class="gw-vp-rmain">' +
       '<span class="gw-vp-vtop">' + tags + phone + '<span class="gw-va-sno">' + esc((s.date ? s.date + ' · ' : '') + s.lead_no) + '</span></span>' +
@@ -678,7 +680,7 @@
   }
   function schedItem(it) {
     var marks = (it.platform ? '<span class="gw-va-smark plat">' + esc(it.platform) + '</span>' : '') +
-      it.marks.map(function (m) { return '<span class="gw-va-smark">' + esc(m) + '</span>'; }).join('');
+      marksOf(it.marks).map(function (m) { return '<span class="gw-va-smark">' + esc(m) + '</span>'; }).join('');
     var who = it.who.length
       ? '<span class="gw-va-swho">' + esc(it.who.join(', ')) + '</span>'
       : '<span class="gw-va-swho none">배분 전</span>';

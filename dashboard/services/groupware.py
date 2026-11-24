@@ -181,7 +181,8 @@ AREAS = [
             # 순서(11-18 부장님): 자주 쓰는 프로젝트 → 일을 따오는 입구(리드·입찰) → 끝난 공사 글(시공사례) → 보고(통계)
             {'href': '/projects', 'label': '프로젝트', 'icon': 'fas fa-folder-open'},
             {'href': '/leads', 'label': '고객 리드', 'icon': 'fas fa-user-tie'},
-            {'href': '/visits/plan', 'label': '방문 일정', 'icon': 'fas fa-route', 'planner': True},   # 캔버스2·/일정확정 대신(11-22)
+            {'href': '/visits/plan', 'label': '방문 일정', 'icon': 'fas fa-route', 'planner': True,   # 캔버스2·/일정확정 대신(11-22)
+             'also': ('/vehicles/assign',)},   # 차량 배정은 방문 일정 탭으로만 들어감(11-24) — 그 화면에서도 이 메뉴가 켜짐
             {'href': '/bids', 'label': '입찰 공고', 'icon': 'fas fa-gavel'},   # 나라장터(11-18)
             {'href': '/case-posts', 'label': '시공 사례', 'icon': 'fas fa-camera', 'admin': True},
             {'href': '/stats', 'label': '매출 통계', 'icon': 'fas fa-chart-bar'},
@@ -211,11 +212,10 @@ AREAS = [
         ],
     },
     {
-        # 차량(11-20) — 배정은 직원 모두 보기(현장 포함)·SJ 가 고침, 운행 기록은 위치라 경영지원만.
+        # 차량(11-20) — 운행 기록은 위치라 경영지원만. 차량 배정은 11-24 부장님: 이 영역에서 빼고 방문 일정 탭으로만.
         # 휴가·인사 뒤에 둔다 — 현장 세션은 첫 영역이 로고 자리라 휴가가 먼저여야 한다.
         'key': 'vehicle', 'label': '차량', 'icon': 'fas fa-car',
         'items': [
-            {'href': '/vehicles/assign', 'label': '차량 배정', 'icon': 'fas fa-key', 'field': True},
             {'href': '/vehicles', 'label': '운행일지', 'icon': 'fas fa-route', 'hr_admin': True},   # U+커넥트 운행(11-22 이름)
             {'href': '/vehicles/manage', 'label': '차량 관리', 'icon': 'fas fa-screwdriver-wrench', 'hr_admin': True},  # 11-22
         ],
@@ -256,12 +256,17 @@ def build_nav(path: str, permission_level: str, is_hr_admin: bool = False, field
     bottom=True 영역(관리)은 왼쪽 줄 아래쪽에 따로 둔다. field=True 는 현장·미화 세션."""
     is_admin = permission_level in ('admin', 'super_admin')
     areas, active_items = [], []
+    owner = next((it['href'] for area in AREAS for it in area['items']
+                  if any(_matches(path, x) for x in it.get('also', ()))
+                  and _visible(it, is_admin, is_hr_admin, field, leave_all, sat_off, planner)), None)
     for area in AREAS:
         items = [dict(it) for it in area['items'] if _visible(it, is_admin, is_hr_admin, field, leave_all, sat_off, planner)]
         if not items:
             continue
         # 가장 길게 맞는 메뉴 하나만 켠다(/leave/team 에서 /leave 까지 켜지지 않게)
         best = max((it['href'] for it in items if _matches(path, it['href'])), key=len, default=None)
+        if owner:               # 메뉴에 없는 화면은 맡은 메뉴만 켠다(차량 배정 → 방문 일정, /vehicles 운행일지가 켜지지 않게)
+            best = owner if owner in [it['href'] for it in items] else None
         for it in items:
             it['active'] = it['href'] == best
         hit = best is not None

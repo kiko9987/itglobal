@@ -298,9 +298,12 @@ def test_dev_preview_only_kiko(db, monkeypatch):
 
 
 def test_menu():
+    """차량 배정은 차량 영역에서 빠지고 방문 일정 탭으로만(11-24 부장님) — 그 화면에서는 영업 > 방문 일정이 켜진다."""
     items = {it['href']: it for a in gw.AREAS for it in a['items']}
-    assert items['/vehicles/assign'].get('field') and not items['/vehicles/assign'].get('hr_admin')
-    assert items['/vehicles'].get('hr_admin')
+    assert '/vehicles/assign' not in items and items['/vehicles'].get('hr_admin')
+    nav = gw.build_nav('/vehicles/assign', 'admin', is_hr_admin=True, planner=True)
+    assert [(a['label'], [c['label'] for c in a['children'] if c['active']]) for a in nav['areas'] if a['active']] == [('영업', ['방문 일정'])]
+    assert [a['key'] for a in gw.build_nav('/vehicles', 'admin', is_hr_admin=True, planner=True)['areas'] if a['active']] == ['vehicle']
 
 
 def test_latest_note_skips_header_only_rounds():
