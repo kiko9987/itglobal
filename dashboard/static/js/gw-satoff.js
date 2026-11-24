@@ -159,9 +159,9 @@
     }
     // 휴무 출근(11-24) — 결재 올린 뒤(대기·확정). 서버가 재시작 전이면 can_mark_worked 가 없어 안 보임
     if (d.can_mark_worked) {
-      var who = (d.approvers || []).join('·') || '승인권자';
-      h += '<p class="gw-so-how">쉬기로 한 토요일에 급한 공사로 나오게 되면 ' + esc(who) +
-        ' 님 중 한 분께 말씀드린 뒤 [휴무 출근 기록]을 눌러 주세요.</p>';
+      // 미리 변경 신청을 못 했을 때만 쓰는 기능이라는 걸 먼저(11-25 부장님 문구). 보통은 휴무 취소·신청으로 조절
+      h += '<p class="gw-so-how">휴무 토요일에 급한 업무로 출근을 하게 되어 미리 변경 신청을 하지 못했을 경우 ' +
+        '구두 보고 후 [휴무 출근 기록]을 눌러 주세요.</p>';
       acts = '<button type="button" class="btn btn-outline-secondary btn-sm" data-act="worked">휴무 출근 기록</button>' + acts;
     }
     // 전체 휴무 지정·풀기 — 관리자(11-25)
