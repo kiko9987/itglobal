@@ -222,7 +222,9 @@
       s.names.forEach(function (n) { off[s.day + '|' + n] = true; });
       (s.worked || []).forEach(function (n) { wk[s.day + '|' + n] = true; });
     });
-    var h = '<h3 class="gw-so-h">토요일 근무표</h3><div class="gw-so-tablewrap"><table class="gw-so-matrix">' +
+    var h = '<h3 class="gw-so-h" id="soTableTitle">토요일 근무표</h3>' +
+      // 휴대폰에선 옆으로 밀어 봄 — 키보드로도 밀 수 있게 초점을 받는 영역으로
+      '<div class="gw-so-tablewrap" tabindex="0" role="region" aria-labelledby="soTableTitle"><table class="gw-so-matrix">' +
       '<caption class="visually-hidden">' + cur.y + '년 ' + cur.m + '월 토요일마다 근무·휴무·휴무 출근</caption><thead><tr><th scope="col">이름</th>';
     sats.forEach(function (s) {
       h += '<th scope="col" class="' + (s.day === todayIso ? 'today' : '') + '">' + md(s.day) +
@@ -549,6 +551,7 @@
 
   // ── 사유 창 ──
   var noteEl = document.getElementById('soNoteModal');
+  if (noteEl) noteEl.classList.add('gw-so-modal');   // 창 안 칸 크기·정렬을 화면과 같게(11-25)
   var noteJob = null;
   var noteModal = null;
   function openNote(title, what, label, okText, job) {
@@ -661,7 +664,7 @@
   function fullModalEl() {
     if (fullEl) return fullEl;
     fullEl = document.createElement('div');
-    fullEl.className = 'modal fade';
+    fullEl.className = 'modal fade gw-so-modal';
     fullEl.id = 'soFullModal';
     fullEl.tabIndex = -1;
     fullEl.setAttribute('aria-labelledby', 'soFullTitle');
@@ -673,9 +676,9 @@
       '<div class="modal-body">' +
       '<p class="gw-so-hint">고른 토요일엔 스케줄 근무 대상 모두가 쉬는 사람으로 들어가요. 각자 쉰 횟수에 하루씩 들어가요(격주 1일 차감).</p>' +
       '<p class="gw-so-admin-note small mb-3"><i class="fas fa-lock" aria-hidden="true"></i> 전체 휴무 설정은 관리자에게만 보여요.</p>' +
-      '<div class="mb-3"><label class="form-label" for="soFullDay">토요일</label><select class="form-select" id="soFullDay"></select></div>' +
+      '<div class="mb-3"><label class="form-label" for="soFullDay">토요일</label><select class="form-select" id="soFullDay" name="day"></select></div>' +
       '<div class="mb-1" id="soFullNoteWrap"><label class="form-label" for="soFullNote">메모</label>' +
-      '<input type="text" class="form-control" id="soFullNote" maxlength="100" autocomplete="off" placeholder="예: 연말 전체 휴무"></div>' +
+      '<input type="text" class="form-control" id="soFullNote" name="note" maxlength="100" autocomplete="off" placeholder="예: 연말 전체 휴무"></div>' +
       '<div class="gw-lv-err" id="soFullErr" role="alert"></div></div>' +
       '<div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">닫기</button>' +
       '<button type="submit" class="btn btn-primary" id="soFullSave">전체 휴무로</button></div></form></div>';
@@ -727,7 +730,7 @@
   function workedModal() {
     if (wkEl) return wkEl;
     wkEl = document.createElement('div');
-    wkEl.className = 'modal fade';
+    wkEl.className = 'modal fade gw-so-modal';
     wkEl.id = 'soWorkedModal';
     wkEl.tabIndex = -1;
     wkEl.setAttribute('aria-labelledby', 'soWkTitle');
@@ -738,11 +741,11 @@
       '<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button></div>' +
       '<div class="modal-body">' +
       '<p class="gw-so-hint">쉬기로 한 토요일에 급한 공사로 나오는 날을 남겨요. 남기면 그날은 근무로 바뀌어 차량·방문 배정에도 근무로 보여요.</p>' +
-      '<div class="mb-3" id="soWkNameWrap"><label class="form-label" for="soWkName">누가</label><select class="form-select" id="soWkName"></select></div>' +
-      '<div class="mb-3"><label class="form-label" for="soWkDay">쉬기로 했던 토요일</label><select class="form-select" id="soWkDay"></select></div>' +
-      '<div class="mb-3"><label class="form-label" for="soWkBy">구두로 승인해 주신 분</label><select class="form-select" id="soWkBy"></select></div>' +
+      '<div class="mb-3" id="soWkNameWrap"><label class="form-label" for="soWkName">누가</label><select class="form-select" id="soWkName" name="name"></select></div>' +
+      '<div class="mb-3"><label class="form-label" for="soWkDay">쉬기로 했던 토요일</label><select class="form-select" id="soWkDay" name="day"></select></div>' +
+      '<div class="mb-3"><label class="form-label" for="soWkBy">구두로 승인해 주신 분</label><select class="form-select" id="soWkBy" name="verbal_by"></select></div>' +
       '<div class="mb-1"><label class="form-label" for="soWkReason">어떤 일로 나오나요</label>' +
-      '<input type="text" class="form-control" id="soWkReason" maxlength="200" autocomplete="off" placeholder="예: ○○ 현장 공사"></div>' +
+      '<input type="text" class="form-control" id="soWkReason" name="reason" maxlength="200" autocomplete="off" placeholder="예: ○○ 현장 공사"></div>' +
       '<div class="gw-lv-err" id="soWkErr" role="alert"></div></div>' +
       '<div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">닫기</button>' +
       '<button type="submit" class="btn btn-primary" id="soWkSave">기록</button></div></form></div>';

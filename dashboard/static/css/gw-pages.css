@@ -3070,6 +3070,29 @@ html:has(#bdPage) {
 .gw-so-admin-note { color: #6d28d9; }   /* 관리자에게만 보이는 기능 안내(11-25) */
 .gw-so-admin-note .fa-lock { font-size: 0.85em; }
 #soPickTitle:focus, #soPickTitle:focus-visible { outline: none; }   /* 창 열 때 초점만 둠(테두리 없이, 11-25) */
+/* 스케줄 근무 창(전체 휴무·휴무 출근·사유) — .gw-page 밖(창)이라 예전 사이트 글 칸 스타일(큰 패딩·가운데 정렬)이 붙어
+   드롭박스는 좁고 가운데, 메모 칸만 크던 것(11-25 부장님) → 창 폭 가득, 높이·글자·정렬 통일 */
+.gw-so-modal .form-label { font-size: 0.9rem; font-weight: 600; color: #334155; margin-bottom: 4px; }
+.gw-so-modal .modal-body .form-select,
+.gw-so-modal .modal-body .form-control {   /* .modal-body input[type=text](예전 사이트)보다 세게 */
+  width: 100%;
+  max-width: none;
+  height: 38px;
+  min-height: 38px;
+  padding: 6px 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: left;
+  text-align-last: left;
+  border-color: #8b95a5;
+}
+.gw-so-modal .modal-body .form-select { padding-right: 36px; }
+.gw-so-modal .gw-so-hint { font-size: 0.88rem; margin-bottom: 8px; }
+.gw-so-modal { overscroll-behavior: contain; }   /* 창 안 스크롤이 뒤 화면으로 넘어가지 않게(11-25 점검) */
+.gw-so-tablewrap:focus-visible { outline: 2px solid #2a3038; outline-offset: 2px; border-radius: 6px; }   /* 근무표 옆으로 밀기 — 키보드 초점 표시 */
+@media (max-width: 767.98px) {
+  .gw-so-modal .modal-body .form-select, .gw-so-modal .modal-body .form-control { font-size: 16px; height: 44px; min-height: 44px; }   /* 아이폰 확대 막기·누를 자리 */
+}
 @media (max-width: 767.98px) {
   .gw-so-plus { display: none; }
   .gw-so-sat .gw-so-chip { white-space: normal; word-break: keep-all; }
