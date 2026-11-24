@@ -201,7 +201,7 @@
     var crew = S.cars.filter(isCrew);
     return (shared.length ? '<optgroup label="회사 차">' + shared.map(opt).join('') + '</optgroup>' : '') +
       (fixed.length ? '<optgroup label="고정 차(빌려 쓰기)">' + fixed.map(opt).join('') + '</optgroup>' : '') +
-      (crew.length ? '<optgroup label="시공팀 차(현장 지원·물품 운반 때)">' + crew.map(opt).join('') + '</optgroup>' : '');
+      (crew.length ? '<optgroup label="시공팀 차량(현장 지원·물품 운반 때)">' + crew.map(opt).join('') + '</optgroup>' : '');
   }
   function personSel(code, half) {
     var at = whereAt(code, half === 'pm' ? 'pm' : 'am');
@@ -477,7 +477,7 @@
     var b = $('vaBoard');
     if (b && !$('vcCourses')) {
       b.className = 'gw-va-board gw-vc-board';
-      b.innerHTML = '<aside class="gw-va-staff gw-vc-cars" aria-label="차 목록"><div class="gw-va-staff-head"><strong>차</strong>' +
+      b.innerHTML = '<aside class="gw-va-staff gw-vc-cars" aria-label="법인차량 목록"><div class="gw-va-staff-head"><strong>법인차량</strong>' +
         '<span id="vcCarCount"></span></div><p class="gw-va-staff-how" id="vcHow"></p><div id="vcCarList"></div></aside>' +
         '<section class="gw-vc-main"><div class="gw-va-schedbox" id="vaSchedBox" hidden><div class="gw-va-pre" id="vaPre"></div>' +
         '<details class="gw-va-sched" id="vaSched"></details></div>' +
@@ -500,7 +500,9 @@
     var sales = S.cars.filter(function (c) { return !isOwn(c) && !isCrew(c); });     // 영업 차만 센다(시공팀 차 빼고)
     var used = sales.filter(function (c) { return ridersOf(c).length; }).length;
     var crewUsed = S.cars.filter(function (c) { return isCrew(c) && ridersOf(c).length; }).length;
-    $('vcCarCount').textContent = '쓰는 차 ' + used + ' / ' + sales.length + '대' + (crewUsed ? ' + 시공팀 차 ' + crewUsed : '');
+    var hd = document.querySelector('.gw-vc-cars .gw-va-staff-head strong');   // 재시작 전 옛 템플릿('차')도 같은 이름으로
+    if (hd && hd.textContent !== '법인차량') hd.textContent = '법인차량';
+    $('vcCarCount').textContent = '배정 ' + used + ' / ' + sales.length + '대' + (crewUsed ? ' + 시공팀 차량 ' + crewUsed : '');   // 11-24 부장님 이름
     if (S.pick && !carOf(S.pick)) S.pick = '';
     $('vcHow').className = 'gw-va-staff-how gw-vc-bar' + (S.pick ? ' on' : '');
     $('vcHow').innerHTML = carBar(gs);
@@ -518,7 +520,7 @@
     };
     $('vcCarList').innerHTML = grp('코스 없음', sales.filter(function (c) { return !ridersOf(c).length; })) +
       grp('코스 있음', sales.filter(function (c) { return ridersOf(c).length; }).sort(function (a, b) { return firstCourse(a) - firstCourse(b); })) +
-      (crewRows.length ? '<div class="gw-vc-sub">시공팀 차 <small>현장 지원·물품 운반 때만</small></div>' +
+      (crewRows.length ? '<div class="gw-vc-sub">시공팀 차량 <small>현장 지원·물품 운반 때만</small></div>' +
         '<div class="gw-vc-clist">' + crewRows.map(function (c) { return carRow(c, inG); }).join('') + '</div>' : '');
     // 아래 바 경고 — 코스 단위로 짧게('차 없는 코스: 코스 1, 코스 3'), 코스 밖 사람만 이름으로
     var missG = gs.filter(function (g) { return g.members.some(noCar); }).map(function (g) {
