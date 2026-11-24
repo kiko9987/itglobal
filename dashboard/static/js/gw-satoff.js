@@ -173,7 +173,7 @@
     }).join('');
   }
 
-  // ── 토요일 근무표(11-24 부장님) — 사람 × 토요일 표. 칸마다 근무·쉼·휴무 출근, 끝에 쉰 횟수·휴무 출근 횟수 ──
+  // ── 토요일 근무표(11-24 부장님) — 사람 × 토요일 표. 칸마다 근무·휴무·휴무 출근, 끝에 휴무 횟수·휴무 출근 횟수 ──
   // 표 자리는 JS 가 만든다(서버가 옛 템플릿이어도 보이게 — 11-24 템플릿 캐시 사고)
   var tableEl = document.getElementById('soTable');
   if (!tableEl) {
@@ -192,19 +192,19 @@
       (s.worked || []).forEach(function (n) { wk[s.day + '|' + n] = true; });
     });
     var h = '<h3 class="gw-so-h">토요일 근무표</h3><div class="gw-so-tablewrap"><table class="gw-so-matrix">' +
-      '<caption class="visually-hidden">' + cur.y + '년 ' + cur.m + '월 토요일마다 근무·쉼·휴무 출근</caption><thead><tr><th scope="col">이름</th>';
+      '<caption class="visually-hidden">' + cur.y + '년 ' + cur.m + '월 토요일마다 근무·휴무·휴무 출근</caption><thead><tr><th scope="col">이름</th>';
     sats.forEach(function (s) {
       h += '<th scope="col" class="' + (s.day === todayIso ? 'today' : '') + '">' + md(s.day) +
         (s.holiday ? '<small class="gw-so-hol">' + esc(s.holiday) + '</small>' : '') + '</th>';
     });
-    h += '<th scope="col" class="n">쉼</th><th scope="col" class="n">휴무 출근</th></tr></thead><tbody>';
+    h += '<th scope="col" class="n">휴무</th><th scope="col" class="n">휴무 출근</th></tr></thead><tbody>';
     mem.forEach(function (m) {
       h += '<tr' + (m.name === me.name ? ' class="mine"' : '') + '><th scope="row">' + esc(m.name) + '</th>';
       sats.forEach(function (s) {
         var k = s.day + '|' + m.name;
         if (s.holiday) h += '<td class="hol">공휴일</td>';
         else if (wk[k]) h += '<td><span class="gw-so-cell worked">휴무 출근</span></td>';
-        else if (off[k]) h += '<td><span class="gw-so-cell off">쉼</span></td>';
+        else if (off[k]) h += '<td><span class="gw-so-cell off">휴무</span></td>';
         else h += '<td class="work">근무</td>';
       });
       h += '<td class="n">' + (m.count || 0) + '</td><td class="n">' + (m.worked || 0) + '</td></tr>';
