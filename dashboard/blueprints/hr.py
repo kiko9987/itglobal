@@ -206,8 +206,17 @@ def api_certificate(pid):
         res = ct.issue_pdf(pid, body.get('ctype', ''), (body.get('purpose') or '').strip()[:100], _me(),
                            ssn=bool(body.get('ssn')), group_date=bool(body.get('group_date')),
                            company_key=body.get('company') or '')
-    except (ValueError, RuntimeError, LookupError) as e:
+    except ct.CertInputError as e:
         return jsonify({'success': False, 'message': str(e)}), 400
+    except hr.SsnKeyMissing:
+        # 예전엔 'GW_HR_KEY 가 없어…' 원문이 400 으로 나가고 로그도 없었다(11-24 조용한 실패 점검)
+        logger.error(f'[HR] 증명서 발급 실패 #{pid} — 주민번호 열쇠(GW_HR_KEY)가 서버에 없음', extra={'force_alert': True})
+        return jsonify({'success': False, 'message': ct.SSN_KEY_MISSING_MSG}), 503
+    except Exception as e:
+        # PDF·글꼴·PNG·저장 실패, 코드 오류(KeyError 등) — 원문 대신 일반 문구 + ERROR(11-24 조용한 실패 점검)
+        logger.error(f'[HR] 증명서 발급 실패 #{pid} by {_me()}: {type(e).__name__}: {e}', exc_info=True,
+                     extra={'force_alert': True})
+        return jsonify({'success': False, 'message': ct.ISSUE_FAILED_MSG}), 500
     logger.info(f"[HR] 증명서 발급 #{pid} {res['doc_no']} by {_me()}")
     resp = send_file(io.BytesIO(res['pdf']), mimetype='application/pdf', as_attachment=True,
                      download_name=res['file_name'], max_age=0)
@@ -1193,6 +1202,8 @@ def api_ye_status(pid):
                                       f'*{_ye_year()}년 귀속 연말정산* 자료 보완을 요청드려요.\n사유: {sub["returned_reason"]}\n'
                                       '그룹웨어 → 인사 → 연말정산에서 고친 뒤 다시 제출해 주세요.')
         return jsonify(resp)
+    except ye.StatusConflict as e:     # 화면을 연 뒤 직원이 상태를 바꿈 — 화면이 새로 불러옴(11-24 조용한 실패 점검)
+        return jsonify({'success': False, 'message': str(e), 'conflict': True}), 409
     except Exception as e:
         return _fail(e)
 

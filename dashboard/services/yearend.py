@@ -272,21 +272,42 @@ def admin_rows(year: int) -> List[dict]:
     return rows
 
 
+class StatusConflict(Exception):
+    """경영지원 상태 바꾸기 — 화면을 연 뒤 직원이 상태를 바꿔 조건이 안 맞음(라우트가 409)."""
+
+
+STATUS_CONFLICT_MSG = '그 사이 상태가 바뀌었어요. 새로 고쳐 주세요.'
+# 경영지원이 바꿀 수 있는 상태 ← 그 전 상태(현황판 단추와 같음: 제출 → 완료·보완 요청, 완료 → 제출로 되돌리기)
+_ADMIN_FROM = {DONE: SUBMITTED, RETURNED: SUBMITTED, SUBMITTED: DONE}
+
+
 def set_status(person_id: int, year: int, status: str, by: str, reason: str = '') -> dict:
+    """경영지원의 완료·보완 요청·완료 취소. 지금 상태를 조건으로 건 UPDATE — 예전엔 확인 없이 덮어써서
+    직원이 그 사이 「수정하기」로 '작성 중'이 된 걸 [완료]가 덮을 수 있었다(11-24 조용한 실패 점검).
+    조건이 안 맞으면 StatusConflict."""
     if not hr.is_hr_admin(by):
         raise PermissionError('경영지원·대표만 할 수 있습니다.')
-    if status == RETURNED:
-        if not reason.strip():
-            raise ValueError('보완 요청 사유를 적어 주세요.')
-        _save_sub(year, person_id, status=RETURNED, returned_reason=reason.strip()[:500])
-    elif status == DONE:
-        _save_sub(year, person_id, status=DONE, done_at=_now())
-    elif status == SUBMITTED:      # 완료를 되돌릴 때
-        _save_sub(year, person_id, status=SUBMITTED, done_at=None)
-    else:
+    if status not in _ADMIN_FROM:
         raise ValueError('상태 값이 올바르지 않습니다.')
+    if status == RETURNED and not reason.strip():
+        raise ValueError('보완 요청 사유를 적어 주세요.')
+    sets = {RETURNED: ('returned_reason = ?', reason.strip()[:500]),
+            DONE: ('done_at = ?', _now()),
+            SUBMITTED: ('done_at = ?', None)}[status]
+    with _conn() as conn:
+        cur = conn.execute(f'UPDATE ye_submissions SET status = ?, {sets[0]}, updated_at = ? '
+                           'WHERE year = ? AND person_id = ? AND status = ?',
+                           (status, sets[1], _now(), year, person_id, _ADMIN_FROM[status]))
+        changed = cur.rowcount == 1
+    if not changed:
+        now = _sub(year, person_id)['status']
+        logger.info(f'[연말정산] 상태 바꾸기 충돌 #{person_id} {year}: {now} → {status} 요청(by {by})')
+        raise StatusConflict(STATUS_CONFLICT_MSG)
     hr.log_access(person_id, by, f'ye_{status}', reason.strip()[:200])
     return _sub(year, person_id)
+
+
+ROSTER_CHECK_SHEET = '확인 필요'      # 명단 엑셀에서 주민번호가 빠진 사람(이름·사유만)
 
 
 def roster_xlsx(year: int, by: str) -> bytes:
@@ -298,23 +319,45 @@ def roster_xlsx(year: int, by: str) -> bytes:
     ws = wb.active
     ws.title = f'{year}년 귀속 명단'
     ws.append(['성명', '주민등록번호', '입사일', '제출 방식'])
+    from dashboard.utils.spreadsheet_safe import xlsx_append_text   # (2026-11-13)
+    # 주민번호 빈칸·'(읽기 실패)'가 로그 없이 명단에 섞여 홈택스 등록에서야 알게 됐다(11-24 조용한 실패 점검) →
+    #   '확인 필요' 시트(이름·사유만)에 모으고, 복호화 실패는 ERROR. 주민번호 값·오류 문구는 로그에 넣지 않는다.
+    check, read_fail = [], []
     for p in hr.list_people(include_resigned=False):
         full = hr.get_person(p['id'])
         ssn = ''
         if full.get('ssn_enc'):
             try:
                 ssn = hr.decrypt_ssn(full['ssn_enc'])
-            except Exception:
+            except hr.SsnKeyMissing:
                 ssn = '(읽기 실패)'
+                check.append((p['name'], '주민번호를 읽을 열쇠가 서버에 없음 — 부장님께 말해 주세요'))
+                read_fail.append((p['name'], '열쇠 없음'))
+            except Exception as e:
+                ssn = '(읽기 실패)'
+                check.append((p['name'], '저장된 주민번호를 읽지 못함 — 인사카드에 다시 넣어 주세요'))
+                read_fail.append((p['name'], type(e).__name__))
+        else:
+            check.append((p['name'], '인사카드에 주민번호 없음 — 인사카드에 넣은 뒤 다시 받아 주세요'))
         m = _sub(year, p['id'])['method']
-        from dashboard.utils.spreadsheet_safe import xlsx_append_text   # (2026-11-13)
         xlsx_append_text(ws, [p['name'], ssn, p.get('hire_date') or '',
                               {'bulk': '일괄제공', 'pdf': 'PDF 업로드'}.get(m or '', '')])
     for col, w in zip('ABCD', (12, 18, 12, 12)):
         ws.column_dimensions[col].width = w
+    if check:
+        cs = wb.create_sheet(ROSTER_CHECK_SHEET)
+        cs.append(['성명', '사유'])
+        for name, why in check:
+            xlsx_append_text(cs, [name, why])
+        cs.column_dimensions['A'].width = 12
+        cs.column_dimensions['B'].width = 60
+    if read_fail:
+        logger.error(f'[연말정산] {year}년 명단에서 주민번호를 못 읽은 사람 {len(read_fail)}명 — '
+                     + ', '.join(f'{n}({w})' for n, w in read_fail)
+                     + '. 명단 엑셀의 「확인 필요」 시트 참고.', force_alert=True)
     buf = io.BytesIO()
     wb.save(buf)
-    hr.log_access(None, by, 'ye_roster', f'{year} 재직자 명단(주민번호 포함)')
+    hr.log_access(None, by, 'ye_roster', f'{year} 재직자 명단(주민번호 포함)' + (f' · 확인 필요 {len(check)}명' if check else ''))
     return buf.getvalue()
 
 

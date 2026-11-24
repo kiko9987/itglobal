@@ -1220,6 +1220,12 @@ def _safe_hr_tasks():
         run_daily()
     except Exception as exc:
         logger.error(f'[SCHED] 입사·퇴사 할 일 실패: {exc}', exc_info=True)
+    # 지운 서류의 파일이 남은 것 다시 지우기(11-24 조용한 실패 점검) — 남으면 hr 쪽이 ERROR
+    try:
+        from dashboard.services.hr import retry_undeleted_files
+        retry_undeleted_files(alert=True)
+    except Exception as exc:
+        logger.error(f'[SCHED] 못 지운 서류 파일 다시 지우기 실패: {type(exc).__name__}', exc_info=True)
 
 
 def _safe_attendance_ingest():

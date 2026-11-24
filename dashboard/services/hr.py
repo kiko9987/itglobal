@@ -680,11 +680,84 @@ def delete_document(doc_id: int, by: str, trusted: bool = False) -> None:
         raise LookupError('없는 서류입니다.')
     with _conn() as conn:
         conn.execute('DELETE FROM hr_documents WHERE id = ?', (doc_id,))
-    try:
-        os.remove(d['path'])
-    except OSError:
-        pass
+    err = _remove_file(d['path'])
+    if err:
+        # 장부 줄은 지웠는데 파일이 남음 — 간소화 PDF(주민번호·소득)가 디스크에 남던 것을 조용히 넘겼다
+        #   (11-24 조용한 실패 점검). 다시 지울 목록에 남기고 ERROR. 로그엔 경로·파일 이름 대신 서류 번호·종류만.
+        _remember_undeleted(doc_id, d.get('doc_type') or '', d['path'], err)
+        logger.error(f'[HR] 서류 #{doc_id}({d.get("doc_type") or "-"}) 장부에서는 지웠는데 파일을 못 지웠어요({err}) — '
+                     f'다음 서류 삭제 때와 매일 09:00 에 다시 지워요.', force_alert=True)
     log_access(d['person_id'], by, 'doc_delete', f'{d.get("doc_type") or ""} {d.get("file_name")}')
+    try:      # 예전에 못 지운 파일도 이참에 다시(알림은 매일 09:00 쪽에서만)
+        retry_undeleted_files(alert=False)
+    except Exception as exc:
+        logger.warning(f'[HR] 못 지운 서류 파일 다시 지우기 실패: {type(exc).__name__}')
+
+
+# ── 못 지운 서류 파일 (11-24 조용한 실패 점검) ───────────────────────────
+# 서류 삭제는 장부 줄을 먼저 지우고 파일을 지운다. 파일이 열려 있거나(백신·미리 보기) 권한 문제로 못 지우면
+# 여기에 남겨 두고 다음 서류 삭제 때와 매일 09:00(sync_scheduler 입사·퇴사 할 일 작업)에 다시 지운다.
+# 파일 경로의 서류 번호는 AUTOINCREMENT 라 다시 쓰이지 않는다 — 나중에 같은 경로에 다른 서류가 생길 일 없음.
+_DDL += [
+    '''CREATE TABLE IF NOT EXISTS hr_doc_undeleted (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        doc_id INTEGER, doc_type TEXT, path TEXT NOT NULL UNIQUE,
+        tries INTEGER NOT NULL DEFAULT 1, last_error TEXT,
+        created_at TEXT, last_try_at TEXT
+    )''',
+]
+
+
+def _remove_file(path: str) -> Optional[str]:
+    """파일 지우기. 지웠거나 원래 없으면 None, 못 지우면 오류 이름(경로가 든 오류 문구는 돌려주지 않는다)."""
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        return None
+    except OSError as e:
+        code = getattr(e, 'winerror', None) or getattr(e, 'errno', None)
+        return f'{type(e).__name__}' + (f' {code}' if code else '')
+    return None
+
+
+def _remember_undeleted(doc_id: int, doc_type: str, path: str, err: str) -> None:
+    try:
+        with _conn() as conn:
+            conn.execute('INSERT INTO hr_doc_undeleted (doc_id, doc_type, path, last_error, created_at, last_try_at) '
+                         'VALUES (?,?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET tries = tries + 1, '
+                         'last_error = excluded.last_error, last_try_at = excluded.last_try_at',
+                         (doc_id, doc_type, path, err, _now(), _now()))
+    except Exception as exc:
+        logger.error(f'[HR] 서류 #{doc_id} 못 지운 파일 목록에 남기지도 못했어요({type(exc).__name__}) — '
+                     f'서류 폴더에서 {doc_id}_ 로 시작하는 파일을 직접 지워 주세요.', force_alert=True)
+
+
+def undeleted_files() -> List[dict]:
+    """아직 못 지운 서류 파일 목록(경로 포함 — 화면·로그로 내보내지 말 것)."""
+    return _rows('SELECT * FROM hr_doc_undeleted ORDER BY id')
+
+
+def retry_undeleted_files(alert: bool = True) -> dict:
+    """못 지운 서류 파일 다시 지우기 → {'removed': 지운 수, 'left': 남은 수}.
+    alert=True(매일 09:00)면 그래도 남은 게 있을 때 ERROR — 서류 번호·종류·시도 횟수만."""
+    removed, left = 0, []
+    for r in undeleted_files():
+        err = _remove_file(r['path'])
+        with _conn() as conn:
+            if err is None:
+                conn.execute('DELETE FROM hr_doc_undeleted WHERE id = ?', (r['id'],))
+                removed += 1
+            else:
+                conn.execute('UPDATE hr_doc_undeleted SET tries = tries + 1, last_error = ?, last_try_at = ? WHERE id = ?',
+                             (err, _now(), r['id']))
+                left.append(r)
+    if removed:
+        logger.info(f'[HR] 예전에 못 지운 서류 파일 {removed}개를 지웠어요.')
+    if left and alert:
+        what = ', '.join(f"#{r['doc_id']}({r['doc_type'] or '-'}, {r['tries'] + 1}번째)" for r in left[:10])
+        logger.error(f'[HR] 지운 서류의 파일 {len(left)}개를 아직 못 지웠어요: {what} — 서버의 서류 폴더에서 '
+                     f'서류 번호_ 로 시작하는 파일을 직접 지워 주세요(열려 있는 프로그램·권한 확인).', force_alert=True)
+    return {'removed': removed, 'left': len(left)}
 
 
 def reveal_family_ssn(family_id: int, viewer_email: str) -> str:

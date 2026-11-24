@@ -28,7 +28,11 @@
     else if (opts.body) { init.headers = { 'Content-Type': 'application/json' }; init.body = JSON.stringify(opts.body); }
     return fetch(url, init).then(function (r) {
       return jsonOrEnd(r).then(function (j) {
-        if (!r.ok || j.success === false) throw new Error(j.message || ('처리하지 못했습니다 (' + r.status + ')'));
+        if (!r.ok || j.success === false) {
+          var err = new Error(j.message || ('처리하지 못했습니다 (' + r.status + ')'));
+          err.status = r.status;      // 409 = 그 사이 상태가 바뀜 → 현황판을 새로 불러옴(11-24 조용한 실패 점검)
+          throw err;
+        }
         return j;
       });
     });
@@ -408,7 +412,7 @@
       if (!window.confirm('아직 제출하지 않았거나 보완 요청을 받은 직원에게 슬랙 알림을 보낼까요?')) return;
       nb.disabled = true;
       post('/api/yearend/admin/notify', {}).then(function (j) {
-        window.alert(j.sent.length + '명에게 알림을 보냈어요.' + (j.skipped.length ? '\n슬랙이 연결되지 않아 못 보낸 사람: ' + j.skipped.join(', ') : ''));
+        window.alert(j.sent.length + '명에게 알림을 보냈어요.' + (j.skipped.length ? '\n슬랙 알림을 못 보낸 사람(직접 알려 주세요): ' + j.skipped.join(', ') : ''));
         nb.disabled = false;
       }).catch(function (e) { window.alert(e.message); nb.disabled = false; });
     });
@@ -417,12 +421,19 @@
       var cell = b.closest('td') || b.parentElement;
       cell.querySelectorAll('button').forEach(function (x) { x.disabled = on; });
     };
+    // 상태 바꾸기 실패 — 409(그 사이 직원이 상태를 바꿈)면 알린 뒤 현황판을 새로 불러 지금 상태를 보여 줌
+    var statusFail = function (b) {
+      return function (e) {
+        window.alert(e.message);
+        if (e.status === 409) loadAdmin(); else busyRow(b, false);
+      };
+    };
     root.querySelectorAll('[data-done]').forEach(function (b) {
       b.addEventListener('click', function () {
         if (!window.confirm(b.getAttribute('data-name') + ' 님 자료 확인을 마치고 「완료」로 바꿀까요?')) return;
         busyRow(b, true);
         post('/api/yearend/admin/' + b.getAttribute('data-done') + '/status', { status: 'done' }).then(reloadSay(b.getAttribute('data-name') + ' 님을 완료로 바꿨어요.'))
-          .catch(function (e) { busyRow(b, false); window.alert(e.message); });
+          .catch(statusFail(b));
       });
     });
     root.querySelectorAll('[data-undone]').forEach(function (b) {
@@ -430,7 +441,7 @@
         if (!window.confirm(b.getAttribute('data-name') + ' 님을 「제출」 상태로 되돌릴까요?')) return;
         busyRow(b, true);
         post('/api/yearend/admin/' + b.getAttribute('data-undone') + '/status', { status: 'submitted' }).then(reloadSay(b.getAttribute('data-name') + ' 님을 제출 상태로 되돌렸어요.'))
-          .catch(function (e) { busyRow(b, false); window.alert(e.message); });
+          .catch(statusFail(b));
       });
     });
     root.querySelectorAll('[data-return]').forEach(function (b) {
@@ -443,7 +454,7 @@
             if (j.notified === false) window.alert('보완 요청은 저장했지만 슬랙 알림은 못 보냈어요. 직원에게 직접 알려 주세요.');
             reloadSay('보완 요청을 저장했어요.')();
           })
-          .catch(function (e) { busyRow(b, false); window.alert(e.message); });
+          .catch(statusFail(b));
       });
     });
     root.querySelectorAll('[data-pick]').forEach(function (b) {
@@ -463,7 +474,7 @@
         busyRow(inp, true);
         api('/api/yearend/admin/' + inp.getAttribute('data-result') + '/result?year=' + A.year, { method: 'POST', form: fd })
           .then(function (j) {
-            if (!j.notified) window.alert('업로드했어요. 슬랙이 연결되지 않아 알림은 못 보냈어요.');
+            if (!j.notified) window.alert('업로드했어요. 슬랙 알림을 못 보냈어요. 직원에게 직접 알려 주세요.');
             reloadSay(inp.getAttribute('data-name') + ' 님 영수증을 올렸어요.')();
           })
           .catch(function (e) { busyRow(inp, false); window.alert(e.message); });

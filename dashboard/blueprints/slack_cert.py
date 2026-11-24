@@ -74,14 +74,21 @@ def submit_from_slack(client, uid: str, vals: dict) -> None:
         se._notify(client, uid, f'⚠️ {NOT_NOTIFIED_MSG}')
 
 
-def deliver_files(client, row: dict, files: list) -> list:
-    """경영지원이 올린 PDF → 신청자 DM. 보낸 파일 이름들(못 보낸 건 빠짐)."""
+def deliver_files(client, row: dict, files: list, failed: list = None) -> list:
+    """경영지원이 올린 PDF → 신청자 DM. 보낸 파일 이름들(못 보낸 건 빠짐).
+    failed 목록을 주면 슬랙에서 못 받은 파일 이름을 거기에 담는다 — 일부만 가도 '발급 완료'로만 보이던 것
+    (11-24 조용한 실패 점검)."""
     se = _se()
     uploads = []
     for f in files:
+        name = f.get('name') or 'file'
         data = se._download(f.get('url', ''))
         if data:
-            uploads.append({'content': data, 'filename': f.get('name') or 'file', 'title': f.get('name') or 'file'})
+            uploads.append({'content': data, 'filename': name, 'title': name})
+        else:
+            logger.warning(f"{_LOG} 첨부 받기 실패 (#{row['id']}): {name}")
+            if failed is not None:
+                failed.append(name)
     if not uploads:
         return []
     ch = client.conversations_open(users=row['requester_id'])['channel']['id']
@@ -95,10 +102,10 @@ def issue(client, rid: int, uid: str, files: list, note: str) -> str:
     row = ct.get(rid)
     if not row or row['status'] != ct.PENDING:
         return '이미 처리된 신청이에요.'
-    sent = []
+    sent, failed = [], []
     if files:
         try:
-            sent = deliver_files(client, row, files)
+            sent = deliver_files(client, row, files, failed)
         except Exception as exc:
             logger.error(f'{_LOG} 파일 전달 실패 (#{rid}): {exc}', exc_info=True)
         if not sent:
@@ -107,12 +114,16 @@ def issue(client, rid: int, uid: str, files: list, note: str) -> str:
     if not new:
         return '이미 처리된 신청이에요.'
     _refresh(client, new)
-    if not sent:   # 원본만 주는 경우
-        se._notify(client, new['requester_id'], f"📜 {new['ctype']}가 준비됐어요. 경영지원에서 원본을 받아 가세요."
-                   + (f" ({note})" if note else ''))
+    if not sent:   # 원본만 주는 경우 — 이 DM 말고는 알 길이 없음(11-24 조용한 실패 점검: 못 보내면 ERROR)
+        se._notify_important(client, new['requester_id'],
+                             f"📜 {new['ctype']}가 준비됐어요. 경영지원에서 원본을 받아 가세요." + (f" ({note})" if note else ''))
     elif note:
         se._notify(client, new['requester_id'], f"📜 경영지원: {note}")
     logger.info(f'{_LOG} 발급 #{rid} by {new["handled_by"]} 파일 {len(sent)}개')
+    if failed:     # 일부만 감 — 발급 완료는 그대로, 못 간 파일은 경영지원이 직접(11-24 조용한 실패 점검)
+        logger.warning(f'{_LOG} 발급 #{rid} 파일 {len(failed)}개는 신청자에게 못 보냄: {", ".join(failed)}')
+        return (f"발급 완료로 처리했어요. 다만 이 파일은 신청자에게 못 보냈어요: {', '.join(failed)} — "
+                f"신청자에게 직접 보내 주세요.")
     return ''
 
 
@@ -131,15 +142,37 @@ def auto_issue(client, rid: int, uid: str) -> str:
     opts = ct.request_opts(row)
     if not opts['company']:      # 두 법인 선택 전(11-20 이전) 신청 — 회사를 모르니 바로 발급하지 않는다
         return '발급 회사가 정해지지 않은 신청이에요. [📎 파일 올려 발급]을 쓰거나 다시 신청해 달라고 해 주세요.'
+    # 전에 만들어 두고 DM 만 못 보낸 신청이면 새로 발급하지 않고 같은 PDF 를 다시 보낸다 — 예전엔 다시 누르면
+    #   발급번호·인사카드 서류가 하나 더 생겼다(11-24 조용한 실패 점검)
+    res = ct.issued_for_request(rid)
+    resent = bool(res)
+    if not res:
+        try:
+            res = ct.issue_pdf(person['id'], row['ctype'], opts['purpose'], by, ssn=opts['ssn'], request_id=rid,
+                               company_key=opts['company'])
+        except ct.CertInputError as exc:          # 사람이 고칠 수 있는 문제 — 문구 그대로
+            return str(exc)
+        except hr.SsnKeyMissing:
+            logger.error(f'{_LOG} 바로 발급 실패 (#{rid}) — 주민번호 열쇠(GW_HR_KEY)가 서버에 없음',
+                         extra={'force_alert': True})
+            return ct.SSN_KEY_MISSING_MSG
+        except Exception as exc:                  # PDF·글꼴·저장 실패, 코드 오류 — 원문 대신 일반 문구 + ERROR
+            logger.error(f'{_LOG} 바로 발급 실패 (#{rid}): {type(exc).__name__}: {exc}', exc_info=True,
+                         extra={'force_alert': True})
+            return '바로 발급하지 못했어요. [📎 파일 올려 발급]을 쓰거나 부장님께 말해 주세요(오류 내용은 알림으로 갔어요).'
     try:
-        res = ct.issue_pdf(person['id'], row['ctype'], opts['purpose'], by, ssn=opts['ssn'], request_id=rid,
-                           company_key=opts['company'])
-    except (ValueError, RuntimeError, LookupError) as exc:
-        return str(exc)
-    ch = client.conversations_open(users=row['requester_id'])['channel']['id']
-    client.files_upload_v2(channel=ch, file_uploads=[{'content': res['pdf'], 'filename': res['file_name'],
-                                                      'title': res['file_name']}],
-                           initial_comment=f"📜 {ct.company_label(opts['company'])} {row['ctype']}가 발급됐어요. ({row['purpose']}) · 발급번호 {res['doc_no']}")
+        ch = client.conversations_open(users=row['requester_id'])['channel']['id']
+        client.files_upload_v2(channel=ch, file_uploads=[{'content': res['pdf'], 'filename': res['file_name'],
+                                                          'title': res['file_name']}],
+                               initial_comment=f"📜 {ct.company_label(opts['company'])} {row['ctype']}가 발급됐어요. ({row['purpose']}) · 발급번호 {res['doc_no']}")
+    except Exception as exc:
+        logger.error(f"{_LOG} 바로 발급 #{rid} {res['doc_no']} 은 만들었는데 신청자 DM 을 못 보냄: {exc}", exc_info=True,
+                     extra={'force_alert': True})
+        return (f"증명서(발급번호 {res['doc_no']})는 만들었는데 신청자에게 보내지 못했어요. "
+                "[📄 바로 발급]을 다시 누르면 새로 만들지 않고 보내기만 해요.")
+    if resent:
+        se._notify(client, uid, f"📜 발급번호 {res['doc_no']}는 이미 만들어 둔 증명서예요 — 새로 만들지 않고 "
+                                f"{row['requester_name']} 님에게 다시 보내기만 했어요.")
     original = (row.get('receive') or '').startswith('직인')
     if original:   # 원본을 원한 신청 — 경영지원이 뽑아 줄 수 있게 같은 파일을 경영지원 DM 에도
         try:
@@ -153,8 +186,9 @@ def auto_issue(client, rid: int, uid: str) -> str:
     if new:
         _refresh(client, new)
         if original:
-            se._notify(client, new['requester_id'], f"📜 원본은 경영지원에서 받아 가세요.")
-    logger.info(f"{_LOG} 바로 발급 #{rid} {row['requester_name']} {row['ctype']} {res['doc_no']} by {by}")
+            se._notify_important(client, new['requester_id'], "📜 원본은 경영지원에서 받아 가세요.")
+    logger.info(f"{_LOG} 바로 발급 #{rid} {row['requester_name']} {row['ctype']} {res['doc_no']} by {by}"
+                + (' (다시 보내기)' if resent else ''))
     return ''
 
 
@@ -277,13 +311,21 @@ def register_cert_handlers(app) -> None:
         uid = body['user']['id']
 
         def _bg():
-            client = se.eap_client()
-            new = ct.finish(int(rid), ct.REJECTED, se._name(uid), reason)
-            if not new:
-                se._notify(client, uid, '⚠️ 이미 처리된 신청이에요.')
-                return
-            _refresh(client, new)
-            se._notify(client, new['requester_id'], f"❌ {new['ctype']} 신청이 반려됐어요: {reason}")
+            # 예전엔 try 가 없어 예외가 스레드 밖으로 사라졌고, 반려 DM 도 _notify(WARNING)라 못 가도 아무도 몰랐다
+            #   (11-24 조용한 실패 점검) — 신청자는 이 DM 말고는 반려를 알 길이 없어 _notify_important(ERROR)
+            client = None
+            try:
+                client = se.eap_client()
+                new = ct.finish(int(rid), ct.REJECTED, se._name(uid), reason)
+                if not new:
+                    se._notify(client, uid, '⚠️ 이미 처리된 신청이에요.')
+                    return
+                _refresh(client, new)
+                se._notify_important(client, new['requester_id'], f"❌ {new['ctype']} 신청이 반려됐어요: {reason}")
+            except Exception as exc:
+                logger.error(f'{_LOG} 반려 처리 실패 (#{rid}): {exc}', exc_info=True, extra={'force_alert': True})
+                if client is not None:
+                    se._notify(client, uid, '⚠️ 반려 처리 중 오류가 났어요. 신청 카드를 확인하고, 반려가 안 됐으면 다시 해 주세요.')
         threading.Thread(target=_bg, daemon=True).start()
 
     @app.action(ct.A_CANCEL)
@@ -296,9 +338,13 @@ def register_cert_handlers(app) -> None:
             return
 
         def _bg():
-            new = ct.finish(rid, ct.CANCELLED, se._name(uid), '신청자 취소')
-            if not new:
-                se._ephemeral(client, body, '이미 처리된 신청이에요.')
-                return
-            _refresh(client, new)
+            try:    # 예전엔 try 가 없어 예외가 스레드 밖으로 사라짐(11-24 조용한 실패 점검)
+                new = ct.finish(rid, ct.CANCELLED, se._name(uid), '신청자 취소')
+                if not new:
+                    se._ephemeral(client, body, '이미 처리된 신청이에요.')
+                    return
+                _refresh(client, new)
+            except Exception as exc:
+                logger.error(f'{_LOG} 신청 취소 처리 실패 (#{rid}): {exc}', exc_info=True, extra={'force_alert': True})
+                se._ephemeral(client, body, '⚠️ 신청 취소 중 오류가 났어요. 카드가 그대로면 다시 눌러 주세요.')
         threading.Thread(target=_bg, daemon=True).start()

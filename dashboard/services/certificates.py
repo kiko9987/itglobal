@@ -8,9 +8,25 @@ PDF 를 올리면 신청자 DM 으로 파일이 간다. 채널 카드는 없다(
 휴직·사직은 메뉴에 없다 — 경영지원에 직접 말한다(11-06 KiKO).
 """
 import json
+import logging
 from contextlib import contextmanager
 from datetime import date, datetime
 from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
+
+
+class CertInputError(ValueError):
+    """바로 발급에서 사람이 고칠 수 있는 문제(종류·회사·퇴사자 재직증명서·주민번호 없음 등) — 문구를 그대로 보여 준다.
+    그 밖의 예외(PDF 만들기·글꼴·저장 실패, 코드 오류)는 부르는 쪽이 ERROR 로 알리고 일반 문구만(11-24 조용한 실패 점검)."""
+
+
+class CertNotReady(CertInputError, RuntimeError):
+    """글꼴·직인 그림이 없어 바로 발급을 못 함 — [📎 파일 올려 발급] 안내 문구(예전 RuntimeError 와 호환)."""
+
+
+SSN_KEY_MISSING_MSG = '주민번호를 읽을 열쇠가 서버에 없어요. 부장님께 말해 주세요.'
+ISSUE_FAILED_MSG = '발급하지 못했어요. 부장님께 말해 주세요(오류 내용은 알림으로 갔어요).'
 
 TYPES = ['재직증명서', '경력증명서']
 PURPOSES = ['금융기관 제출', '관공서 제출', '회사·학교 제출', '기타']
@@ -467,22 +483,22 @@ def issue_pdf(person_id: int, ctype: str, purpose: str, issued_by: str, ssn: boo
     issued_by = 발급한 사람(메일 또는 이름) — 인사카드 수정 기록에 남는다."""
     from dashboard.services import hr
     if ctype not in TYPES:
-        raise ValueError('증명서 종류가 올바르지 않습니다.')
+        raise CertInputError('증명서 종류가 올바르지 않습니다.')
     if company_key not in COMPANIES:
-        raise ValueError('발급 회사를 골라 주세요.')
+        raise CertInputError('발급 회사를 골라 주세요.')
     why = ready(company_key)
     if why:
-        raise RuntimeError(why)
+        raise CertNotReady(why)
     person = hr.get_person(person_id)
     if not person:
-        raise LookupError('없는 구성원입니다.')
+        raise CertInputError('없는 구성원입니다.')
     if ctype == '재직증명서' and person.get('status') == '퇴사':
-        raise ValueError('퇴사한 분은 재직증명서를 발급할 수 없어요. 경력증명서로 발급해 주세요.')
+        raise CertInputError('퇴사한 분은 재직증명서를 발급할 수 없어요. 경력증명서로 발급해 주세요.')
     ssn_full = ''
     if ssn:
         if not person.get('ssn_enc'):
-            raise ValueError('인사카드에 주민등록번호가 없어요. 생년월일만으로 발급하거나 인사카드에 먼저 넣어 주세요.')
-        ssn_full = hr.decrypt_ssn(person['ssn_enc'])
+            raise CertInputError('인사카드에 주민등록번호가 없어요. 생년월일만으로 발급하거나 인사카드에 먼저 넣어 주세요.')
+        ssn_full = hr.decrypt_ssn(person['ssn_enc'])      # 열쇠 없음(SsnKeyMissing)·복호화 실패는 그대로 올림
     today = today or date.today()
     by = (issued_by or 'system').strip()
     with _conn() as conn:
@@ -491,15 +507,61 @@ def issue_pdf(person_id: int, ctype: str, purpose: str, issued_by: str, ssn: boo
                            (person_id, person['name'], ctype, company_key, purpose or None, int(bool(ssn)),
                             int(bool(group_date)), request_id, by, _now())).lastrowid
     doc_no = f'{today.year}-{rid:04d}'
-    pdf = render_pdf(person, ctype, purpose, doc_no, ssn_full, group_date, today, company_key)
-    short = '아이티글로벌그룹' if company_key == 'group' else '아이티글로벌'
-    file_name = f"{ctype}_{person['name']}_{short}_{today.strftime('%Y%m%d')}.pdf"
-    saved = hr.save_document(person_id, '발급 증명서', file_name, pdf, by, trusted=True)
-    with _conn() as conn:
-        conn.execute('UPDATE cert_issues SET hr_doc_id=? WHERE id=?', (saved.get('id'), rid))
-        row = dict(conn.execute('SELECT * FROM cert_issues WHERE id=?', (rid,)).fetchone())
+    # 발급번호를 먼저 매긴 뒤 PDF·저장이 실패하면 '발급됨' 유령 줄이 남았다(11-24 조용한 실패 점검) →
+    #   실패하면 그 줄(과 저장된 서류)을 지우고 예외를 그대로 올린다(알림은 부르는 쪽 ERROR).
+    #   발급번호에 구멍은 남는다(AUTOINCREMENT) — 번호가 건너뛰어도 '발급 안 된 번호'일 뿐이다.
+    saved = None
+    try:
+        pdf = render_pdf(person, ctype, purpose, doc_no, ssn_full, group_date, today, company_key)
+        short = '아이티글로벌그룹' if company_key == 'group' else '아이티글로벌'
+        file_name = f"{ctype}_{person['name']}_{short}_{today.strftime('%Y%m%d')}.pdf"
+        saved = hr.save_document(person_id, '발급 증명서', file_name, pdf, by, trusted=True)
+        with _conn() as conn:
+            conn.execute('UPDATE cert_issues SET hr_doc_id=? WHERE id=?', (saved.get('id'), rid))
+            row = dict(conn.execute('SELECT * FROM cert_issues WHERE id=?', (rid,)).fetchone())
+    except Exception:
+        _drop_failed_issue(rid, doc_no, saved, by)
+        raise
     hr.log_access(person_id, by, 'cert_issue', f'{ctype} {doc_no} {company_label(company_key)}' + (' · 주민번호 포함' if ssn else ''))
     return {'pdf': pdf, 'file_name': file_name, 'doc_no': doc_no, 'issue': row}
+
+
+def _drop_failed_issue(rid: int, doc_no: str, saved: Optional[dict], by: str) -> None:
+    """issue_pdf 중간 실패 — 발급 기록 줄과(저장까지 됐으면) 인사카드 서류를 지운다."""
+    from dashboard.services import hr
+    try:
+        if saved and saved.get('id'):
+            hr.delete_document(saved['id'], by, trusted=True)
+        with _conn() as conn:
+            conn.execute('DELETE FROM cert_issues WHERE id=?', (rid,))
+        logger.warning(f'[증명서] 발급번호 {doc_no} 만들다 실패 — 발급 기록 줄을 지웠어요(번호는 건너뜀).')
+    except Exception as exc:
+        logger.error(f'[증명서] 발급번호 {doc_no} 만들다 실패했는데 발급 기록 줄을 못 지웠어요({type(exc).__name__}) — '
+                     f'cert_issues #{rid} 를 직접 지워 주세요.', exc_info=True, extra={'force_alert': True})
+
+
+def issued_for_request(request_id: int) -> Optional[dict]:
+    """슬랙 신청 하나로 이미 만든 증명서(파일까지 남아 있는 것) → issue_pdf 와 같은 모양, 없으면 None.
+    바로 발급 뒤 DM 전송만 실패하고 다시 누를 때 새로 발급하지 않고 같은 PDF 를 다시 보내려고(11-24 조용한 실패 점검)."""
+    from dashboard.services import hr
+    if not request_id:
+        return None
+    with _conn() as conn:
+        rows = [dict(r) for r in conn.execute(
+            'SELECT * FROM cert_issues WHERE request_id=? AND hr_doc_id IS NOT NULL ORDER BY id DESC',
+            (request_id,)).fetchall()]
+    for row in rows:
+        f = hr.document_file(row['hr_doc_id'])
+        if not f:
+            continue
+        try:
+            with open(f['path'], 'rb') as fh:
+                pdf = fh.read()
+        except OSError:
+            continue
+        doc_no = f"{str(row.get('created_at') or '')[:4]}-{row['id']:04d}"
+        return {'pdf': pdf, 'file_name': f['file_name'], 'doc_no': doc_no, 'issue': row}
+    return None
 
 
 def issues(person_id: int, limit: int = 20) -> List[dict]:
