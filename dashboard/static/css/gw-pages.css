@@ -3067,7 +3067,6 @@ html:has(#bdPage) {
 .gw-so-cell.off { background: #e0f2fe; color: #075985; }
 .gw-so-cell.worked, .gw-so-chip.worked { background: #ffedd5; color: #9a3412; }
 .gw-so-chip.worked small { font-size: 0.7em; }
-.gw-so-inc { margin: 8px 0 0; font-size: 0.85rem; color: #475569; }
 @media (max-width: 767.98px) {
   .gw-so-plus { display: none; }
   .gw-so-sat .gw-so-chip { white-space: normal; word-break: keep-all; }

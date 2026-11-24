@@ -230,11 +230,7 @@
       h += '<td>' + (s.holiday ? '-' : n + '명') + '</td>';
     });
     h += '<td></td><td></td></tr></tfoot></table></div>';
-    // 기술영업 인센티브(11-25) — 격주휴무가 없어 표에 넣지 않고 한 줄로
-    if ((d.incentive || []).length) {
-      h += '<p class="gw-so-inc"><span class="gw-badge gw-badge-incentive">인센티브</span> 스케줄 근무 대상 아님 · ' +
-        d.incentive.map(esc).join(', ') + '</p>';
-    }
+    // 기술영업 인센티브는 표에 넣지 않는다(격주휴무 없음). 표 아래 '대상 아님' 줄은 뺐다(11-25 부장님 '없어도 돼')
     tableEl.innerHTML = h;
     tableEl.hidden = false;
   }
