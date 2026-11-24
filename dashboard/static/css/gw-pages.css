@@ -3690,3 +3690,7 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
   .gw-vc-owncheck { min-height: 44px; }
   .gw-vc-owncheck .form-check-input { width: 20px; height: 20px; }
 }
+/* 차 목록 '코스 없음 / 코스 있음' 묶음(11-24) — 방문 일정 사람 칸과 같게 */
+#vcCarList { gap: 0; }
+.gw-vc-clist { display: flex; flex-direction: column; gap: 6px; }
+#vcCarList .gw-vc-sub { margin-top: 12px; margin-bottom: 4px; }

@@ -445,7 +445,7 @@
     else who = rs.map(name).join('·');
     var line = rs.length
       ? '<span class="gw-vc-cwho"><span class="gw-vc-clabel">' + esc(labels.join('·')) + '</span> ' + esc(who) + '</span>'
-      : '<span class="gw-vc-cwho none">빈 차</span>';      // '평소 ○○'·'평소 시공팀' 글은 뺐다(11-24 부장님) — 아무도 안 탄 차는 모두 '빈 차'
+      : '';      // 빈 차는 '코스 없음' 묶음에 있으니 줄 글 없음('평소 ○○'·'빈 차' 글은 뺐다, 11-24 부장님)
     // 차 줄의 메모 칸은 없앴다(11-24 부장님 — 예외는 코스 메모 한 줄로)
     var on = S.canEdit && S.pick === c.plate;
     var check = S.canEdit ? '<input type="checkbox" class="form-check-input gw-vp-check" data-carcheck="' + esc(c.plate) + '"' +
@@ -499,10 +499,22 @@
     if (S.pick && !carOf(S.pick)) S.pick = '';
     $('vcHow').className = 'gw-va-staff-how gw-vc-bar' + (S.pick ? ' on' : '');
     $('vcHow').innerHTML = carBar(gs);
+    // 방문 일정 사람 칸처럼 '코스 없음 / 코스 있음'으로 나눠 보인다(11-24 부장님 — 넣은 차가 아래로 빠져 남은 차만 위에)
     var crewRows = S.cars.filter(isCrew);
-    $('vcCarList').innerHTML = carsInOrder().filter(function (c) { return !isCrew(c); }).map(function (c) { return carRow(c, inG); }).join('') +
+    var sales = carsInOrder().filter(function (c) { return !isCrew(c); });
+    var gi = {};
+    gs.forEach(function (g, i) { g.members.forEach(function (m) { if (!(m in gi)) gi[m] = i; }); });
+    var firstCourse = function (c) {      // 코스 있음 묶음은 코스 번호 순(코스 1 차가 맨 위)
+      return Math.min.apply(null, ridersOf(c).map(function (m) { return m in gi ? gi[m] : 999; }).concat([999]));
+    };
+    var grp = function (title, list) {
+      return list.length ? '<div class="gw-va-group gw-vc-cgroup"><div class="gw-va-gtitle">' + esc(title) + ' <span>' + list.length + '</span></div>' +
+        '<div class="gw-vc-clist">' + list.map(function (c) { return carRow(c, inG); }).join('') + '</div></div>' : '';
+    };
+    $('vcCarList').innerHTML = grp('코스 없음', sales.filter(function (c) { return !ridersOf(c).length; })) +
+      grp('코스 있음', sales.filter(function (c) { return ridersOf(c).length; }).sort(function (a, b) { return firstCourse(a) - firstCourse(b); })) +
       (crewRows.length ? '<div class="gw-vc-sub">시공팀 차 <small>현장 지원·물품 운반 때만</small></div>' +
-        crewRows.map(function (c) { return carRow(c, inG); }).join('') : '');
+        '<div class="gw-vc-clist">' + crewRows.map(function (c) { return carRow(c, inG); }).join('') + '</div>' : '');
     // 아래 바 경고 — 코스 단위로 짧게('차 없는 코스: 코스 1, 코스 3'), 코스 밖 사람만 이름으로
     var missG = gs.filter(function (g) { return g.members.some(noCar); }).map(function (g) {
       return g.label === '혼자' ? g.members.map(name).join('·') : g.label;     // 코스 이름이 '혼자'인 팀(확정 전)은 사람 이름으로 — '혼자, 혼자, 혼자'로 나오던 것
