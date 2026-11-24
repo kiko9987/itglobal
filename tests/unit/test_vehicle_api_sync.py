@@ -194,6 +194,15 @@ def test_uplus_trips_merge(monkeypatch):
     assert up.parse_time('2026-11-23T00:30:00.000+00:00') == datetime(2026, 11, 23, 9, 30)
 
 
+def test_now_menu_only_after_keys(monkeypatch):
+    monkeypatch.setattr(gw, '_uplus_on', lambda: False)
+    assert [a['key'] for a in gw.build_nav('/home', 'field', field=True)['areas']] == ['leave', 'hr']
+    monkeypatch.setattr(gw, '_uplus_on', lambda: True)
+    nav = gw.build_nav('/vehicles/now', 'field', field=True)
+    assert [a['key'] for a in nav['areas']] == ['leave', 'hr', 'vehicle'] and [i['label'] for i in nav['items']] == ['실시간 위치']
+    assert [a['label'] for a in gw.build_nav('/home', 'editor')['areas']][-1] == '차량'
+
+
 def test_now_page_open_to_all_and_field(db, monkeypatch):
     import dashboard.auth as auth
     from flask import Flask

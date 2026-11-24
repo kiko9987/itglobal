@@ -216,7 +216,7 @@ AREAS = [
         # 휴가·인사 뒤에 둔다 — 현장 세션은 첫 영역이 로고 자리라 휴가가 먼저여야 한다.
         'key': 'vehicle', 'label': '차량', 'icon': 'fas fa-car',
         'items': [
-            {'href': '/vehicles/now', 'label': '실시간 위치', 'icon': 'fas fa-location-dot', 'field': True},   # 전 직원(11-24)
+            {'href': '/vehicles/now', 'label': '실시간 위치', 'icon': 'fas fa-location-dot', 'field': True, 'uplus': True},   # 전 직원(11-24)
             {'href': '/vehicles', 'label': '운행일지', 'icon': 'fas fa-route', 'hr_admin': True},   # U+커넥트 운행(11-22 이름)
             {'href': '/vehicles/manage', 'label': '차량 관리', 'icon': 'fas fa-screwdriver-wrench', 'hr_admin': True},  # 11-22
         ],
@@ -234,8 +234,18 @@ def _matches(path: str, href: str) -> bool:
     return path == href or path.startswith(href.rstrip('/') + '/')
 
 
+def _uplus_on() -> bool:
+    try:
+        from dashboard.services import uplus_api as up
+        return up.enabled('status')
+    except Exception:
+        return False
+
+
 def _visible(it: dict, is_admin: bool, is_hr_admin: bool, field: bool = False, leave_all: bool = False,
              sat_off: bool = False, planner: bool = False) -> bool:
+    if it.get('uplus') and not _uplus_on():   # U+ 키가 들어오기 전엔 빈 화면이라 숨김(11-24)
+        return False
     if field:                       # 현장·미화 세션: field=True 메뉴만
         return bool(it.get('field'))
     if it.get('admin') and not is_admin:
