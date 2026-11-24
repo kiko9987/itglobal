@@ -190,8 +190,9 @@
     if (fullOff(s)) return '<span class="gw-so-cap full">전체</span>';
     if (cap == null || s.holiday) return '';
     var n = s.names.length;
+    // '5/5 가득'은 뜻을 알아보기 어려웠다(11-25 부장님) → '휴무 3/5명', 다 차면 '휴무 마감'
     return '<span class="gw-so-cap' + (n >= cap ? ' full' : '') + '" title="쉬는 사람 ' + n + '명 · 최대 ' + cap + '명">' +
-      n + '/' + cap + (n >= cap ? ' 가득' : '') + '</span>';
+      (n >= cap ? '휴무 마감' : '휴무 ' + n + '/' + cap + '명') + '</span>';
   }
   function isFull(s) { return data && data.max_off != null && s.names.length >= data.max_off; }
 
