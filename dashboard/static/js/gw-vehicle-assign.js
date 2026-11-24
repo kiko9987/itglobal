@@ -448,9 +448,13 @@
       : '';      // 빈 차는 '코스 없음' 묶음에 있으니 줄 글 없음('평소 ○○'·'빈 차' 글은 뺐다, 11-24 부장님)
     // 차 줄의 메모 칸은 없앴다(11-24 부장님 — 예외는 코스 메모 한 줄로)
     var on = S.canEdit && S.pick === c.plate;
-    var check = S.canEdit ? '<input type="checkbox" class="form-check-input gw-vp-check" data-carcheck="' + esc(c.plate) + '"' +
-      (on ? ' checked' : '') + ' aria-label="' + esc(c.label) + ' 고르기">' : '';
-    return '<div class="gw-vc-car' + (rs.length ? ' used' : '') + (isOwn(c) ? ' own' : '') + (on ? ' on' : '') + '" data-car="' + esc(c.plate) + '">' +
+    // 코스에 넣은 차는 흐리게, 체크·끌기 막음(11-24 부장님 — 차는 코스 두 곳에 들어갈 일이 없음). 바꾸려면 코스의 차 꼬리표 ×로 뺀 뒤 다시
+    var check = !S.canEdit ? '' : rs.length
+      ? '<input type="checkbox" class="form-check-input gw-vp-check" disabled aria-label="' + esc(c.label) + ' — 이미 코스에 넣음">'
+      : '<input type="checkbox" class="form-check-input gw-vp-check" data-carcheck="' + esc(c.plate) + '"' +
+        (on ? ' checked' : '') + ' aria-label="' + esc(c.label) + ' 고르기">';
+    return '<div class="gw-vc-car' + (rs.length ? ' used' : '') + (isOwn(c) ? ' own' : '') + (on ? ' on' : '') + '" data-car="' + esc(c.plate) + '"' +
+      (S.canEdit && rs.length ? ' title="이미 코스에 넣은 차예요. 바꾸려면 코스의 차 꼬리표 ×로 빼 주세요."' : '') + '>' +
       '<div class="gw-vc-carhead">' + check +
       '<strong>' + (isOwn(c) ? '<i class="fas fa-user" aria-hidden="true"></i> ' : '') + esc(c.label) + '</strong>' +
       (isOwn(c) ? '' : '<small>' + esc(c.plate) + '</small>') + '</div>' + line + '</div>';
@@ -833,6 +837,7 @@
     // 차 줄은 아무 곳이나 눌러도 체크(방문 일정 사람 줄과 같게) — 다른 차를 누르면 그 차로 바뀜
     var crow = e.target.closest('[data-car]');
     if (crow && !e.target.closest('input, select, a, button')) {
+      if (ridersOf(carOf(crow.dataset.car)).length) return;     // 코스에 넣은 차는 체크 안 됨
       S.pick = S.pick === crow.dataset.car ? '' : crow.dataset.car;
       focusAfter('[data-carcheck="' + cssq(crow.dataset.car) + '"]');
       render();
@@ -869,6 +874,7 @@
     if (!S.canEdit || e.pointerType !== 'mouse' || e.button !== 0) return;
     var row = e.target.closest('[data-car]');
     if (!row || e.target.closest('input, select, a, button')) return;
+    if (ridersOf(carOf(row.dataset.car)).length) return;          // 코스에 넣은 차는 끌기 안 됨
     D = { plate: row.dataset.car, x: e.clientX, y: e.clientY, ghost: null, over: null };
   });
   document.addEventListener('pointermove', function (e) {
