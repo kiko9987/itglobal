@@ -351,6 +351,29 @@
     sideEl.insertBefore(workedBox, sideEl.firstChild);
   }
 
+  // 휴무 선택 현황(11-25 부장님) — 누가 골랐고 누가 아직인지. 오른쪽 칸 맨 아래(수정 기록 밑)
+  var pickBox = document.getElementById('soPickStat');
+  if (!pickBox && sideEl) {
+    pickBox = document.createElement('section');
+    pickBox.className = 'gw-panel gw-so-box';
+    pickBox.id = 'soPickStat';
+    pickBox.hidden = true;
+    sideEl.appendChild(pickBox);
+  }
+  // 사람별로 고른 토요일 수 — 전체 휴무·공휴일은 본인이 고른 게 아니라 뺀다
+  function pickCounts(d) {
+    var c = {};
+    (d.saturdays || []).forEach(function (s) {
+      if (s.holiday || fullOff(s)) return;
+      s.names.forEach(function (n) { c[n] = (c[n] || 0) + 1; });
+    });
+    return c;
+  }
+  function notPicked(d) {
+    var c = pickCounts(d);
+    return (d.members || []).filter(function (m) { return !c[m.name]; }).map(function (m) { return m.name; });
+  }
+
   // 오른쪽 칸은 달마다 숨겼다 보였다 하지 않는다 — 달을 넘기면 배치가 바뀌던 것(11-25 부장님). 비면 '없어요' 한 줄
   var NONE = function (t) { return '<li class="gw-so-none">' + t + '</li>'; };
   function renderSide(d, me) {
@@ -389,6 +412,23 @@
     document.getElementById('soLog').innerHTML = log.map(function (l) {
       return '<li><span>' + esc((l.at || '').slice(5, 16)) + '</span> ' + esc(l.actor || '') + ' · ' + esc(l.detail || '') + '</li>';
     }).join('') || NONE('이 달 수정 기록이 없어요.');
+
+    // 휴무 선택 현황 — 작성 중엔 '아직 안 고름', 결재 뒤엔 '휴무 없음'
+    if (pickBox) {
+      var mem = d.members || [], pc = pickCounts(d), miss = notPicked(d);
+      var done = mem.filter(function (m) { return pc[m.name]; });
+      var open = d.status === 'open';
+      var chip = function (n, extra, cls) {
+        return '<li class="' + cls + (n === me.name ? ' mine' : '') + '">' + esc(n) + (extra ? ' <b>' + extra + '</b>' : '') + '</li>';
+      };
+      pickBox.hidden = !mem.length;
+      pickBox.innerHTML = '<h3 class="gw-so-h">휴무 선택 현황 <small>' + done.length + '/' + mem.length + '명 고름</small></h3>' +
+        '<div class="gw-so-pslabel">' + (open ? '아직 안 고름' : '휴무 없음') + ' ' + miss.length + '명</div>' +
+        (miss.length ? '<ul class="gw-so-pslist">' + miss.map(function (n) { return chip(n, '', 'miss'); }).join('') + '</ul>'
+          : '<p class="gw-so-none">' + (open ? '모두 골랐어요.' : '모두 휴무가 있어요.') + '</p>') +
+        (done.length ? '<div class="gw-so-pslabel">고른 사람 ' + done.length + '명</div><ul class="gw-so-pslist">' +
+          done.map(function (m) { return chip(m.name, pc[m.name] + '번', 'ok'); }).join('') + '</ul>' : '');
+    }
 
     // 오른쪽 칸은 늘 둔다(휴무 출근·변경 신청 상자는 늘 보임) — 넓은 화면은 늘 두 칸
     if (sideEl) {
@@ -592,7 +632,10 @@
     var k = data.month;
     var title = cur.y + '년 ' + cur.m + '월';
     if (act === 'submit') {
-      if (!window.confirm(title + ' 스케줄 근무표를 결재에 올릴까요? 올린 뒤에는 승인권자만 고칠 수 있어요.')) return;
+      // 아직 안 고른 사람이 있으면 이름을 함께 묻는다(11-25 부장님 — 빠진 채 올라가지 않게)
+      var miss = notPicked(data);
+      if (!window.confirm(title + ' 스케줄 근무표를 결재에 올릴까요? 올린 뒤에는 승인권자만 고칠 수 있어요.' +
+        (miss.length ? '\n\n아직 휴무를 안 고른 사람 ' + miss.length + '명: ' + miss.join(', ') : ''))) return;
       b.disabled = true;
       // 슬랙 알림은 뒤에서 따로 나가 결과를 여기서 알 수 없다 → '보냈어요'라고 단정하지 않는다(11-21 점검).
       // 못 보냈으면 서버가 기록에 남기고, watchNotify 가 잠시 뒤 다시 읽어 알려 준다(11-24 조용한 실패 점검)
