@@ -413,7 +413,7 @@
       return '<li><span>' + esc((l.at || '').slice(5, 16)) + '</span> ' + esc(l.actor || '') + ' · ' + esc(l.detail || '') + '</li>';
     }).join('') || NONE('이 달 수정 기록이 없어요.');
 
-    // 휴무 선택 현황 — 작성 중엔 '아직 안 고름', 결재 뒤엔 '휴무 없음'
+    // 휴무 선택 현황 — 작성 중엔 '미선택'(11-25 부장님 — '고름'이 어색), 결재 뒤엔 '휴무 없음'
     if (pickBox) {
       var mem = d.members || [], pc = pickCounts(d), miss = notPicked(d);
       var done = mem.filter(function (m) { return pc[m.name]; });
@@ -422,11 +422,11 @@
         return '<li class="' + cls + (n === me.name ? ' mine' : '') + '">' + esc(n) + (extra ? ' <b>' + extra + '</b>' : '') + '</li>';
       };
       pickBox.hidden = !mem.length;
-      pickBox.innerHTML = '<h3 class="gw-so-h">휴무 선택 현황 <small>' + done.length + '/' + mem.length + '명 고름</small></h3>' +
-        '<div class="gw-so-pslabel">' + (open ? '아직 안 고름' : '휴무 없음') + ' ' + miss.length + '명</div>' +
+      pickBox.innerHTML = '<h3 class="gw-so-h">휴무 선택 현황 <small>' + done.length + '/' + mem.length + '명 선택</small></h3>' +
+        '<div class="gw-so-pslabel">' + (open ? '미선택' : '휴무 없음') + ' ' + miss.length + '명</div>' +
         (miss.length ? '<ul class="gw-so-pslist">' + miss.map(function (n) { return chip(n, '', 'miss'); }).join('') + '</ul>'
-          : '<p class="gw-so-none">' + (open ? '모두 골랐어요.' : '모두 휴무가 있어요.') + '</p>') +
-        (done.length ? '<div class="gw-so-pslabel">고른 사람 ' + done.length + '명</div><ul class="gw-so-pslist">' +
+          : '<p class="gw-so-none">' + (open ? '모두 선택했어요.' : '모두 휴무가 있어요.') + '</p>') +
+        (done.length ? '<div class="gw-so-pslabel">선택 완료 ' + done.length + '명</div><ul class="gw-so-pslist">' +
           done.map(function (m) { return chip(m.name, pc[m.name] + '번', 'ok'); }).join('') + '</ul>' : '');
     }
 
@@ -635,7 +635,7 @@
       // 아직 안 고른 사람이 있으면 이름을 함께 묻는다(11-25 부장님 — 빠진 채 올라가지 않게)
       var miss = notPicked(data);
       if (!window.confirm(title + ' 스케줄 근무표를 결재에 올릴까요? 올린 뒤에는 승인권자만 고칠 수 있어요.' +
-        (miss.length ? '\n\n아직 휴무를 안 고른 사람 ' + miss.length + '명: ' + miss.join(', ') : ''))) return;
+        (miss.length ? '\n\n아직 휴무를 선택하지 않은 사람 ' + miss.length + '명: ' + miss.join(', ') : ''))) return;
       b.disabled = true;
       // 슬랙 알림은 뒤에서 따로 나가 결과를 여기서 알 수 없다 → '보냈어요'라고 단정하지 않는다(11-21 점검).
       // 못 보냈으면 서버가 기록에 남기고, watchNotify 가 잠시 뒤 다시 읽어 알려 준다(11-24 조용한 실패 점검)
