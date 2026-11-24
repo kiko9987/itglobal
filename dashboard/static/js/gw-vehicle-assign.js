@@ -224,7 +224,7 @@
     var rest = ms.filter(function (m) { return !onOwn(m); });
     return rest.length ? rest : ms;
   }
-  // 현장 꼬리표 — '공사확정'은 차량 배정에서는 안 보인다(11-24 부장님: 차를 넣는 데 필요 없음). 방문 일정 화면은 그대로
+  // 현장 꼬리표 — '공사확정'은 안 보인다(11-24 부장님). 서버에서도 뺐고, 재시작 전 응답에 남아 있어도 거른다
   function marksOf(ms) { return (ms || []).filter(function (m) { return m !== '공사확정'; }); }
   function courseCar(g) {
     var ms = g.members.filter(function (m) { return !S.off[m]; });

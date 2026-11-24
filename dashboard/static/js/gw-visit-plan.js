@@ -199,7 +199,8 @@
   }
   function marks(v, miss) {
     return (v.platform ? '<span class="gw-va-smark plat">' + esc(v.platform) + '</span>' : '') + who(v, miss) +
-      v.marks.map(function (m) { return '<span class="gw-va-smark">' + esc(m) + '</span>'; }).join('') + whenTag(v) + siteTag(v);
+      v.marks.filter(function (m) { return m !== '공사확정'; })      // 11-24 부장님: 필요 없음(서버에서도 뺌)
+        .map(function (m) { return '<span class="gw-va-smark">' + esc(m) + '</span>'; }).join('') + whenTag(v) + siteTag(v);
   }
   function placeTag(v) { return v.place ? '<span class="gw-vp-place">' + esc(v.place) + '</span>' : ''; }
   function personTag(c) {

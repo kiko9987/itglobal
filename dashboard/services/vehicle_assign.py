@@ -537,9 +537,7 @@ def day_schedule(day: str, leads: Iterable[dict]) -> List[Dict]:
         raw_phone = str(lead.get('고객 연락처') or '').strip()
         text = re.sub(r'\s*\n\s*', ' ', _latest_note(str(lead.get('상담 내용') or lead.get('문의 내용') or '')))
         who = [w.strip() for w in re.split(r'[,/·\s]+', str(lead.get('영업 담당자') or '')) if vl._HAS_NAME.search(w)]
-        marks = []
-        if status == '공사 확정':
-            marks.append('공사확정')
+        marks = []      # '공사확정' 꼬리표는 뺌(11-24 부장님: 차량 배정·방문 일정 모두 필요 없음)
         if '본인 방문 필수' in str(lead.get('본인 방문 여부') or ''):
             marks.append('본인 방문 필수')
         # 플랫폼은 줄마다 꼬리표로(당근만 붙이던 것 → 모두, 11-21 부장님). 기타 방문(ETC-)은 '기타'
