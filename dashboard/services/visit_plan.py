@@ -408,8 +408,23 @@ def warnings(plan: Dict, vs: List[Dict], off: Dict[str, List[Dict]], names: Dict
     return out
 
 
+_confirm_stale_noted: set = set()
+
+
+def _note_confirm_stale(row: Dict) -> None:
+    """끊긴 확정을 처음 본 때 한 번만 ERROR(화면을 열 때마다 쌓이지 않게, 프로세스 메모리 — 11-24 조용한 실패 점검).
+    전엔 화면에만 '끊겼어요'가 보이고 알림이 없어, 시트·DM 이 어디까지 됐는지 아무도 몰랐다."""
+    key = (row.get('day') or '', row.get('run_at') or '')
+    if key in _confirm_stale_noted:
+        return
+    _confirm_stale_noted.add(key)
+    logger.error(f"[방문일정] {row.get('day') or '-'} 확정이 처리 중에 끊겼어요({row.get('run_at') or '-'} 시작, "
+                 f"{_name_of_email(row.get('run_by') or '') or '-'}) — 시트 영업 담당자·담당자 DM 이 됐는지 확인하고 "
+                 f"다시 확정해 주세요.", extra={'force_alert': True})
+
+
 def _state(row: Optional[Dict]) -> Dict:
-    """확정 진행 상태 — {'state': ''|'running'|'done'|'failed', 'at', 'by', 'result'}."""
+    """확정 진행 상태 — {'state': ''|'running'|'done'|'failed'|'stale', 'at', 'by', 'result'}."""
     if not row or not row.get('run_state'):
         return {'state': ''}
     st = row['run_state']
@@ -419,6 +434,8 @@ def _state(row: Optional[Dict]) -> Dict:
                 st = 'stale'
         except (TypeError, ValueError):
             st = 'stale'
+        if st == 'stale':
+            _note_confirm_stale(row)
     return {'state': st, 'at': row.get('run_at') or '', 'by': _name_of_email(row.get('run_by') or ''),
             'result': _loads(row.get('run_result')) or {}}
 
@@ -623,6 +640,9 @@ def _summary(res: Dict) -> Dict:
         # 방문봇 연결이 없어 DM 을 통째로 못 보낸 경우(11-24 조용한 실패 점검) — 화면 '확인 필요'에
         'bot_missing': bool(dm.get('visit_bot_missing')),
         'duty_failed': dm.get('online_duty_failed', 0), 'deassign_failed': dm.get('deassign_failed', 0),
+        # 슬랙 List 를 통째로 못 고친 이유·List 에 없는 리드, 이전 DM 기록(Redis)을 못 읽음(11-24 조용한 실패 점검)
+        'list_skipped': res.get('list_skipped') or '', 'list_not_found': list(res.get('list_not_found') or []),
+        'dm_history_unread': bool(dm.get('dm_history_unread')),
     }
 
 
@@ -667,7 +687,44 @@ def _send_work_dms(day: str, plan: Dict, prev: Optional[Dict]) -> Dict[str, int]
     return {'work_dm': sent, 'work_dm_failed': failed}
 
 
+def _left_assigned(day: str, prev: Optional[Dict], plan: Dict, leads: List[dict]) -> List[Dict]:
+    """다시 확정할 때 코스에서 빼고 아무 코스에도 안 넣은 현장 중 시트 '영업 담당자'가 그대로 남은 것(11-24 부장님:
+    시트는 건드리지 않고 결과에만 보인다) → [{'lead_no', 'who'}]. 그날 방문 목록에 아직 있는 현장만(날짜를 옮긴 건 뺌)."""
+    if not prev:
+        return []
+    before = {n for c in _courses_of(prev) if not is_work(c) for n in (c.get('leads') or [])}
+    now = {n for c in _courses_of(plan) if not is_work(c) for n in (c.get('leads') or [])}
+    gone = before - now
+    if not gone:
+        return []
+    still = {v['lead_no'] for v in visits(day, leads)}
+    by_no = {str(l.get('리드 No') or '').strip(): l for l in leads}
+    out = []
+    for n in sorted(gone & still):
+        who = str((by_no.get(n) or {}).get('영업 담당자') or '').strip()
+        if who and who != '-':
+            out.append({'lead_no': n, 'who': who})
+    return out
+
+
 def _run_confirm(day: str, plan: Dict, by: str, fresh_leads: Callable[[], List[dict]]) -> None:
+    """확정 스레드 — 어디서 예외가 나도 기록 없이 끊기지 않게 바깥 try(11-24 조용한 실패 점검).
+    전엔 단계 사이(이전 확정 읽기·결과 정리 등)에서 예외가 나면 스레드만 죽고 화면은 5분 '확정하는 중' 뒤 '끊겼어요'."""
+    prog = {'committed': False}
+    try:
+        _confirm_steps(day, plan, by, fresh_leads, prog)
+    except Exception as e:
+        logger.error(f"[방문일정] {day} 확정이 도중에 멈췄어요({'시트·DM 뒤' if prog['committed'] else '시트·DM 전'}, "
+                     f"{_name_of_email(by)}): {e}", exc_info=True, extra={'force_alert': True})
+        msg = ('시트·DM 은 끝났지만 마무리하다 멈췄어요. 결과를 확인하고 필요하면 다시 확정해 주세요.'
+               if prog['committed'] else '확정하지 못했어요. 잠시 뒤 다시 해 주세요.')
+        try:
+            _finish(day, 'failed', {'message': msg})
+        except Exception as e2:     # 이것도 못 쓰면 화면은 'running' → 5분 뒤 '끊겼어요'(그때 ERROR 한 번 더)
+            logger.error(f'[방문일정] {day} 확정 실패 기록도 못 함: {e2}', exc_info=True, extra={'force_alert': True})
+
+
+def _confirm_steps(day: str, plan: Dict, by: str, fresh_leads: Callable[[], List[dict]], prog: Dict) -> None:
     from dashboard.services import visit_assignment_sync as vas
     prev = _loads((_row(day) or {}).get('confirmed_plan'))      # 다시 확정이면 사내 업무 DM 은 바뀐 사람만
     try:
@@ -679,18 +736,26 @@ def _run_confirm(day: str, plan: Dict, by: str, fresh_leads: Callable[[], List[d
         if not res.get('ok'):
             raise ValueError(str(res.get('reason') or '확정하지 못했어요.').lstrip('⏳ '))
     except ValueError as e:
+        # 화면에 그대로 보이는 실패(시트를 못 읽음·연타 가드 등) — 로그에도 남긴다(전엔 무로그, 11-24)
+        logger.warning(f'[방문일정] {day} 확정 안 됨({_name_of_email(by)}): {e}')
         _finish(day, 'failed', {'message': str(e)})
         return
     except Exception as e:
         logger.error(f'[방문일정] {day} 확정 실패: {e}', exc_info=True)
         _finish(day, 'failed', {'message': '확정하지 못했어요. 잠시 뒤 다시 해 주세요.'})
         return
+    prog['committed'] = True
     summary = _summary(res)
     # /일정확정 뒤에 하던 것 — 온라인 당번 저장(차량 배정 명단), 차량 배정 요청 DM, 누락 점검
     try:
         va.record_online_duty(day, parsed['online_duty'], parsed['online_duty_shifts'])
+    except Exception as e:      # 차량 배정 명단(당번을 빼는 데)·당일 배정 권한(그날 당번)이 이걸 읽는다 — 전엔 WARNING 만(11-24)
+        summary['duty_save_failed'] = True
+        logger.error(f'[방문일정] {day} 온라인 당번 저장 실패(차량 배정 명단·당일 배정 권한에 영향): {e}', exc_info=True)
+    try:        # 다시 확정 때 코스에서 뺀 현장 — 시트 담당자는 그대로 두고 결과에만(11-24 부장님)
+        summary['left_assigned'] = _left_assigned(day, prev, plan, leads)
     except Exception as e:
-        logger.warning(f'[방문일정] 온라인 당번 저장 실패: {e}', exc_info=True)
+        logger.warning(f'[방문일정] {day} 코스에서 뺀 현장 확인 실패: {e}', exc_info=True)
     try:
         summary.update(_send_work_dms(day, plan, prev))
     except Exception as e:
@@ -704,19 +769,31 @@ def _run_confirm(day: str, plan: Dict, by: str, fresh_leads: Callable[[], List[d
     #   거기서 멈춰 차량 배정 변경 알림·'캔버스1에 없는 방문 카드' 경고를 못 봤고, 누락 점검이 실패하면 그 뒤가 DB 에도 안 남았다.
     #   그 사이엔 'running' 그대로(몇 초 — 끊김 판정 _RUN_STALE 5분보다 훨씬 짧음). 단계마다 실패하면 결과에 표시
     try:
-        va.request_assignment(day, by)      # 확정한 사람이 배정 담당이면 안 보냄(바로 차량 배정 탭으로, 11-24)
+        # 확정한 사람이 배정 담당이면 안 보냄(바로 차량 배정 탭으로, 11-24). 보낸 수만 보던 것 → 못 보낸 사람도(11-24)
+        miss = va.failed_of(va.request_assignment(day, by))
+        if miss:
+            summary['car_request_failed'] = True
+            summary['car_request_failed_n'] = len(miss)
     except Exception as e:
         summary['car_request_failed'] = True
         logger.error(f'[방문일정] {day} 차량 배정 요청 DM 실패: {e}', exc_info=True)
     try:        # 다시 확정해서 코스 사람이 바뀌었으면 — 차량 배정을 이미 해 둔 날만 배정 담당에게(11-23 부장님)
         change = plan_change_text(prev, plan, {p['code']: p['name'] for p in _staff()})
         if change:
-            summary['car_notice'] = va.notify_plan_changed(day, change, by)
+            sent = va.notify_plan_changed(day, change, by)
+            summary['car_notice'] = int(sent or 0)
+            miss = va.failed_of(sent)
+            if miss:        # 배정 안 한 날의 0 과 '다 실패'를 구별(11-24)
+                summary['car_notice_failed'] = True
+                summary['car_notice_failed_n'] = len(miss)
     except Exception as e:
         summary['car_notice_failed'] = True
         logger.error(f'[방문일정] {day} 차량 배정 변경 알림 실패: {e}', exc_info=True)
     try:
-        summary['cards'] = _audit(res, by)
+        cards = _audit(res, by)
+        summary['cards'] = list(cards or [])
+        if getattr(cards, 'admin_dm_failed', False):     # 사장님 DM 을 못 보냈는데 '알렸어요'로 보이던 것(11-24)
+            summary['admin_dm_failed'] = True
     except Exception as e:
         summary['cards_error'] = True
         logger.error(f'[방문일정] {day} 누락 점검 실패(확정은 정상): {e}', exc_info=True)
@@ -819,27 +896,40 @@ def write_canvas2(day: str, plan: Dict, leads: Iterable[dict], parsed: Dict, by:
         if html and '그룹웨어 확정' in html:
             chk = canvas2_check(html, plan)
             break
+    dm_ok = True
     if not chk['ok']:
         try:
             from dashboard.services import visit_canvas_audit as vca
-            vca.send_admin_dm(f':mag: *캔버스2 대조 — 그룹웨어 확정과 달라요* ({va.day_label(day)}, {_name_of_email(by)})\n'
-                              + '\n'.join('• ' + d for d in chk['diff']))
+            dm_ok = bool(vca.send_admin_dm(f':mag: *캔버스2 대조 — 그룹웨어 확정과 달라요* ({va.day_label(day)}, {_name_of_email(by)})\n'
+                                           + '\n'.join('• ' + d for d in chk['diff'])))
         except Exception as e:
-            logger.warning(f'[방문일정] 캔버스2 대조 DM 실패: {e}')
+            dm_ok = False
+            logger.error(f'[방문일정] 캔버스2 대조 DM 실패: {e}', exc_info=True)
     logger.info(f"[방문일정] {day} 캔버스2 다시 씀 — 대조 {'맞음' if chk['ok'] else '다름 ' + str(len(chk['diff']))}건")
-    return {'ok': chk['ok'], 'reason': '' if chk['ok'] else '대조 다름', 'diff': chk['diff'], 'read': chk.get('read', 0)}
+    out = {'ok': chk['ok'], 'reason': '' if chk['ok'] else '대조 다름', 'diff': chk['diff'], 'read': chk.get('read', 0)}
+    if not dm_ok:       # 화면이 '(사장님께 DM)'이라 하지 않게(11-24 조용한 실패 점검)
+        out['admin_dm_failed'] = True
+    return out
+
+
+class _Cards(list):
+    """_audit 반환 — 캔버스1에 없는 카드 목록(list 그대로) + 사장님 DM 을 못 보냈으면 .admin_dm_failed(11-24)."""
+    admin_dm_failed = False
 
 
 def _audit(res: Dict, by: str) -> List[Dict]:
     """진행 중 방문 카드인데 캔버스1에 없는 건 + List 선택지 없는 담당자 → 사장님 DM(있을 때만).
-    캔버스2 대조는 하지 않는다(그룹웨어는 그날 방문을 다 보여 주고 '배정 안 된 방문'을 미리 띄움)."""
+    캔버스2 대조는 하지 않는다(그룹웨어는 그날 방문을 다 보여 주고 '배정 안 된 방문'을 미리 띄움).
+    DM 을 못 보내면 .admin_dm_failed + ERROR — 전엔 반환값을 안 봐 화면이 '사장님께 DM 으로 알렸어요'(11-24)."""
     from dashboard.services import visit_canvas_audit as vca
     au = {'cards': vca.check_cards_vs_canvas1(), 'c2_missing': [], 'c2_unmatched': [], 'target': None,
           'list_missing': list(res.get('list_missing') or [])}
+    out = _Cards(au['cards'])
     text = vca.format_commit_audit(au)
-    if text:
-        vca.send_admin_dm(f':clipboard: *방문 일정 확인 필요* (그룹웨어 확정: {_name_of_email(by)})\n{text}')
-    return au['cards']
+    if text and not vca.send_admin_dm(f':clipboard: *방문 일정 확인 필요* (그룹웨어 확정: {_name_of_email(by)})\n{text}'):
+        out.admin_dm_failed = True
+        logger.error(f'[방문일정] 확정 확인 필요 사항을 사장님께 DM 으로 못 보냈어요({_name_of_email(by)}) — 직접 알려 주세요')
+    return out
 
 
 def run_state(day: str) -> Dict:
@@ -1034,16 +1124,35 @@ def _urgent_steps(day: str, lead_no: str, lead: Dict, v: Dict, members: List[str
         _urgent_done(day, lead_no, 'failed', out)
         return {'dm': 0, 'dm_failed': 0, **out}
     prog['sheet'] = 1
-    try:       # 슬랙 List 담당자 칸도 같이(바뀌면 슬랙 쪽이 시트를 List 값으로 덮어써서 맞춰 둔다)
-        vas._update_slack_list_managers([{'lead': lead, 'lead_no': lead_no, 'phone': '', 'phone_digits': '',
-                                          'assign': members, 'original': None, 'raw': ''}], {}, sheet_leads=None)
+    # 슬랙 List 담당자 칸도 같이(바뀌면 슬랙 쪽이 시트를 List 값으로 덮어써서 맞춰 둔다).
+    #   전엔 결과를 버리고 예외도 WARNING — List 가 안 바뀌어도 화면은 정상(11-24 조용한 실패 점검)
+    list_bad = ''
+    try:
+        lres = vas._update_slack_list_managers([{'lead': lead, 'lead_no': lead_no, 'phone': '', 'phone_digits': '',
+                                                 'assign': members, 'original': None, 'raw': ''}], {}, sheet_leads=None)
+        l_ok, l_fail, l_missing = lres
+        skipped, not_found = vas.list_result_info(lres)
+        if skipped:
+            list_bad = skipped
+        elif not_found:
+            list_bad = 'List 에 이 현장 행이 없음'
+        elif l_missing:
+            list_bad = '담당자 칸에 선택지 없음(' + '·'.join(n for x in l_missing for n in x.get('names') or []) + ')'
+        elif l_fail:
+            list_bad = '고치기 실패'
     except Exception as e:
-        logger.warning(f'[방문일정] 당일 배정 List 실패 {lead_no}: {e}')
+        list_bad = '오류'
+        logger.error(f'[방문일정] 당일 배정 List 실패 {lead_no}: {e}', exc_info=True)
+    if list_bad:
+        logger.error(f'[방문일정] {day} 당일 배정 {lead_no} 슬랙 List 담당자 못 고침({list_bad}) — '
+                     f'List 담당자 칸을 {names_txt}(으)로 직접 바꿔 주세요')
+    canvas_bad = False
     try:
         from dashboard.services.visit_canvas_sync import rebuild_canvas_async
         rebuild_canvas_async()
     except Exception as e:
-        logger.warning(f'[방문일정] 당일 배정 캔버스 실패: {e}')
+        canvas_bad = True
+        logger.error(f'[방문일정] 당일 배정 캔버스1 다시 쓰기 실패 {lead_no}: {e}', exc_info=True)
     link = ''
     try:
         client = vas._get_visit_client()
@@ -1068,6 +1177,10 @@ def _urgent_steps(day: str, lead_no: str, lead: Dict, v: Dict, members: List[str
         else:
             failed += 1
     out = {'dm': sent, 'dm_failed': failed}
+    if list_bad:
+        out['list_failed'] = list_bad       # 당일 배정 꼬리표에 '슬랙 List 못 고침'(11-24)
+    if canvas_bad:
+        out['canvas_failed'] = True
     _urgent_done(day, lead_no, 'done', out)
     logger.info(f'[방문일정] {day} 당일 배정 {lead_no} → {names_txt} (DM {sent}/{len(members)}, {by})')
     return out

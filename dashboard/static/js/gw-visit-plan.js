@@ -173,15 +173,26 @@
   function hm(at, base) {        // 같은 날이면 시:분, 다른 날이면 월/일 시:분
     return at.slice(0, 10) === base ? at.slice(11, 16) : +at.slice(5, 7) + '/' + +at.slice(8, 10) + ' ' + at.slice(11, 16);
   }
+  // 당일 배정이 끝났지만 일부가 안 된 것 — 꼬리표·배정 직후 안내에 같이 쓴다(11-24 조용한 실패 점검)
+  function urgentBad(r) {
+    var bad = [];
+    if (r.dm_failed) bad.push('DM ' + r.dm_failed + '명 실패');
+    if (r.list_failed) bad.push('슬랙 List 못 고침(' + r.list_failed + ')');
+    if (r.canvas_failed) bad.push('캔버스1 다시 쓰기 실패');
+    return bad;
+  }
   function whenTag(v) {
     var u = (P.data.urgent || {})[v.lead_no];
     if (u) {
       var r = u.result || {};
       // stale = '처리 중'이 5분 넘게 안 끝남(서버 재시작 등으로 끊김, 11-24 조용한 실패 점검) — 다시 배정할 수 있음
       var gone = u.state === 'failed' || u.state === 'stale';
-      var st = u.state === 'running' ? ' · 처리 중' : u.state === 'stale' ? ' · 끊겼어요(다시 해 주세요)' : u.state === 'failed' ? ' 실패' : (r.dm_failed ? ' · DM ' + r.dm_failed + '명 실패' : '');
+      var ub = u.state === 'done' || !u.state ? urgentBad(r) : [];
+      var st = u.state === 'running' ? ' · 처리 중' : u.state === 'stale' ? ' · 끊겼어요(다시 해 주세요)' : u.state === 'failed' ? ' 실패' : (ub.length ? ' · ' + ub.join(' · ') : '');
       var tip = u.state === 'stale' ? '처리 중에 끊겼어요 — 시트 영업 담당자·긴급 DM 이 됐는지 확인하고 다시 배정해 주세요'
-        : u.state === 'failed' ? (r.message || '다시 해 주세요') : (u.by_name || '') + ' 님이 당일 배정' + (r.dm_failed ? ' — 못 받은 사람에게 전화로 알려 주세요' : '');
+        : u.state === 'failed' ? (r.message || '다시 해 주세요') : (u.by_name || '') + ' 님이 당일 배정' +
+          (r.dm_failed ? ' — 못 받은 사람에게 전화로 알려 주세요' : '') +
+          (r.list_failed ? ' — 슬랙 List 담당자 칸을 직접 바꿔 주세요' : '');
       return '<span class="gw-va-smark gw-vp-when urgent" title="' + esc(tip) + '">당일 배정 ' + (gone ? '' : esc(u.at)) + esc(st) + '</span>';
     }
     if (isLate(v)) return '<span class="gw-va-smark gw-vp-when">확정 뒤 추가 ' + esc(hm(v.reg_at, P.data.confirmed_at.slice(0, 10))) + '</span>';
@@ -854,17 +865,42 @@
       btn.textContent = '배정하는 중…';
       $('vpUrgentMsg').textContent = '';
       var day = P.day;
-      post('/api/vehicles/plan/urgent', { day: day, lead_no: U.lead, members: codes }).then(function (j) {
+      var no = U.lead;
+      post('/api/vehicles/plan/urgent', { day: day, lead_no: no, members: codes }).then(function (j) {
         $('vpUrgentDlg').close();
         load(day, true);
         say(j.names + '님에게 당일 배정했어요. 시트 기록과 긴급 DM 은 뒤에서 몇 초 안에 끝나요.', 'ok');
-        // 뒤에서 끝난 결과(DM 실패 등)를 꼬리표에 — 몇 초 뒤 한 번 더 불러온다
-        setTimeout(function () { if (P.day === day && !P.dirty) load(day, true); }, 12000);
+        // 뒤에서 끝난 결과(실패·DM 실패 등)를 — 전엔 12초 뒤 한 번만 다시 읽어 그때도 처리 중이면 결과를 못 봤다(11-24)
+        waitUrgent(day, no, j.names, 0);
       }).catch(function (e) { $('vpUrgentMsg').textContent = e.message; }).then(function () {
         btn.disabled = false;
         btn.textContent = '당일 배정';
       });
     });
+  }
+  // 당일 배정 결과 기다리기 — 처리 중이면 3초마다 다시 읽고(최대 2분), 끝나면 실패·확인할 것을 알린다(11-24 조용한 실패 점검)
+  function waitUrgent(day, no, names, tries) {
+    clearTimeout(P.upoll);
+    P.upoll = setTimeout(function () {
+      if (P.day !== day || P.dirty) return;      // 다른 날로 갔거나 고치는 중이면 덮어쓰지 않음(꼬리표는 다음에 불러올 때)
+      load(day, true).then(function () {
+        if (P.day !== day || !P.data) return;
+        var u = (P.data.urgent || {})[no];
+        if (!u) return;
+        var r = u.result || {};
+        if (u.state === 'running') {
+          if (tries < 40) { waitUrgent(day, no, names, tries + 1); return; }
+          say(names + '님 당일 배정이 2분 넘게 처리 중이에요. 잠시 뒤 새로 고쳐 확인해 주세요.', 'warn');
+          return;
+        }
+        if (u.state === 'failed') { say('당일 배정이 안 됐어요: ' + (r.message || '다시 해 주세요.'), 'err'); return; }
+        if (u.state === 'stale') { say('당일 배정이 처리 중에 끊겼어요. 시트 영업 담당자·긴급 DM 을 확인하고 다시 해 주세요.', 'err'); return; }
+        var bad = urgentBad(r);
+        if (bad.length) say(names + '님에게 당일 배정했어요 — 확인 필요: ' + bad.join(' / ') +
+          (r.dm_failed ? ' — 못 받은 사람에게 전화로 알려 주세요' : ''), 'warn');
+        else say(names + '님에게 당일 배정했어요. 시트 기록과 긴급 DM ' + (r.dm || 0) + '명까지 끝났어요.', 'ok');
+      });
+    }, 3000);
   }
   function resultText(r) {
     var bits = ['시트 담당자 ' + (r.sheet || 0) + '건', '담당자 DM ' + (r.dm || 0) + '명'];
@@ -874,24 +910,39 @@
     if (r.car_notice) bits.push('차량 배정 변경 알림 ' + r.car_notice + '명');
     var bad = [];
     if ((r.sheet_failed || []).length) bad.push('시트 저장 실패 ' + r.sheet_failed.length + '건');
+    // 다시 확정 때 코스에서 빼고 아무에게도 안 준 현장 — 시트 담당자는 그대로 둔다(11-24 부장님)
+    if ((r.left_assigned || []).length) bad.push('담당자 그대로 남은 현장 ' + r.left_assigned.length + '건(' +
+      r.left_assigned.map(function (x) { return x.lead_no + ' ' + x.who; }).join(', ') + ' — 시트·List 확인)');
     // 방문봇 연결이 없으면 DM 을 통째로 못 보냄(11-24 조용한 실패 점검) — 전엔 'DM 0명' 초록으로 보였다
     if (r.bot_missing) {
       var miss = ['담당자 ' + (r.dm_failed || 0) + '명'];
       if (r.duty_failed) miss.push('당번 ' + r.duty_failed + '명');
       if (r.deassign_failed) miss.push('재배정 안내 ' + r.deassign_failed + '명');
       bad.push('방문봇 연결이 없어 DM 을 못 보냈어요(' + miss.join(' · ') + ') — 직접 알려 주세요');
-    } else if (r.dm_failed) bad.push('DM 실패 ' + r.dm_failed + '명');
-    if (r.car_request_failed) bad.push('차량 배정 요청 DM 실패(배정 담당에게 직접 알려 주세요)');
-    if (r.car_notice_failed) bad.push('차량 배정 변경 알림 실패(배정 담당에게 직접 알려 주세요)');
+    } else {
+      // 당번 DM·재배정 안내 실패도 센다(11-24 조용한 실패 점검 — 전엔 담당자 DM 실패만 보였다)
+      if (r.dm_failed) bad.push('DM 실패 ' + r.dm_failed + '명');
+      if (r.duty_failed) bad.push('당번 DM 실패 ' + r.duty_failed + '명');
+      if (r.deassign_failed) bad.push('재배정 안내 실패 ' + r.deassign_failed + '명');
+    }
+    if (r.dm_history_unread) bad.push('이전 DM 기록을 못 읽어 옛 DM 정리·빠진 사람 안내를 못 했어요(중복 DM 이 갈 수 있어요)');
+    if (r.duty_save_failed) bad.push('온라인 당번 저장 실패(차량 배정 명단·당일 배정 권한에 영향)');
+    if (r.car_request_failed) bad.push('차량 배정 요청 DM 실패' + (r.car_request_failed_n ? ' ' + r.car_request_failed_n + '명' : '') + '(배정 담당에게 직접 알려 주세요)');
+    if (r.car_notice_failed) bad.push('차량 배정 변경 알림 실패' + (r.car_notice_failed_n ? ' ' + r.car_notice_failed_n + '명' : '') + '(배정 담당에게 직접 알려 주세요)');
     if (r.cards_error) bad.push('캔버스1 누락 점검을 못 했어요');
     if (r.work_dm_failed) bad.push('사내 업무 DM 실패 ' + r.work_dm_failed + '명');
+    if (r.list_skipped) bad.push('슬랙 List 못 고침(' + r.list_skipped + ')');
     if (r.list_failed) bad.push('슬랙 List 실패 ' + r.list_failed + '건');
+    if ((r.list_not_found || []).length) bad.push('List 에 없는 리드 ' + r.list_not_found.length + '건(' + r.list_not_found.join(', ') + ')');
     if ((r.list_missing || []).length) bad.push('슬랙 List 담당자 칸에 선택지가 없는 사람이 있어요(' +
       r.list_missing.map(function (x) { return (x.names || []).join('·'); }).join(', ') + ')');
-    if ((r.cards || []).length) bad.push('캔버스1에 없는 방문 카드 ' + r.cards.length + '건(사장님께 DM 으로 알렸어요)');
+    // 사장님 DM 을 못 보냈으면 '알렸어요'라 하지 않는다(11-24 조용한 실패 점검)
+    var bossFail = '사장님께 못 보냈어요 — 직접 알려 주세요';
+    if ((r.cards || []).length) bad.push('캔버스1에 없는 방문 카드 ' + r.cards.length + '건(' + (r.admin_dm_failed ? bossFail : '사장님께 DM 으로 알렸어요') + ')');
+    else if (r.admin_dm_failed) bad.push('확인 필요 사항을 ' + bossFail);
     // 캔버스2 — 봇이 다시 쓰고 /일정확정 해석기로 다시 읽어 대조(11-23)
     if (r.canvas2 && r.canvas2.ok) bits.push('캔버스2 다시 씀(대조 맞음)');
-    else if (r.canvas2) bad.push(r.canvas2.diff && r.canvas2.diff.length ? '캔버스2 대조 다름 ' + r.canvas2.diff.length + '건(사장님께 DM)' : (r.canvas2.reason || '캔버스2 쓰기 실패'));
+    else if (r.canvas2) bad.push(r.canvas2.diff && r.canvas2.diff.length ? '캔버스2 대조 다름 ' + r.canvas2.diff.length + '건(' + (r.canvas2.admin_dm_failed ? bossFail : '사장님께 DM') + ')' : (r.canvas2.reason || '캔버스2 쓰기 실패'));
     return { ok: bits.join(' · '), bad: bad };
   }
   // 확정 진행 상태 — running 이면 2초마다 다시 묻고, 끝나면 결과를 단추 위에
@@ -908,11 +959,24 @@
       var my = P.seq, day = P.day;
       P.poll = setTimeout(function () {
         api('/api/vehicles/plan/state?day=' + encodeURIComponent(day)).then(function (j) {
+          P.pollFail = 0;
           if (my === P.seq) runState(j.run, true);
-        }).catch(function () { if (my === P.seq) runState(run, true); });
+        }).catch(function () {
+          if (my !== P.seq) return;
+          // 상태를 못 읽으면 끝없이 다시 묻던 것 — 5번 연속이면 멈추고 알린다(11-24 조용한 실패 점검)
+          P.pollFail = (P.pollFail || 0) + 1;
+          if (P.pollFail >= 5) {
+            P.pollFail = 0; P.runStart = 0;
+            lock(false); setDirty(P.dirty);
+            say('상태를 확인하지 못했어요. 새로 고쳐 주세요.', 'err');
+            return;
+          }
+          runState(run, true);
+        });
       }, 2000);
       return;
     }
+    P.pollFail = 0;
     lock(false); setDirty(P.dirty);
     P.runStart = 0;
     if (!fresh) {

@@ -249,11 +249,12 @@ def format_commit_audit(au: Dict) -> str:
 
 
 def send_admin_dm(text: str) -> bool:
-    """사장님(관리자) DM — 방문 일정 알림 봇으로 발송."""
+    """사장님(관리자) DM — 방문 일정 알림 봇으로 발송. 못 보내면 False + ERROR(11-24 조용한 실패 점검 —
+    전엔 WARNING 만 남고 호출처는 반환값을 안 봐 화면이 '사장님께 DM 으로 알렸어요'였다)."""
     channel = (os.getenv('VISIT_AUDIT_ALERT_CHANNEL', '').strip()
                or os.getenv('SLACK_ADMIN_CHANNEL', '').strip())
     if not channel or not _visit_token():
-        logger.warning('[VISIT_AUDIT] 발송 채널/토큰 미설정 — skip')
+        logger.error('[VISIT_AUDIT] 사장님 DM 채널/토큰 미설정 — 못 보냄')
         return False
     try:
         body = json.dumps({'channel': channel, 'text': text,
@@ -264,10 +265,10 @@ def send_admin_dm(text: str) -> bool:
                      'Content-Type': 'application/json; charset=utf-8'})
         r = json.loads(urllib.request.urlopen(req, timeout=10).read().decode('utf-8'))
         if not r.get('ok'):
-            logger.warning(f"[VISIT_AUDIT] DM 실패: {r.get('error')}")
+            logger.error(f"[VISIT_AUDIT] 사장님 DM 실패: {r.get('error')}")
         return bool(r.get('ok'))
     except Exception as exc:
-        logger.warning(f'[VISIT_AUDIT] DM 예외: {exc}')
+        logger.error(f'[VISIT_AUDIT] 사장님 DM 예외: {exc}')
         return False
 
 

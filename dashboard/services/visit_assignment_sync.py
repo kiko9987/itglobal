@@ -658,9 +658,11 @@ def _apply_assignments(parsed_full: Dict, target_date=None) -> Dict:
         _sheet_leads = _fetch_visit_leads()
     except Exception:
         _sheet_leads = None
-    list_ok, list_fail, list_missing = _update_slack_list_managers(
+    _list_res = _update_slack_list_managers(
         assignments, phone_map, sheet_leads=_sheet_leads,
     )
+    list_ok, list_fail, list_missing = _list_res
+    list_skipped, list_not_found = list_result_info(_list_res)
 
     # 3. DM 발송 (target_date = min(방문일 시작일) > today)
     dm_result = _send_dms_for_next_visit(
@@ -684,6 +686,8 @@ def _apply_assignments(parsed_full: Dict, target_date=None) -> Dict:
         'list_updated': list_ok,
         'list_failed': list_fail,
         'list_missing': list_missing,
+        'list_skipped': list_skipped,           # List 를 통째로 못 고친 이유(11-24 조용한 실패 점검)
+        'list_not_found': list_not_found,       # List 에 행이 없는 리드
         'dm': dm_result,
         'online_duty': online_duty,
         'online_duty_shifts': online_duty_shifts,   # 차량 배정이 당번을 명단에서 빼는 데 씀(11-21)
@@ -1071,10 +1075,53 @@ def _email_from_initial(initial: str, initial_to_name: Dict[str, str]) -> str:
     return ''
 
 
+class ListUpdateResult(tuple):
+    """_update_slack_list_managers 반환 — (성공, 실패, 옵션 없는 담당자) 3-튜플 그대로 풀어 쓸 수 있고,
+    덧붙인 정보는 속성으로 읽는다(11-24 조용한 실패 점검 — 호출처·테스트 가짜가 3-튜플이라 모양은 유지).
+      .skipped   = List 를 통째로 못 고친 이유('' = 정상) — 설정 없음·방문봇 없음·선택지/항목 조회 실패
+      .not_found = List 에서 행을 못 찾은 리드 번호 목록
+    가짜 lambda 가 돌려준 보통 튜플엔 속성이 없으니 읽을 땐 list_result_info() 로."""
+    skipped: str = ''
+    not_found: List[str] = []
+
+    def __new__(cls, ok: int, fail: int, missing: List[Dict], skipped: str = '',
+                not_found: Optional[List[str]] = None):
+        obj = super().__new__(cls, (ok, fail, missing))
+        obj.skipped = skipped
+        obj.not_found = list(not_found or [])
+        return obj
+
+
+def list_result_info(res) -> Tuple[str, List[str]]:
+    """List 결과에서 (못 고친 이유, List 에 없는 리드) — 보통 3-튜플(테스트 가짜 등)이면 ('', [])."""
+    return getattr(res, 'skipped', '') or '', list(getattr(res, 'not_found', None) or [])
+
+
+def _list_items_all(client, list_id: str) -> List[Dict]:
+    """slackLists.items.list 를 cursor 로 끝까지 — 전엔 한 번만 불러 첫 쪽에 없는 리드는 List 담당자를 못 고쳤다
+    (slack_bot._vlist_sync_row_contact 와 같은 방식, 11-24 조용한 실패 점검). 실패는 예외로 올린다."""
+    items: List[Dict] = []
+    cursor = None
+    for _ in range(100):          # 200줄씩 100쪽 = 2만 줄 — 끝없이 돌지 않게
+        params = {'list_id': list_id, 'limit': 200}
+        if cursor:
+            params['cursor'] = cursor
+        r = client.api_call('slackLists.items.list', http_verb='GET', params=params)
+        data = r.data if hasattr(r, 'data') else r
+        if isinstance(data, dict) and data.get('ok') is False:
+            raise RuntimeError(data.get('error') or 'ok=false')
+        items.extend(data.get('items', []) or [])
+        cursor = (data.get('response_metadata') or {}).get('next_cursor')
+        if not cursor:
+            break
+    return items
+
+
 def _update_slack_list_managers(assignments: List[Dict],
                                   phone_map: Dict[str, List[Dict]],
                                   sheet_leads: Optional[List[Dict]] = None) -> Tuple[int, int, List[Dict]]:
     """Slack List 담당자 컬럼 update. (성공, 실패, 옵션 없는 담당자 [{lead_no, names}]) 반환.
+    실제로는 ListUpdateResult — 못 고친 이유(.skipped)·List 에 없는 리드(.not_found)를 함께 싣는다(11-24).
 
     2026-07-20: 주소 fallback 추가. phone 없는 캔버스2 라인은 assignment 의 address 로
     시트 lead 주소를 substring 매칭. (인투익스·관악구자활센터·산들해 등 phone '-' 대응)
@@ -1087,28 +1134,28 @@ def _update_slack_list_managers(assignments: List[Dict],
 
     list_id = os.getenv('SLACK_VISIT_LIST_ID', '').strip()
     token = os.getenv('SLACK_VISIT_BOT_TOKEN', '').strip()
+    # 아래 '통째로 못 고침'은 전엔 (0,0,[]) 로 성공과 구별이 안 됐다 — 이유를 싣고 ERROR(11-24 조용한 실패 점검)
     if not list_id or not token:
-        logger.warning('[ASSIGN/LIST] SLACK_VISIT_LIST_ID or token 미설정 — skip')
-        return 0, 0, []
+        logger.error('[ASSIGN/LIST] SLACK_VISIT_LIST_ID 또는 방문봇 토큰이 없어 슬랙 List 담당자를 못 고쳤어요')
+        return ListUpdateResult(0, 0, [], skipped='List 설정 없음')
 
     client = _get_visit_client()
     if not client:
-        return 0, 0, []
+        logger.error('[ASSIGN/LIST] 방문봇 연결이 없어 슬랙 List 담당자를 못 고쳤어요')
+        return ListUpdateResult(0, 0, [], skipped='방문봇 연결 없음')
 
     # 옵션 매핑 실시간 조회 (10분 캐시)
     opt_map = _get_list_manager_option_map(list_id)
     if not opt_map:
-        logger.warning('[ASSIGN/LIST] 옵션 매핑 조회 실패 — skip')
-        return 0, 0, []
+        logger.error('[ASSIGN/LIST] 담당자 칸 선택지를 못 읽어 슬랙 List 담당자를 못 고쳤어요')
+        return ListUpdateResult(0, 0, [], skipped='담당자 선택지 조회 실패')
 
-    # List 항목 조회 → lead_no → row_id 매핑
+    # List 항목 조회 → lead_no → row_id 매핑 (cursor 로 끝까지)
     try:
-        r = client.api_call('slackLists.items.list', http_verb='GET',
-                            params={'list_id': list_id})
-        items = r.data.get('items', []) if hasattr(r, 'data') else r.get('items', [])
+        items = _list_items_all(client, list_id)
     except Exception as exc:
-        logger.warning(f'[ASSIGN/LIST] items 조회 실패: {exc}')
-        return 0, 0, []
+        logger.error(f'[ASSIGN/LIST] List 항목 조회 실패 — 슬랙 List 담당자를 못 고쳤어요: {exc}', exc_info=True)
+        return ListUpdateResult(0, 0, [], skipped='List 항목 조회 실패')
 
     lead_to_row: Dict[str, str] = {}
     for it in items:
@@ -1135,6 +1182,7 @@ def _update_slack_list_managers(assignments: List[Dict],
     #   update 에서만 미매칭 → 담당자 미지정됐음 (ETC-4feb23). 전화 suffix(안심번호·
     #   앞0 탈락)·주소 정확일치 fix 를 List update 에도 동일 적용.
     merged: Dict[str, Dict] = {}  # lead_no → {'row_id': ..., 'inis': set()}
+    not_found: List[str] = []     # List 에 행이 없는 리드 — 전엔 세지 않고 넘어가 '성공'처럼 보였다(11-24)
     for p in assignments:
         lead = _resolve_lead_for_assignment(p, phone_map, _addr_candidates)
         if not lead:
@@ -1142,6 +1190,8 @@ def _update_slack_list_managers(assignments: List[Dict],
         lno = str(lead.get('리드 No') or '').strip()
         row_id = lead_to_row.get(lno)
         if not row_id:
+            if lno and (p.get('assign') or []) and lno not in not_found:
+                not_found.append(lno)
             continue
         entry = merged.setdefault(lno, {'row_id': row_id, 'inis': set()})
         for i in (p.get('assign') or []):
@@ -1194,7 +1244,11 @@ def _update_slack_list_managers(assignments: List[Dict],
         except Exception as exc:
             fail += 1
             logger.warning(f'[ASSIGN/LIST] {lno} 예외: {exc}')
-    return ok, fail, missing_out
+    if not_found:
+        logger.warning(f'[ASSIGN/LIST] List 에 행이 없는 리드 {len(not_found)}건 — 담당자 칸 못 고침: {", ".join(not_found[:10])}')
+    if fail:
+        logger.error(f'[ASSIGN/LIST] 슬랙 List 담당자 고치기 실패 {fail}건(성공 {ok}건)')
+    return ListUpdateResult(ok, fail, missing_out, not_found=not_found)
 
 
 def _send_dms_for_next_visit(assignments: List[Dict],
@@ -1221,7 +1275,9 @@ def _send_dms_for_next_visit(assignments: List[Dict],
     import json as _json
     from datetime import date as _date
     result = {'target_date': None, 'visit_mgr_sent': 0, 'visit_mgr_failed': 0,
-              'deassign_sent': 0, 'online_duty_sent': 0, 'lead_nos_flagged': []}
+              'deassign_sent': 0, 'online_duty_sent': 0, 'lead_nos_flagged': [],
+              # 당번 DM·재배정 안내 실패 수, 이전 DM 기록(Redis)을 못 읽음(11-24 조용한 실패 점검)
+              'online_duty_failed': 0, 'deassign_failed': 0, 'dm_history_unread': False}
 
     today = _date.today()
     _addr_cands = addr_candidates or _load_addr_candidates()
@@ -1280,8 +1336,11 @@ def _send_dms_for_next_visit(assignments: List[Dict],
     try:
         from dashboard.utils.redis_client import get_redis_client
         rc_pre = get_redis_client().redis
-    except Exception:
+    except Exception as exc:
+        # 이전 DM 기록을 못 읽으면 옛 DM 을 못 지우고(중복 DM)·빠진 사람 안내도 못 함 — 전엔 무로그(11-24 조용한 실패 점검)
         rc_pre = None
+        result['dm_history_unread'] = True
+        logger.warning(f'[ASSIGN/DM] Redis 연결 실패 — 이전 DM 기록을 못 읽어 옛 DM 정리·빠진 사람 안내를 건너뜀: {exc}')
 
     # 2026-07-26 개편: 매니저-date 단위 v9 DM 트래킹.
     #   `dm_v9_msg:{ini}:{date}` = {channel, ts, lead_nos}
@@ -1312,8 +1371,9 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                 _parts = _kstr.split(':')
                 if len(_parts) >= 3:
                     _prev_ini_pool.add(_parts[1])
-        except Exception:
-            pass
+        except Exception as exc:
+            result['dm_history_unread'] = True
+            logger.warning(f'[ASSIGN/DM] 이전 담당자 DM 기록 훑기 실패 — 빠진 사람 안내를 못 할 수 있음: {exc}')
         for ini in _prev_ini_pool:
             try:
                 raw = rc_pre.get(f'dm_v9_msg:{ini}:{target_date_iso}')
@@ -1328,7 +1388,8 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                     'memo': data.get('memo') or '',
                 }
             except Exception as exc:
-                logger.debug(f'[ASSIGN/DM] prev v9 파싱 실패 ({ini}): {exc}')
+                result['dm_history_unread'] = True
+                logger.warning(f'[ASSIGN/DM] 이전 담당자 DM 기록 읽기 실패 ({ini}): {exc}')
 
     # 방문봇 client
     client = _get_visit_client()
@@ -1364,6 +1425,7 @@ def _send_dms_for_next_visit(assignments: List[Dict],
         # ────── (1) 완전 제거 — 기존 v9 삭제 + v20 해제 알림 ──────
         if not current_leads:
             if not email:
+                result['deassign_failed'] += 1
                 logger.warning(
                     f'[ASSIGN/DM] 해제 알림 {mgr_name}({ini}): 이메일 매핑 실패 — skip'
                 )
@@ -1389,11 +1451,21 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                 except Exception:
                     pass
             # v20 재배정 안내 (매뉴얼 §128: "제외" 가 아니라 "재배정" 뉘앙스)
+            # 11-24 조용한 실패 점검: 실제로 다른 매니저에게 간 현장만 '재배정' — 코스에서 빼고 아무에게도 안 준
+            #   현장까지 '다른 매니저에게 재배정되었습니다'로 보내 틀린 안내였다. 둘을 나눠 사실대로
             dea_lead_nos = sorted(prev_set)
+            _moved = {lno for lno in dea_lead_nos if lead_to_mgrs.get(lno)}
+            _n_drop = len(dea_lead_nos) - len(_moved)
+            if not _n_drop:
+                _head = f'방문 {len(dea_lead_nos)}건이 다른 매니저에게 재배정되었습니다.'
+            elif not _moved:
+                _head = f'방문 {len(dea_lead_nos)}건이 일정에서 빠졌습니다.'
+            else:
+                _head = (f'방문 {len(dea_lead_nos)}건이 바뀌었습니다'
+                         f'(다른 매니저에게 재배정 {len(_moved)}건 · 일정에서 빠짐 {_n_drop}건).')
             lines = [_BLANK]
             lines.append(
-                f'>:arrows_counterclockwise: *{mgr_name}님*, {target_date_iso} '
-                f'방문 {len(dea_lead_nos)}건이 다른 매니저에게 재배정되었습니다.'
+                f'>:arrows_counterclockwise: *{mgr_name}님*, {target_date_iso} {_head}'
             )
             lines.append(f'>{_SEP}')
             for i, lno in enumerate(dea_lead_nos):
@@ -1409,7 +1481,10 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                             _cust_name = _data.get('cust', '')
                 except Exception:
                     pass
-                lines.append(f'>{e} *{lno} · {_cust_name or "-"}*')
+                _why = ''
+                if _moved and _n_drop:
+                    _why = ' — 다른 매니저에게 재배정' if lno in _moved else ' — 일정에서 빠짐'
+                lines.append(f'>{e} *{lno} · {_cust_name or "-"}*{_why}')
             if _v9_deleted:
                 lines.append(
                     '>:information_source: 기존 배정 안내 DM 은 삭제되었습니다.'
@@ -1429,7 +1504,13 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                         f'[ASSIGN/DM] 해제 알림 {mgr_name}({ini}) → '
                         f'{len(dea_lead_nos)}건'
                     )
+                else:       # 전엔 응답 실패를 세지도 남기지도 않았다(11-24)
+                    result['deassign_failed'] += 1
+                    logger.warning(
+                        f'[ASSIGN/DM] 해제 알림 {mgr_name}({ini}) 응답 not ok: {r.get("error")}'
+                    )
             except Exception as exc:
+                result['deassign_failed'] += 1
                 logger.warning(
                     f'[ASSIGN/DM] 해제 알림 {mgr_name}({ini}) 발송 예외: {exc}'
                 )
@@ -1606,9 +1687,10 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                         rc_pre.delete(_kstr)
                         logger.info(f'[ASSIGN/DM] 온라인 당번 해제 {_parts[1]} — 기존 v13 삭제')
                     except Exception as _exc:
-                        logger.debug(f'[ASSIGN/DM] v13 해제 삭제 실패 ({_parts[1]}): {_exc}')
-        except Exception:
-            pass
+                        logger.warning(f'[ASSIGN/DM] v13 해제 삭제 실패 ({_parts[1]}): {_exc}')
+        except Exception as exc:
+            result['dm_history_unread'] = True
+            logger.warning(f'[ASSIGN/DM] 이전 당번 DM 기록 훑기 실패 — 빠진 당번의 옛 DM 이 남을 수 있음: {exc}')
     if online_duty:
         # 방문 담당자 참고 (조합별 카운트)
         combo_counts: Dict[Tuple[str, ...], int] = {}
@@ -1630,6 +1712,7 @@ def _send_dms_for_next_visit(assignments: List[Dict],
             duty_name = initial_to_name.get(duty_ini, duty_ini)
             email = _email_from_initial(duty_ini, initial_to_name)
             if not email:
+                result['online_duty_failed'] += 1
                 logger.warning(
                     f'[ASSIGN/DM] 온라인 당번 {duty_name}({duty_ini}): '
                     f'이메일 매핑 실패 — skip'
@@ -1697,8 +1780,10 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                     _rawv = rc_pre.get(_v13_key)
                     if _rawv:
                         _prev_v13 = _json.loads(_rawv.decode() if isinstance(_rawv, bytes) else _rawv)
-            except Exception:
+            except Exception as exc:
                 _prev_v13 = None
+                result['dm_history_unread'] = True
+                logger.warning(f'[ASSIGN/DM] 당번 {duty_name}({duty_ini}) 이전 DM 기록 읽기 실패 — 옛 DM 이 남을 수 있음: {exc}')
             if _prev_v13 and _prev_v13.get('hash') == _new_hash:
                 logger.info(
                     f'[ASSIGN/DM] 온라인 당번 {duty_name}({duty_ini}) 변경 없음 — skip'
@@ -1737,11 +1822,13 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                     except Exception:
                         pass
                 else:
+                    result['online_duty_failed'] += 1
                     logger.warning(
                         f'[ASSIGN/DM] 당번 {duty_name}({duty_ini}) 응답 not ok: '
                         f'{r.get("error")}'
                     )
             except Exception as exc:
+                result['online_duty_failed'] += 1
                 logger.warning(
                     f'[ASSIGN/DM] 당번 {duty_name}({duty_ini}) 발송 예외: {exc}'
                 )
@@ -1772,6 +1859,11 @@ def _send_dms_for_next_visit(assignments: List[Dict],
     except Exception as exc:
         logger.warning(f'[ASSIGN/DM] Redis flag 세팅 실패: {exc}')
 
+    # 못 보낸 DM 이 있으면 한 번 ERROR(사람마다 WARNING 은 위에) — 전엔 당번·재배정 안내 실패는 세지도 않았다(11-24)
+    _miss = [f'{k} {result[f]}명' for k, f in (('담당자', 'visit_mgr_failed'), ('당번', 'online_duty_failed'),
+                                              ('재배정 안내', 'deassign_failed')) if result.get(f)]
+    if _miss:
+        logger.error(f'[ASSIGN/DM] {target_date_iso} DM 못 보냄 — {" · ".join(_miss)}. 직접 알려 주세요.')
     return result
 
 

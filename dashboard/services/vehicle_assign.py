@@ -786,10 +786,48 @@ def notify_changes(day: str, cars: Dict[str, Dict], old: Dict[str, Dict], new: D
     return n
 
 
+class SentCount(int):
+    """보낸 수(int 그대로 비교·JSON) + 못 보낸 사람 .failed(이메일 목록) — '대상 있는데 다 실패'와
+    '대상 없음(안 보내도 되는 날)'을 구별하려고(11-24 조용한 실패 점검). 호출처·테스트 가짜는 int 를 돌려줘도 되게
+    읽을 땐 failed_of() 로."""
+    failed: List[str] = []
+
+    def __new__(cls, n: int, failed: Optional[List[str]] = None):
+        obj = super().__new__(cls, n)
+        obj.failed = list(failed or [])
+        return obj
+
+
+def failed_of(res) -> List[str]:
+    """SentCount 의 못 보낸 사람 — 보통 int(가짜 등)면 []."""
+    return list(getattr(res, 'failed', None) or [])
+
+
+def _dm_assigners(text: str, skip: str = '') -> SentCount:
+    """배정 담당(설정 명단)에게 DM — 보낸 수 + 못 보낸 사람. 못 보낸 사람이 있거나 명단이 비면 ERROR(11-24)."""
+    from dashboard.services import hr
+    n, failed = 0, []
+    every = assigners()
+    targets = [e for e in every if e != skip]
+    for email in targets:
+        sid = ((hr.find_by_email(email) or {}).get('slack_id')) or ''
+        if _dm(sid, text):
+            n += 1
+        else:
+            failed.append(email)
+    if failed:
+        logger.error(f"[차량배정] 배정 담당 DM 못 보냄 {len(failed)}/{len(targets)}명({', '.join(failed)}) — "
+                     f"슬랙 ID·토큰을 확인하고 직접 알려 주세요")
+    elif not every:
+        logger.error('[차량배정] 배정 담당 명단이 비어 차량 배정 DM 을 아무에게도 못 보냈어요')
+    return SentCount(n, failed)
+
+
 def request_assignment(day: Optional[str] = None, by: str = '') -> int:
     """/일정확정 뒤 — 배정하는 사람에게 '내일 차량 배정해 주세요' DM(그날 이미 확정했거나 이미 보냈으면 안 보냄).
     by = 방문 일정을 확정한 사람. 그 사람이 배정 담당(JW 등)이면 보내지 않는다 — 확정하고 바로 차량 배정 탭으로 넘어가
-    직접 넣으므로(11-24 부장님). 대표님처럼 배정 담당이 아닌 사람이 확정하면 그대로 보낸다."""
+    직접 넣으므로(11-24 부장님). 대표님처럼 배정 담당이 아닌 사람이 확정하면 그대로 보낸다.
+    돌려주는 값 = SentCount(보낸 수, .failed = 못 보낸 배정 담당) — 0 이어도 failed 가 비면 '보낼 필요 없음'(11-24)."""
     day = day if day and valid_day(day) else next_workday()
     if not CAR_DM_ON:
         return 0
@@ -798,13 +836,8 @@ def request_assignment(day: Optional[str] = None, by: str = '') -> int:
     info = _day_info(day) or {}
     if info.get('confirmed_at') or info.get('requested_at'):
         return 0
-    from dashboard.services import hr
-    n = 0
-    for email in assigners():           # 차량 배정 화면은 배정 담당에게 열렸다(11-24) — 개발 중 명단 거르기 없앰
-        p = hr.find_by_email(email)
-        sid = (p or {}).get('slack_id') or ''
-        if _dm(sid, f":car: 일정확정이 끝났어요. {day_label(day)} 차량 배정을 해 주세요.\n<{_page_url(day)}|차량 배정 열기>"):
-            n += 1
+    # 차량 배정 화면은 배정 담당에게 열렸다(11-24) — 개발 중 명단 거르기 없앰
+    n = _dm_assigners(f":car: 일정확정이 끝났어요. {day_label(day)} 차량 배정을 해 주세요.\n<{_page_url(day)}|차량 배정 열기>")
     if n:
         with _conn() as conn:
             conn.execute('INSERT INTO vehicle_assign_day (day, requested_at) VALUES (?,?) '
@@ -822,22 +855,16 @@ def last_saved_at(day: str) -> str:
 def notify_plan_changed(day: str, change: str, by: str = '') -> int:
     """방문 일정을 다시 확정해 코스 사람이 바뀜(11-23 부장님) — 차량 배정을 이미 저장한 날만 배정 담당에게 DM.
     아직 배정이 없으면 보내지 않는다(화면을 열면 바뀐 코스대로 초안이 잡힘).
-    by = 다시 확정한 사람 — 그 사람은 확정 뒤 바로 차량 배정 탭으로 넘어오므로 빼고 보낸다(11-24)."""
+    by = 다시 확정한 사람 — 그 사람은 확정 뒤 바로 차량 배정 탭으로 넘어오므로 빼고 보낸다(11-24).
+    돌려주는 값 = SentCount(보낸 수, .failed = 못 보낸 배정 담당) — 배정 안 한 날의 0 과 다 실패한 0 을 구별(11-24)."""
     if not CAR_DM_ON:
         return 0
     if not any(r['people'] or r.get('pm') for r in _day_rows(day).values()):
         return 0
-    from dashboard.services import hr
-    n = 0
-    me = (by or '').strip().lower()
-    for email in assigners():           # 배정 담당은 화면을 열 수 있다(11-24, request_assignment 와 같음)
-        if email == me:
-            continue
-        sid = ((hr.find_by_email(email) or {}).get('slack_id')) or ''
-        if _dm(sid, f":arrows_counterclockwise: {day_label(day)} 방문 일정이 다시 확정됐어요 — {change}.\n"
-                    f"차량 배정을 확인해 주세요. <{_page_url(day)}|차량 배정 열기>"):
-            n += 1
-    return n
+    # 배정 담당은 화면을 열 수 있다(11-24, request_assignment 와 같음)
+    return _dm_assigners(f":arrows_counterclockwise: {day_label(day)} 방문 일정이 다시 확정됐어요 — {change}.\n"
+                         f"차량 배정을 확인해 주세요. <{_page_url(day)}|차량 배정 열기>",
+                         skip=(by or '').strip().lower())
 
 
 def off_riders(day: str, rows: Dict[str, Dict]) -> List[str]:
