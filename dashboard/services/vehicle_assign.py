@@ -386,12 +386,18 @@ def save_day(day: str, rows: Iterable[Dict], by: str, confirm: bool = False, not
             conn.execute('INSERT INTO vehicle_assign_day (day, confirmed_by, confirmed_at) VALUES (?,?,?) '
                          'ON CONFLICT(day) DO UPDATE SET confirmed_by = excluded.confirmed_by, '
                          'confirmed_at = excluded.confirmed_at', (day, by, now))
-    notified = 0
+    notified, failed = 0, []
     if confirm and not was_confirmed:
-        notified = notify_people(day, cars, new, who, everyone=True)
+        notified = notify_people(day, cars, new, who, everyone=True, failed=failed)
     elif was_confirmed and changed and notify:
-        notified = notify_changes(day, cars, old, new, who)
-    return {'changed': changed, 'notified': notified, 'confirmed': confirm or was_confirmed, 'dm_off': not CAR_DM_ON}
+        notified = notify_changes(day, cars, old, new, who, failed=failed)
+    if failed:
+        # 못 받은 사람은 화면에 이름으로 — 이미 '확정'이라 다시 눌러도 안 간다(11-24 조용한 실패 점검 3번)
+        log = logger.error if not notified else logger.warning
+        log(f"[차량배정] {day} DM 못 받은 사람 {len(failed)}명: {', '.join(failed)} (받은 사람 {notified}명)",
+            **({'extra': {'force_alert': True}} if not notified else {}))
+    return {'changed': changed, 'notified': notified, 'failed': failed,
+            'confirmed': confirm or was_confirmed, 'dm_off': not CAR_DM_ON}
 
 
 def person_car(day: str, code: str) -> Optional[Dict]:
@@ -679,8 +685,17 @@ def _person_view(code: str, rows: Dict[str, Dict]) -> tuple:
     return tuple(out)
 
 
+def _dm_or_miss(p: Optional[Dict], code: str, text: str, failed: Optional[list]) -> bool:
+    """DM 하나 — 못 보내면(사람 정보·슬랙 ID 없음 포함) failed 에 이름을 넣는다."""
+    if p and _dm(p.get('slack_id') or '', text):
+        return True
+    if failed is not None:
+        failed.append((p or {}).get('name') or code)
+    return False
+
+
 def notify_people(day: str, cars: Dict[str, Dict], rows: Dict[str, Dict], who: Dict[str, Dict],
-                  everyone: bool = True, only: Optional[set] = None) -> int:
+                  everyone: bool = True, only: Optional[set] = None, failed: Optional[list] = None) -> int:
     if not CAR_DM_ON:
         return 0
     n = 0
@@ -688,13 +703,13 @@ def notify_people(day: str, cars: Dict[str, Dict], rows: Dict[str, Dict], who: D
         if only is not None and code not in only:
             continue
         p = who.get(code)
-        if p and _dm(p['slack_id'], _person_text(day, code, rows, cars, who)):
+        if _dm_or_miss(p, code, _person_text(day, code, rows, cars, who) if p else '', failed):
             n += 1
     return n
 
 
 def notify_changes(day: str, cars: Dict[str, Dict], old: Dict[str, Dict], new: Dict[str, Dict],
-                   who: Dict[str, Dict]) -> int:
+                   who: Dict[str, Dict], failed: Optional[list] = None) -> int:
     """확정 뒤 고친 경우 — 차(오전·오후)·같이 타는 사람·운전·메모가 바뀐 사람에게만."""
     if not CAR_DM_ON:
         return 0
@@ -705,13 +720,15 @@ def notify_changes(day: str, cars: Dict[str, Dict], old: Dict[str, Dict], new: D
             continue
         p = who.get(code)
         if not p:
+            if failed is not None:
+                failed.append(code)
             continue
         if code in nw:
             text = ':arrows_counterclockwise: 차량 배정이 바뀌었어요\n' + _person_text(day, code, new, cars, who)
         else:
             was = [x for x in dict.fromkeys((ow[code]['am'], ow[code]['pm'])) if x]
             text = f":arrows_counterclockwise: {day_label(day)} 차량 배정에서 빠졌어요 ({', '.join(_car_text(x, cars) for x in was)})"
-        if _dm(p['slack_id'], text):
+        if _dm_or_miss(p, code, text, failed):
             n += 1
     return n
 

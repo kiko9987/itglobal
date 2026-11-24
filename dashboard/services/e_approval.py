@@ -2465,8 +2465,12 @@ def find_move_approval(key: str, exclude_id: Optional[int] = None) -> Optional[d
     return None
 
 
-def open_moves(project_code: str = '', reqs: Optional[List[dict]] = None) -> List[dict]:
-    """결재가 아직 안 올라간 자금 이동 요청 → [move] (현장을 주면 그 현장만)."""
+def open_moves(project_code: str = '', reqs: Optional[List[dict]] = None, strict: bool = False) -> List[dict]:
+    """결재가 아직 안 올라간 자금 이동 요청 → [move] (현장을 주면 그 현장만).
+    strict=True 면 요청 목록을 못 읽을 때 예외(빈 목록과 구분)."""
+    if reqs is None and strict:
+        from dashboard.services.fund_transfer import pending_requests
+        reqs = pending_requests(strict=True)
     if reqs is None:
         try:
             from dashboard.services.fund_transfer import pending_requests
@@ -2519,7 +2523,15 @@ def move_errors(f: Dict) -> Dict[str, str]:
                        f'{ENTITY_SHORT["G" if to == "R" else "R"]} 통장에서 보내요.'}
     x = dict(f.get('extra') or {})
     if not x.get('fund_move'):
-        hit = next((m for m in open_moves(code) if m['from'] == frm and m['to'] == to
+        try:
+            moves = open_moves(code, strict=True)
+        except Exception as exc:
+            # 못 읽은 것을 '요청 없음'으로 보면 중복 검사가 꺼진다 — 같은 입금으로 이체 결재가 두 번 올라갈 수 있음
+            # (11-24 조용한 실패 점검 6번). 제출을 막고 다시 하게 한다.
+            logger.warning(f'[전자결재] 법인 간 이체 — 자금 이동 요청을 읽지 못해 제출을 막음 ({code}): {exc}')
+            return {'content': '자금 이동 요청 목록을 읽지 못했어요. 같은 입금으로 올린 결재가 있는지 확인할 수 없어서 '
+                               '막았어요. 잠시 뒤 다시 올려 주세요.'}
+        hit = next((m for m in moves if m['from'] == frm and m['to'] == to
                     and m['amount'] == int(f.get('amount') or 0)), None)
         if hit:
             x['fund_move'] = hit

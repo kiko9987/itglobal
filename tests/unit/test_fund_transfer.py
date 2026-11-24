@@ -173,7 +173,7 @@ def test_close_by_invoice_same_entity_only(monkeypatch):
     """그 단계 계산서를 돈이 들어온 법인(R) 이름으로 냈으면 이동 필요 없음 — 다른 법인·다른 단계는 그대로."""
     r = _pend(DEP_HANA)[0]                                      # 하나(R) 입금 → 프로젝트 G, 잔금
     closed = []
-    monkeypatch.setattr(ft, 'pending_requests', lambda force=False: [r])
+    monkeypatch.setattr(ft, 'pending_requests', lambda force=False, strict=False: [r])
     monkeypatch.setattr(ft, 'apply_no_move', lambda req, reason, checker, when=None: closed.append((reason, checker)))
     assert ft.close_by_invoice('G4125-YM', '잔금', 'G') == [] and not closed       # 글로벌 발행 = 옮겨야 함
     assert ft.close_by_invoice('G4125-YM', '계약금', 'R') == [] and not closed     # 다른 단계
@@ -202,7 +202,7 @@ def test_invoice_before_deposit_closed_by_recorded_issuer(monkeypatch):
     assert ft.invoice_issuer('G4125-YM', '잔금') == 'R' and ft.invoice_issuer('G4125-YM', '계약금') == ''
     r = _pend(DEP_HANA)[0]
     closed = []
-    monkeypatch.setattr(ft, 'pending_requests', lambda force=False: [r])
+    monkeypatch.setattr(ft, 'pending_requests', lambda force=False, strict=False: [r])
     monkeypatch.setattr(ft, 'apply_no_move', lambda req, reason, checker, when=None: closed.append(req['code']))
     assert ft.close_by_recorded_issuers() == [r] and closed == ['G4125-YM']
     ft.record_invoice_issuer('G4125-YM', '잔금', 'G')              # 글로벌로 (수정)발행 → 옮겨야 함
@@ -236,7 +236,7 @@ def test_reply_prompts_button_regardless_of_wording(monkeypatch):
     """경영지원 댓글이면 문구와 상관없이, 그 카드에 대기 요청이 있으면 본인에게만 [이동 없이 처리] 버튼."""
     import dashboard.blueprints.slack_bot as sb
     r = _pend(DEP_HANA)[0]
-    monkeypatch.setattr(ft, 'pending_requests', lambda force=False: [r])
+    monkeypatch.setattr(ft, 'pending_requests', lambda force=False, strict=False: [r])
     monkeypatch.setattr(sb.threading, 'Thread', _Now)
     c = _SlackC()
     ev = {'user': sb._SETTLEMENT_CHECKER_IDS[0], 'text': '그룹으로 전액 발행했어요', 'thread_ts': '1.0', 'ts': '2.0'}
@@ -257,7 +257,7 @@ def test_reply_prompts_button_regardless_of_wording(monkeypatch):
 def test_reply_without_pending_gets_old_nudge(monkeypatch):
     import dashboard.blueprints.slack_bot as sb
     import dashboard.utils.redis_client as rcm
-    monkeypatch.setattr(ft, 'pending_requests', lambda force=False: [])
+    monkeypatch.setattr(ft, 'pending_requests', lambda force=False, strict=False: [])
     monkeypatch.setattr(sb.threading, 'Thread', _Now)
     monkeypatch.setattr(rcm, 'get_redis_client', lambda: type('C', (), {'redis': type('R', (), {'set': lambda *a, **k: True})()})())
     c = _SlackC()
@@ -271,7 +271,7 @@ def test_no_move_button_records_once(monkeypatch):
     r = _pend(DEP_HANA)[0]
     state = {'pending': [r]}
     applied = []
-    monkeypatch.setattr(ft, 'pending_requests', lambda force=False: list(state['pending']))
+    monkeypatch.setattr(ft, 'pending_requests', lambda force=False, strict=False: list(state['pending']))
 
     def _apply(req, reason, checker, when=None):
         applied.append((req['code'], reason, checker))

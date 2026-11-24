@@ -579,23 +579,40 @@ def _blocks(text: str, month: str) -> list:
                                               'url': _page_url(month)}]}]
 
 
-def _dm(client, uid: str, text: str, month: str) -> None:
-    if not client or not uid:
-        return
+def _dm(client, uid: str, text: str, month: str) -> bool:
+    if not client:
+        return False
+    if not uid:
+        logger.warning(f'{_LOG} 슬랙 ID 가 없어 DM 을 못 보냄 ({month})')
+        return False
     try:
         ch = client.conversations_open(users=uid)['channel']['id']
         client.chat_postMessage(channel=ch, text=text, blocks=_blocks(text, month))
+        return True
     except Exception as e:
         logger.warning(f'{_LOG} DM 실패 ({uid}): {e}')
+        return False
 
 
-def _post(client, text: str) -> None:
+def _dm_some(client, uids, text: str, month: str, what: str) -> None:
+    """여러 사람 DM — 한 명도 못 받으면 ERROR 알림(11-24 조용한 실패 점검 5번: 결재 요청이 안 가도 아무도 몰랐음.
+    그룹웨어 알림 종에도 토요일 휴무는 없다)."""
+    uids = list(dict.fromkeys(u for u in (uids or []) if u is not None))
+    sent = sum(1 for u in uids if _dm(client, u, text, month))
+    if not sent:
+        logger.error(f'{_LOG} {what} 알림을 아무에게도 못 보냄 ({month}, 대상 {len(uids)}명) — 직접 알려 주세요',
+                     extra={'force_alert': True})
+
+
+def _post(client, text: str) -> bool:
     if not client:
-        return
+        return False
     try:
         client.chat_postMessage(channel=lv.announce_channel(), text=text)
+        return True
     except Exception as e:
-        logger.warning(f'{_LOG} #휴가_일정 공지 실패: {e}')
+        logger.error(f'{_LOG} #휴가_일정 공지 실패 — 채널에 직접 올려 주세요: {e}', extra={'force_alert': True})
+        return False
 
 
 def _client():
@@ -628,50 +645,49 @@ def notify(kind: str, month: str, actor: str, change: Optional[dict] = None, not
     def run():
         client = _client()
         if not client:
-            logger.info(f'{_LOG} 휴가 봇 토큰 없음 — 알림 건너뜀 ({kind} {month})')
+            logger.error(f'{_LOG} 휴가 봇 토큰이 없어 알림을 못 보냄 ({kind} {month}) — 직접 알려 주세요',
+                         extra={'force_alert': True})
             return
         t = _month_title(month)
         row = month_row(month)
         if kind == 'submit':
             text = (f'📅 *{t} 토요일 휴무표* 결재 요청이 왔어요. ({actor} 님이 올림)\n'
                     f'{schedule_text(month)}\n두 분 중 한 분이 승인하면 확정돼요.')
-            for uid in approver_ids():
-                _dm(client, uid, text, month)
+            _dm_some(client, approver_ids(), text, month, f'{t} 토요일 휴무표 결재 요청')
         elif kind in ('approve', 'return'):
             sub = _who_sid(row.get('submitted_by') or '')
             to = [u for u in dict.fromkeys(((sub,) if sub else ()) + coordinator_ids())]
             if kind == 'approve':
-                for uid in to:
-                    _dm(client, uid, f'✅ {t} 토요일 휴무표를 {actor} 님이 승인했어요. 이제 확정이에요.', month)
+                _dm_some(client, to, f'✅ {t} 토요일 휴무표를 {actor} 님이 승인했어요. 이제 확정이에요.', month,
+                         f'{t} 토요일 휴무표 승인')
                 _post(client, f'📅 {t} 토요일 휴무가 확정됐어요.\n{schedule_text(month)}')
                 bad = affected_leaves(month)
                 if bad:
                     lines = '\n'.join(f"• {b['name']} {b['what']}: {lv.fmt_days(b['saved'])} → {lv.fmt_days(b['now'])}"
                                       for b in bad)
-                    for uid in lv.manager_ids():
-                        _dm(client, uid, f'ℹ️ {t} 토요일 휴무표가 확정돼 휴가 일수가 달라지는 신청이 있어요. '
-                                         f'휴가 관리에서 일수를 고쳐 주세요.\n{lines}', month)
+                    _dm_some(client, lv.manager_ids(), f'ℹ️ {t} 토요일 휴무표가 확정돼 휴가 일수가 달라지는 신청이 있어요. '
+                                                       f'휴가 관리에서 일수를 고쳐 주세요.\n{lines}', month,
+                             f'{t} 휴가 일수 고칠 신청 {len(bad)}건')
             else:
-                for uid in to:
-                    _dm(client, uid, f'↩️ {t} 토요일 휴무표를 {actor} 님이 돌려보냈어요.\n사유: {note}\n'
-                                     '고쳐서 다시 올려 주세요.', month)
+                _dm_some(client, to, f'↩️ {t} 토요일 휴무표를 {actor} 님이 돌려보냈어요.\n사유: {note}\n'
+                                     '고쳐서 다시 올려 주세요.', month, f'{t} 토요일 휴무표 돌려보냄')
         elif kind == 'change_request' and change:
             text = (f"🔁 *{change['name']} 님 토요일 휴무 변경 신청* ({t})\n{change['what']}\n"
                     f"사유: {change.get('reason') or ''}\n두 분 중 한 분이 승인하면 바뀌어요.")
-            for uid in approver_ids():
-                _dm(client, uid, text, month)
+            _dm_some(client, approver_ids(), text, month, f"{change['name']} 님 토요일 휴무 변경 신청")
         elif kind in ('change_approve', 'change_reject') and change:
             who = change.get('slack_id') or _who_sid(change['name'])
             if kind == 'change_approve':
-                _dm(client, who, f"✅ 토요일 휴무 변경을 {actor} 님이 승인했어요. {change['what']}", month)
+                _dm_some(client, [who], f"✅ 토요일 휴무 변경을 {actor} 님이 승인했어요. {change['what']}", month,
+                         f"{change['name']} 님 토요일 휴무 변경 승인")
                 _post(client, f"🔁 토요일 휴무 변경: {change['name']} {change['what']}")
                 if affected_leaves(month):
-                    for uid in lv.manager_ids():
-                        _dm(client, uid, f"ℹ️ {change['name']} 님 토요일 휴무가 바뀌어 휴가 일수가 달라지는 신청이 있어요. "
-                                         '휴가 관리에서 확인해 주세요.', month)
+                    _dm_some(client, lv.manager_ids(), f"ℹ️ {change['name']} 님 토요일 휴무가 바뀌어 휴가 일수가 달라지는 신청이 있어요. "
+                                                       '휴가 관리에서 확인해 주세요.', month,
+                             f"{change['name']} 님 변경으로 휴가 일수 고칠 신청")
             else:
-                _dm(client, who, f"↩️ 토요일 휴무 변경 신청을 {actor} 님이 반려했어요. {change['what']}\n사유: {note}",
-                    month)
+                _dm_some(client, [who], f"↩️ 토요일 휴무 변경 신청을 {actor} 님이 반려했어요. {change['what']}\n사유: {note}",
+                         month, f"{change['name']} 님 토요일 휴무 변경 반려")
     _run_bg(lambda: _safe(run, kind, month))
 
 
@@ -679,4 +695,4 @@ def _safe(fn, kind: str, month: str) -> None:
     try:
         fn()
     except Exception as e:
-        logger.error(f'{_LOG} 알림 실패 ({kind} {month}): {e}', exc_info=True)
+        logger.error(f'{_LOG} 알림 실패 ({kind} {month}): {e}', exc_info=True, extra={'force_alert': True})

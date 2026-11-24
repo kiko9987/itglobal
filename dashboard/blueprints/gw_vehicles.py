@@ -69,6 +69,24 @@ def _leads() -> list:
     return [] if df is None else df.to_dict('records')
 
 
+class _LeadsUnavailable(Exception):
+    """리드 시트를 못 읽음 — 방문 일정은 빈 리드로 열거나 저장하면 안 된다."""
+
+
+_LEADS_DOWN_MSG = '리드 시트를 읽지 못했어요. 잠시 뒤 다시 해 주세요.'
+
+
+def _plan_leads() -> list:
+    """방문 일정(불러오기·저장·확정·당일 배정)용 리드. 못 읽으면 멈춘다(11-24 조용한 실패 점검 1번:
+    빈 리드로 저장하면 짜 둔 코스의 현장이 모두 빠진 채 덮어써졌음)."""
+    from dashboard.services.lead_service import load_leads_data
+    df = load_leads_data()
+    if df is None or df.empty:
+        logger.error('[방문일정] 리드 시트를 읽지 못해 방문 일정 작업을 멈춤')
+        raise _LeadsUnavailable()
+    return df.to_dict('records')
+
+
 _LEAD_DAY = re.compile(r'^(\d{4})[-./](\d{1,2})[-./](\d{1,2})')
 
 
@@ -296,7 +314,9 @@ def _fresh_leads() -> list:
 def api_plan_get():
     day = _day()
     try:
-        data = vp.load(day, _leads(), _me() if not _is_field() else '')
+        data = vp.load(day, _plan_leads(), _me() if not _is_field() else '')
+    except _LeadsUnavailable:
+        return jsonify({'success': False, 'message': _LEADS_DOWN_MSG}), 503
     except Exception as e:
         logger.error(f'[방문일정] 불러오기 실패: {e}', exc_info=True)
         return jsonify({'success': False, 'message': '불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요.'}), 500
@@ -316,7 +336,9 @@ def api_plan_urgent():
     day = (body.get('day') or '').strip()
     try:
         # 확인은 캐시된 리드로(빠르게) — 시트 기록·DM 은 뒤에서(11-23: 한 번에 11초쯤 걸렸음)
-        res = vp.urgent_assign(day, str(body.get('lead_no') or '').strip(), body.get('members') or [], _me(), _leads())
+        res = vp.urgent_assign(day, str(body.get('lead_no') or '').strip(), body.get('members') or [], _me(), _plan_leads())
+    except _LeadsUnavailable:
+        return jsonify({'success': False, 'message': _LEADS_DOWN_MSG}), 503
     except PermissionError as e:
         return jsonify({'success': False, 'message': str(e)}), 403
     except ValueError as e:
@@ -339,8 +361,11 @@ def api_plan_save():
         return jsonify({'success': False, 'message': '방문 일정은 일정 담당자만 고칠 수 있어요.'}), 403
     day, plan = _plan_body()
     try:
-        vp.save(day, plan, _me(), _leads())
-        data = vp.load(day, _leads(), _me())
+        leads = _plan_leads()
+        vp.save(day, plan, _me(), leads)
+        data = vp.load(day, leads, _me())
+    except _LeadsUnavailable:
+        return jsonify({'success': False, 'message': _LEADS_DOWN_MSG}), 503
     except ValueError as e:
         return jsonify({'success': False, 'message': str(e)}), 400
     except Exception as e:
@@ -357,7 +382,9 @@ def api_plan_confirm():
         return jsonify({'success': False, 'message': '방문 일정은 일정 담당자만 확정할 수 있어요.'}), 403
     day, plan = _plan_body()
     try:
-        st = vp.start_confirm(day, plan, _me(), _leads(), _fresh_leads)
+        st = vp.start_confirm(day, plan, _me(), _plan_leads(), _fresh_leads)
+    except _LeadsUnavailable:
+        return jsonify({'success': False, 'message': _LEADS_DOWN_MSG}), 503
     except ValueError as e:
         return jsonify({'success': False, 'message': str(e)}), 400
     except Exception as e:

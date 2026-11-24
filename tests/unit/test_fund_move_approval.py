@@ -15,7 +15,7 @@ REQ = {'code': 'R4292-SJ', 'row': 4293, 'stage': '계약금', 'col': 'V', 'amoun
 @pytest.fixture
 def pending(monkeypatch):
     reqs = [dict(REQ)]
-    monkeypatch.setattr(ft, 'pending_requests', lambda force=False: reqs)
+    monkeypatch.setattr(ft, 'pending_requests', lambda force=False, strict=False: reqs)
     monkeypatch.setattr(ft, 'invalidate', lambda: None)
     return reqs
 
@@ -160,3 +160,18 @@ def test_reminder_line_shows_approval_state(se, pending):
     assert ea.find_move_approval(ea.move_key(REQ))['id'] == row['id']
     se.apply_action('reject', row['id'], KIKO, '다시')
     assert ea.find_move_approval(ea.move_key(REQ)) is None             # 반려되면 다시 올릴 수 있다
+
+
+def test_manual_move_blocks_when_requests_unreadable(se, monkeypatch):
+    """자금 이동 요청을 못 읽으면 '요청 없음'으로 넘기지 않고 제출을 막는다(중복 검사가 꺼지지 않게, 11-24 점검 6번)."""
+    def boom(force=False, strict=False):
+        if strict:
+            raise RuntimeError('sheet 502')
+        return []
+    monkeypatch.setattr(ft, 'pending_requests', boom)
+    v = _new_view(project='R4292-SJ', partner='(주)아이티글로벌그룹', amount='3,102,000', grn='G',
+                  payee_name='(주)아이티글로벌그룹', bank='하나은행', account='255-910014-31304')
+    v['state']['values']['cost'] = {ea.A_COST: {'selected_option': {'value': ea.COST_MOVE}}}
+    v['id'] = 'V9'
+    f, errs = se.validate_new_submit(v)
+    assert '읽지 못했어요' in errs.get('content', '')

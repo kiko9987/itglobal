@@ -2,6 +2,17 @@
 (function () {
   'use strict';
 
+  // 로그인이 끝나 로그인 화면(200 HTML)으로 돌려보내졌거나 401 이면 멈춘다 — 예전엔 그 화면을 {} 로 읽어
+  // 처리가 '된' 것처럼 보였음(11-24 조용한 실패 점검 4번, 결재함 gw-approval.js 와 같은 판정)
+  var SESSION_ENDED = '로그인이 끝났어요. 새로 고친 뒤 다시 해 주세요.';
+  function jsonOrEnd(r) {
+    var ct = r.headers.get('content-type') || '';
+    if (r.status === 401 || r.redirected || (r.ok && ct.indexOf('application/json') === -1)) {
+      return Promise.reject(new Error(SESSION_ENDED));
+    }
+    return r.json().catch(function () { return {}; });
+  }
+
   var WD = ['일', '월', '화', '수', '목', '금', '토'];
 
   function esc(v) {
@@ -18,7 +29,7 @@
 
   function api(url) {
     return fetch(url, { credentials: 'same-origin' }).then(function (r) {
-      return r.json().catch(function () { return {}; }).then(function (j) {
+      return jsonOrEnd(r).then(function (j) {
         if (!r.ok || j.success === false) throw new Error(j.message || ('불러오지 못했습니다 (' + r.status + ')'));
         return j;
       });

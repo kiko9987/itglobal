@@ -434,3 +434,30 @@ def test_delegate_rules_half_day_requester_and_env(db, monkeypatch):
     monkeypatch.setenv('LEAVE_DELEGATES', f'{JW}:{MW}')
     r2 = lv.create('박민우', MW, MW, '박민우', lv.ANNUAL, '', date(2026, 11, 13), date(2026, 11, 13))
     assert lv.actors(r2, date(2026, 11, 10)) == [JW]                      # 신청자 본인은 대결자가 될 수 없음
+
+
+def test_approver_card_retries_then_alerts(db, monkeypatch, caplog):
+    """승인 카드는 버튼이 슬랙에만 있어 못 보내면 신청이 멈춘다 — 두 번 더 해 보고 그래도 안 되면 ERROR(11-24 점검 2번)."""
+    import logging
+    from dashboard.blueprints import slack_leave as sl
+    monkeypatch.setattr(sl, '_CARD_RETRY_WAIT', (0, 0))
+    calls = []
+
+    class Broken:
+        def conversations_open(self, users):
+            calls.append(users)
+            raise RuntimeError('slack down')
+    row = {'id': 1, 'name': '시험'}
+    with caplog.at_level(logging.WARNING):
+        assert sl._send_card(Broken(), row, 'UJW', 'approver') is False
+    assert len(calls) == 3
+    assert any(r.levelno == logging.ERROR and '승인 카드를 못 보냄' in r.getMessage() for r in caplog.records)
+    calls.clear()
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        assert sl._send_card(Broken(), row, 'UMW', 'requester') is False
+    assert len(calls) == 1 and not any(r.levelno == logging.ERROR for r in caplog.records)
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        assert sl._send_card(None, row, 'UJW', 'approver') is False
+    assert any(r.levelno == logging.ERROR for r in caplog.records)

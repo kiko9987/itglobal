@@ -411,6 +411,7 @@ def test_plan_routes_permission(db, monkeypatch):
     monkeypatch.setattr(gw, 'can_use', lambda e: True)
     monkeypatch.setattr(gw, 'DEV_PREVIEW_USERS', ())
     monkeypatch.setattr(bp, '_leads', lambda: LEADS)
+    monkeypatch.setattr(bp, '_plan_leads', lambda: LEADS)
     monkeypatch.setattr(bp, '_fresh_leads', lambda: LEADS)
     monkeypatch.setattr(vp.threading, 'Thread', _NowThread)
     monkeypatch.setattr(vas, 'commit_plan', lambda parsed, target_date=None: {'ok': True, 'dm': {}})
@@ -469,6 +470,7 @@ def test_admin_only_open(db, monkeypatch):
     monkeypatch.setattr(gw, 'DEV_PREVIEW_USERS', ('boss@example.com',))
     monkeypatch.setattr(gw, 'VISIT_PLAN_ADMIN_ONLY', True)
     monkeypatch.setattr(bp, '_leads', lambda: LEADS)
+    monkeypatch.setattr(bp, '_plan_leads', lambda: LEADS)
     monkeypatch.setattr(bp, 'render_template', lambda name, **k: name)
     monkeypatch.setattr(hr_bp, 'render_template', lambda name, **k: name)
     monkeypatch.setattr('dashboard.services.visit_assignment_sync.PLANNER_EMAILS', ('p@example.com',))
@@ -634,3 +636,36 @@ def test_visit_tabs_only_when_both_open(db, monkeypatch):
             from flask import session
             session['user'] = {'email': email, 'permission_level': level}
             assert bp._vtabs() == want, email
+
+
+def test_plan_save_stops_when_leads_unreadable(db, monkeypatch):
+    """리드 시트를 못 읽으면 저장·불러오기·확정을 멈춘다 — 빈 리드로 저장하면 짜 둔 코스 현장이 모두 지워졌음
+    (11-24 조용한 실패 점검 1번)."""
+    import dashboard.auth as auth
+    from flask import Flask
+    from dashboard.blueprints import gw_vehicles as bp
+    monkeypatch.setattr(auth, '_validate_session', lambda require_admin=False: None)
+    monkeypatch.setattr(gw, 'can_use', lambda e: True)
+    monkeypatch.setattr(gw, 'DEV_PREVIEW_USERS', ())
+    monkeypatch.setattr(bp, '_leads', lambda: LEADS)
+    monkeypatch.setattr(bp, '_plan_leads', lambda: LEADS)
+    monkeypatch.setattr('dashboard.services.visit_assignment_sync.PLANNER_EMAILS', ('p@example.com',))
+    app = Flask(__name__)
+    app.secret_key = 'x'
+    app.register_blueprint(bp.gw_vehicles_bp)
+    plan = {'courses': [{'members': ['TH'], 'leads': ['L-3'], 'memo': ''}], 'online': [], 'online_shared': False}
+    with app.test_client() as cl:
+        with cl.session_transaction() as s:
+            s['user'] = {'email': 'p@example.com', 'permission_level': 'user'}
+        assert cl.post('/api/vehicles/plan', json={'day': DAY, 'plan': plan}).get_json()['success']
+
+        def down():
+            raise bp._LeadsUnavailable()
+        monkeypatch.setattr(bp, '_plan_leads', down)
+        monkeypatch.setattr(bp, '_leads', lambda: [])
+        for r in (cl.post('/api/vehicles/plan', json={'day': DAY, 'plan': plan}),
+                  cl.get(f'/api/vehicles/plan?day={DAY}'),
+                  cl.post('/api/vehicles/plan/confirm', json={'day': DAY, 'plan': plan})):
+            assert r.status_code == 503 and '리드 시트' in r.get_json()['message']
+    saved = vp.load(DAY, LEADS)['plan']
+    assert [c['leads'] for c in saved['courses']] == [['L-3']]          # 짜 둔 코스 그대로

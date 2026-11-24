@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import threading
+import time
 from datetime import date
 from typing import Optional
 
@@ -195,14 +196,39 @@ def _render(row: dict, role: str):
     return f"휴가 신청 — {row['name']} {lv.period_text(row, False)}", blocks
 
 
-def _send_card(client, row: dict, uid: str, role: str) -> None:
-    try:
-        ch = client.conversations_open(users=uid)['channel']['id']
-        text, blocks = _render(row, role)
-        r = client.chat_postMessage(channel=ch, text=text, blocks=blocks)
-        lv.add_dm_ref(row['id'], ch, r['ts'], role, uid)
-    except Exception as exc:
-        logger.warning(f'{_LOG} DM 실패 (#{row["id"]} → {uid}, {role}): {exc}')
+_CARD_RETRY_WAIT = (2, 5)      # 승인 카드 다시 보내기 전 기다리는 초(뒤에서 도는 스레드라 화면은 안 기다림)
+
+
+def _send_card(client, row: dict, uid: str, role: str) -> bool:
+    """카드 DM. 승인 카드는 버튼이 슬랙에만 있어서 못 보내면 신청이 '승인 대기'로 멈춘다 —
+    잠깐 뒤 두 번 더 해 보고, 그래도 안 되면 ERROR 알림(11-24 조용한 실패 점검 2번: WARNING 한 줄뿐이었음)."""
+    if client is None:
+        msg = f'{_LOG} 휴가 봇 토큰이 없어 카드를 못 보냄 (#{row["id"]} → {uid}, {role})'
+        if role == 'approver':
+            logger.error(msg + ' — 승인자에게 직접 알려 주세요', extra={'force_alert': True})
+        else:
+            logger.warning(msg)
+        return False
+    tries = 1 + (len(_CARD_RETRY_WAIT) if role == 'approver' else 0)
+    last = None
+    for i in range(tries):
+        if i:
+            time.sleep(_CARD_RETRY_WAIT[i - 1])
+        try:
+            ch = client.conversations_open(users=uid)['channel']['id']
+            text, blocks = _render(row, role)
+            r = client.chat_postMessage(channel=ch, text=text, blocks=blocks)
+            lv.add_dm_ref(row['id'], ch, r['ts'], role, uid)
+            return True
+        except Exception as exc:
+            last = exc
+    if role == 'approver':
+        logger.error(f'{_LOG} 승인 카드를 못 보냄 (#{row["id"]} {row.get("name")} → {uid}, {tries}번 시도): {last} '
+                     '— 신청은 승인 대기로 저장됨. 승인자에게 직접 알려 주세요(승인 버튼은 슬랙 카드에만 있음)',
+                     extra={'force_alert': True})
+    else:
+        logger.warning(f'{_LOG} DM 실패 (#{row["id"]} → {uid}, {role}): {last}')
+    return False
 
 
 def _refresh(client, row: dict) -> None:
@@ -853,6 +879,11 @@ def promo_notify(kind: str, payload) -> None:
     """leave_promo.daily·그룹웨어에서 부르는 슬랙 알림. kind: notice·remind_plan·designated·planned·managers."""
     client = _client()
     if not client:
+        if kind in ('notice', 'designated'):      # 법정 촉진 통보 — 안 가면 알아야 한다(11-24 조용한 실패 점검 7번)
+            rec = payload or {}
+            what = '촉구' if kind == 'notice' else '사용 시기 지정 통보'
+            logger.error(f"{_LOG} 휴가 봇 토큰이 없어 {what} DM 을 못 보냄 — {rec.get('name')} (#{rec.get('id')}). "
+                         '본인에게 직접 전해 주세요', extra={'force_alert': True})
         return
     from dashboard.services import leave_promo as lp
     if kind == 'notice':
@@ -867,9 +898,12 @@ def promo_notify(kind: str, payload) -> None:
                 '그룹웨어 [내 휴가]에서 [사용 계획 내기]를 눌러 쓸 날짜를 알려 주세요.')
     elif kind == 'designated':
         rec = payload
-        _dm_blocks(client, rec.get('slack_id') or '', '📮 연차 사용 시기 지정 통보',
-                   [{'type': 'section', 'text': {'type': 'mrkdwn', 'text':
-                     '📮 *연차 사용 시기 지정 통보* (근로기준법 제61조)\n' + lp.designate_text(rec)}}])
+        if not _dm_blocks(client, rec.get('slack_id') or '', '📮 연차 사용 시기 지정 통보',
+                          [{'type': 'section', 'text': {'type': 'mrkdwn', 'text':
+                            '📮 *연차 사용 시기 지정 통보* (근로기준법 제61조)\n' + lp.designate_text(rec)}}]):
+            # 촉구(notice)와 같게 — 기록은 '지정함'인데 통보가 안 갔으면 알아야 한다(11-24 조용한 실패 점검 7번)
+            logger.error(f"{_LOG} 사용 시기 지정 통보 DM 을 못 보냄 — {rec['name']} (#{rec['id']}). "
+                         '본인에게 직접 전해 주세요(그룹웨어 내 휴가에는 보여요)', extra={'force_alert': True})
     elif kind == 'planned':
         rec = payload
         dates = ', '.join(lp._when(d) for d in rec.get('plan_dates') or [])

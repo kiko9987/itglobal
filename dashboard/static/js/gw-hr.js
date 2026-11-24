@@ -3,6 +3,17 @@
 (function () {
   'use strict';
 
+  // 로그인이 끝나 로그인 화면(200 HTML)으로 돌려보내졌거나 401 이면 멈춘다 — 예전엔 그 화면을 {} 로 읽어
+  // 처리가 '된' 것처럼 보였음(11-24 조용한 실패 점검 4번, 결재함 gw-approval.js 와 같은 판정)
+  var SESSION_ENDED = '로그인이 끝났어요. 새로 고친 뒤 다시 해 주세요.';
+  function jsonOrEnd(r) {
+    var ct = r.headers.get('content-type') || '';
+    if (r.status === 401 || r.redirected || (r.ok && ct.indexOf('application/json') === -1)) {
+      return Promise.reject(new Error(SESSION_ENDED));
+    }
+    return r.json().catch(function () { return {}; });
+  }
+
   var CFG = window.GW_HR || {};
   // 로그인 방식(인사카드 access 칸) — 카드와 수정 창이 같은 말을 쓰게 여기 한곳에
   var ACCESS_LABEL = {
@@ -29,7 +40,7 @@
       init.body = JSON.stringify(opts.body);
     }
     return fetch(url, init).then(function (r) {
-      return r.json().catch(function () { return {}; }).then(function (j) {
+      return jsonOrEnd(r).then(function (j) {
         if (!r.ok || j.success === false) {
           throw new Error(j.message || ('요청을 처리하지 못했습니다 (' + r.status + ')'));
         }
@@ -437,7 +448,7 @@
         sb.disabled = true; err.textContent = '';
         var url = self ? '/api/hr/me/documents' : '/api/hr/people/' + p.id + '/documents';
         fetch(url, { method: 'POST', body: new FormData(f), credentials: 'same-origin' })
-          .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok || j.success === false) throw new Error(j.message || '올리지 못했어요.'); return j; }); })
+          .then(function (r) { return jsonOrEnd(r).then(function (j) { if (!r.ok || j.success === false) throw new Error(j.message || '올리지 못했어요.'); return j; }); })
           .then(function () {
             return loadCard(p.id).then(function () {
               var sr = document.getElementById('hrCardSr');
@@ -504,7 +515,8 @@
         body: JSON.stringify({ company: company, ctype: document.getElementById('hrCertType').value, purpose: purpose,
                                ssn: document.getElementById('hrCertSsn').checked, group_date: !!(g && g.checked) })
       }).then(function (r) {
-        if (!r.ok) return r.json().catch(function () { return {}; }).then(function (j) { throw new Error(j.message || ('발급하지 못했어요 (' + r.status + ')')); });
+        if (!r.ok) return jsonOrEnd(r).then(function (j) { throw new Error(j.message || ('발급하지 못했어요 (' + r.status + ')')); });
+        if (r.redirected) throw new Error(SESSION_ENDED);   // 로그인 화면을 PDF 로 받지 않게
         var no = r.headers.get('X-Doc-No') || '';
         var cd = r.headers.get('Content-Disposition') || '';
         var m = /filename\*=UTF-8''([^;]+)/i.exec(cd);

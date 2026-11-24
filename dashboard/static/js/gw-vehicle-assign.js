@@ -865,10 +865,13 @@
       .then(function (j) {
         S.dirty = false;
         var t = j.changed.length ? '저장했어요.' : '바뀐 내용이 없어요.';
+        var missed = j.failed || [];
         if (j.notified) t += ' ' + j.notified + '명에게 슬랙으로 알렸어요.';
         else if (notify && j.dm_off) t += ' 차량 DM 은 꺼 두어서 슬랙으로는 알리지 않았어요.';
-        else if (notify && j.changed.length) t += ' 슬랙으로 알릴 사람이 없었어요.';
-        return load(S.day).then(function () { msg(t, 'ok', true); });
+        else if (notify && j.changed.length && !missed.length) t += ' 슬랙으로 알릴 사람이 없었어요.';
+        // 못 받은 사람은 이름으로(11-24) — 이미 확정이라 다시 눌러도 안 가니 직접 알려야 한다
+        if (missed.length) t += ' ' + missed.join(', ') + ' 님은 슬랙 알림을 받지 못했어요. 직접 알려 주세요.';
+        return load(S.day).then(function () { msg(t, missed.length ? 'err' : 'ok', true); });
       }).catch(function (e) { msg(e.message, 'err', true); })
       .then(function () { btns.forEach(function (b) { b.disabled = false; }); setDirty(S.dirty); });
   }

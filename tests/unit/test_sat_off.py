@@ -266,3 +266,28 @@ def test_menu_visibility(slack, monkeypatch):
 
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
+
+
+def test_dm_some_alerts_when_nobody_received(caplog):
+    """결재 요청 DM 이 한 명에게도 안 가면 ERROR(알림 종에도 없어 아무도 모르던 것, 11-24 조용한 실패 점검 5번)."""
+    import logging
+
+    class Broken:
+        def conversations_open(self, users):
+            raise RuntimeError('slack down')
+    with caplog.at_level(logging.WARNING):
+        so._dm_some(Broken(), ['U1', 'U2'], 'x', DEC, '결재 요청')
+    assert any(r.levelno == logging.ERROR and '아무에게도 못 보냄' in r.getMessage() for r in caplog.records)
+    caplog.clear()
+
+    class Half:
+        def conversations_open(self, users):
+            if users == 'U1':
+                raise RuntimeError('no')
+            return {'channel': {'id': 'D' + users}}
+
+        def chat_postMessage(self, **k):
+            return {'ok': True}
+    with caplog.at_level(logging.WARNING):
+        so._dm_some(Half(), ['U1', 'U2'], 'x', DEC, '결재 요청')
+    assert not any(r.levelno == logging.ERROR for r in caplog.records)

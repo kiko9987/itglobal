@@ -501,3 +501,15 @@ def test_day_leads_prefilter():
         ('e', '2026-11-24'), ('f', '2026-11-25~20'), ('g', ''), ('h', None), ('i', '2026.11.25')]]
     assert [x['리드 No'] for x in _day_leads(L, '2026-11-25')] == ['a', 'b', 'c', 'f', 'i']
     assert [x['리드 No'] for x in _day_leads(L, '2026-12-01')] == ['d']
+
+
+def test_confirm_reports_people_who_missed_dm(db, monkeypatch):
+    """확정 DM 을 못 받은 사람은 이름으로 돌려준다 — 예전엔 '알릴 사람이 없었어요'로 보였음(11-24 조용한 실패 점검 3번)."""
+    sent = db
+    monkeypatch.setattr(va, '_dm', lambda sid, text: (sid != 'UTH') and (sent.append((sid, text)) or True))
+    rows = [{'plate': '237허5358', 'people': ['TH', 'JSH']}, {'plate': '03모8021', 'people': ['JW', 'LJW']}]
+    res = va.save_day('2026-11-21', rows, ASSIGNER, confirm=True)
+    assert res['notified'] == 3 and len(res['failed']) == 1 and res['confirmed']
+    monkeypatch.setattr(va, '_dm', lambda sid, text: False)
+    res = va.save_day('2026-11-22', rows, ASSIGNER, confirm=True)
+    assert res['notified'] == 0 and len(res['failed']) == 4

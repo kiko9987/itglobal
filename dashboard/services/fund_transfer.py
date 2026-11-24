@@ -153,8 +153,9 @@ def _scan_sheet() -> List[Dict]:
     return out
 
 
-def pending_requests(force: bool = False) -> List[Dict]:
-    """대기 중인 자금 이동 요청 전체 (메모 스캔, Redis 색인 5분)."""
+def pending_requests(force: bool = False, strict: bool = False) -> List[Dict]:
+    """대기 중인 자금 이동 요청 전체 (메모 스캔, Redis 색인 5분).
+    strict=True 면 스캔 실패를 예외로 — '요청 없음'과 구분해야 하는 곳(결재 중복 검사, 11-24 조용한 실패 점검 6번)."""
     rc = None
     try:
         from dashboard.utils.redis_client import get_redis_client
@@ -169,6 +170,8 @@ def pending_requests(force: bool = False) -> List[Dict]:
         reqs = _scan_sheet()
     except Exception as exc:
         logger.warning(f'[FUND_MOVE] 대기 요청 스캔 실패: {exc}')
+        if strict:
+            raise
         return []
     if rc is not None:
         try:
