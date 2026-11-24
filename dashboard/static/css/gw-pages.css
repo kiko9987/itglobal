@@ -3069,6 +3069,7 @@ html:has(#bdPage) {
 .gw-so-chip.fulloff { background: #ede9fe; color: #4c1d95; font-weight: 600; }   /* 전체 휴무(11-25) */
 .gw-so-admin-note { color: #6d28d9; }   /* 관리자에게만 보이는 기능 안내(11-25) */
 .gw-so-admin-note .fa-lock { font-size: 0.85em; }
+#soPickTitle:focus, #soPickTitle:focus-visible { outline: none; }   /* 창 열 때 초점만 둠(테두리 없이, 11-25) */
 @media (max-width: 767.98px) {
   .gw-so-plus { display: none; }
   .gw-so-sat .gw-so-chip { white-space: normal; word-break: keep-all; }

@@ -512,7 +512,10 @@
         '<label class="form-check-label" for="soPk' + i + '">' + esc(m.name) + ' <small class="text-muted">' + (counts[m.name] || 0) + '번</small></label></div>';
     }).join('');
     document.getElementById('soPickErr').textContent = '';
-    pickModal = showModal(pickEl);
+    // 열 때 초점을 제목에 — 첫 체크박스로 가면 초점 테두리 때문에 첫 사람이 고른 것처럼 보였다(11-25 부장님)
+    var pickTitle = document.getElementById('soPickTitle');
+    pickTitle.tabIndex = -1;
+    pickModal = showModal(pickEl, pickTitle);
   }
   document.getElementById('soPickForm').addEventListener('submit', function (ev) {
     ev.preventDefault();
