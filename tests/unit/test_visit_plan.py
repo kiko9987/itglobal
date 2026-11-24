@@ -501,7 +501,7 @@ def _confirm(monkeypatch, plan, notices=None):
     monkeypatch.setattr(va, 'request_assignment', lambda day=None, by='': 0)
     monkeypatch.setattr(vp, '_staff', lambda: [dict(p) for p in STAFF])
     if notices is not None:
-        monkeypatch.setattr(va, 'notify_plan_changed', lambda day, text: notices.append((day, text)) or 1)
+        monkeypatch.setattr(va, 'notify_plan_changed', lambda day, text, by='': notices.append((day, text)) or 1)
     vp.start_confirm(DAY, plan, 'p@example.com', LEADS, lambda: LEADS)
     assert vp.run_state(DAY)['state'] == 'done'
 

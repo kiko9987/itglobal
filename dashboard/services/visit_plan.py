@@ -704,7 +704,7 @@ def _run_confirm(day: str, plan: Dict, by: str, fresh_leads: Callable[[], List[d
     try:        # 다시 확정해서 코스 사람이 바뀌었으면 — 차량 배정을 이미 해 둔 날만 배정 담당에게(11-23 부장님)
         change = plan_change_text(prev, plan, {p['code']: p['name'] for p in _staff()})
         if change:
-            summary['car_notice'] = va.notify_plan_changed(day, change)
+            summary['car_notice'] = va.notify_plan_changed(day, change, by)
     except Exception as e:
         logger.warning(f'[방문일정] 차량 배정 변경 알림 실패: {e}', exc_info=True)
     try:

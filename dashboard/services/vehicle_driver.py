@@ -177,11 +177,14 @@ def _cars_to_ask_all(day: str) -> List[Tuple[str, List[str]]]:
 
 
 # ── 보내기·받기 ──────────────────────────────────────────────────────────
+# 저녁 운전자 묻기 DM 스위치 — 차량 배정을 라이브로 연 11-24 에도 꺼 둔다(운행일지·운전자 기록 화면이 아직 개발 중).
+DRIVER_ASK_ON: bool = False
+
 def send_asks(day: Optional[str] = None) -> Dict:
     """그날 저녁 — 확정한 날, 탄 사람이 둘 이상이고 아직 답이 없는 차마다 탄 사람 모두에게 DM.
     한 명뿐인 차는 묻지 않고 그 사람으로 적는다. 이미 보낸 사람에게는 다시 안 보낸다."""
     from dashboard.services import vehicle_assign as va
-    if not va.CAR_DM_ON:          # 차량 DM 꺼 둠(11-23 부장님)
+    if not (va.CAR_DM_ON and DRIVER_ASK_ON):     # 차량 DM 과 따로 — 운행일지가 아직 개발 중(11-24)
         return {'skipped': 'car_dm_off'}
     day = day or date.today().isoformat()
     who = va._who_map()

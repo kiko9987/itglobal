@@ -95,10 +95,10 @@ _DDL = [
     )''',
 ]
 _table_ready = False
-# 차량 DM 스위치(11-23 부장님: "차량은 더 다듬어야 하니 차량 배정 DM 은 보내지 마") — 끄면 아래가 모두 안 나간다.
-#   확정한 사람들에게 가는 차량 DM·바뀐 사람 DM, 배정 담당 요청·방문 일정 변경 DM, 저녁 운전자 묻기(vehicle_driver.send_asks).
-#   배정 저장·확정 기록은 그대로 된다. 다듬은 뒤 True 로.
-CAR_DM_ON: bool = False
+# 차량 DM 스위치 — 11-23 꺼 둠("차량은 더 다듬어야 하니"), 11-24 켬(부장님: 오늘부터 방문 일정 → 차량 배정 라이브).
+#   켜면: 확정한 사람들에게 가는 차량 DM·바뀐 사람 DM, 배정 담당 요청·방문 일정 변경 DM.
+#   저녁 운전자 묻기는 따로 vehicle_driver.DRIVER_ASK_ON(운행일지가 아직 개발 중이라 꺼 둠).
+CAR_DM_ON: bool = True
 
 # 빈승정 대리 + JW(11-24 부장님 — 방문 일정을 확정하고 바로 차량 배정 탭에서 차를 넣음). 인사 관리자는 따로 늘 가능
 _DEFAULT_ASSIGNERS = ('sj@itg-aircon.com', 'jw@itg-aircon.com')
@@ -600,7 +600,7 @@ def car_rows(day: str) -> Dict[str, Dict]:
 
 def _car_text(plate: str, cars: Dict[str, Dict]) -> str:
     if plate == OWN:
-        return '*본인 차량 (자차)* 로 이동'
+        return '*본인 차량*으로 이동'      # 화면 꼬리표와 같은 말(11-24)
     c = cars.get(plate) or {}
     return f"*{c.get('label') or plate}* ({plate})"
 
@@ -715,12 +715,9 @@ def request_assignment(day: Optional[str] = None, by: str = '') -> int:
     info = _day_info(day) or {}
     if info.get('confirmed_at') or info.get('requested_at'):
         return 0
-    from dashboard.services import groupware as gw
     from dashboard.services import hr
     n = 0
-    for email in assigners():
-        if not gw.dev_preview_ok(email):     # 화면이 아직 개발 중이라 못 여는 사람에게는 링크를 보내지 않음(11-21)
-            continue
+    for email in assigners():           # 차량 배정 화면은 배정 담당에게 열렸다(11-24) — 개발 중 명단 거르기 없앰
         p = hr.find_by_email(email)
         sid = (p or {}).get('slack_id') or ''
         if _dm(sid, f":car: 일정확정이 끝났어요. {day_label(day)} 차량 배정을 해 주세요.\n<{_page_url(day)}|차량 배정 열기>"):
@@ -739,18 +736,19 @@ def last_saved_at(day: str) -> str:
     return (r[0] if r and r[0] else '') or ''
 
 
-def notify_plan_changed(day: str, change: str) -> int:
+def notify_plan_changed(day: str, change: str, by: str = '') -> int:
     """방문 일정을 다시 확정해 코스 사람이 바뀜(11-23 부장님) — 차량 배정을 이미 저장한 날만 배정 담당에게 DM.
-    아직 배정이 없으면 보내지 않는다(화면을 열면 바뀐 코스대로 초안이 잡힘)."""
+    아직 배정이 없으면 보내지 않는다(화면을 열면 바뀐 코스대로 초안이 잡힘).
+    by = 다시 확정한 사람 — 그 사람은 확정 뒤 바로 차량 배정 탭으로 넘어오므로 빼고 보낸다(11-24)."""
     if not CAR_DM_ON:
         return 0
     if not any(r['people'] or r.get('pm') for r in _day_rows(day).values()):
         return 0
-    from dashboard.services import groupware as gw
     from dashboard.services import hr
     n = 0
-    for email in assigners():
-        if not gw.dev_preview_ok(email):     # 화면을 못 여는 사람에게는 보내지 않음(request_assignment 와 같음)
+    me = (by or '').strip().lower()
+    for email in assigners():           # 배정 담당은 화면을 열 수 있다(11-24, request_assignment 와 같음)
+        if email == me:
             continue
         sid = ((hr.find_by_email(email) or {}).get('slack_id')) or ''
         if _dm(sid, f":arrows_counterclockwise: {day_label(day)} 방문 일정이 다시 확정됐어요 — {change}.\n"

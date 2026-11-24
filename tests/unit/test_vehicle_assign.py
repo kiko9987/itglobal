@@ -292,10 +292,8 @@ def test_dev_preview_only_kiko(db, monkeypatch):
             s['user'] = {'email': kiko, 'permission_level': 'super_admin'}
         assert cl.get('/vehicles/assign').get_data(as_text=True) == 'gw/vehicle_assign.html'
         assert cl.get('/api/vehicles/assign?day=2026-11-21').get_json()['success']
-    # 배정 담당자(SJ)가 못 여는 동안은 '차량 배정해 주세요' DM 도 보내지 않는다
+    # 배정 담당은 차량 배정 화면을 열 수 있으니(11-24) 개발 중 명단과 상관없이 '차량 배정해 주세요' DM 을 받는다
     monkeypatch.setattr(hr, 'find_by_email', lambda e: {'slack_id': 'USJ'})
-    assert va.request_assignment('2026-11-21') == 0 and db == []
-    monkeypatch.setattr(gw, 'DEV_PREVIEW_USERS', ())                                  # 모두에게 열면 다시 보냄
     assert va.request_assignment('2026-11-21') == 1
 
 
@@ -393,6 +391,13 @@ def test_plan_changed_dm_only_when_cars_saved(db, monkeypatch):
     assert va.last_saved_at('2026-11-24')
     assert va.notify_plan_changed('2026-11-24', '추가 서준') == 1
     assert sent[0][0] == 'USJ' and '추가 서준' in sent[0][1] and '/vehicles/assign?day=2026-11-24' in sent[0][1]
+    sent.clear()      # 다시 확정한 사람이 배정 담당이면 본인에게는 안 보냄(바로 차량 배정 탭으로, 11-24)
+    assert va.notify_plan_changed('2026-11-24', '추가 서준', ASSIGNER.upper()) == 0 and not sent
+
+
+def test_own_car_dm_text():
+    """본인 차량 DM 은 화면 꼬리표와 같은 말(11-24)."""
+    assert va._car_text(va.OWN, {}) == '*본인 차량*으로 이동'
 
 
 def test_off_person_blocks_confirm(db, monkeypatch):
@@ -441,7 +446,7 @@ def test_own_car_slot(db):
     assert res['confirmed'] and set(res['changed']) == {'03모8021', va.OWN}
     assert _rows(va.day_view('2026-11-24'))[va.OWN] == ['JH', 'YM']
     own_dm = [t for sid, t in sent if sid == 'UJH'][0]
-    assert '자차' in own_dm and '함께' not in own_dm and '최마루' not in own_dm.split('\n', 1)[-1]
+    assert '본인 차량' in own_dm and '함께' not in own_dm and '최마루' not in own_dm.split('\n', 1)[-1]
     assert va.OWN not in va.car_rows('2026-11-24') and '03모8021' in va.car_rows('2026-11-24')
     assert all(k[1] != va.OWN for k in va.assigned_halves('2026-11-24', '2026-11-24'))
     assert all(p != va.OWN for p, _ in vd._cars_to_ask_all('2026-11-24'))
