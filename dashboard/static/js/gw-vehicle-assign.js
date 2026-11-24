@@ -259,10 +259,7 @@
       var own = one.length === 1 ? ownCars()[one[0]] : null;
       return '<span class="gw-vc-slot own"><i class="fas fa-car-side" aria-hidden="true"></i> ' + esc(own ? own.label : '각자 고정 차') + '</span>';
     }
-    if (cur && isOwn(carOf(cur))) {     // 차 없는 코스에 메모를 적은 것(안에선 자차 칸) — 경고 대신 '본인 차량'(11-24 부장님)
-      return '<span class="gw-vc-slot own"><i class="fas fa-user" aria-hidden="true"></i> 본인 차량' + x('본인 차량') + '</span>';
-    }
-    if (cur) {
+    if (cur) {     // 회사 차든 [본인 차량으로 이동] 체크든 같은 모양(11-24 부장님)
       var c = carOf(cur);
       return '<span class="gw-vc-slot on"><i class="fas fa-car-side" aria-hidden="true"></i> ' + esc(c.label) + x(c.label) + '</span>';
     }
@@ -350,7 +347,7 @@
     var head = '<div class="gw-vp-chead"><strong>' + esc(g.label) + '</strong>' + courseSlot(g) +
       '<div class="gw-va-people">' + (g.members.map(function (m) { return pchip(m, false); }).join('') ||
         '<span class="gw-va-none">사람 없음</span>') + '</div>' + memoBtn(g) +
-      (count ? '<span class="gw-vp-ccount">' + esc(count) + '</span>' : '') + '</div>';
+      (count ? '<span class="gw-vp-ccount">' + esc(count) + '</span>' : '') + ownCheck(g) + '</div>';
     var memo = g.memo ? '<p class="gw-vp-memotext"><i class="fas fa-note-sticky" aria-hidden="true"></i> ' + esc(g.memo) + '</p>' : '';
     var sites = g.sites.length
       ? '<details class="gw-vc-sites"><summary><i class="fas fa-chevron-right gw-va-cfold" aria-hidden="true"></i>' +
@@ -361,14 +358,20 @@
       '" data-ccourse="' + esc(g.key) + '"' + (pk ? ' tabindex="0" role="button" aria-label="' + esc(g.label + '에 ' + pk.label + ' 넣기') + '"' : '') +
       '>' + head + carMemo(g) + hint + memo + sites + '</section>';
   }
-  // 코스 메모 한 줄(11-24 부장님) — 자차로 가는 사람 같은 드문 예외만 적는다. 그 코스 차의 메모로 저장(배정 DM 에 같이 감)
-  //   차 없는 코스(자차로 가는 한 사람 등)도 메모를 적으면 그 코스는 '본인 차량'으로 보고 경고에서 뺀다(안에선 자차 칸에 저장)
-  function memoCar(g) {           // 메모를 붙일 차 — 차 한 대인 코스는 그 차, 차 없는 코스는 자차 칸
+  // [본인 차량으로 이동] 체크(11-24 부장님) — 코스 전체가 자기 차로 가면 체크만. 체크하면 차 칸이 '본인 차량'(안에선 자차 칸)
+  function ownCheck(g) {
+    var cur = courseCar(g), oc = ownCar();
+    if (!S.canEdit || !oc || cur === '__none') return '';
+    var on = cur === oc.plate;
+    return '<label class="gw-vc-owncheck"><input type="checkbox" class="form-check-input" data-ownc="' + esc(g.key) + '"' +
+      (on ? ' checked' : '') + '> 본인 차량으로 이동</label>';
+  }
+  // 코스 메모 한 줄(11-24 부장님) — 차가 들어간 코스에 아무 메모나(그 차의 메모로 저장, 배정 DM 에 같이 감)
+  function memoCar(g) {           // 메모를 붙일 차 — 차 한 대인 코스(회사 차·본인 차량)만
     var cur = courseCar(g);
-    if (cur === '') return ownCar();
     return cur && cur.indexOf('__') !== 0 ? carOf(cur) : null;
   }
-  function memoText(g) { return courseCar(g) === '' ? '' : ((memoCar(g) || {}).note || ''); }
+  function memoText(g) { return (memoCar(g) || {}).note || ''; }
   function memoBtn(g) {           // 평소엔 [메모] 단추만(칸이 늘 보이면 복잡, 11-24) — 눌러야 한 줄 칸이 열린다
     var c = memoCar(g);
     if (!S.canEdit || !c || memoText(g) || S.memoOpen[g.key]) return '';
@@ -381,7 +384,7 @@
     if (!S.canEdit || !(text || S.memoOpen[g.key])) return text ? '<p class="gw-vc-cmemo"><i class="fas fa-note-sticky" aria-hidden="true"></i> ' + esc(text) + '</p>' : '';
     return '<div class="gw-vc-cmemo"><i class="fas fa-note-sticky" aria-hidden="true"></i>' +
       '<input type="text" class="form-control form-control-sm" maxlength="60" data-cmemo="' + esc(c.plate) + '" data-ckey="' + esc(g.key) +
-      '" value="' + esc(text) + '" placeholder="' + (isOwn(c) ? '메모 (예: 본인 차량으로 이동)' : '메모 (예외만 한 줄 — 자차로 가는 사람 등)') +
+      '" value="' + esc(text) + '" placeholder="메모 한 줄' +
       '" aria-label="' + esc(g.label) + ' 메모" autocomplete="off">' +
       // 메모 지우고 닫기(11-24 부장님 — [메모]를 눌렀다가 되돌릴 길이 없었음). 빈 칸에서 Esc 도 닫힘
       '<button type="button" class="gw-va-x gw-vc-memox" data-memoclose="' + esc(g.key) + '" aria-label="' + esc(g.label) +
@@ -394,7 +397,6 @@
     if (c && memoText(g)) {
       c.note = '';
       setDirty(true);
-      if (isOwn(c) && courseCar(g) === c.plate) setCourse(key, '');
     }
     focusAfter('[data-memoopen="' + cssq(key) + '"]');
     render();
@@ -747,15 +749,17 @@
     var t = e.target;
     if (!t.dataset) return;
     if (t.dataset.cmemo) {                    // 코스 메모 — 다시 그리지 않는다(쓰는 중 칸이 흔들리지 않게)
-      var mc = carOf(t.dataset.cmemo), mg = groupByKey(t.dataset.ckey), v = t.value.trim();
+      var mc = carOf(t.dataset.cmemo), v = t.value.trim();
       mc.note = v;
       setDirty(true);
-      if (isOwn(mc) && mg) {                  // 차 없는 코스 — 메모를 적으면 '본인 차량', 지우면 다시 '차 없음'
-        var cc = courseCar(mg);
-        if (v && cc === '') setCourse(mg.key, mc.plate);
-        else if (!v && cc === mc.plate) setCourse(mg.key, '');
-        render();
-      }
+      return;
+    }
+    if (t.dataset.ownc) {                     // [본인 차량으로 이동] — 켜면 코스 전체를 본인 차량으로, 끄면 차 없음
+      var oc = ownCar();
+      setCourse(t.dataset.ownc, t.checked ? oc.plate : '');
+      if (!ridersOf(oc).length) oc.note = '';
+      focusAfter('[data-ownc="' + cssq(t.dataset.ownc) + '"]');
+      render();
       return;
     }
     if (t.dataset.pcar) {
@@ -830,7 +834,7 @@
       return;
     }
     var card = e.target.closest('[data-ccourse]');
-    if (S.pick && card && card.dataset.ccourse !== 'other' && !e.target.closest('select, input, button, a, summary')) {
+    if (S.pick && card && card.dataset.ccourse !== 'other' && !e.target.closest('select, input, button, a, summary, label')) {
       putPicked(card.dataset.ccourse);
       return;
     }

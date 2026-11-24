@@ -3682,3 +3682,11 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-vp-row.gw-vc-srow .gw-vp-vtext { display: block; -webkit-line-clamp: unset; overflow: visible; }
 .gw-vc-sphone { font-size: 0.84rem; white-space: nowrap; color: #1a1c20; text-decoration: underline; text-decoration-color: #cbd0d8; text-underline-offset: 2px; }
 .gw-vc-sphone:hover { color: #1a1c20; text-decoration-color: #1a1c20; }
+/* [본인 차량으로 이동] 체크(11-24) — 코스 머리 현장 수 옆 */
+.gw-vc-owncheck { display: inline-flex; align-items: center; gap: 5px; margin: 0; font-size: 0.82rem; color: #475569; cursor: pointer; user-select: none; white-space: nowrap; }
+.gw-vc-owncheck .form-check-input { margin: 0; cursor: pointer; }
+.gw-vc-owncheck:has(input:checked) { color: #1a1c20; font-weight: 600; }
+@media (max-width: 991.98px) {
+  .gw-vc-owncheck { min-height: 44px; }
+  .gw-vc-owncheck .form-check-input { width: 20px; height: 20px; }
+}
