@@ -382,7 +382,22 @@
     return '<div class="gw-vc-cmemo"><i class="fas fa-note-sticky" aria-hidden="true"></i>' +
       '<input type="text" class="form-control form-control-sm" maxlength="60" data-cmemo="' + esc(c.plate) + '" data-ckey="' + esc(g.key) +
       '" value="' + esc(text) + '" placeholder="' + (isOwn(c) ? '메모 (예: 본인 차량으로 이동)' : '메모 (예외만 한 줄 — 자차로 가는 사람 등)') +
-      '" aria-label="' + esc(g.label) + ' 메모" autocomplete="off"></div>';
+      '" aria-label="' + esc(g.label) + ' 메모" autocomplete="off">' +
+      // 메모 지우고 닫기(11-24 부장님 — [메모]를 눌렀다가 되돌릴 길이 없었음). 빈 칸에서 Esc 도 닫힘
+      '<button type="button" class="gw-va-x gw-vc-memox" data-memoclose="' + esc(g.key) + '" aria-label="' + esc(g.label) +
+      ' 메모 지우고 닫기" title="메모 지우고 닫기"><i class="fas fa-xmark" aria-hidden="true"></i></button></div>';
+  }
+  // 메모 닫기 — 글을 지우고 [메모] 단추로 되돌린다(차 없는 코스는 다시 '차 없음')
+  function closeMemo(key) {
+    var g = groupByKey(key), c = g && memoCar(g);
+    delete S.memoOpen[key];
+    if (c && memoText(g)) {
+      c.note = '';
+      setDirty(true);
+      if (isOwn(c) && courseCar(g) === c.plate) setCourse(key, '');
+    }
+    focusAfter('[data-memoopen="' + cssq(key) + '"]');
+    render();
   }
   function otherCard(inG) {        // 그 밖 — 코스에 없는데 차를 타는 사람(미팅·자재 심부름 등)
     var list = others(inG);
@@ -773,6 +788,13 @@
       }).catch(function (e2) { msg(e2.message, 'err'); t.value = fc.fixed_user || ''; });
     }
   });
+  document.addEventListener('keydown', function (e) {
+    var t = e.target;
+    if (e.key !== 'Escape' || !t.dataset || !t.dataset.ckey) return;
+    e.stopPropagation();
+    if (!t.value.trim()) { delete S.memoOpen[t.dataset.ckey]; focusAfter('[data-memoopen="' + cssq(t.dataset.ckey) + '"]'); render(); }
+    else t.blur();
+  }, true);
   document.addEventListener('input', function (e) {
     var t = e.target;
     if (t.dataset && t.dataset.cmemo) { carOf(t.dataset.cmemo).note = t.value.trim(); setDirty(true); }   // 코스에 넣기는 change(칸을 떠날 때)
@@ -780,6 +802,8 @@
   document.addEventListener('click', function (e) {
     if (S.suppressClick) { S.suppressClick = false; return; }
     if (!S.canEdit) return;
+    var mx = e.target.closest('[data-memoclose]');
+    if (mx) { closeMemo(mx.dataset.memoclose); return; }
     var mo = e.target.closest('[data-memoopen]');
     if (mo) {
       S.memoOpen[mo.dataset.memoopen] = 1;
