@@ -100,3 +100,94 @@ def test_year_split_keeps_original_saturday_boundary(db):
     assert lv.days_in_year(lv.SICK, a, b, 2026, '영업직원') == 5    # 26(토, 첫날)·28·29·30·31
     assert lv.days_in_year(lv.SICK, a, b, 2027, '영업직원') == 1    # 1/1 신정·1/2(토, 가운데)·1/3 일 빠짐 → 1/4
     assert lv.days_in_year(lv.SICK, a, b, 2027, '시공직원') == 2    # 시공은 1/2(토)도 셈
+
+
+# ── 남은 날 취소 (11-24 부장님) ─────────────────────────────────────────
+def _approved(name, uid, a, b):
+    r = lv.create(name, uid, uid, name, lv.ANNUAL, '', a, b)
+    with lv._conn() as conn:
+        conn.execute('UPDATE leave_requests SET status=? WHERE id=?', (lv.APPROVED, r['id']))
+    return lv.get(r['id'])
+
+
+def test_cut_rest_on_sunday_does_not_count_middle_saturday(db):
+    """영업 목~화 휴가(가운데 토요일은 안 셈 = 4일)를 일요일에 취소 — 남는 건 목·금 2일, 마지막 날은 금요일.
+    예전엔 '어제'(토)가 새 마지막 날이 되어 토요일까지 3일이 빠졌다."""
+    r = _approved('영업직원', SALES, date(2026, 11, 19), date(2026, 11, 24))
+    assert r['days'] == 4
+    sun = date(2026, 11, 22)
+    assert lv.cancel_mode(r, SALES, sun) == 'rest'
+    r = lv.cut_rest(r['id'], SALES, '영업직원', today=sun)
+    assert r['end'] == '2026-11-20' and r['days'] == 2
+    assert lv.count_days(lv.ANNUAL, lv._d(r['start']), lv._d(r['end']), '영업직원') == 2   # 다시 세도 같음
+    assert '11월 20일 (금)까지만 휴가' in lv.cut_notice_text(r, sun)
+
+
+def test_cut_rest_keeps_counted_saturday_for_sigong_and_skips_weekend_for_office(db):
+    r = _approved('시공직원', SIGONG, date(2026, 11, 19), date(2026, 11, 24))
+    r = lv.cut_rest(r['id'], SIGONG, '시공직원', today=date(2026, 11, 22))
+    assert r['end'] == '2026-11-21' and r['days'] == 3                 # 시공은 토요일도 근무일 → 토요일까지 남김
+    r = _approved('사무직원', OFFICE, date(2026, 11, 19), date(2026, 11, 25))
+    r = lv.cut_rest(r['id'], OFFICE, '사무직원', today=date(2026, 11, 23))   # 월요일에 취소
+    assert r['end'] == '2026-11-20' and r['days'] == 2                 # 주말로 끝나지 않고 금요일까지
+
+
+def test_cut_rest_not_offered_when_only_uncounted_days_passed(db):
+    """토요일(첫날)부터인 사무직 휴가를 월요일에 취소 — 지난 날(토·일)은 센 날이 없으니 전부 취소."""
+    r = lv.create('사무직원', OFFICE, OFFICE, '사무직원', lv.ANNUAL, '', date(2026, 11, 21), date(2026, 11, 25))
+    with lv._conn() as conn:
+        conn.execute('UPDATE leave_requests SET status=? WHERE id=?', (lv.APPROVED, r['id']))
+    r = lv.get(r['id'])
+    assert lv.cancel_mode(r, OFFICE, date(2026, 11, 23)) == 'all'
+    assert lv.cut_rest(r['id'], OFFICE, '사무직원', today=date(2026, 11, 23)) is None
+
+
+# ── 일수 미리보기 (11-24 부장님) ────────────────────────────────────────
+def test_days_preview_explains_saturdays(db):
+    a, b = date(2026, 11, 19), date(2026, 11, 24)            # 목~화, 21일 토
+    p = lv.days_preview('영업직원', lv.ANNUAL, a, b)
+    assert p['days'] == 4 and p['lines'] == ['휴가 일수: 4일',
+                                             '11월 21일 (토) — 기간 가운데 낀 토요일은 근무가 없는 날로 봐서 빠져요.']
+    p = lv.days_preview('영업직원', lv.ANNUAL, a, date(2026, 11, 21))
+    assert p['days'] == 3 and p['lines'][1] == '11월 21일 (토) — 휴가 첫날이나 마지막 날인 토요일은 근무일로 봐서 들어가요.'
+    p = lv.days_preview('시공직원', lv.ANNUAL, date(2026, 11, 14), b)
+    assert p['days'] == 9 and p['lines'][1] == '11월 14일 (토), 11월 21일 (토) — 토요일도 근무일이라 들어가요.'
+    p = lv.days_preview('사무직원', lv.ANNUAL, a, b)
+    assert p['days'] == 4 and p['lines'][1] == '11월 21일 (토) — 토요일은 근무일이 아니라 빠져요.'
+    # 공휴일·반차·일요일
+    p = lv.days_preview('사무직원', lv.ANNUAL, date(2026, 12, 24), date(2026, 12, 25))
+    assert p['lines'] == ['휴가 일수: 1일', '12월 25일 (금) — 공휴일이라 빠져요.']
+    assert lv.days_preview('시공직원', lv.HALF_AM, date(2026, 11, 21), None)['lines'] == [
+        '휴가 일수: 0.5일', '11월 21일 (토) — 토요일도 근무일이라 들어가요.']
+    assert lv.days_preview('시공직원', lv.ANNUAL, date(2026, 11, 22), None)['lines'] == ['휴가 일수: 0일']
+    # 날짜가 덜 골라졌거나 거꾸로면 비움
+    assert lv.days_preview('영업직원', lv.ANNUAL, None, b) == {}
+    assert lv.days_preview('영업직원', lv.ANNUAL, b, a) == {}
+
+
+def test_days_preview_follows_confirmed_schedule(db):
+    """기술영업은 스케줄 근무표가 확정된 달이면 그 표대로 — 쉬는 토요일은 첫날이어도 빠지고, 근무 토요일은 가운데여도 듦."""
+    from dashboard.services import sat_off
+    with lv._conn() as conn:
+        conn.execute('INSERT INTO sat_off_months (month, status) VALUES (?,?)', ('2026-11', sat_off.CONFIRMED))
+        conn.execute('INSERT INTO sat_off_days (day, name) VALUES (?,?)', ('2026-11-21', '영업직원'))
+    p = lv.days_preview('영업직원', lv.ANNUAL, date(2026, 11, 21), date(2026, 11, 23))
+    assert p['days'] == 1 and p['lines'][1] == '11월 21일 (토) — 스케줄 근무표에서 쉬는 토요일이라 빠져요.'
+    p = lv.days_preview('영업직원', lv.ANNUAL, date(2026, 11, 27), date(2026, 11, 30))
+    assert p['days'] == 3 and p['lines'][1] == '11월 28일 (토) — 스케줄 근무표에서 근무하는 토요일이라 들어가요.'
+    assert p['days'] == lv.count_days(lv.ANNUAL, date(2026, 11, 27), date(2026, 11, 30), '영업직원')
+
+
+def test_slack_leave_view_shows_days_preview(db):
+    """슬랙 신청 창 — 날짜 칸은 고를 때마다 창을 다시 그리고(dispatch_action), 고른 기간의 일수·토요일 설명을 보인다."""
+    from dashboard.blueprints import slack_leave as sl
+    v = sl.leave_view({'name': '영업직원'})
+    pickers = [b for b in v['blocks'] if b.get('block_id') in ('lv_start', 'lv_end')]
+    assert len(pickers) == 2 and all(b['dispatch_action'] for b in pickers)
+    assert not any('휴가 일수' in str(b) for b in v['blocks'])               # 날짜 전엔 없음
+    v = sl.leave_view({'name': '영업직원'}, {'type': lv.ANNUAL, 'start': '2026-11-19', 'end': '2026-11-24'})
+    ctx = [b for b in v['blocks'] if b['type'] == 'context' and '휴가 일수' in b['elements'][0]['text']]
+    assert ctx[0]['elements'][0]['text'] == ('*휴가 일수: 4일*\n'
+                                             '• 11월 21일 (토) — 기간 가운데 낀 토요일은 근무가 없는 날로 봐서 빠져요.')
+    ids = [b.get('block_id') for b in v['blocks'] if b.get('block_id')]
+    assert ids == ['lv_type', 'lv_start', 'lv_end', 'lv_reason']               # 칸 순서는 그대로

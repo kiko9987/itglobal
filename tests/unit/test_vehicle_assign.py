@@ -124,10 +124,10 @@ def test_day_off_from_groupware_leave_and_saturday(db, monkeypatch):
     monkeypatch.setattr(sat_off, 'month_row', lambda m: {'status': sat_off.CONFIRMED})
     sat = va.day_off('2026-11-21')
     assert sat['off'] == [{'code': 'YM', 'name': '김가람', 'why': '연차'},          # 휴가가 토요 휴무보다 먼저
-                          {'code': 'MJ', 'name': '박다솜', 'why': '토요 휴무', 'soft': False}]
+                          {'code': 'MJ', 'name': '박다솜', 'why': '스케줄 근무 쉬는 날', 'soft': False}]
     assert sat['half'] == [{'code': 'LSH', 'name': '이나래', 'why': '오전 반차'}]
     monkeypatch.setattr(sat_off, 'month_row', lambda m: {'status': sat_off.OPEN})
-    assert va.day_off('2026-11-21')['off'][1] == {'code': 'MJ', 'name': '박다솜', 'why': '토요 휴무(확정 전)', 'soft': True}
+    assert va.day_off('2026-11-21')['off'][1] == {'code': 'MJ', 'name': '박다솜', 'why': '스케줄 근무 쉬는 날(확정 전)', 'soft': True}
     assert [o['code'] for o in va.day_off('2026-11-20')['off']] == ['YM']        # 평일엔 휴무표 안 봄
 
 
@@ -425,7 +425,7 @@ def test_own_car_dm_text():
 def test_off_person_blocks_confirm(db, monkeypatch):
     """휴무(종일)인 사람을 차에 넣은 채로는 확정·알림이 안 됨(방문 일정과 같게, 11-23). 저장만은 됨, 확정 전 토요 휴무는 막지 않음."""
     off = {'off': [{'code': 'TH', 'name': '서준', 'why': '연차'},
-                   {'code': 'YM', 'name': '김가람', 'why': '토요 휴무(확정 전)', 'soft': True}], 'half': []}
+                   {'code': 'YM', 'name': '김가람', 'why': '스케줄 근무 쉬는 날(확정 전)', 'soft': True}], 'half': []}
     monkeypatch.setattr(va, 'day_off', lambda day: off)
     rows = [{'plate': '237허5358', 'people': ['TH', 'JSH']}, {'plate': '03모8021', 'people': ['YM']}]
     assert va.save_day('2026-11-24', rows, ASSIGNER)['changed']                  # 저장만

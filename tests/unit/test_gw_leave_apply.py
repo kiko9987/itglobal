@@ -345,3 +345,23 @@ def test_install_menu_in_groupware_layout_only(tmp_path):
     assert 'beforeinstallprompt' in head and '__gwInstallEvt' in head
     js = open(os.path.join(root, 'static', 'js', 'gw-install.js'), encoding='utf-8').read()
     assert '__gwInstallEvt' in js and 'display-mode: standalone' in js and 'serviceWorker' not in js
+
+
+# ── 일수 미리보기 (11-24) ──────────────────────────────────────────────
+def test_days_preview_api(client, slack):
+    _as(client, STAFF)
+    r = client.post('/api/leave/preview', json={'type': 'annual', 'start': '2026-11-19', 'end': '2026-11-24'})
+    j = r.get_json()
+    assert r.status_code == 200 and j['success'] and j['days'] == 4
+    assert j['lines'] == ['휴가 일수: 4일', '11월 21일 (토) — 토요일은 근무일이 아니라 빠져요.']   # 부서 없음 = 월~금
+    j = client.post('/api/leave/preview', json={'type': 'annual', 'start': ''}).get_json()
+    assert j['success'] and 'lines' not in j                                   # 날짜 전엔 비움
+    _field_login(client)                                                       # 현장 세션도 본인 기준으로
+    j = client.post('/api/leave/preview', json={'type': 'half_am', 'start': '2026-11-23'}).get_json()
+    assert j['lines'] == ['휴가 일수: 0.5일']
+
+
+def test_field_gatekeeper_allows_days_preview():
+    from dashboard.blueprints.groupware import field_path_allowed
+    assert field_path_allowed('POST', '/api/leave/preview')
+    assert not field_path_allowed('GET', '/api/leave/preview')

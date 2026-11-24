@@ -1787,6 +1787,9 @@ td .gw-badge { vertical-align: 1px; line-height: 1.3; }
 .gw-lv-opt { font-weight: 400; color: #64748b; font-size: 0.82rem; }
 .gw-lv-hint { font-size: 0.8rem; color: #64748b; margin-top: 4px; }
 .gw-lv-proof { margin: 0 0 8px; color: #9a3412; }
+.gw-lv-days { margin: -4px 0 14px; background: #f1f5f9; border: 1px solid #e2e8f0; color: #334155; border-radius: 8px; padding: 8px 12px; font-size: 0.88rem; }
+.gw-lv-days[hidden] { display: none; }
+.gw-lv-days ul { margin: 4px 0 0; padding-left: 18px; }
 .gw-lv-err { color: #b91c1c; font-size: 0.85rem; margin-top: 4px; }
 .gw-lv-err:empty { display: none; }
 .gw-lv-form .modal-footer .btn { min-height: 44px; min-width: 88px; }
@@ -3021,6 +3024,16 @@ html:has(#bdPage) {
 .gw-so .gw-cal-head .btn-link { color: #2a3038; text-underline-offset: 2px; }   /* 파랑 4.3:1 → 남색 */
 .gw-so-picks .form-check { padding-top: 4px; padding-bottom: 4px; }
 .gw-cal-chip.sat { background: #e0f2fe; color: #075985; }
+/* 스케줄 근무도 방문·차량처럼 가운데 1400px(11-24 부장님 '너무 꽉 찬 화면'). 넓은 화면은 사람별 횟수·변경 신청을
+   달력 오른쪽에 두어 스크롤 없이 같이 보고, 누르는 토요일 칸을 평일보다 넓게(평일 칸은 비어 있음) */
+.gw-page.gw-so { max-width: 1400px; margin-left: auto; margin-right: auto; }
+@media (min-width: 1200px) {
+  .gw-page.gw-so { display: grid; grid-template-columns: minmax(0, 1fr) 280px; column-gap: 16px; align-items: start; }
+  .gw-page.gw-so > * { grid-column: 1 / -1; }
+  .gw-page.gw-so > .gw-cal { grid-column: 1; }
+  .gw-page.gw-so > .gw-so-side { grid-column: 2; margin-top: 0; grid-template-columns: minmax(0, 1fr); }
+  .gw-so .gw-cal-grid { grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 1.6fr) minmax(0, 1fr); }
+}
 @media (max-width: 767.98px) {
   .gw-so-plus { display: none; }
   .gw-so-sat .gw-so-chip { white-space: normal; word-break: keep-all; }

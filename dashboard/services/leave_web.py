@@ -94,6 +94,17 @@ def form_info(user: dict, today: Optional[date] = None) -> Dict:
     return out
 
 
+def preview(user: dict, data: dict) -> Dict:
+    """신청 창 일수 미리보기 — 본인 기준 {days, lines}. 신청할 수 없거나 날짜가 덜 골라졌으면 {}."""
+    w = who(user)
+    if w['why']:
+        return {}
+    ltype = str((data or {}).get('type') or '').strip()
+    start = lv._d(str((data or {}).get('start') or '').strip())
+    end = lv._d(str((data or {}).get('end') or '').strip())
+    return lv.days_preview(w['name'], ltype, start, end)
+
+
 def _run_bg(fn) -> None:
     """슬랙 알림은 뒤에서(화면이 슬랙 응답을 기다리지 않게). 시험에서는 바로 돌도록 바꿔 끼운다."""
     threading.Thread(target=fn, daemon=True).start()

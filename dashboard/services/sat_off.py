@@ -350,11 +350,11 @@ def toggle(day: Optional[date], target: str, on: bool, sid: str, actor_name: str
     month = _check_day(day, today, r['approver'])
     m = _member(target)
     if not m:
-        raise SatOffError(f'{target} 님은 토요일 휴무 대상(기술영업)이 아니에요.')
+        raise SatOffError(f'{target} 님은 스케줄 근무 대상(기술영업)이 아니에요.')
     if target != actor_name and not (r['manager'] or r['approver']):
         raise PermissionError('다른 사람 이름은 넣거나 뺄 수 없어요.')
     if target == actor_name and not (r['member'] or r['manager']):
-        raise PermissionError('토요일 휴무 대상이 아니에요.')
+        raise PermissionError('스케줄 근무 대상이 아니에요.')
     st = month_row(month)['status']
     if st != OPEN and not r['approver']:
         raise SatOffError('결재 대기 중이거나 확정된 달이에요. 바꾸려면 [변경 신청]을 해 주세요.'
@@ -461,7 +461,7 @@ def request_change(month: str, target: str, add, remove, reason: str, sid: str, 
         raise SatOffError('확정된 달만 변경 신청을 해요. 작성 중인 달은 달력에서 바로 바꾸면 돼요.')
     m = _member(target)
     if not m:
-        raise SatOffError(f'{target} 님은 토요일 휴무 대상(기술영업)이 아니에요.')
+        raise SatOffError(f'{target} 님은 스케줄 근무 대상(기술영업)이 아니에요.')
     if target != actor_name and not (r['manager'] or r['approver']):
         raise PermissionError('다른 사람의 변경 신청은 할 수 없어요.')
     reason = (reason or '').strip()[:300]
@@ -685,43 +685,43 @@ def notify(kind: str, month: str, actor: str, change: Optional[dict] = None, not
         t = _month_title(month)
         row = month_row(month)
         if kind == 'submit':
-            text = (f'📅 *{t} 토요일 휴무표* 결재 요청이 왔어요. ({actor} 님이 올림)\n'
-                    f'{schedule_text(month)}\n두 분 중 한 분이 승인하면 확정돼요.')
-            _dm_some(client, approver_ids(), text, month, f'{t} 토요일 휴무표 결재 요청')
+            text = (f'📅 *{t} 스케줄 근무표* 결재 요청이 왔어요. ({actor} 님이 올림)\n'
+                    f'토요일에 쉬는 사람\n{schedule_text(month)}\n두 분 중 한 분이 승인하면 확정돼요.')
+            _dm_some(client, approver_ids(), text, month, f'{t} 스케줄 근무표 결재 요청')
         elif kind in ('approve', 'return'):
             sub = _who_sid(row.get('submitted_by') or '')
             to = [u for u in dict.fromkeys(((sub,) if sub else ()) + coordinator_ids())]
             if kind == 'approve':
-                _dm_some(client, to, f'✅ {t} 토요일 휴무표를 {actor} 님이 승인했어요. 이제 확정이에요.', month,
-                         f'{t} 토요일 휴무표 승인')
-                _post(client, f'📅 {t} 토요일 휴무가 확정됐어요.\n{schedule_text(month)}')
+                _dm_some(client, to, f'✅ {t} 스케줄 근무표를 {actor} 님이 승인했어요. 이제 확정이에요.', month,
+                         f'{t} 스케줄 근무표 승인')
+                _post(client, f'📅 {t} 스케줄 근무표가 확정됐어요. 토요일에 쉬는 사람이에요.\n{schedule_text(month)}')
                 bad = affected_leaves(month)
                 if bad:
                     lines = '\n'.join(f"• {b['name']} {b['what']}: {lv.fmt_days(b['saved'])} → {lv.fmt_days(b['now'])}"
                                       for b in bad)
-                    _dm_some(client, lv.manager_ids(), f'ℹ️ {t} 토요일 휴무표가 확정돼 휴가 일수가 달라지는 신청이 있어요. '
+                    _dm_some(client, lv.manager_ids(), f'ℹ️ {t} 스케줄 근무표가 확정돼 휴가 일수가 달라지는 신청이 있어요. '
                                                        f'휴가 관리에서 일수를 고쳐 주세요.\n{lines}', month,
                              f'{t} 휴가 일수 고칠 신청 {len(bad)}건')
             else:
-                _dm_some(client, to, f'↩️ {t} 토요일 휴무표를 {actor} 님이 돌려보냈어요.\n사유: {note}\n'
-                                     '고쳐서 다시 올려 주세요.', month, f'{t} 토요일 휴무표 돌려보냄')
+                _dm_some(client, to, f'↩️ {t} 스케줄 근무표를 {actor} 님이 돌려보냈어요.\n사유: {note}\n'
+                                     '고쳐서 다시 올려 주세요.', month, f'{t} 스케줄 근무표 돌려보냄')
         elif kind == 'change_request' and change:
-            text = (f"🔁 *{change['name']} 님 토요일 휴무 변경 신청* ({t})\n{change['what']}\n"
+            text = (f"🔁 *{change['name']} 님 스케줄 근무 변경 신청* ({t})\n쉬는 토요일: {change['what']}\n"
                     f"사유: {change.get('reason') or ''}\n두 분 중 한 분이 승인하면 바뀌어요.")
-            _dm_some(client, approver_ids(), text, month, f"{change['name']} 님 토요일 휴무 변경 신청")
+            _dm_some(client, approver_ids(), text, month, f"{change['name']} 님 스케줄 근무 변경 신청")
         elif kind in ('change_approve', 'change_reject') and change:
             who = change.get('slack_id') or _who_sid(change['name'])
             if kind == 'change_approve':
-                _dm_some(client, [who], f"✅ 토요일 휴무 변경을 {actor} 님이 승인했어요. {change['what']}", month,
-                         f"{change['name']} 님 토요일 휴무 변경 승인")
-                _post(client, f"🔁 토요일 휴무 변경: {change['name']} {change['what']}")
+                _dm_some(client, [who], f"✅ 스케줄 근무 변경을 {actor} 님이 승인했어요. 쉬는 토요일: {change['what']}", month,
+                         f"{change['name']} 님 스케줄 근무 변경 승인")
+                _post(client, f"🔁 스케줄 근무 변경: {change['name']} 쉬는 토요일 {change['what']}")
                 if affected_leaves(month):
-                    _dm_some(client, lv.manager_ids(), f"ℹ️ {change['name']} 님 토요일 휴무가 바뀌어 휴가 일수가 달라지는 신청이 있어요. "
+                    _dm_some(client, lv.manager_ids(), f"ℹ️ {change['name']} 님 스케줄 근무가 바뀌어 휴가 일수가 달라지는 신청이 있어요. "
                                                        '휴가 관리에서 확인해 주세요.', month,
                              f"{change['name']} 님 변경으로 휴가 일수 고칠 신청")
             else:
-                _dm_some(client, [who], f"↩️ 토요일 휴무 변경 신청을 {actor} 님이 반려했어요. {change['what']}\n사유: {note}",
-                         month, f"{change['name']} 님 토요일 휴무 변경 반려")
+                _dm_some(client, [who], f"↩️ 스케줄 근무 변경 신청을 {actor} 님이 반려했어요. 쉬는 토요일: {change['what']}\n사유: {note}",
+                         month, f"{change['name']} 님 스케줄 근무 변경 반려")
     _run_bg(lambda: _safe(run, kind, month))
 
 

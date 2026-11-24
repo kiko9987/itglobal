@@ -199,7 +199,7 @@ AREAS = [
         'items': [
             {'href': '/leave', 'label': '내 휴가', 'icon': 'fas fa-calendar-check', 'field': True},
             {'href': '/leave/team', 'label': '전사 휴가 관리', 'icon': 'fas fa-calendar-alt', 'leave_all': True},
-            {'href': '/leave/saturday', 'label': '토요일 휴무', 'icon': 'fas fa-calendar-week', 'sat_off': True},   # 기술영업 격주휴무(11-20)
+            {'href': '/leave/saturday', 'label': '스케줄 근무', 'icon': 'fas fa-calendar-week', 'sat_off': True},   # 기술영업 격주휴무(11-20)
         ],
     },
     {

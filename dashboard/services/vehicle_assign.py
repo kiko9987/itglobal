@@ -522,7 +522,7 @@ def day_off(day: str) -> Dict[str, List[Dict]]:
         for name in sat_off.picks(month).get(day, []):
             code = by_name.get(name)
             if code and code not in off:
-                off[code] = {'code': code, 'name': name, 'why': '토요 휴무' + ('' if sure else '(확정 전)'),
+                off[code] = {'code': code, 'name': name, 'why': '스케줄 근무 쉬는 날' + ('' if sure else '(확정 전)'),
                              'soft': not sure}     # 확정 전 휴무표는 바뀔 수 있어 방문 일정에서 막지 않고 경고만
     half = {c: v for c, v in half.items() if c not in off}
     return {'off': sorted(off.values(), key=lambda x: x['name']), 'half': sorted(half.values(), key=lambda x: x['name'])}

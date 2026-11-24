@@ -445,7 +445,7 @@
     var k = data.month;
     var title = cur.y + '년 ' + cur.m + '월';
     if (act === 'submit') {
-      if (!window.confirm(title + ' 토요일 휴무표를 결재에 올릴까요? 올린 뒤에는 승인권자만 고칠 수 있어요.')) return;
+      if (!window.confirm(title + ' 스케줄 근무표를 결재에 올릴까요? 올린 뒤에는 승인권자만 고칠 수 있어요.')) return;
       b.disabled = true;
       // 슬랙 알림은 뒤에서 따로 나가 결과를 여기서 알 수 없다 → '보냈어요'라고 단정하지 않는다(11-21 점검).
       // 못 보냈으면 서버가 기록에 남기고, watchNotify 가 잠시 뒤 다시 읽어 알려 준다(11-24 조용한 실패 점검)
@@ -457,7 +457,7 @@
     } else if (act === 'approve') {
       // 승인하면 바로 #휴가_일정 공지·휴가 일수 반영 — 결재함 승인처럼 한 번 묻는다(11-21 점검)
       var picked = (data.members || []).filter(function (m) { return m.count; }).length;
-      if (!window.confirm(title + ' 토요일 휴무표를 승인할까요?\n\n쉬는 사람 ' + picked + '명 · 승인하면 #휴가_일정에 공지되고 휴가 일수에 바로 반영돼요.')) return;
+      if (!window.confirm(title + ' 스케줄 근무표를 승인할까요?\n\n쉬는 사람 ' + picked + '명 · 승인하면 #휴가_일정에 공지되고 휴가 일수에 바로 반영돼요.')) return;
       b.disabled = true;
       api('/api/satoff/decide', { method: 'POST', body: { month: k, approve: true } }).then(function (j) {
         var extra = (j.affected || []).length ? ' 휴가 일수가 달라지는 신청 ' + j.affected.length + '건은 경영지원에 알림이 가요.' : '';
@@ -466,7 +466,7 @@
         return load();
       }).catch(function (e) { flash(e.message, 'err'); b.disabled = false; });
     } else if (act === 'return') {
-      openNote('돌려보내기', title + ' 토요일 휴무표를 다시 작성 중으로 돌려요.', '돌려보내는 이유', '돌려보내기', function (note) {
+      openNote('돌려보내기', title + ' 스케줄 근무표를 다시 작성 중으로 돌려요.', '돌려보내는 이유', '돌려보내기', function (note) {
         return api('/api/satoff/decide', { method: 'POST', body: { month: k, approve: false, note: note } })
           .then(function () { watchNotify(k); return '돌려보냈어요. 올린 분께 슬랙 알림이 가요.'; });
       });

@@ -150,13 +150,14 @@ def test_notify_messages(slack):
     so.toggle(S5, '영업가', True, A, '영업가', TODAY)
     so.submit(DEC, CO, '빈대리', TODAY)
     so.notify('submit', DEC, '빈대리')
-    assert any('2026년 12월 토요일 휴무표' in t and '12/5(토) 영업가' in t for t in slack.to(JW))
+    assert any('2026년 12월 스케줄 근무표' in t and '12/5(토) 영업가' in t for t in slack.to(JW))
     assert slack.to(YG)
     so.decide(DEC, True, JW, '박정우')
     so.notify('approve', DEC, '박정우')
     assert any('승인했어요' in t for t in slack.to(CO))
     assert [p['text'] for p in slack.posts if p['ch'] == 'C-ANNOUNCE'] == \
-        ['📅 2026년 12월 토요일 휴무가 확정됐어요.\n• 12/5(토) 영업가']
+        ['📅 2026년 12월 스케줄 근무표가 확정됐어요. 토요일에 쉬는 사람이에요.\n• 12/5(토) 영업가']
+    assert any('토요일에 쉬는 사람\n• 12/5(토) 영업가' in t for t in slack.to(JW))   # 이름이 쉬는 사람임을 밝힘
 
 
 # ── 확정 뒤 바꾸기 ──────────────────────────────────────────────────────
@@ -174,13 +175,13 @@ def test_change_request_flow(slack):
     with pytest.raises(so.SatOffError, match='이미 결재 대기'):
         so.request_change(DEC, '영업가', ['2026-12-26'], [], '또', A, '영업가', TODAY)
     so.notify('change_request', DEC, '영업가', change=c)
-    assert any('영업가 님 토요일 휴무 변경 신청' in t for t in slack.to(YG))
+    assert any('영업가 님 스케줄 근무 변경 신청' in t for t in slack.to(YG))
     c = so.decide_change(c['id'], True, JW, '박정우', today=TODAY)
     assert c['status'] == so.CH_OK
     assert so.picks(DEC)['2026-12-05'] == [] and so.picks(DEC)['2026-12-19'] == ['영업가']
     so.notify('change_approve', DEC, '박정우', change=c)
     assert any('승인했어요' in t for t in slack.to(A))
-    assert any(p['ch'] == 'C-ANNOUNCE' and '영업가 12/5(토) → 12/19(토)' in p['text'] for p in slack.posts)
+    assert any(p['ch'] == 'C-ANNOUNCE' and '영업가 쉬는 토요일 12/5(토) → 12/19(토)' in p['text'] for p in slack.posts)
 
 
 def test_change_reject_and_cancel(slack):
