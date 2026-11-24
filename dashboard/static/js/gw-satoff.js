@@ -272,10 +272,10 @@
       var names = s.names.slice();
       var chips = fullOff(s) ? fullChip(s, 'span') : names.map(function (n) {
         var gone = me.name === n && inDraft(draft.remove, di);
-        return '<span class="gw-cal-chip gw-so-chip' + (n === me.name ? ' mine' : '') + (gone ? ' gone' : '') + '">' + esc(n) +
-          (gone ? ' <small class="gw-so-ctag">취소</small>' : '') + '</span>';
+        return '<span class="gw-cal-chip gw-so-chip' + (n === me.name ? ' mine' : '') + (gone ? ' gone' : '') + '">' + (gone ? '<s class="gw-so-strike">' + esc(n) + '</s>' : esc(n)) +
+          (gone ? '<small class="gw-so-ctag">취소</small>' : '') + '</span>';
       }).join('');
-      if (inDraft(draft.add, di)) chips += '<span class="gw-cal-chip gw-so-chip mine add">+ ' + esc(me.name) + ' <small class="gw-so-ctag">신청</small></span>';
+      if (inDraft(draft.add, di)) chips += '<span class="gw-cal-chip gw-so-chip mine add">+ ' + esc(me.name) + '<small class="gw-so-ctag">신청</small></span>';
       chips += workedChips(s, 'span');
       var label = mode ? actLabel(mode, s, di) : '';
       var btn = label
@@ -320,10 +320,10 @@
       if (fullOff(s)) g += fullChip(s, 'div');
       else names.forEach(function (n) {
         var gone = me.name === n && inDraft(draft.remove, di);
-        g += '<div class="gw-cal-chip gw-so-chip' + (n === me.name ? ' mine' : '') + (gone ? ' gone' : '') + '">' + esc(n) +
-          (gone ? ' <small class="gw-so-ctag">취소</small>' : '') + '</div>';
+        g += '<div class="gw-cal-chip gw-so-chip' + (n === me.name ? ' mine' : '') + (gone ? ' gone' : '') + '">' + (gone ? '<s class="gw-so-strike">' + esc(n) + '</s>' : esc(n)) +
+          (gone ? '<small class="gw-so-ctag">취소</small>' : '') + '</div>';
       });
-      if (inDraft(draft.add, di)) g += '<div class="gw-cal-chip gw-so-chip mine add">+ ' + esc(me.name) + ' <small class="gw-so-ctag">신청</small></div>';
+      if (inDraft(draft.add, di)) g += '<div class="gw-cal-chip gw-so-chip mine add">+ ' + esc(me.name) + '<small class="gw-so-ctag">신청</small></div>';
       g += workedChips(s, 'div');
       if (mode === 'self' && !s.mine) g += isFull(s) ? '<div class="gw-so-plus" aria-hidden="true">쉬는 사람이 다 찼어요</div>'
         : '<div class="gw-so-plus" aria-hidden="true">+ 내 이름</div>';
