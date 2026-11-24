@@ -38,8 +38,8 @@
       <div id="vcCarList"></div>
     </aside>
     <section class="gw-vc-main">
-      {# 슬랙으로 확정한 날만 — 그날 방문 일정(캔버스1 묶음). 코스로 볼 때는 현장이 코스 카드 안에 #}
-      <details class="gw-va-sched" id="vaSched" hidden></details>
+      {# 방문 일정 확정 전 날만 — '확정 전' 안내 한 줄 + 접힌 방문 목록(11-24). 코스로 볼 때는 현장이 코스 카드 안에 #}
+      <div class="gw-va-schedbox" id="vaSchedBox" hidden><div class="gw-va-pre" id="vaPre" hidden></div><details class="gw-va-sched" id="vaSched"></details></div>
       <div id="vcStrip"></div>
       <div class="gw-vp-courses" id="vcCourses"><p class="gw-empty">불러오는 중…</p></div>
     </section>

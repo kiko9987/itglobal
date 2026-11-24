@@ -3699,3 +3699,16 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-vc-board.editing .gw-vc-car.used { cursor: default; }
 .gw-vc-board.editing .gw-vc-car.used:hover { border-color: #e5e7eb; }
 .gw-vc-car.used .gw-vc-carhead strong { color: #475569; }
+/* 차량 배정 — 확정 전 안내 한 줄 + 접힌 방문 목록(11-24) */
+.gw-va-schedbox { border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; margin-bottom: 12px; }
+.gw-va-schedbox .gw-va-sched { border: 0; border-radius: 0 0 12px 12px; margin: 0; }
+.gw-va-schedbox .gw-va-pre:not([hidden]) + .gw-va-sched { border-top: 1px solid #eef0f2; }
+.gw-va-pre { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 10px 14px; color: #1a1c20; font-size: 0.9rem; }
+.gw-va-pre > i { color: #2563eb; }
+.gw-va-pre > span { flex: 1 1 260px; min-width: 0; }
+.gw-va-pretogo { margin-left: auto; white-space: nowrap; }
+@media (max-width: 991.98px) {
+  .gw-va-pretogo { min-height: 44px; display: inline-flex; align-items: center; }
+}
+.gw-va-schedbox .gw-va-sched > summary { border-radius: 0 0 11px 11px; }
+.gw-va-schedbox .gw-va-pre[hidden] + .gw-va-sched > summary { border-radius: 11px; }

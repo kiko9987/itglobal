@@ -479,7 +479,8 @@
       b.className = 'gw-va-board gw-vc-board';
       b.innerHTML = '<aside class="gw-va-staff gw-vc-cars" aria-label="차 목록"><div class="gw-va-staff-head"><strong>차</strong>' +
         '<span id="vcCarCount"></span></div><p class="gw-va-staff-how" id="vcHow"></p><div id="vcCarList"></div></aside>' +
-        '<section class="gw-vc-main"><details class="gw-va-sched" id="vaSched" hidden></details>' +
+        '<section class="gw-vc-main"><div class="gw-va-schedbox" id="vaSchedBox" hidden><div class="gw-va-pre" id="vaPre"></div>' +
+        '<details class="gw-va-sched" id="vaSched"></details></div>' +
         '<div id="vcStrip"></div><div class="gw-vp-courses" id="vcCourses"><p class="gw-empty">불러오는 중…</p></div></section>';
     }
     if ($('vaBar') && !$('vcWarn')) {
@@ -541,10 +542,11 @@
     restoreFocus();
   }
   // 슬랙으로 확정한 날(코스 없음) — 위에 그날 방문 일정(캔버스1 묶음)을 접어서 둔다
-  var SCHED_KEY = 'gw.va.schedOpen';
+  // 확정 전 날만 보이는 칸 — 위에 '확정 전' 안내 한 줄, 방문 목록은 기본 접힘(11-24 부장님: 목록이 눈에 안 들어옴.
+  //   차는 방문 일정 확정 뒤에 넣는 흐름이라 할 일은 목록 읽기보다 코스 짜기). 직접 펼친 것만 기억(새 키 — 예전 '펼침' 기억은 버림)
+  var SCHED_KEY = 'gw.va.schedOpen2';
   function schedOpenPref() {
-    try { var v = localStorage.getItem(SCHED_KEY); if (v === '1' || v === '0') return v === '1'; } catch (e) { /* 무시 */ }
-    return !(window.matchMedia && window.matchMedia('(max-width: 767.98px)').matches);
+    try { return localStorage.getItem(SCHED_KEY) === '1'; } catch (e) { return false; }
   }
   function schedItem(it) {
     var marks = (it.platform ? '<span class="gw-va-smark plat">' + esc(it.platform) + '</span>' : '') +
@@ -561,9 +563,18 @@
       (it.text ? '<div class="gw-va-stext">' + esc(it.text) + '</div>' : '') + '</li>';
   }
   function schedPanel(j) {
-    var el = $('vaSched');
+    var el = $('vaSched'), box = $('vaSchedBox'), pre = $('vaPre');
     if (!el) return;
-    if (S.courses || !('schedule' in j)) { el.hidden = true; return; }   // 코스로 볼 때는 현장이 코스 카드 안에
+    if (!box) {          // 재시작 전 옛 템플릿(details 만) — 그 자리를 감싼다
+      box = document.createElement('div');
+      box.className = 'gw-va-schedbox'; box.id = 'vaSchedBox'; box.hidden = true;
+      el.parentNode.insertBefore(box, el);
+      pre = document.createElement('div');
+      pre.className = 'gw-va-pre'; pre.id = 'vaPre'; pre.hidden = true;
+      box.appendChild(pre); box.appendChild(el);
+      el.hidden = false;
+    }
+    if (S.courses || !('schedule' in j)) { box.hidden = true; return; }   // 코스로 볼 때는 현장이 코스 카드 안에
     var n = S.schedule.reduce(function (a, g) { return a + g.items.length; }, 0);
     var todo = S.schedule.reduce(function (a, g) { return a + g.items.filter(function (it) { return !it.who.length; }).length; }, 0);
     var sum = '방문 ' + n + '건' + (todo ? ' · 배분 전 ' + todo + '건' : '');
@@ -571,12 +582,19 @@
       return '<div class="gw-va-sgroup"><h3>' + esc(g.title) + ' <span>' + g.items.length + '</span></h3>' +
         '<ul>' + g.items.map(schedItem).join('') + '</ul></div>';
     }).join('') || '<p class="gw-va-sempty">이날 방문 일정이 없어요.</p>';
+    // 방문 일정 탭이 보이는 사람(두 화면 다 여는 사람)에게만 [방문 일정으로] — 같은 날짜로
+    var canPlan = !!document.querySelector('[data-vtab][href^="/visits/plan"]');
+    pre.innerHTML = n ? '<i class="fas fa-circle-info" aria-hidden="true"></i><span>방문 일정이 아직 확정 전이에요. ' +
+      '코스를 먼저 짜면 현장이 코스 카드에 들어와요.</span>' +
+      (canPlan ? '<a class="btn btn-sm btn-outline-secondary gw-va-pretogo" href="/visits/plan?day=' + encodeURIComponent(S.day) +
+        '">방문 일정으로 <i class="fas fa-arrow-right" aria-hidden="true"></i></a>' : '') : '';
+    pre.hidden = !n;
     var wasOpen = el.dataset.ready ? el.open : schedOpenPref();
     el.innerHTML = '<summary><i class="fas fa-calendar-day" aria-hidden="true"></i><span class="gw-va-stitle">' +
       esc(j.day_label || '') + ' 방문 일정</span><span class="gw-va-ssum">' + esc(sum) + '</span>' +
       '<i class="fas fa-chevron-down gw-va-fold" aria-hidden="true"></i></summary><div class="gw-va-sbody">' + body + '</div>';
     el.open = wasOpen;
-    el.hidden = false;
+    box.hidden = false;
     el.dataset.ready = '1';
   }
   function courseMembers() {
