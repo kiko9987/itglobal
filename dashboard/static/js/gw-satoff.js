@@ -298,7 +298,7 @@
     calEl.innerHTML = g + '</div>';
   }
 
-  // 오른쪽 칸 — 휴무 출근 기록·변경 신청·고친 기록. 사람별 횟수는 근무표 끝 칸으로 옮겼다(11-24, 2번 기준도 뺌)
+  // 오른쪽 칸 — 휴무 출근 기록·변경 신청·수정 기록. 사람별 횟수는 근무표 끝 칸으로 옮겼다(11-24, 2번 기준도 뺌)
   var sideEl = document.querySelector('#soPage .gw-so-side');
   var oldCounts = document.getElementById('soCounts');            // 재시작 전 옛 템플릿의 횟수 상자 — 숨김
   if (oldCounts && oldCounts.closest('section')) oldCounts.closest('section').hidden = true;
