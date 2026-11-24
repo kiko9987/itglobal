@@ -149,8 +149,10 @@
           : d.can_request_change ? (narrow() ? ' 바꾸려면 토요일의 [이 날 쉬기]·[이 날 빼기]로 고른 뒤 [변경 신청]을 눌러 주세요.'
             : ' 바꾸려면 토요일 칸을 눌러 고른 뒤 [변경 신청]을 눌러 주세요.') : '') + '</p>';
       if (draft.add.length || draft.remove.length) {
-        var parts = draft.remove.map(function (x) { return md(x) + ' 빼기'; }).concat(draft.add.map(function (x) { return md(x) + ' 넣기'; }));
-        h += '<div class="gw-so-draft"><span>바꿀 내용: ' + esc(parts.join(', ')) + '</span> ' +
+        // 바꿀 내용 — 달력 칩과 같은 색 꼬리표(빼기 빨강·넣기 초록, 11-25 부장님 '잘 인식이 안돼')
+        var parts = draft.remove.map(function (x) { return '<span class="gw-so-dtag gone">' + esc(md(x)) + '(토) 빼기</span>'; })
+          .concat(draft.add.map(function (x) { return '<span class="gw-so-dtag add">' + esc(md(x)) + '(토) 넣기</span>'; }));
+        h += '<div class="gw-so-draft"><span class="gw-so-dlabel">바꿀 내용</span> ' + parts.join(' ') + ' ' +
           '<button type="button" class="btn btn-primary btn-sm" data-act="change">변경 신청</button> ' +
           '<button type="button" class="btn btn-light btn-sm" data-act="undo">되돌리기</button></div>';
       }
@@ -271,9 +273,9 @@
       var chips = fullOff(s) ? fullChip(s, 'span') : names.map(function (n) {
         var gone = me.name === n && inDraft(draft.remove, di);
         return '<span class="gw-cal-chip gw-so-chip' + (n === me.name ? ' mine' : '') + (gone ? ' gone' : '') + '">' + esc(n) +
-          (gone ? '<span class="visually-hidden"> (빼기로 고름)</span>' : '') + '</span>';
+          (gone ? ' <small class="gw-so-ctag">빼기</small>' : '') + '</span>';
       }).join('');
-      if (inDraft(draft.add, di)) chips += '<span class="gw-cal-chip gw-so-chip mine add">' + esc(me.name) + '<span class="visually-hidden"> (넣기로 고름)</span></span>';
+      if (inDraft(draft.add, di)) chips += '<span class="gw-cal-chip gw-so-chip mine add">+ ' + esc(me.name) + ' <small class="gw-so-ctag">넣기</small></span>';
       chips += workedChips(s, 'span');
       var label = mode ? actLabel(mode, s, di) : '';
       var btn = label
@@ -319,9 +321,9 @@
       else names.forEach(function (n) {
         var gone = me.name === n && inDraft(draft.remove, di);
         g += '<div class="gw-cal-chip gw-so-chip' + (n === me.name ? ' mine' : '') + (gone ? ' gone' : '') + '">' + esc(n) +
-          (gone ? '<span class="visually-hidden"> (빼기로 고름)</span>' : '') + '</div>';
+          (gone ? ' <small class="gw-so-ctag">빼기</small>' : '') + '</div>';
       });
-      if (inDraft(draft.add, di)) g += '<div class="gw-cal-chip gw-so-chip mine add">' + esc(me.name) + '<span class="visually-hidden"> (넣기로 고름)</span></div>';
+      if (inDraft(draft.add, di)) g += '<div class="gw-cal-chip gw-so-chip mine add">+ ' + esc(me.name) + ' <small class="gw-so-ctag">넣기</small></div>';
       g += workedChips(s, 'div');
       if (mode === 'self' && !s.mine) g += isFull(s) ? '<div class="gw-so-plus" aria-hidden="true">쉬는 사람이 다 찼어요</div>'
         : '<div class="gw-so-plus" aria-hidden="true">+ 내 이름</div>';
