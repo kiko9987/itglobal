@@ -451,3 +451,32 @@ def test_incentive_month_granularity(slack):
     so.toggle(S19, '영업나', True, B, '영업나', TODAY)                      # 12/19 도 고를 수 있음
     assert so.work_saturdays('영업나', S12, S19) == {}                       # 확정 전 달이라 근무표 없음(대상 여부와 별개)
     assert '영업나' not in [m['name'] for m in so.view('2027-01', B, '영업나', TODAY)['members']]
+
+
+# ── 한 토요일 절반 제한(11-25 부장님: 과반수 이상 쉬지 못하게) ─────────────
+def test_half_cap_per_saturday(slack):
+    """대상 4명(빈대리·영업가·영업나·영업다) → 한 토요일 최대 2명. 직원·취합 담당은 막고, 승인권자는 경고만."""
+    assert so.max_off(DEC) == 2 and so.view(DEC, A, '영업가', TODAY)['max_off'] == 2
+    so.toggle(S5, '영업가', True, A, '영업가', TODAY)
+    so.toggle(S5, '영업나', True, B, '영업나', TODAY)
+    with pytest.raises(so.SatOffError, match='절반\(2명\)'):
+        so.toggle(S5, '영업다', True, C, '영업다', TODAY)                 # 본인
+    with pytest.raises(so.SatOffError, match='절반'):
+        so.toggle(S5, '영업다', True, CO, '빈대리', TODAY)                # 취합 담당도
+    assert so.picks(DEC)['2026-12-05'] == ['영업가', '영업나']             # 막히면 저장 안 됨
+    r = so.toggle(S5, '영업다', True, JW, '박정우', TODAY)                # 승인권자는 예외(전체 휴무 등) — 경고만
+    assert '절반(2명)' in r['warn'] and len(r['names']) == 3
+    assert any('절반 넘음' in x['detail'] for x in so.recent_log(DEC))
+    so.toggle(S5, '영업다', False, JW, '박정우', TODAY)
+    # 확정 뒤 변경 신청도 같은 제한, 휴무 출근 되돌리기도
+    _confirm()
+    with pytest.raises(so.SatOffError, match='이미 2명이 쉬어요'):
+        so.request_change(DEC, '영업다', ['2026-12-05'], [], '사정', C, '영업다', TODAY)
+    so.mark_worked(S5, '영업가', '박정우', '현장', A, '영업가', TODAY)        # 영업가 출근 → 12/5 쉬는 사람 1명
+    so.request_change(DEC, '영업다', ['2026-12-05'], [], '사정', C, '영업다', TODAY)
+    c = so._changes(DEC, 'AND name=?', ('영업다',))[0]
+    so.decide_change(c['id'], True, YG, '박용구', today=TODAY)              # 12/5 다시 2명
+    with pytest.raises(so.SatOffError, match='절반'):
+        so.undo_worked(S5, '영업가', A, '영업가')                          # 되돌리면 3명 → 막힘
+    assert so.worked(DEC)[0]['name'] == '영업가'                            # 기록은 그대로 남음
+    assert '절반' in so.undo_worked(S5, '영업가', JW, '박정우')['warn']     # 승인권자는 경고만

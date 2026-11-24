@@ -2997,6 +2997,9 @@ html:has(#bdPage) {
 .gw-so-rowhead { display: flex; align-items: baseline; gap: 8px; font-size: 1rem; }
 .gw-so-rowsub { color: #64748b; font-size: 0.82rem; }
 .gw-so-rowcount { margin-left: auto; color: #475569; font-size: 0.86rem; }
+.gw-so-cap { margin-left: 6px; font-size: 0.72rem; font-weight: 600; color: #64748b; font-variant-numeric: tabular-nums; }   /* 쉬는 사람 n/최대(11-25) */
+.gw-so-cap.full { color: #b45309; }
+.gw-so-rowcount .gw-so-cap { margin-left: 0; font-size: 0.86rem; }
 .gw-so-rownames { display: flex; flex-wrap: wrap; gap: 6px; }
 .gw-so-rownames .gw-cal-chip { font-size: 0.9rem; padding: 4px 10px; border-radius: 999px; }
 .gw-so-empty { color: #64748b; font-size: 0.88rem; }

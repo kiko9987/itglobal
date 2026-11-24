@@ -360,6 +360,7 @@ def view(month: str, sid: str, name: str, today: Optional[date] = None) -> dict:
         'decided_by': row.get('decided_by') or '', 'decided_at': row.get('decided_at') or '',
         'note': row.get('note') or '',
         'saturdays': sats,
+        'max_off': len(members(on)) // 2,        # 한 토요일 최대 쉬는 인원(절반, 11-25) — max_off(month) 와 같음
         'members': [{'name': m['name'], 'count': c.get(m['name'], 0), 'worked': wc.get(m['name'], 0)} for m in members(on)],
         'incentive': [m['name'] for m in incentive_members(on)],      # 기술영업 인센티브 — 스케줄 대상 아님(11-25)
         'me': {'name': name, **r},
@@ -408,6 +409,25 @@ def _check_day(d: Optional[date], today: date, approver: bool) -> str:
     return month
 
 
+def max_off(month: str) -> int:
+    """한 토요일에 쉴 수 있는 최대 인원 — 그달 스케줄 근무 대상(인센티브 제외)의 절반, 내림.
+    과반수 이상이 쉬지 못하게(11-25 부장님 — 2명만 근무하고 다 쉰 날이 있었음). 10명이면 5명."""
+    return len(members(_first(month))) // 2
+
+
+def _over_cap(conn, month: str, day_iso: str, approver: bool) -> str:
+    """저장 뒤(같은 연결 안) 그날 쉬는 사람이 절반을 넘었나. 넘었으면 승인권자는 경고 문구, 그 밖엔 SatOffError(저장 안 됨).
+    승인권자는 전체 휴무 같은 예외가 있어 막지 않는다."""
+    n = conn.execute('SELECT COUNT(*) FROM sat_off_days WHERE day=?', (day_iso,)).fetchone()[0]
+    cap = max_off(month)
+    if n <= cap:
+        return ''
+    msg = f'{kday(lv._d(day_iso))}은 쉬는 사람이 {n}명이 돼요. 한 토요일에 절반({cap}명)까지만 쉴 수 있어요.'
+    if approver:
+        return msg[:-len('쉴 수 있어요.')] + '쉬는 게 기준이에요(승인권자라 그대로 저장했어요).'
+    raise SatOffError(msg)
+
+
 def toggle(day: Optional[date], target: str, on: bool, sid: str, actor_name: str,
            today: Optional[date] = None) -> dict:
     """토요일 칸에 이름 넣기(on)·빼기. 반환 {names, count, warn}."""
@@ -426,19 +446,22 @@ def toggle(day: Optional[date], target: str, on: bool, sid: str, actor_name: str
         raise SatOffError('결재 대기 중이거나 확정된 달이에요. 바꾸려면 [변경 신청]을 해 주세요.'
                           if st == CONFIRMED else '결재 대기 중인 달이라 지금은 바꿀 수 없어요.')
     key = day.isoformat()
+    warn = ''
     with lv._conn() as conn:
         if on:
-            conn.execute('INSERT OR IGNORE INTO sat_off_days (day, name, slack_id, added_by, added_at) '
-                         'VALUES (?, ?, ?, ?, ?)', (key, target, m['slack_id'], actor_name, _now()))
+            cur = conn.execute('INSERT OR IGNORE INTO sat_off_days (day, name, slack_id, added_by, added_at) '
+                               'VALUES (?, ?, ?, ?, ?)', (key, target, m['slack_id'], actor_name, _now()))
+            if cur.rowcount:                    # 새로 넣었을 때만 절반 제한(이미 있던 이름은 그대로)
+                warn = _over_cap(conn, month, key, r['approver'])
             conn.execute('DELETE FROM sat_off_worked WHERE day=? AND name=?', (key, target))   # 다시 쉬면 출근 기록은 지움
         else:
             conn.execute('DELETE FROM sat_off_days WHERE day=? AND name=?', (key, target))
         how = '넣음' if on else '뺌'
         _log(conn, actor_name, 'toggle', month,
-             f'{kday(day)} {target} {how}' + (f' (확정 뒤 직접 수정)' if st != OPEN else ''))
+             f'{kday(day)} {target} {how}' + (f' (확정 뒤 직접 수정)' if st != OPEN else '') + (' — 절반 넘음' if warn else ''))
     n = counts(month).get(target, 0)
-    # 한 달 몇 번 기준 경고는 뺐다(11-24 부장님 — 급한 주말 공사로 쉬는 날이 자주 바뀜). warn 은 화면 호환용으로 빈 값
-    return {'names': picks(month).get(key, []), 'count': n, 'warn': ''}
+    # 한 달 몇 번 기준 경고는 뺐다(11-24). warn = 승인권자가 한 토요일 절반을 넘겨 넣었을 때만(11-25)
+    return {'names': picks(month).get(key, []), 'count': n, 'warn': warn}
 
 
 def mark_worked(day: Optional[date], target: str, verbal_by: str, reason: str, sid: str, actor_name: str,
@@ -497,8 +520,9 @@ def undo_worked(day: Optional[date], target: str, sid: str, actor_name: str) -> 
         conn.execute('DELETE FROM sat_off_worked WHERE day=? AND name=?', (key, target))
         conn.execute('INSERT OR IGNORE INTO sat_off_days (day, name, slack_id, added_by, added_at) VALUES (?, ?, ?, ?, ?)',
                      (key, target, w['slack_id'], actor_name, _now()))
+        warn = _over_cap(conn, month, key, r['approver'])      # 다시 쉬면 그날 절반을 넘는지(11-25)
         _log(conn, actor_name, 'worked_undo', month, f'{kday(day)} {target} 휴무 출근 되돌림(다시 쉬는 날)')
-    return {'day': key, 'name': target}
+    return {'day': key, 'name': target, 'warn': warn}
 
 
 def submit(month: str, sid: str, actor_name: str, today: Optional[date] = None) -> dict:
@@ -560,10 +584,14 @@ def _check_change(month: str, name: str, add: List[str], remove: List[str], toda
     if set(add) & set(remove):
         raise SatOffError('같은 날을 넣고 빼려고 했어요. 다시 골라 주세요.')
     p = picks(month)
+    cap = max_off(month)
     for x in add:
         _check_day(lv._d(x), today, approver)
         if name in p.get(x, []):
             raise SatOffError(f'{kday(lv._d(x))}은 이미 쉬는 날이에요.')
+        if not approver and len(p.get(x, [])) + 1 > cap:     # 한 토요일 절반 제한(11-25) — 승인권자만 예외
+            raise SatOffError(f'{kday(lv._d(x))}은 이미 {len(p.get(x, []))}명이 쉬어요. '
+                              f'한 토요일에 절반({cap}명)까지만 쉴 수 있어요.')
     for x in remove:
         _check_day(lv._d(x), today, approver)
         if name not in p.get(x, []):

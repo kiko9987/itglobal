@@ -130,7 +130,8 @@
           ? (nw ? '쉬고 싶은 토요일의 [내 이름 넣기]를 누르세요. 다시 누르면 빠져요.'
             : '쉬고 싶은 토요일 칸을 누르면 내 이름이 들어가고, 한 번 더 누르면 빠져요.')
           : (nw ? '토요일마다 [쉬는 사람 고르기]로 고르세요.' : '토요일 칸을 눌러 쉬는 사람을 고르세요.') +
-            ' 다 모이면 [결재 올리기]를 눌러 주세요.') + '</p>';
+            ' 다 모이면 [결재 올리기]를 눌러 주세요.') +
+          (d.max_off != null ? ' 한 토요일에 ' + d.max_off + '명(절반)까지 쉴 수 있어요.' : '') + '</p>';
       } else {
         h += '<p class="gw-so-how">아직 고를 수 없는 달이에요.</p>';
       }
@@ -168,6 +169,16 @@
     renderTable(d, me);
     renderSide(d, me);
   }
+
+  // 쉬는 사람 n/최대(11-25 — 한 토요일 절반까지). 재시작 전 서버엔 max_off 가 없어 '' (예전처럼 인원만)
+  function capHtml(s) {
+    var cap = data && data.max_off;
+    if (cap == null || s.holiday) return '';
+    var n = s.names.length;
+    return '<span class="gw-so-cap' + (n >= cap ? ' full' : '') + '" title="쉬는 사람 ' + n + '명 · 최대 ' + cap + '명">' +
+      n + '/' + cap + (n >= cap ? ' 가득' : '') + '</span>';
+  }
+  function isFull(s) { return data && data.max_off != null && s.names.length >= data.max_off; }
 
   // 휴무 출근 칩 — 달력 칸·휴대폰 목록 공용
   function workedChips(s, tag) {
@@ -259,7 +270,7 @@
         '<div class="gw-so-rowhead"><strong>' + md(di) + '(토)</strong>' +
           (s.holiday ? ' <span class="gw-so-hol">' + esc(s.holiday) + '</span>' : '') +
           (s.past ? ' <span class="gw-so-rowsub">지난 날</span>' : '') +
-          '<span class="gw-so-rowcount">' + (names.length ? names.length + '명' : '') + '</span></div>' +
+          '<span class="gw-so-rowcount">' + (capHtml(s) || (names.length ? names.length + '명' : '')) + '</span></div>' +
         '<div class="gw-so-rownames">' + (chips || '<span class="gw-so-empty">쉬는 사람 없음</span>') + '</div>' + btn + '</li>';
     }).join('');
     calEl.innerHTML = '<ul class="gw-so-list" aria-label="' + cur.y + '년 ' + cur.m + '월 토요일">' +
@@ -289,7 +300,7 @@
       var attrs = mode ? ' role="button" tabindex="0" data-day="' + di + '" data-mode="' + mode + '" aria-label="' +
         esc(label + (mode === 'self' ? (s.mine ? ' — 눌러서 내 이름 빼기' : ' — 눌러서 내 이름 넣기') : ' — 눌러서 고치기')) + '"' : '';
       g += '<div class="' + cls + ' gw-so-sat' + (mode ? ' can' : '') + (s.past ? ' past' : '') + '"' + attrs + '>' +
-        '<div class="gw-cal-num">' + dd + (s.holiday ? ' <small class="gw-so-hol">' + esc(s.holiday) + '</small>' : '') + '</div>';
+        '<div class="gw-cal-num">' + dd + (s.holiday ? ' <small class="gw-so-hol">' + esc(s.holiday) + '</small>' : '') + capHtml(s) + '</div>';
       names.forEach(function (n) {
         var gone = me.name === n && inDraft(draft.remove, di);
         g += '<div class="gw-cal-chip gw-so-chip' + (n === me.name ? ' mine' : '') + (gone ? ' gone' : '') + '">' + esc(n) +
@@ -297,7 +308,8 @@
       });
       if (inDraft(draft.add, di)) g += '<div class="gw-cal-chip gw-so-chip mine add">' + esc(me.name) + '<span class="visually-hidden"> (넣기로 고름)</span></div>';
       g += workedChips(s, 'div');
-      if (mode === 'self' && !s.mine) g += '<div class="gw-so-plus" aria-hidden="true">+ 내 이름</div>';
+      if (mode === 'self' && !s.mine) g += isFull(s) ? '<div class="gw-so-plus" aria-hidden="true">쉬는 사람이 다 찼어요</div>'
+        : '<div class="gw-so-plus" aria-hidden="true">+ 내 이름</div>';
       if (mode === 'pick') g += '<div class="gw-so-plus" aria-hidden="true">+ 고르기</div>';
       if (mode === 'draft' && !s.mine && !inDraft(draft.add, di)) g += '<div class="gw-so-plus" aria-hidden="true">+ 바꿔 쉬기</div>';
       g += '</div>';
@@ -711,8 +723,9 @@
       var day = b.getAttribute('data-wundo'), who = b.getAttribute('data-name');
       if (!window.confirm(who + ' 님 ' + md(day) + ' 토요일 휴무 출근을 되돌릴까요? 그날은 다시 쉬는 날이 돼요.')) return;
       b.disabled = true;
-      api('/api/satoff/worked', { method: 'POST', body: { on: false, day: day, name: who } }).then(function () {
-        flash(who + ' 님 ' + md(day) + ' 토요일을 다시 쉬는 날로 되돌렸어요.', 'ok');
+      api('/api/satoff/worked', { method: 'POST', body: { on: false, day: day, name: who } }).then(function (j) {
+        var said = who + ' 님 ' + md(day) + ' 토요일을 다시 쉬는 날로 되돌렸어요.';
+        flash(j && j.warn ? said + ' ' + j.warn : said, j && j.warn ? 'warn' : 'ok');
         return load(true);
       }).catch(function (e) { flash(e.message, 'err'); b.disabled = false; });
     });
