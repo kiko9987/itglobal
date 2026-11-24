@@ -54,7 +54,8 @@ _DDL = [
     )''',
     '''CREATE TABLE IF NOT EXISTS vehicle_state (
         plate TEXT PRIMARY KEY, at TEXT, seen_at TEXT, lat REAL, lon REAL, speed REAL, key_state TEXT,
-        odometer REAL, fuel REAL, voltage REAL, tpms TEXT, soc REAL
+        odometer REAL, fuel REAL, voltage REAL, tpms TEXT, soc REAL,
+        pos_at TEXT          -- 위치(lat·lon)를 실제로 받은 시각. at 은 마지막 신호 시각(위치가 비어 와도 바뀜)
     )''',
     '''CREATE TABLE IF NOT EXISTS vehicle_device (
         plate TEXT PRIMARY KEY, model TEXT, status TEXT, fault_at TEXT, memo TEXT, checked_at TEXT
@@ -84,6 +85,9 @@ def _conn():
         if not _table_ready:
             for ddl in _DDL:
                 conn.execute(ddl)
+            cols = {r[1] for r in conn.execute('PRAGMA table_info(vehicle_state)').fetchall()}
+            if 'pos_at' not in cols:            # 위치 받은 시각을 따로(11-24 조용한 실패 점검)
+                conn.execute('ALTER TABLE vehicle_state ADD COLUMN pos_at TEXT')
             conn.commit()
             _table_ready = True
         yield conn
@@ -429,22 +433,30 @@ def metrics(start: str, end: str, plate: str = '') -> Dict[Tuple[str, str, str],
 
 # ── ⑤ 차량 상태 ─────────────────────────────────────────────────────────
 def save_state(statuses: List[Dict], now: Optional[datetime] = None) -> int:
+    """차 상태 저장. 위치가 비어 온 차(GPS 못 잡음)는 옛 좌표를 그대로 두되, 그 좌표를 받은 시각(pos_at)도 그대로 둔다 —
+    예전엔 옛 좌표에 새 신호 시각(at)이 붙어 실시간 위치가 몇 시간 전 자리를 '방금'으로 보였다(11-24 조용한 실패 점검)."""
     now = now or datetime.now()
+    now_s = now.strftime('%Y-%m-%d %H:%M:%S')
     n = 0
     with _conn() as conn:
         for s in statuses:
             if not s.get('plate'):
                 continue
             at = s.get('at')
-            prev = conn.execute('SELECT lat, lon FROM vehicle_state WHERE plate = ?', (s['plate'],)).fetchone()
-            lat = s.get('lat') if s.get('lat') is not None else (prev['lat'] if prev else None)
-            lon = s.get('lon') if s.get('lon') is not None else (prev['lon'] if prev else None)
+            at_s = at.strftime('%Y-%m-%d %H:%M:%S') if isinstance(at, datetime) else None
+            prev = conn.execute('SELECT lat, lon, at, pos_at FROM vehicle_state WHERE plate = ?', (s['plate'],)).fetchone()
+            if s.get('lat') is not None and s.get('lon') is not None:
+                lat, lon, pos_at = s['lat'], s['lon'], at_s or now_s
+            elif prev and prev['lat'] is not None:
+                # 칸을 더하기 전에 저장된 줄은 pos_at 이 없어 그때의 at(그 좌표와 같이 받은 신호 시각)으로
+                lat, lon, pos_at = prev['lat'], prev['lon'], prev['pos_at'] or prev['at']
+            else:
+                lat = lon = pos_at = None
             conn.execute('INSERT OR REPLACE INTO vehicle_state (plate, at, seen_at, lat, lon, speed, key_state, odometer, '
-                         'fuel, voltage, tpms, soc) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-                         (s['plate'], at.strftime('%Y-%m-%d %H:%M:%S') if isinstance(at, datetime) else None,
-                          now.strftime('%Y-%m-%d %H:%M:%S'), lat, lon, s.get('speed'), s.get('key_state') or '',
+                         'fuel, voltage, tpms, soc, pos_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                         (s['plate'], at_s, now_s, lat, lon, s.get('speed'), s.get('key_state') or '',
                           s.get('odometer'), s.get('fuel'), s.get('voltage'), json.dumps(s.get('tpms') or []),
-                          s.get('soc')))
+                          s.get('soc'), pos_at))
             n += 1
     return n
 
@@ -542,8 +554,12 @@ def _speed_limit() -> int:
         return SPEED_LIMIT
 
 
-def alert_items(today: Optional[date] = None) -> List[str]:
-    """아침 알림 줄들(없으면 []). 만기 알림은 같은 줄을 한 번만(30·7·0일 전, 지남은 매주 월요일)."""
+def alert_items(today: Optional[date] = None, pending: Optional[List[str]] = None) -> List[str]:
+    """아침 알림 줄들(없으면 []). 만기 알림은 같은 줄을 한 번만(30·7·0일 전, 지남은 매주 월요일).
+
+    pending 을 주면 만기 줄의 '보냄' 표시를 바로 하지 않고 그 열쇠를 pending 에 모은다 — send_alerts 가 DM 이 한 통이라도
+    간 뒤에만 표시하게. 예전엔 보내기 전에 표시해 DM 이 실패하면 30·7·0일 전 만기 알림이 영영 빠졌다(11-24 조용한
+    실패 점검). pending 없이 부르면 예전처럼 바로 표시한다."""
     from dashboard.services import vehicle_assign as va
     from dashboard.services import vehicle_manage as vm
     today = today or date.today()
@@ -582,7 +598,10 @@ def alert_items(today: Optional[date] = None) -> List[str]:
                 k = f'exp:{c["plate"]}:{what}:{end}:{dd if dd >= 0 else "over" + today.isoformat()}'
                 if _sent(k):
                     continue
-                _mark(k)
+                if pending is None:
+                    _mark(k)
+                else:
+                    pending.append(k)
                 when = '오늘 만기' if dd == 0 else (f'{dd}일 남음' if dd > 0 else f'{-dd}일 지남')
                 lines.append(f":page_facing_up: {what} 만기 {c['label']} {end} ({when})")
     try:
@@ -590,8 +609,8 @@ def alert_items(today: Optional[date] = None) -> List[str]:
         miss = tw.missing((today - timedelta(days=7)).isoformat(), y)
         if miss:
             lines.append(f":grey_question: 운전자 미확인 {len(miss)}건(최근 7일) — 운행일지 화면 위에서 볼 수 있어요")
-    except Exception:
-        pass
+    except Exception as e:      # 조용히 넘기던 것(11-24 조용한 실패 점검) — 알림에서 미확인 줄만 빠진다
+        logger.warning(f'[차량알림] 운전자 미확인 읽기 실패 — 아침 알림에서 그 줄이 빠져요: {e}')
     return lines
 
 
@@ -618,14 +637,26 @@ def alert_recipients() -> List[str]:
 
 
 def send_alerts(today: Optional[date] = None) -> Dict:
+    """아침 알림 DM. 만기 줄의 '보냄' 표시는 DM 이 한 통이라도 간 뒤에만 — 한 통도 못 보냈으면 표시하지 않고
+    결과에 error(스케줄러가 ERROR 로 남김), 다음 날 다시 알린다(11-24 조용한 실패 점검)."""
     if not ALERT_ON:
         return {'skipped': 'off'}
-    lines = alert_items(today)
+    pending: List[str] = []
+    lines = alert_items(today, pending)
     if not lines:
         return {'sent': 0}
     from dashboard.services import vehicle_assign as va
     text = ':car: *차량 알림*\n' + '\n'.join(f'• {x}' for x in lines[:30])
-    sent = sum(1 for sid in alert_recipients() if va._dm(sid, text))
+    to = alert_recipients()
+    sent = sum(1 for sid in to if va._dm(sid, text))
+    if not sent:
+        why = '받는 사람이 없어요 — 설정 vehicle_alert_to·인사 관리자 슬랙 ID 확인' if not to else f'받는 사람 {len(to)}명 모두 실패'
+        return {'sent': 0, 'lines': len(lines), 'recipients': len(to),
+                'error': f'알릴 줄 {len(lines)}개가 있는데 DM 을 한 통도 못 보냈어요({why}) — 만기 알림은 내일 다시 보내요'}
+    for k in pending:
+        _mark(k)
+    if sent < len(to):
+        logger.warning(f'[차량알림] 받는 사람 {len(to)}명 중 {len(to) - sent}명에게 DM 을 못 보냈어요')
     return {'sent': sent, 'lines': len(lines)}
 
 
@@ -645,8 +676,10 @@ def habits(start: str, end: str) -> Dict:
                             'WHERE m.day BETWEEN ? AND ?', (start, end)).fetchall()
 
     def bucket():
+        # ev_trips·ev_km = 급가속 등 횟수를 아는 운행(안전운전 짝이 있는 운행)만 — 모르는 운행을 0 회로 세지 않게(11-24)
         return {'trips': 0, 'km': 0.0, 'w': 0.0, 'safe_w': 0.0, 'eco_w': 0.0, 'rapid': 0, 'acc': 0, 'dec': 0,
-                'stop': 0, 'max_speed': 0, 'speeding': 0}
+                'stop': 0, 'max_speed': 0, 'speeding': 0, 'ev_trips': 0, 'ev_km': 0.0}
+    ev_keys = ('rapid_acc', 'rapid_dec', 'sudden_stop', 'rapid_turn', 'rapid_u_turn', 'rapid_lane', 'rapid_pass')
     people: Dict[str, Dict] = {}
     by_car: Dict[str, Dict] = {}
     for r in rows:
@@ -663,20 +696,25 @@ def habits(start: str, end: str) -> Dict:
             if r['eco'] is not None:
                 b['eco_w'] += r['eco'] * w
             b['w'] += w
-            b['acc'] += r['rapid_acc'] or 0
-            b['dec'] += r['rapid_dec'] or 0
-            b['stop'] += r['sudden_stop'] or 0
-            b['rapid'] += sum((r[k] or 0) for k in ('rapid_acc', 'rapid_dec', 'sudden_stop', 'rapid_turn',
-                                                    'rapid_u_turn', 'rapid_lane', 'rapid_pass'))
+            if any(r[k] is not None for k in ev_keys):
+                b['ev_trips'] += 1
+                b['ev_km'] += km
+                b['acc'] += r['rapid_acc'] or 0
+                b['dec'] += r['rapid_dec'] or 0
+                b['stop'] += r['sudden_stop'] or 0
+                b['rapid'] += sum((r[k] or 0) for k in ev_keys)
             b['max_speed'] = max(b['max_speed'], r['max_speed'] or 0)
             b['speeding'] += int((r['max_speed'] or 0) >= lim)
 
     def done(key, b, name):
-        per100 = round(b['rapid'] / b['km'] * 100, 1) if b['km'] >= 1 else None
+        known = b['ev_trips'] > 0            # 급가속 등을 아는 운행이 하나도 없으면 None(화면 '-')
+        per100 = round(b['rapid'] / b['ev_km'] * 100, 1) if known and b['ev_km'] >= 1 else None
         return {'key': key, 'name': name, 'trips': b['trips'], 'km': round(b['km'], 1),
                 'safe': round(b['safe_w'] / b['w'], 1) if b['w'] and b['safe_w'] else None,
                 'eco': round(b['eco_w'] / b['w'], 1) if b['w'] and b['eco_w'] else None,
-                'acc': b['acc'], 'dec': b['dec'], 'stop': b['stop'], 'rapid': b['rapid'], 'rapid_per100': per100,
+                'acc': b['acc'] if known else None, 'dec': b['dec'] if known else None,
+                'stop': b['stop'] if known else None, 'rapid': b['rapid'] if known else None,
+                'rapid_per100': per100, 'ev_trips': b['ev_trips'],
                 'max_speed': int(b['max_speed']), 'speeding': b['speeding']}
     ppl = sorted((done(k, b, va.display(k, who)) for k, b in people.items()), key=lambda x: -x['km'])
     cs = sorted((done(k, b, (cars.get(k) or {}).get('label') or k) for k, b in by_car.items()), key=lambda x: -x['km'])
@@ -760,11 +798,15 @@ def now_view() -> Dict:
         if not c.get('uplus') or c['plate'] == va.OWN or not c.get('active', 1):
             continue
         s = st.get(c['plate']) or {}
-        at = s.get('at') or ''
+        # 'N분 전'·운행 중은 위치를 받은 시각(pos_at) 기준 — 신호(at)만 새로 오고 위치가 비면 옛 자리를 '방금'으로
+        # 보이던 것(11-24 조용한 실패 점검). pos_at 이 없는 옛 줄은 at.
+        sig = s.get('at') or ''
+        at = (s.get('pos_at') or sig) if s.get('lat') is not None else sig
         mins = None
         if at:
             mins = int((datetime.now() - datetime.strptime(at, '%Y-%m-%d %H:%M:%S')).total_seconds() // 60)
         moving = bool(s.get('speed') and s['speed'] > 3 and mins is not None and mins <= 5)
+        pos_stale = bool(s.get('lat') is not None and sig and at and sig > at)     # 신호는 왔는데 새 위치가 안 들어옴
         r = rows.get(c['plate'])
         a = vd.answer(today, c['plate']) or {}
         out.append({'plate': c['plate'], 'label': c['label'], 'model': c.get('model') or '',
@@ -772,6 +814,7 @@ def now_view() -> Dict:
                     'lat': s.get('lat'), 'lon': s.get('lon'),
                     'addr': reverse(s['lat'], s['lon']) if s.get('lat') is not None else '',
                     'at': at[5:16].replace('-', '/') if at else '', 'mins': mins, 'moving': moving,
+                    'pos_stale': pos_stale,
                     'speed': s.get('speed'), 'fuel': s.get('fuel'),
                     'riders': [va.display(x, who) for x in (va.riders(r) if r else [])],
                     'ended': bool(a.get('ended_at'))})
@@ -782,8 +825,11 @@ def now_view() -> Dict:
     if seen:
         last_ok = seen[11:16] if seen[:10] == today else f'{seen[5:7]}/{seen[8:10]} {seen[11:16]}'
     err = 'U+ 에서 차 위치를 받지 못했어요.' if isinstance(rs, dict) and rs.get('error') else ''
+    # .env 의 UPLUS_APP_* 를 잘못 적은 것 — '승인 전'과 구별해 화면 머리에 '설정 오류'(11-24 조용한 실패 점검)
+    conf = up.config_errors()
     return {'enabled': up.enabled('status'), 'cars': out, 'company': company(),
-            'checked_at': datetime.now().strftime('%H:%M'), 'error': err, 'last_ok': last_ok}
+            'checked_at': datetime.now().strftime('%H:%M'), 'error': err, 'last_ok': last_ok,
+            'config_error': ' · '.join(conf)}
 
 
 def nearest(addr: str) -> Dict:

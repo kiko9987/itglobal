@@ -4,22 +4,39 @@
 (function () {
   'use strict';
   var loading = null;
+  // 이만큼 지나도 안 끝나면 실패로 본다 — 스크립트가 걸리거나 kakao.maps.load 가 끝내 안 불리면 Promise 가 영영 안
+  // 끝나, 실시간 위치 목록·운행 경로 보기가 같이 멈추던 것(11-24 조용한 실패 점검)
+  var TIMEOUT_MS = 10000;
   function load(key) {
     if (window.kakao && window.kakao.maps && window.kakao.maps.LatLng) return Promise.resolve(window.kakao);
     if (!key) return Promise.reject(new Error('no_key'));
     if (loading) return loading;
-    loading = new Promise(function (resolve, reject) {
+    var timer = null;
+    var sdk = new Promise(function (resolve, reject) {
       var s = document.createElement('script');
       s.src = 'https://dapi.kakao.com/v2/maps/sdk.js?autoload=false&appkey=' + encodeURIComponent(key);
       s.async = true;
       s.onload = function () {
-        if (!window.kakao || !window.kakao.maps) { loading = null; reject(new Error('load_failed')); return; }
+        if (!window.kakao || !window.kakao.maps) { reject(new Error('load_failed')); return; }
         window.kakao.maps.load(function () { resolve(window.kakao); });
       };
-      s.onerror = function () { loading = null; reject(new Error('load_failed')); };
+      s.onerror = function () { reject(new Error('load_failed')); };
       document.head.appendChild(s);
     });
-    return loading;
+    var late = new Promise(function (resolve, reject) {
+      timer = setTimeout(function () { reject(new Error('timeout')); }, TIMEOUT_MS);
+    });
+    // 실패·시간 초과면 loading 을 비워 다음에 다시 시도할 수 있게(전엔 실패한 Promise 를 계속 돌려줌)
+    var p = Promise.race([sdk, late]).then(function (kakao) {
+      clearTimeout(timer);
+      return kakao;
+    }, function (err) {
+      clearTimeout(timer);
+      if (loading === p) loading = null;
+      throw err;
+    });
+    loading = p;
+    return p;
   }
   // 경로 선을 그린 지도 하나 — el 안에 새로 만든다. pts = [[위도, 경도], ...]
   function route(el, key, pts) {

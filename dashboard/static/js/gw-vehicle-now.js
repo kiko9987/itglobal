@@ -66,7 +66,9 @@
       '<span class="gw-vn-top"><strong>' + esc(c.label) + '</strong> <span class="gw-vn-plate">' + esc(c.plate) + '</span>' +
       (c.km != null ? '<span class="gw-vn-km">' + esc(c.km) + ' km</span>' : '') + '</span>' +
       '<span class="gw-vn-mid">' + state + ' <span class="gw-vn-who">' + who + '</span></span>' +
-      '<span class="gw-vn-addr">' + esc(shortAddr(c.addr) || '-') + (c.mins != null ? ' · ' + esc(ago(c.mins)) : '') + '</span>' +
+      // 'N분 전'은 위치를 받은 시각 기준 — 신호만 오고 위치가 비면 '새 위치 안 들어옴'(11-24 조용한 실패 점검)
+      '<span class="gw-vn-addr">' + esc(shortAddr(c.addr) || '-') + (c.mins != null ? ' · ' + esc(ago(c.mins)) : '') +
+        (c.pos_stale ? ' · 새 위치 안 들어옴' : '') + '</span>' +
       '</button></li>';
   }
   function renderList() {
@@ -132,11 +134,15 @@
       // U+ 조회가 실패하면 옛 위치를 '지금 기준'으로 보이지 않게 — 마지막으로 받은 시각을 머리에(11-24 조용한 실패 점검)
       var when = $('vnWhen');
       var failed = j.enabled && j.error;
-      when.textContent = !j.enabled ? 'U+ 연동 승인 전'
+      // .env 의 U+ 값을 잘못 적은 것은 '승인 전'과 구별(11-24 조용한 실패 점검)
+      var confBad = !j.enabled && !!j.config_error;
+      when.textContent = confBad ? 'U+ 설정 오류 — 관리자 확인 필요'
+        : !j.enabled ? 'U+ 연동 승인 전'
         : failed ? 'U+ 연결 실패 — ' + (j.last_ok ? j.last_ok + ' 위치예요' : '받은 위치가 없어요')
         : j.checked_at + ' 기준 · 30초마다';
-      when.classList.toggle('warn', !!failed);
-      loadMsg(failed ? j.error + ' 목록과 지도는 마지막으로 받은 위치예요. 잠시 뒤 저절로 다시 받아요.' : '');
+      when.classList.toggle('warn', !!failed || confBad);
+      loadMsg(failed ? j.error + ' 목록과 지도는 마지막으로 받은 위치예요. 잠시 뒤 저절로 다시 받아요.'
+        : (j.enabled && j.config_error ? 'U+ 설정 일부가 잘못 적혀 있어요 — 관리자 확인 필요' : ''));
       renderList();
       drawMarkers(first);
       first = false;
@@ -221,5 +227,8 @@
   $('vnReload').addEventListener('click', function () { load(); });
   document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') load(true); });
 
-  initMap().then(function () { return load(); }).then(schedule);
+  // 목록은 지도와 따로 동시에 — 지도가 늦거나 실패해도 목록은 뜬다. 지도가 준비되면 그때 꼬리표를 그린다
+  //   (전엔 지도 불러오기가 안 끝나면 목록도 영영 안 떴음, 11-24 조용한 실패 점검)
+  load().then(schedule);
+  initMap().then(function () { if (S.map) drawMarkers(true); });
 })();

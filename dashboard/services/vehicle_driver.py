@@ -192,6 +192,9 @@ def _cars_to_ask_all(day: str) -> List[Tuple[str, List[str]]]:
 # ── 보내기·받기 ──────────────────────────────────────────────────────────
 # 저녁 운전자 묻기 DM 스위치 — 차량 배정을 라이브로 연 11-24 에도 꺼 둔다(운행일지·운전자 기록 화면이 아직 개발 중).
 DRIVER_ASK_ON: bool = False
+# ask_car 결과 — 물어볼 사람이 있는데 DM 을 한 통도 못 보냄(슬랙 ID 없음·보내기 실패). 예전엔 0 을 돌려줘 스위치가 꺼져
+# 기록만 한 것(0)과 구별이 안 됐고, 운행 종료 감지는 그 차를 '물음'으로 적어 다시 안 물었다(11-24 조용한 실패 점검).
+DM_FAILED = -2
 
 def send_asks(day: Optional[str] = None) -> Dict:
     """그날 저녁 — 확정한 날, 탄 사람이 둘 이상이고 아직 답이 없는 차마다 탄 사람 모두에게 DM.
@@ -203,18 +206,24 @@ def send_asks(day: Optional[str] = None) -> Dict:
     if tw.active():                              # 운행 종료 감지가 켜지면 저녁 일괄 묻기 대신 차가 선 때 + 다음 날 아침(11-24)
         return {'skipped': 'trip_watch'}
     day = day or date.today().isoformat()
-    sent = auto = 0
+    sent = auto = failed = 0
     for plate, riders in _cars_to_ask(day):
         if answer(day, plate):
             continue
         n = ask_car(day, plate, riders)
-        if n < 0:
+        if n == DM_FAILED:
+            failed += 1             # ask_car 가 ERROR 를 남김
+        elif n < 0:
             auto += 1
         else:
             sent += n
-    if sent or auto:
-        logger.info(f'[운전자] {day} 운전자 묻기 DM {sent}건, 혼자 탄 차 {auto}대 자동')
-    return {'day': day, 'sent': sent, 'auto': auto}
+    # 보낸 게 없어도 한 줄 — 돌았는데 물을 차가 없던 것과 안 돈 것을 로그로 구별(11-24 조용한 실패 점검)
+    logger.info(f'[운전자] {day} 운전자 묻기 DM {sent}건, 혼자 탄 차 {auto}대 자동'
+                + (f', DM 못 보낸 차 {failed}대' if failed else ''))
+    out = {'day': day, 'sent': sent, 'auto': auto}
+    if failed:
+        out['failed'] = failed
+    return out
 
 
 def guess_driver(day: str, plate: str, riders: List[str], back_days: int = 30) -> str:
@@ -239,7 +248,9 @@ def guess_driver(day: str, plate: str, riders: List[str], back_days: int = 30) -
 def ask_car(day: str, plate: str, riders: List[str], guess: str = '', lead: str = '',
             again: bool = False) -> int:
     """차 한 대 묻기 — 보낸 DM 수. 혼자 탄 차는 묻지 않고 그 사람으로 적고 -1.
-    again=True 면 이미 보낸 사람에게도 새 DM(다음 날 아침 한 번 더) — 버튼 갱신은 새 DM 을 따른다."""
+    again=True 면 이미 보낸 사람에게도 새 DM(다음 날 아침 한 번 더) — 버튼 갱신은 새 DM 을 따른다.
+    물어볼 사람이 있는데 한 통도 못 보냈으면(슬랙 ID 없음·보내기 실패) ERROR 를 남기고 DM_FAILED(-2) — 부르는 쪽이
+    'DM 못 보냄'으로 따로 적고 다음 점검 때 다시 묻는다(11-24 조용한 실패 점검). 이미 보낸 사람만 있으면 0."""
     from dashboard.services import vehicle_assign as va
     if len(riders) == 1:
         _save(day, plate, riders[0], riders[0], 'auto', via='auto')
@@ -247,16 +258,19 @@ def ask_car(day: str, plate: str, riders: List[str], guess: str = '', lead: str 
     who = va._who_map()
     blocks = _blocks(day, plate, riders, guess=guess, lead=lead)
     text = f"{va.day_label(day)} 차량 운전자 확인"
-    sent = 0
+    sent = already = 0
+    missed: List[str] = []
     for c in riders:
         p = who.get(c)
-        if not p or not p.get('slack_id'):
-            continue
         if not again:
             with _conn() as conn:
                 if conn.execute('SELECT 1 FROM vehicle_driver_msg WHERE day = ? AND plate = ? AND code = ?',
                                 (day, plate, c)).fetchone():
+                    already += 1
                     continue
+        if not p or not p.get('slack_id'):
+            missed.append(f"{(p or {}).get('name') or c}(슬랙 ID 없음)")
+            continue
         r = _slack('chat.postMessage', {'channel': p['slack_id'], 'text': text, 'blocks': blocks,
                                         'unfurl_links': False, 'unfurl_media': False})
         if r.get('ok'):
@@ -264,6 +278,14 @@ def ask_car(day: str, plate: str, riders: List[str], guess: str = '', lead: str 
             with _conn() as conn:
                 conn.execute('INSERT OR REPLACE INTO vehicle_driver_msg (day, plate, code, channel, ts) VALUES (?,?,?,?,?)',
                              (day, plate, c, r.get('channel') or p['slack_id'], r.get('ts') or ''))
+        else:
+            missed.append(f"{p.get('name') or c}({r.get('error') or '실패'})")
+    if missed and not sent and not already:
+        logger.error(f"[운전자] {day} {plate} 운전자 확인 DM 을 한 통도 못 보냄 — 다음 점검 때 다시 물어요: {', '.join(missed)}",
+                     force_alert=True)
+        return DM_FAILED
+    if missed:
+        logger.warning(f"[운전자] {day} {plate} 운전자 확인 DM 일부 못 보냄(보낸 {sent}명): {', '.join(missed)}")
     return sent
 
 

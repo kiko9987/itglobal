@@ -33,6 +33,7 @@ END_FROM = '15:00'          # 이 시각 뒤에 선 것만 '그날 마지막' �
 POLL_HOURS = (14, 22)       # 이 시간대만 조회(호출 수 줄이기)
 
 END_ASK_ON: bool = False    # DM 스위치 — 승인 뒤 감지 기록을 실제와 맞춰 본 다음 True + 재시작
+DM_FAILED = -2              # vehicle_driver.DM_FAILED 와 같은 값 — 물어볼 사람이 있는데 DM 을 한 통도 못 보냄
 
 _DDL = [
     '''CREATE TABLE IF NOT EXISTS vehicle_park (
@@ -49,7 +50,7 @@ _DDL = [
         at TEXT,
         park_since TEXT,
         lat REAL, lon REAL,
-        sent INTEGER,        -- 보낸 DM 수(-1 = 혼자라 자동, 0 = 스위치 꺼져 기록만)
+        sent INTEGER,        -- 보낸 DM 수(-1 = 혼자라 자동, 0 = 스위치 꺼져 기록만, -2 = DM 못 보냄 → 다음 점검 때 다시)
         PRIMARY KEY (day, plate, kind)
     )''',
 ]
@@ -149,8 +150,9 @@ def ended_cars(now: datetime) -> List[Dict]:
     out = []
     with _conn() as conn:
         parks = {r['plate']: dict(r) for r in conn.execute('SELECT * FROM vehicle_park').fetchall()}
-        done = {r['plate'] for r in conn.execute("SELECT plate FROM vehicle_end_ask WHERE day = ? AND kind = 'park'",
-                                                (day,)).fetchall()}
+        # DM 을 못 보낸 차(sent = -2)는 다음 점검 때 다시 묻는다(11-24 조용한 실패 점검)
+        done = {r['plate'] for r in conn.execute("SELECT plate FROM vehicle_end_ask WHERE day = ? AND kind = 'park' "
+                                                "AND COALESCE(sent, 0) != ?", (day, DM_FAILED)).fetchall()}
     for plate, r in rows.items():
         riders = va.riders(r)
         p = parks.get(plate)
@@ -210,10 +212,12 @@ def poll(now: Optional[datetime] = None, statuses: Optional[List[Dict]] = None) 
                                 f"({e['since'][11:16]}부터 서 있음).")
         else:
             n = 0
-        _record(e['day'], e['plate'], 'park', n, e)
+        _record(e['day'], e['plate'], 'park', n, e)      # n == DM_FAILED 면 'DM 못 보냄' — 다음 점검 때 다시
         asked.append({'plate': e['plate'], 'since': e['since'], 'sent': n})
     if asked:
-        logger.info(f"[운행종료] {now:%m-%d %H:%M} 운행 종료 {len(asked)}대{'' if send else '(기록만 — DM 꺼짐)'}: {asked}")
+        failed = [a['plate'] for a in asked if a['sent'] == DM_FAILED]
+        logger.info(f"[운행종료] {now:%m-%d %H:%M} 운행 종료 {len(asked)}대{'' if send else '(기록만 — DM 꺼짐)'}"
+                    f"{f' · DM 못 보냄 {failed}(다음 점검 때 다시)' if failed else ''}: {asked}")
     return {'cars': len(statuses), 'moved': moved, 'ended': asked}
 
 
@@ -238,10 +242,10 @@ def remind_morning(today: Optional[date] = None) -> Dict:
     if not day:
         return {'skipped': 'no_day'}
     cars = {c['plate']: c for c in va.fleet(True)}
-    with _conn() as conn:
-        done = {r['plate'] for r in conn.execute("SELECT plate FROM vehicle_end_ask WHERE day = ? AND kind = 'morning'",
-                                                (day,)).fetchall()}
-    sent = auto = 0
+    with _conn() as conn:         # DM 을 못 보낸 차(-2)는 다시 불리면 또 묻는다(11-24 조용한 실패 점검)
+        done = {r['plate'] for r in conn.execute("SELECT plate FROM vehicle_end_ask WHERE day = ? AND kind = 'morning' "
+                                                "AND COALESCE(sent, 0) != ?", (day, DM_FAILED)).fetchall()}
+    sent = auto = failed = 0
     for plate, r in va.car_rows(day).items():
         riders = va.riders(r)
         if not riders or vd.answer(day, plate) or plate in done:
@@ -250,19 +254,26 @@ def remind_morning(today: Optional[date] = None) -> Dict:
         n = vd.ask_car(day, plate, riders, guess=vd.guess_driver(day, plate, riders),
                        lead=f"{va.day_label(day)} *{label}* ({plate}) 운전자를 아직 못 받았어요.", again=True)
         _record(day, plate, 'morning', n)
-        if n < 0:
+        if n == DM_FAILED:
+            failed += 1             # ask_car 가 ERROR 를 남김
+        elif n < 0:
             auto += 1
         else:
             sent += n
-    if sent or auto:
-        logger.info(f'[운행종료] {day} 아침 다시 묻기 DM {sent}건, 혼자 탄 차 {auto}대 자동')
-    return {'day': day, 'sent': sent, 'auto': auto}
+    # 보낸 게 없어도 한 줄 — 돌았는데 물을 차가 없던 것과 안 돈 것을 로그로 구별(11-24 조용한 실패 점검)
+    logger.info(f'[운행종료] {day} 아침 다시 묻기 DM {sent}건, 혼자 탄 차 {auto}대 자동'
+                + (f', DM 못 보낸 차 {failed}대' if failed else ''))
+    out = {'day': day, 'sent': sent, 'auto': auto}
+    if failed:
+        out['failed'] = failed
+    return out
 
 
 # ── 경영지원 — 운전자 미확인 ──────────────────────────────────────────────
 def missing(start: str, end: str) -> List[Dict]:
-    """기간 안 확정한 날 중 운전자 답이 없는 차 — [{'day', 'plate', 'car', 'riders', 'asked'}] (오래된 날 먼저).
-    오늘은 아직 운행 중일 수 있어 뺀다."""
+    """기간 안 확정한 날 중 운전자 답이 없는 차 — [{'day', 'plate', 'car', 'riders', 'asked', 'dm_failed'}] (오래된 날 먼저).
+    오늘은 아직 운행 중일 수 있어 뺀다. dm_failed = 마지막으로 물은 때(아침 > 운행 종료) DM 을 한 통도 못 보냄 —
+    예전엔 sent 를 안 읽어 못 보낸 차도 '물음'으로 보였다(11-24 조용한 실패 점검)."""
     from dashboard.services import vehicle_assign as va
     from dashboard.services import vehicle_driver as vd
     who = va._who_map()
@@ -275,13 +286,15 @@ def missing(start: str, end: str) -> List[Dict]:
         d += timedelta(days=1)
         if day >= today or not _confirmed(day):
             continue
-        with _conn() as conn:
-            asked = {r['plate']: r['kind'] for r in conn.execute(
-                'SELECT plate, kind FROM vehicle_end_ask WHERE day = ? ORDER BY kind DESC', (day,)).fetchall()}
+        with _conn() as conn:       # park 다음 morning 순서 — 같은 차면 아침 기록이 이긴다
+            asked = {r['plate']: (r['kind'], r['sent']) for r in conn.execute(
+                'SELECT plate, kind, sent FROM vehicle_end_ask WHERE day = ? ORDER BY kind DESC', (day,)).fetchall()}
         for plate, r in va.car_rows(day).items():
             riders = va.riders(r)
             if not riders or vd.answer(day, plate):
                 continue
+            kind, sent = asked.get(plate, ('', None))
             out.append({'day': day, 'plate': plate, 'car': (cars.get(plate) or {}).get('label') or plate,
-                        'riders': [va.display(c, who) for c in riders], 'asked': asked.get(plate, '')})
+                        'riders': [va.display(c, who) for c in riders], 'asked': kind,
+                        'dm_failed': sent == DM_FAILED})
     return out

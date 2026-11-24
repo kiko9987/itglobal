@@ -57,8 +57,32 @@ def _host() -> str:
     return (os.getenv('UPLUS_API_HOST') or DEFAULT_HOST).rstrip('/')
 
 
+# 잘못 적은 설정을 이미 ERROR 로 알린 값 — enabled() 가 10분마다·화면마다 불려 같은 값으로 알림이 쌓이지 않게
+_bad_logged: set = set()
+
+
+def config_error(name: str = 'status') -> str:
+    """그 API 의 설정이 잘못 적혔으면 그 문구, 아니면 ''. 키가 아직 없는 것(승인 전)은 오류가 아니다.
+    UPLUS_APP_<이름> 을 숫자가 아니게 적으면 예전엔 WARNING 만 남기고 '승인 전'과 똑같이 보여, 키를 넣고도
+    아무것도 안 되는 걸 아무도 몰랐다(11-24 조용한 실패 점검)."""
+    raw = (os.getenv(f'UPLUS_APP_{name.upper()}') or '').strip()
+    key = (os.getenv(f'UPLUS_KEY_{name.upper()}') or os.getenv('UPLUS_SECURE_KEY') or '').strip()
+    if not raw or not key:
+        return ''
+    try:
+        int(raw)
+        return ''
+    except ValueError:
+        return f'UPLUS_APP_{name.upper()} 가 숫자가 아니에요'
+
+
+def config_errors() -> List[str]:
+    """잘못 적힌 U+ 설정 전부(화면 머리 '설정 오류' 표시용)."""
+    return [e for e in (config_error(n) for n in APIS) if e]
+
+
 def app(name: str) -> Optional[Tuple[int, str]]:
-    """그 API 의 (application_id, secure_key). 아직 없으면 None."""
+    """그 API 의 (application_id, secure_key). 아직 없거나 잘못 적었으면 None(잘못 적은 건 ERROR — config_error)."""
     raw = (os.getenv(f'UPLUS_APP_{name.upper()}') or '').strip()
     key = (os.getenv(f'UPLUS_KEY_{name.upper()}') or os.getenv('UPLUS_SECURE_KEY') or '').strip()
     if not raw or not key:
@@ -66,12 +90,25 @@ def app(name: str) -> Optional[Tuple[int, str]]:
     try:
         return int(raw), key
     except ValueError:
-        logger.warning(f'[U+] UPLUS_APP_{name.upper()} 가 숫자가 아니에요')
+        if (name, raw) not in _bad_logged:
+            _bad_logged.add((name, raw))
+            logger.error(f'[U+] UPLUS_APP_{name.upper()} 가 숫자가 아니에요 — 이 API 는 키가 없는 것처럼 꺼져 있어요. '
+                         f'.env 를 고친 뒤 재시작해 주세요', force_alert=True)
         return None
 
 
 def enabled(name: str = 'status') -> bool:
     return name in APIS and app(name) is not None
+
+
+def state(name: str = 'status') -> str:
+    """'on'(키 있음) · 'config_error'(잘못 적음 — 관리자 확인 필요) · 'off'(승인 전, 키 없음)."""
+    if name not in APIS:
+        return 'off'
+    if config_error(name):
+        app(name)               # ERROR 한 번 남기기
+        return 'config_error'
+    return 'on' if app(name) is not None else 'off'
 
 
 def _verify() -> bool:
@@ -198,6 +235,11 @@ def _int(x) -> int:
     return int(v) if v is not None else 0
 
 
+SAFE_EVENTS = (('rapid_acc', 'rapid_acceleration'), ('rapid_dec', 'rapid_deceleration'), ('sudden_stop', 'sudden_stop'),
+               ('rapid_turn', 'rapid_turn'), ('rapid_u_turn', 'rapid_u_turn'), ('rapid_lane', 'rapid_lane_change'),
+               ('rapid_pass', 'rapid_passing'))
+
+
 def trips(plate: str, day: str) -> List[Dict]:
     """하루 운행 — 경제운전(사용 시작·끝, 주행 전·후 계기판, 거리, 연료) + 안전운전(급가속 등 횟수)을 시작 시각으로 합침.
     [{'start', 'end'(datetime), 'odo_start', 'odo_end', 'km', 'fuel_ml', 'eco', 'safe', 'avg_speed', 'max_speed',
@@ -219,17 +261,18 @@ def trips(plate: str, day: str) -> List[Dict]:
         if (not en or en <= st) and km < 0.1:
             continue
         s = safe.get(str(d.get('use_start_dt'))) or {}
-        out.append({
+        t = {
             'start': st, 'end': en, 'odo_start': o1, 'odo_end': o2, 'km': round(km, 1),
             'fuel_ml': _num(d.get('fuel_consumption')), 'eco': _num(d.get('echo_driving_index')),
             'safe': _num(s.get('safe_driving_index')),
             'avg_speed': _num(d.get('avg_speed') if d.get('avg_speed') is not None else s.get('avg_speed')),
             'max_speed': max(_num(d.get('max_speed')) or 0, _num(s.get('max_speed')) or 0),
-            'rapid_acc': _int(s.get('rapid_acceleration')), 'rapid_dec': _int(s.get('rapid_deceleration')),
-            'sudden_stop': _int(s.get('sudden_stop')), 'rapid_turn': _int(s.get('rapid_turn')),
-            'rapid_u_turn': _int(s.get('rapid_u_turn')), 'rapid_lane': _int(s.get('rapid_lane_change')),
-            'rapid_pass': _int(s.get('rapid_passing')),
-        })
+        }
+        # 안전운전 짝이 없는 운행(안전운전 API 실패·승인 전·시작 시각이 안 맞음)은 급가속 등을 모르는 것 — 0 회로 넣으면
+        # 운전 습관 화면에 '급가속 0' 처럼 깨끗한 운전으로 보였다(11-24 조용한 실패 점검). 모르면 None(화면 '-').
+        for k, src in SAFE_EVENTS:
+            t[k] = _int(s.get(src)) if s else None
+        out.append(t)
     out.sort(key=lambda t: t['start'])
     return out
 

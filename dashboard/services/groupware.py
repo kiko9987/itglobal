@@ -235,9 +235,10 @@ def _matches(path: str, href: str) -> bool:
 
 
 def _uplus_on() -> bool:
+    """U+ 메뉴를 보일지 — 키가 있거나, 키를 잘못 적었을 때(화면 머리에 '설정 오류'가 보이게, 11-24 조용한 실패 점검)."""
     try:
         from dashboard.services import uplus_api as up
-        return up.enabled('status')
+        return up.enabled('status') or bool(up.config_error('status'))
     except Exception:
         return False
 

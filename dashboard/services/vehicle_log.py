@@ -622,8 +622,10 @@ def vehicle_days(ym: str, plate: str, leads: Iterable[dict]) -> Dict:
                 t['max_speed'] = int(m['max_speed'] or 0)
                 t['safe'] = m['safe']
                 t['commute'] = bool(m['commute'])
-                t['events'] = {k: m[k] or 0 for k in ('rapid_acc', 'rapid_dec', 'sudden_stop', 'rapid_turn',
-                                                      'rapid_u_turn', 'rapid_lane', 'rapid_pass')}
+                ev = {k: m[k] for k in ('rapid_acc', 'rapid_dec', 'sudden_stop', 'rapid_turn',
+                                        'rapid_u_turn', 'rapid_lane', 'rapid_pass')}
+                # 안전운전 짝이 없어 급가속 등을 모르는 운행은 None — 0 회로 보이지 않게(11-24 조용한 실패 점검)
+                t['events'] = {k: v or 0 for k, v in ev.items()} if any(v is not None for v in ev.values()) else None
     out = []
     for d in sorted(days.values(), key=lambda x: x['day'], reverse=True):
         drivers, src = _drivers_for(d['day'], plate, asg, list(d['matched'].values()))

@@ -114,10 +114,12 @@
       '<span>배정을 확정한 날인데 탄 사람이 아직 운전자를 안 알려 준 차예요.</span></summary><ul>' +
       list.map(function (m) {
         var d = new Date(m.day + 'T00:00:00');
-        var asked = m.asked === 'morning' ? '다음 날 아침에 다시 물음' : (m.asked === 'park' ? '운행 종료 때 물음' : '');
+        // DM 을 한 통도 못 보낸 차는 '물음'이 아니라 'DM 못 보냄'(슬랙 ID·연결 확인 필요, 11-24 조용한 실패 점검)
+        var asked = m.dm_failed ? (m.asked === 'morning' ? '다음 날 아침 DM 못 보냄' : '운행 종료 DM 못 보냄')
+          : m.asked === 'morning' ? '다음 날 아침에 다시 물음' : (m.asked === 'park' ? '운행 종료 때 물음' : '');
         return '<li><span class="d">' + (d.getMonth() + 1) + '/' + d.getDate() + '(' + WD[d.getDay()] + ')</span> ' +
           '<strong>' + esc(m.car) + '</strong> <span class="p">' + esc(m.plate) + '</span> · ' + esc((m.riders || []).join(', ')) +
-          (asked ? ' <span class="a">' + asked + '</span>' : '') + '</li>';
+          (asked ? ' <span class="a' + (m.dm_failed ? ' text-danger' : '') + '">' + asked + '</span>' : '') + '</li>';
       }).join('') + '</ul>';
     box.open = open;
   }
@@ -332,6 +334,7 @@
     return b;
   }
   var habitBy = 'people';
+  function cnt(v) { return v == null ? '-' : esc(v); }
   function renderHabits(h, month) {
     var rows = h[habitBy] || [];
     var avg = function (k) {
@@ -355,7 +358,8 @@
       rows.map(function (r) {
         return '<tr><td><strong>' + esc(r.name) + '</strong></td><td class="num">' + r.trips + '번</td><td class="num">' + esc(km(r.km)) + '</td>' +
           '<td class="num">' + score(r.safe) + '</td><td class="num">' + score(r.eco) + '</td>' +
-          '<td class="num gw-vh-opt">' + r.acc + '</td><td class="num gw-vh-opt">' + r.dec + '</td><td class="num gw-vh-opt">' + r.stop + '</td>' +
+          // 안전운전 기록이 없는 운행만이면 null — 0 회가 아니라 '-'(11-24 조용한 실패 점검)
+          '<td class="num gw-vh-opt">' + cnt(r.acc) + '</td><td class="num gw-vh-opt">' + cnt(r.dec) + '</td><td class="num gw-vh-opt">' + cnt(r.stop) + '</td>' +
           '<td class="num">' + (r.rapid_per100 != null ? r.rapid_per100 : '-') + '</td><td class="num">' + (r.max_speed ? r.max_speed + 'km/h' : '-') + '</td>' +
           '<td class="num">' + (r.speeding ? '<span class="gw-badge gw-badge-reject">' + r.speeding + '번</span>' : '0') + '</td></tr>';
       }).join('') + '</tbody></table></div>' : '';
