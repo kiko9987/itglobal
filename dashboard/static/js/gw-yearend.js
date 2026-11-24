@@ -322,7 +322,7 @@
       '<button type="button" class="btn btn-sm btn-primary" id="yeSaveSeason">저장</button></div>' +
       '<div class="gw-ye-actions">' +
       '<a class="btn btn-sm btn-outline-secondary" href="/api/yearend/admin/roster.xlsx?year=' + A.year + '" id="yeRoster"><i class="fas fa-file-excel me-1" aria-hidden="true"></i>홈택스 등록 명단(엑셀)</a>' +
-      '<a class="btn btn-sm btn-outline-secondary" href="/api/yearend/admin/bundle.zip?year=' + A.year + '"><i class="fas fa-file-archive me-1" aria-hidden="true"></i>전체 자료 묶음(세무사 전달용)</a>' +
+      '<a class="btn btn-sm btn-outline-secondary" href="/api/yearend/admin/bundle.zip?year=' + A.year + '" id="yeBundle"><i class="fas fa-file-archive me-1" aria-hidden="true"></i>전체 자료 묶음(세무사 전달용)</a>' +
       '<button type="button" class="btn btn-sm btn-outline-primary" id="yeNotify"' + (s.status === 'open' ? '' : ' disabled aria-describedby="yeNotifyWhy"') + '><i class="fab fa-slack me-1" aria-hidden="true"></i>미제출·보완 대상 슬랙 알림</button>' +
       (s.status === 'open' ? '' : '<span class="gw-log" id="yeNotifyWhy">슬랙 알림은 진행 중일 때만 보낼 수 있어요.</span>') +
       '</div><div class="gw-log mt-1">명단에는 주민등록번호 전체가 들어가요. 명단·묶음을 받으면 기록이 남습니다.</div></div>';
@@ -370,6 +370,38 @@
       sb.disabled = true;
       post('/api/yearend/admin/season', { status: st, due_date: document.getElementById('yeDue').value, notice: document.getElementById('yeNotice').value })
         .then(reloadSay('저장했어요.')).catch(function (e) { sb.disabled = false; window.alert(e.message); });
+    });
+    // 전체 자료 묶음 — 링크로 바로 받으면 빠진 파일이 있어도 모름 → 받아서 저장하고, 서버가 알려 준
+    // 빠진 파일 수(X-Missing-Files)가 있으면 안내(11-24 조용한 실패 점검)
+    var bl = document.getElementById('yeBundle');
+    if (bl) bl.addEventListener('click', function (e) {
+      if (bl.getAttribute('aria-busy') === 'true') { e.preventDefault(); return; }
+      e.preventDefault();
+      bl.setAttribute('aria-busy', 'true'); bl.classList.add('disabled');
+      var done = function () { bl.removeAttribute('aria-busy'); bl.classList.remove('disabled'); };
+      fetch(bl.getAttribute('href'), { credentials: 'same-origin' }).then(function (r) {
+        if (!r.ok) return jsonOrEnd(r).then(function (j) { throw new Error(j.message || ('받지 못했어요 (' + r.status + ')')); });
+        if (r.redirected) throw new Error(SESSION_ENDED);   // 로그인 화면을 zip 으로 받지 않게
+        var miss = parseInt(r.headers.get('X-Missing-Files') || '0', 10) || 0;
+        var cd = r.headers.get('Content-Disposition') || '';
+        var m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+        var name = m ? decodeURIComponent(m[1]) : ('연말정산_' + A.year + '귀속_자료.zip');
+        return r.blob().then(function (b) {
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(b); a.download = name;
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(function () { URL.revokeObjectURL(a.href); }, 10000);
+          return miss;
+        });
+      }).then(function (miss) {
+        done();
+        if (miss > 0) {
+          window.alert('묶음은 받았는데 파일 ' + miss + '개를 서버에서 찾지 못해 빠졌어요.\n' +
+            'zip 안 「누락_파일_목록.txt」에 누구 무슨 서류인지 적어 두었어요. 본인에게 다시 올려 달라고 해 주세요.');
+        } else {
+          announce('전체 자료 묶음을 받았어요.');
+        }
+      }).catch(function (err) { done(); window.alert(err.message); });
     });
     var nb = document.getElementById('yeNotify');
     if (nb) nb.addEventListener('click', function () {

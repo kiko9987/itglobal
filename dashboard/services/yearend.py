@@ -318,33 +318,72 @@ def roster_xlsx(year: int, by: str) -> bytes:
     return buf.getvalue()
 
 
+MISSING_LIST_NAME = '누락_파일_목록.txt'
+
+
 def bundle_zip(year: int, by: str) -> bytes:
     """세무사 전달용 — 사람별 폴더에 간소화·추가 증빙 + 요약표(CSV). 받으면 기록이 남는다."""
+    return bundle_zip_report(year, by)[0]
+
+
+def bundle_zip_report(year: int, by: str) -> tuple:
+    """bundle_zip + 빠진 파일 수. (zip 바이트, 빠진 파일 수)
+    장부엔 있는데 파일이 없거나 못 읽은 서류가 예전엔 조용히 빠져 요약표(장부 기준 개수)와 zip 이 안 맞았다 →
+    zip 에 누락_파일_목록.txt(이름·종류·파일명·사유만, 경로·주민번호 X), 요약표에 '누락' 칸, ERROR 알림
+    (11-24 조용한 실패 점검)."""
     if not hr.is_hr_admin(by):
         raise PermissionError('경영지원·대표만 받을 수 있습니다.')
+    from dashboard.utils.spreadsheet_safe import csv_safe_row   # 직원 메모가 수식으로 안 되게 (2026-11-13)
     buf = io.BytesIO()
     summary = io.StringIO()
     w = csv.writer(summary)
     w.writerow(['성명', '부서', '상태', '제출 방식', '홈택스 동의', '부양가족 동의', '부양가족 변경', '변경 내용', '메모',
-                '간소화 PDF', '추가 증빙', '제출 시각'])
+                '간소화 PDF', '추가 증빙', '누락', '제출 시각'])
+    missing = []          # (이름, 종류, 파일명, 사유)
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
         for r in admin_rows(year):
-            from dashboard.utils.spreadsheet_safe import csv_safe_row   # 직원 메모가 수식으로 안 되게 (2026-11-13)
+            miss_here = 0
+            for d in hr.documents(r['person_id'], tag=tag(year)):
+                if d['doc_type'] == KIND_TYPES['result']:
+                    continue
+                kind = '간소화' if d['doc_type'] == KIND_TYPES['simple'] else '추가증빙'
+                f = hr.document_file(d['id'])
+                why = ''
+                if not f:
+                    why = '장부에 파일 정보 없음'
+                elif not os.path.exists(f['path']):
+                    why = '파일 없음'
+                else:
+                    try:      # 통째로 읽은 뒤 넣는다 — 읽다 실패해 zip 이 깨지지 않게(서류는 8MB 이하)
+                        with open(f['path'], 'rb') as fh:
+                            data = fh.read()
+                    except OSError:
+                        why = '파일 읽기 실패'
+                    else:
+                        z.writestr(f"{r['name']}_{r['person_id']}/{kind}_{d['id']}_{d['file_name']}", data)
+                if why:
+                    miss_here += 1
+                    missing.append((r['name'], kind, d.get('file_name') or '', why))
             w.writerow(csv_safe_row([r['name'], r['department'], r['status_label'],
                         {'bulk': '일괄제공', 'pdf': 'PDF 업로드'}.get(r['method'] or '', ''),
                         '예' if r['bulk_consent'] else '', '예' if r['family_consent'] else '',
                         {'none': '없음', 'changed': '있음'}.get(r['family_status'] or '', ''),
-                        r['family_note'] or '', r['note'] or '', r['simple'], r['extra'], r['submitted_at'] or '']))
-            for d in hr.documents(r['person_id'], tag=tag(year)):
-                if d['doc_type'] == KIND_TYPES['result']:
-                    continue
-                f = hr.document_file(d['id'])
-                if f and os.path.exists(f['path']):
-                    kind = '간소화' if d['doc_type'] == KIND_TYPES['simple'] else '추가증빙'
-                    z.write(f['path'], f"{r['name']}_{r['person_id']}/{kind}_{d['id']}_{d['file_name']}")
+                        r['family_note'] or '', r['note'] or '', r['simple'], r['extra'], miss_here or '',
+                        r['submitted_at'] or '']))
         z.writestr(f'{year}년귀속_연말정산_요약.csv', '﻿' + summary.getvalue())
-    hr.log_access(None, by, 'ye_bundle', f'{year} 전체 자료 묶음')
-    return buf.getvalue()
+        if missing:
+            lines = [f'{year}년 귀속 연말정산 묶음에서 빠진 파일 {len(missing)}개',
+                     '장부에는 있는데 서버에서 파일을 찾지 못했어요. 본인에게 다시 올려 달라고 하거나 세무사에 따로 전해 주세요.',
+                     '', '이름\t종류\t파일명\t사유']
+            lines += ['\t'.join(' '.join(str(v).split()) for v in m) for m in missing]   # 칸 안 탭·줄바꿈은 빈칸으로
+            z.writestr(MISSING_LIST_NAME, '﻿' + '\r\n'.join(lines) + '\r\n')
+    if missing:
+        who = sorted({m[0] for m in missing})
+        logger.error(f'[연말정산] {year}년 묶음에서 파일 {len(missing)}개 빠짐 — {", ".join(who)}. '
+                     f'zip 안 {MISSING_LIST_NAME} 참고, 다시 올려 받아 주세요.',
+                     force_alert=True)   # get_logger 감싸개는 키워드를 그대로 record 칸으로(extra={...} 로 주면 안 먹음)
+    hr.log_access(None, by, 'ye_bundle', f'{year} 전체 자료 묶음' + (f' (누락 {len(missing)}개)' if missing else ''))
+    return buf.getvalue(), len(missing)
 
 
 def upload_result(person_id: int, year: int, file_name: str, data: bytes, by: str) -> dict:

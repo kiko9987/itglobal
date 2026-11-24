@@ -17,14 +17,17 @@ def _se():
     return se
 
 
-def _send(client, row: dict, uid: str, role: str) -> None:
+def _send(client, row: dict, uid: str, role: str) -> bool:
+    """카드 DM 한 장. 보냈으면 True — 부르는 쪽이 경영지원에게 한 장도 안 갔는지 알 수 있게(11-24 조용한 실패 점검)."""
     try:
         ch = client.conversations_open(users=uid)['channel']['id']
         r = client.chat_postMessage(channel=ch, text=f"증명서 신청 — {row['requester_name']} {row['ctype']}",
                                     blocks=ct.card_blocks(row, role))
         ct.add_ref(row['id'], ch, r['ts'], role)
+        return True
     except Exception as exc:
         logger.warning(f'{_LOG} DM 실패 (#{row["id"]} → {uid}, {role}): {exc}')
+        return False
 
 
 def _refresh(client, row: dict) -> None:
@@ -36,14 +39,39 @@ def _refresh(client, row: dict) -> None:
             logger.warning(f'{_LOG} 카드 고치기 실패 (#{row["id"]}): {exc}')
 
 
+NOT_NOTIFIED_MSG = '신청은 저장했는데 경영지원에 알림이 안 갔어요. 경영지원에 직접 말해 주세요.'
+
+
 def submit(client, uid: str, vals: dict) -> dict:
+    """신청 저장 + 신청자·경영지원 카드. 돌려주는 row 의 handler_notified 가 False 면 경영지원 카드가 한 장도 안 간 것.
+    경영지원 화면엔 대기 중 신청 목록이 없어 카드가 안 가면 아무도 모른 채 영구 대기 → ERROR 알림 +
+    부르는 쪽(웹·슬랙)이 신청자에게 직접 말하라고 안내(11-24 조용한 실패 점검). 신청자 카드 실패는 WARNING 그대로."""
     se = _se()
     row = ct.create(uid, se._name(uid), vals)
     _send(client, row, uid, 'requester')
-    for h in ct.handler_ids():
-        _send(client, row, h, 'handler')
-    logger.info(f"{_LOG} 신청 #{row['id']} {row['requester_name']} {row['ctype']} ({row['purpose']})")
+    handlers = tuple(ct.handler_ids() or ())
+    sent = sum(1 for h in handlers if _send(client, row, h, 'handler'))
+    row['handler_notified'] = sent > 0
+    if not sent:
+        why = '받을 경영지원이 설정돼 있지 않음' if not handlers else f'경영지원 {len(handlers)}명 모두 DM 실패'
+        logger.error(f"{_LOG} 경영지원 카드 못 보냄 — 신청 #{row['id']} {row['requester_name']} {row['ctype']} "
+                     f"({why}). 신청자에게 직접 확인해 처리해 주세요.", extra={'force_alert': True})
+    logger.info(f"{_LOG} 신청 #{row['id']} {row['requester_name']} {row['ctype']} ({row['purpose']})"
+                f" 경영지원 카드 {sent}/{len(handlers)}")
     return row
+
+
+def submit_from_slack(client, uid: str, vals: dict) -> None:
+    """슬랙 신청 창 제출(뒤에서). 저장 실패·경영지원 카드 0장이면 신청자에게 DM 으로 알린다."""
+    se = _se()
+    try:
+        row = submit(client, uid, vals)
+    except Exception as exc:
+        logger.error(f'{_LOG} 신청 처리 실패: {exc}', exc_info=True, extra={'force_alert': True})
+        se._notify(client, uid, '⚠️ 증명서 신청이 저장되지 않았어요. 다시 신청하거나 경영지원에 말해 주세요.')
+        return
+    if row.get('handler_notified') is False:    # 저장은 됐는데 경영지원에 안 닿음(11-24 조용한 실패 점검)
+        se._notify(client, uid, f'⚠️ {NOT_NOTIFIED_MSG}')
 
 
 def deliver_files(client, row: dict, files: list) -> list:
@@ -184,13 +212,7 @@ def register_cert_handlers(app) -> None:
         se._ack_completing_step(ack, body)()
         uid = body['user']['id']
 
-        def _bg():
-            try:
-                submit(se.eap_client(), uid, vals)
-            except Exception as exc:
-                logger.error(f'{_LOG} 신청 처리 실패: {exc}', exc_info=True, extra={'force_alert': True})
-                se._notify(se.eap_client(), uid, '⚠️ 증명서 신청이 저장되지 않았어요. 다시 신청하거나 경영지원에 말해 주세요.')
-        threading.Thread(target=_bg, daemon=True).start()
+        threading.Thread(target=lambda: submit_from_slack(se.eap_client(), uid, vals), daemon=True).start()
 
     def _guard(body, client) -> int:
         uid = body['user']['id']

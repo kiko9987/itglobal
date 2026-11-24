@@ -344,11 +344,17 @@ def api_my_cert_request():
     if not client:
         return jsonify({'success': False, 'message': '지금은 신청할 수 없어요(전자결재 봇 연결 없음). 경영지원에 말씀해 주세요.'}), 503
     try:
-        submit(client, me['slack_id'], vals)
+        row = submit(client, me['slack_id'], vals)
     except Exception as e:
         logger.error(f'[HR] 증명서 신청 실패 #{me["id"]}: {e}', exc_info=True)
         return jsonify({'success': False, 'message': '신청을 저장하지 못했어요. 잠시 뒤 다시 해 주세요.'}), 500
-    return jsonify({'success': True, 'requests': [_cert_row(r) for r in ct.mine(me['slack_id'])]})
+    # 경영지원 카드가 한 장도 안 갔으면 저장은 됐어도 화면에서 직접 말하라고 안내(11-24 조용한 실패 점검)
+    notified = row.get('handler_notified') is not False
+    out = {'success': True, 'notified': notified, 'requests': [_cert_row(r) for r in ct.mine(me['slack_id'])]}
+    if not notified:
+        from dashboard.blueprints.slack_cert import NOT_NOTIFIED_MSG
+        out['warning'] = NOT_NOTIFIED_MSG
+    return jsonify(out)
 
 
 @hr_bp.route('/api/hr/me/cert-request/<int:rid>/cancel', methods=['POST'])
@@ -1222,12 +1228,13 @@ def api_ye_bundle():
     from flask import send_file
     from dashboard.services import yearend as ye
     try:
-        data = ye.bundle_zip(_ye_year(), _me() if not _is_field() else '')
+        data, missing = ye.bundle_zip_report(_ye_year(), _me() if not _is_field() else '')
     except Exception as e:
         return _fail(e)
     resp = send_file(io.BytesIO(data), as_attachment=True, download_name=f'연말정산_{_ye_year()}귀속_자료.zip',
                      mimetype='application/zip')
     resp.headers['Cache-Control'] = 'no-store'
+    resp.headers['X-Missing-Files'] = str(missing)   # 화면이 읽어 '빠진 파일 N개' 안내(11-24 조용한 실패 점검)
     return resp
 
 

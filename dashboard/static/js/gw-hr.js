@@ -379,10 +379,14 @@
       ['company', 'ctype', 'purpose', 'dest', 'ssn', 'receive', 'copies', 'need_by', 'memo'].forEach(function (k) { body[k] = f.elements[k].value; });
       sb.disabled = true; err.textContent = '';
       api('/api/hr/me/cert-request', { method: 'POST', body: body })
-        .then(function () {
+        .then(function (j) {
+          // 저장은 됐는데 경영지원 카드가 한 장도 안 간 경우 — 모른 채 기다리지 않게 바로 알림(11-24 조용한 실패 점검)
+          var warn = j && j.notified === false
+            ? (j.warning || '신청은 저장했는데 경영지원에 알림이 안 갔어요. 경영지원에 직접 말해 주세요.') : '';
+          if (warn) window.alert(warn);     // 카드 다시 불러오기가 실패해도 안내는 보이게 먼저
           return loadCard(p.id).then(function () {
             var sr = document.getElementById('hrCardSr');
-            if (sr) sr.textContent = '증명서를 신청했어요. 경영지원이 발급하면 슬랙 DM으로 보내 드려요.';
+            if (sr) sr.textContent = warn || '증명서를 신청했어요. 경영지원이 발급하면 슬랙 DM으로 보내 드려요.';
             var b2 = document.getElementById('hrMyCertBtn');
             if (b2) b2.focus();
           });
