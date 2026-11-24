@@ -273,7 +273,7 @@ def work_saturdays(name: str, start: date, end: date) -> Dict[date, bool]:
     while d <= end:
         sats.append(d)
         d += timedelta(days=7)
-    if not sats or not is_member(name, sats[0]):
+    if not sats or not is_member(name, sats[0].replace(day=1)):
         return {}
     months = sorted({_month_of(s) for s in sats})
     with lv._conn() as conn:
@@ -335,7 +335,7 @@ def view(month: str, sid: str, name: str, today: Optional[date] = None) -> dict:
     today = today or date.today()
     row = month_row(month)
     st = row['status']
-    on = max(today, _first(month))           # 앞달이면 그달 1일 기준(인센티브 시작 반영)
+    on = _first(month)                       # 인센티브는 그달 1일 기준(고르기·휴가 일수와 같게)
     r = role(sid, name, on)
     p = picks(month)
     c = counts(month)
@@ -412,9 +412,9 @@ def toggle(day: Optional[date], target: str, on: bool, sid: str, actor_name: str
            today: Optional[date] = None) -> dict:
     """토요일 칸에 이름 넣기(on)·빼기. 반환 {names, count, warn}."""
     today = today or date.today()
-    r = role(sid, actor_name, day)
+    r = role(sid, actor_name, day.replace(day=1) if day else None)    # 인센티브는 그달 1일 기준(화면과 같게)
     month = _check_day(day, today, r['approver'])
-    m = _member(target, day)
+    m = _member(target, day.replace(day=1) if day else None)
     if not m:
         raise SatOffError(f'{target} 님은 스케줄 근무 대상(기술영업)이 아니에요.')
     if target != actor_name and not (r['manager'] or r['approver']):
@@ -446,7 +446,7 @@ def mark_worked(day: Optional[date], target: str, verbal_by: str, reason: str, s
     """휴무 출근 기록 — 쉬기로 한 토요일에 급히 나옴. 박정우·박용구 중 한 분께 구두로 승인받은 뒤 본인이 남긴다
     (결재 단계 없음, 11-24 부장님). 그날은 쉬는 사람에서 빠지고(차량·방문 배정·휴가 일수는 근무로 봄) 기록이 남는다."""
     today = today or date.today()
-    r = role(sid, actor_name, day)
+    r = role(sid, actor_name, day.replace(day=1) if day else None)
     if not day or day.weekday() != 5:
         raise SatOffError('토요일만 고를 수 있어요.')
     if holiday_name(day):
@@ -457,7 +457,7 @@ def mark_worked(day: Optional[date], target: str, verbal_by: str, reason: str, s
     st = month_row(month)['status']
     if st == OPEN:
         raise SatOffError('아직 작성 중인 달이에요. 달력에서 이름을 빼면 돼요.')
-    m = _member(target, day)
+    m = _member(target, day.replace(day=1) if day else None)
     if not m:
         raise SatOffError(f'{target} 님은 스케줄 근무 대상(기술영업)이 아니에요.')
     if target != actor_name and not (r['manager'] or r['approver']):

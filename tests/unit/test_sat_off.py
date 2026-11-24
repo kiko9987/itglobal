@@ -441,3 +441,13 @@ def test_incentive_excluded_from_schedule_from_start_date(slack):
     # 휴가 일수 — 인센티브 달은 근무표를 따르지 않고 예전 규칙(첫날·마지막 날 토요일만)
     assert so.work_saturdays('영업나', date(2027, 1, 9), date(2027, 1, 16)) == {}
     assert lv.work_pattern('영업나') == lv.WORK_SAT_SCHEDULE
+
+
+def test_incentive_month_granularity(slack):
+    """인센티브는 그달 1일 기준 — 달 중간(12/10)에 시작해도 12월은 대상(화면·고르기 같게)."""
+    p = hr.find_by_slack(B)
+    hr.update_person(p['id'], {'incentive_from': '2026-12-10'}, ADMIN)
+    assert '영업나' in [m['name'] for m in so.view(DEC, B, '영업나', TODAY)['members']]
+    so.toggle(S19, '영업나', True, B, '영업나', TODAY)                      # 12/19 도 고를 수 있음
+    assert so.work_saturdays('영업나', S12, S19) == {}                       # 확정 전 달이라 근무표 없음(대상 여부와 별개)
+    assert '영업나' not in [m['name'] for m in so.view('2027-01', B, '영업나', TODAY)['members']]
