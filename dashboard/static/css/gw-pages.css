@@ -3027,6 +3027,10 @@ html:has(#bdPage) {
 /* 스케줄 근무도 방문·차량처럼 가운데 1400px(11-24 부장님 '너무 꽉 찬 화면'). 넓은 화면은 사람별 횟수·변경 신청을
    달력 오른쪽에 두어 스크롤 없이 같이 보고, 누르는 토요일 칸을 평일보다 넓게(평일 칸은 비어 있음) */
 .gw-page.gw-so { max-width: 1400px; margin-left: auto; margin-right: auto; }
+/* 결재 단추는 달·상태 줄 오른쪽 끝 — 안내 글 아래 왼쪽에 떠 있어 어디 단추인지 애매하던 것(11-24 부장님) */
+.gw-so-actions { margin-left: auto; display: flex; gap: 6px; }
+.gw-so-actions:empty { display: none; }
+.gw-so-actions.is-loading { opacity: 0.4; pointer-events: none; }
 @media (min-width: 1200px) {
   .gw-page.gw-so { display: grid; grid-template-columns: minmax(0, 1fr) 280px; column-gap: 16px; align-items: start; }
   .gw-page.gw-so > * { grid-column: 1 / -1; }
@@ -3038,7 +3042,9 @@ html:has(#bdPage) {
   .gw-so-plus { display: none; }
   .gw-so-sat .gw-so-chip { white-space: normal; word-break: keep-all; }
   /* 누를 자리 44px(휴대폰 규칙) — 위쪽 단추·변경 신청 처리 단추·사람 고르기 줄 */
-  .gw-so .gw-so-bar .btn, .gw-so .gw-so-btns .btn { min-height: 44px; padding-left: 14px; padding-right: 14px; }
+  .gw-so .gw-so-bar .btn, .gw-so .gw-so-btns .btn, .gw-so .gw-so-actions .btn { min-height: 44px; padding-left: 14px; padding-right: 14px; }
+  .gw-so-actions { width: 100%; margin-left: 0; }            /* 휴대폰: 달 줄 아래 한 줄을 다 쓰는 단추 */
+  .gw-so-actions .btn { flex: 1 1 0; }
   .gw-so .gw-cal-head .btn-link { min-height: 44px; display: inline-flex; align-items: center; }
   .gw-so-picks .form-check { min-height: 44px; display: flex; align-items: center; gap: 10px; padding-left: 0; }
   .gw-so-picks .form-check-input { float: none; margin: 0 0 0 4px; width: 1.25em; height: 1.25em; }

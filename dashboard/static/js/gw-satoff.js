@@ -66,6 +66,7 @@
 
   var calEl = document.getElementById('soCal');
   var barEl = document.getElementById('soBar');
+  var actEl = document.getElementById('soActions');
   var flashEl = document.getElementById('soFlash');
 
   function monthKey() { return cur.y + '-' + pad(cur.m); }
@@ -108,6 +109,7 @@
     // 위쪽 안내·단추
     var me = d.me || {};
     var h = '';
+    var acts = '';   // 그달 결재 단추 — 달·상태 줄 오른쪽(actEl). 변경 신청 단추는 고른 내용 옆(bar)에 그대로
     if (d.why) h += '<div class="gw-so-note warn">' + esc(d.why) + '</div>';
     if (d.status === 'open') {
       if (d.note && d.decided_by) h += '<div class="gw-so-note warn">↩️ ' + esc(d.decided_by) + ' 님이 돌려보냈어요: ' + esc(d.note) + '</div>';
@@ -121,13 +123,13 @@
       } else {
         h += '<p class="gw-so-how">아직 고를 수 없는 달이에요.</p>';
       }
-      if (d.can_submit) h += '<button type="button" class="btn btn-primary btn-sm" data-act="submit">결재 올리기</button>';
+      if (d.can_submit) acts = '<button type="button" class="btn btn-primary btn-sm" data-act="submit">결재 올리기</button>';
     } else if (d.status === 'wait') {
       h += '<p class="gw-so-how">' + esc(d.submitted_by) + ' 님이 결재를 올렸어요(' + esc((d.submitted_at || '').slice(5, 16)) +
         '). 승인권자 중 한 분이 승인하면 확정돼요.</p>';
       if (d.can_decide) {
-        h += '<button type="button" class="btn btn-primary btn-sm" data-act="approve">승인</button> ' +
-          '<button type="button" class="btn btn-outline-secondary btn-sm" data-act="return">돌려보내기</button>';
+        acts = '<button type="button" class="btn btn-outline-secondary btn-sm" data-act="return">돌려보내기</button>' +
+          '<button type="button" class="btn btn-primary btn-sm" data-act="approve">승인</button>';
       }
     } else {
       h += '<p class="gw-so-how">' + esc(d.decided_by) + ' 님이 승인해 확정됐어요(' + esc((d.decided_at || '').slice(5, 16)) + ').' +
@@ -142,6 +144,7 @@
       }
     }
     barEl.innerHTML = h;
+    actEl.innerHTML = acts;
 
     if (narrow()) renderList(d, me); else renderGrid(d, me);
     renderSide(d, me);
@@ -264,9 +267,9 @@
     var my = ++seq;
     if (!data) calEl.innerHTML = '<div class="gw-empty">불러오는 중…</div>';
     // 다른 달로 넘길 때 제목만 먼저 바뀌고 앞 달 달력이 그대로 보이던 것 → 흐리게 + 못 누르게(11-21 점검)
-    else if (data.month !== k) { calEl.classList.add('is-loading'); barEl.classList.add('is-loading'); }
+    else if (data.month !== k) { [calEl, barEl, actEl].forEach(function (el) { el.classList.add('is-loading'); }); }
     calEl.setAttribute('aria-busy', 'true');
-    function done() { calEl.classList.remove('is-loading'); barEl.classList.remove('is-loading'); calEl.removeAttribute('aria-busy'); }
+    function done() { [calEl, barEl, actEl].forEach(function (el) { el.classList.remove('is-loading'); }); calEl.removeAttribute('aria-busy'); }
     return api('/api/satoff?month=' + k).then(function (j) {
       if (my !== seq) return;
       done();
@@ -280,6 +283,7 @@
       data = null;
       calEl.innerHTML = '<div class="gw-empty">' + esc(e.message) + '</div>';
       barEl.innerHTML = '';
+      actEl.innerHTML = '';
     });
   }
   // 슬랙 알림은 뒤에서 나가므로 몇 초 뒤 다시 읽어 '못 보냄' 기록이 생겼으면 알려 준다(11-24 조용한 실패 점검).
@@ -437,8 +441,8 @@
       .then(function () { btn.disabled = false; });
   });
 
-  // ── 위쪽 단추 ──
-  barEl.addEventListener('click', function (ev) {
+  // ── 위쪽 단추(결재 단추는 actEl, 변경 신청·되돌리기는 barEl) ──
+  function onAct(ev) {
     var b = ev.target.closest('[data-act]');
     if (!b || !data) return;
     var act = b.getAttribute('data-act');
@@ -481,7 +485,9 @@
           .then(function () { draft = { add: [], remove: [] }; watchNotify(k); return '변경 신청을 했어요. 승인권자 중 한 분이 승인하면 바뀌어요.'; });
       });
     }
-  });
+  }
+  barEl.addEventListener('click', onAct);
+  actEl.addEventListener('click', onAct);
 
   // ── 변경 신청 처리 ──
   document.getElementById('soChanges').addEventListener('click', function (ev) {
