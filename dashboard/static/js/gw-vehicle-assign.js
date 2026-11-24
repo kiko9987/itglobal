@@ -1071,7 +1071,8 @@
     if (!S.canEdit || e.pointerType !== 'mouse' || e.button !== 0) return;
     var row = e.target.closest('[data-car]');
     if (!row || e.target.closest('input, select, a, button')) return;
-    if (ridersOf(carOf(row.dataset.car)).length) return;          // 코스에 넣은 차는 끌기 안 됨
+    var dc = carOf(row.dataset.car);
+    if (ridersOf(dc).length && !splitFree(dc)) return;          // 오전·오후 모두 찬 차는 끌기 안 됨(나눠 쓸 수 있으면 됨 — 다른 코스에 놓으면 나눠 쓰기, 11-24)
     D = { plate: row.dataset.car, x: e.clientX, y: e.clientY, ghost: null, over: null };
   });
   document.addEventListener('pointermove', function (e) {
@@ -1089,6 +1090,7 @@
     var t = document.elementFromPoint(e.clientX, e.clientY);
     var over = t && (t.closest('[data-cperson]') || t.closest('[data-ccourse]'));
     if (over && over.dataset.ccourse === 'other') over = null;   // 그 밖 카드는 사람 칩에만
+    if (over && ridersOf(carOf(D.plate)).length && !over.dataset.ccourse) over = null;   // 나눠 쓰기는 코스 카드에만
     if (over !== D.over) {
       if (D.over) D.over.classList.remove('over');
       if (over) over.classList.add('over');
@@ -1126,6 +1128,12 @@
     if (d.over.dataset.cperson) {
       delete S.splitOpen[d.over.dataset.cperson];
       setCar(d.over.dataset.cperson, d.plate, 'all');
+    } else if (ridersOf(carOf(d.plate)).length) {      // 이미 코스에 든 차 — 체크해서 넣을 때와 같게 오전·오후 나눠 쓰기
+      if (S.pick !== d.plate) S.pickHalf = '';         // 다른 차를 체크해 둔 반나절은 쓰지 않음
+      S.pick = d.plate;
+      putPicked(d.over.dataset.ccourse);
+      if (S.pick === d.plate) { S.pick = ''; S.pickHalf = ''; render(); }   // 이미 그 코스 차였으면 체크만 풀기
+      return;
     } else {
       setCourse(d.over.dataset.ccourse, d.plate, true);
     }
