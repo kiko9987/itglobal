@@ -4188,7 +4188,7 @@ def resume_project_api():
 
 
 
-CALENDAR_PAUSED_MESSAGE = '캘린더 연동은 잠시 꺼 두었어요. 다시 켜면 이 단추로 동기화할 수 있어요.'
+CALENDAR_PAUSED_MESSAGE = '캘린더 연동은 잠시 꺼 두었어요. 다시 켜면 이 버튼으로 동기화할 수 있어요.'
 
 
 @projects_bp.route('/api/projects/calendar/sync', methods=['POST'])

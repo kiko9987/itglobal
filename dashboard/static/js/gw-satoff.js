@@ -167,7 +167,7 @@
       acts = '<button type="button" class="btn btn-outline-secondary btn-sm" data-act="full">전체 휴무</button>' + acts;
       // 관리자가 '나한테만 보이는 기능'인 줄 알게(11-25 부장님)
       h += '<p class="gw-so-how gw-so-admin-note"><i class="fas fa-lock" aria-hidden="true"></i> ' +
-        '[전체 휴무] 단추는 관리자에게만 보여요. 토요일 하루를 모두 쉬는 날로 정할 때 써요.</p>';
+        '[전체 휴무] 버튼은 관리자에게만 보여요. 토요일 하루를 모두 쉬는 날로 정할 때 써요.</p>';
     }
     barEl.innerHTML = h;
     actEl.innerHTML = acts;
