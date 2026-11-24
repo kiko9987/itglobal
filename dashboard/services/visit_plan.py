@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sqlite3
 import threading
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
@@ -619,6 +620,9 @@ def _summary(res: Dict) -> Dict:
         'dm': dm.get('visit_mgr_sent', 0), 'dm_failed': dm.get('visit_mgr_failed', 0),
         'duty': dm.get('online_duty_sent', 0), 'deassign': dm.get('deassign_sent', 0),
         'target': dm.get('target_date') or '',
+        # 방문봇 연결이 없어 DM 을 통째로 못 보낸 경우(11-24 조용한 실패 점검) — 화면 '확인 필요'에
+        'bot_missing': bool(dm.get('visit_bot_missing')),
+        'duty_failed': dm.get('online_duty_failed', 0), 'deassign_failed': dm.get('deassign_failed', 0),
     }
 
 
@@ -696,22 +700,32 @@ def _run_confirm(day: str, plan: Dict, by: str, fresh_leads: Callable[[], List[d
     except Exception as e:
         summary['canvas2'] = {'ok': False, 'reason': '캔버스2 쓰기 실패', 'diff': []}
         logger.warning(f'[방문일정] 캔버스2 쓰기 실패: {e}', exc_info=True)
-    _finish(day, 'done', summary, by, plan)
+    # 'done' 은 뒤 단계까지 모두 끝낸 뒤 한 번만 쓴다(11-24 조용한 실패 점검) — 전엔 'done' 을 먼저 써서 화면 폴링이
+    #   거기서 멈춰 차량 배정 변경 알림·'캔버스1에 없는 방문 카드' 경고를 못 봤고, 누락 점검이 실패하면 그 뒤가 DB 에도 안 남았다.
+    #   그 사이엔 'running' 그대로(몇 초 — 끊김 판정 _RUN_STALE 5분보다 훨씬 짧음). 단계마다 실패하면 결과에 표시
     try:
         va.request_assignment(day, by)      # 확정한 사람이 배정 담당이면 안 보냄(바로 차량 배정 탭으로, 11-24)
     except Exception as e:
-        logger.warning(f'[방문일정] 차량 배정 요청 DM 실패: {e}', exc_info=True)
+        summary['car_request_failed'] = True
+        logger.error(f'[방문일정] {day} 차량 배정 요청 DM 실패: {e}', exc_info=True)
     try:        # 다시 확정해서 코스 사람이 바뀌었으면 — 차량 배정을 이미 해 둔 날만 배정 담당에게(11-23 부장님)
         change = plan_change_text(prev, plan, {p['code']: p['name'] for p in _staff()})
         if change:
             summary['car_notice'] = va.notify_plan_changed(day, change, by)
     except Exception as e:
-        logger.warning(f'[방문일정] 차량 배정 변경 알림 실패: {e}', exc_info=True)
+        summary['car_notice_failed'] = True
+        logger.error(f'[방문일정] {day} 차량 배정 변경 알림 실패: {e}', exc_info=True)
     try:
         summary['cards'] = _audit(res, by)
-        _finish(day, 'done', summary, by, plan)
     except Exception as e:
-        logger.warning(f'[방문일정] 누락 점검 실패(확정은 정상): {e}', exc_info=True)
+        summary['cards_error'] = True
+        logger.error(f'[방문일정] {day} 누락 점검 실패(확정은 정상): {e}', exc_info=True)
+    try:
+        _finish(day, 'done', summary, by, plan)
+    except Exception as e:      # 못 쓰면 화면은 'running' → 5분 뒤 '끊겼어요'. 시트·DM 은 이미 끝났으니 알림으로
+        logger.error(f'[방문일정] {day} 확정 결과 저장 실패(시트·DM 은 끝남): {e}', exc_info=True,
+                     extra={'force_alert': True})
+        return
     logger.info(f'[방문일정] {day} 확정 — 시트 {summary["sheet"]} · DM {summary["dm"]} · 당번 {summary["duty"]} ({by})')
 
 
@@ -861,6 +875,33 @@ def _urgent_rows(day: str) -> List[Dict]:
         return [dict(r) for r in conn.execute('SELECT * FROM visit_plan_urgent WHERE day = ? ORDER BY at', (day,)).fetchall()]
 
 
+_urgent_stale_noted: set = set()
+
+
+def _urgent_state(r: Dict) -> str:
+    """당일 배정 줄 상태 — 'running' 이 _RUN_STALE(확정과 같은 5분)을 넘으면 'stale'(서버 재시작 등으로 끊김).
+    전엔 끊긴 줄이 '처리 중'에 영구히 묶여 다시 배정도 못 했다(11-24 조용한 실패 점검)."""
+    st = r.get('state') or 'done'
+    if st == 'running':
+        try:
+            if datetime.now() - datetime.strptime(r.get('at') or '', '%Y-%m-%d %H:%M:%S') > _RUN_STALE:
+                return 'stale'
+        except (TypeError, ValueError):
+            return 'stale'
+    return st
+
+
+def _note_urgent_stale(day: str, lead_no: str, r: Dict) -> None:
+    """끊긴 당일 배정을 처음 본 때 한 번만 ERROR(화면을 열 때마다 알림이 쌓이지 않게)."""
+    key = (day, lead_no, r.get('at') or '')
+    if key in _urgent_stale_noted:
+        return
+    _urgent_stale_noted.add(key)
+    logger.error(f'[방문일정] {day} 당일 배정 {lead_no} 이 처리 중에 끊겼어요({r.get("at") or "-"} 시작, '
+                 f'{r.get("members") or "-"}) — 시트 영업 담당자·긴급 DM 이 됐는지 확인하고 다시 배정해 주세요.',
+                 extra={'force_alert': True})
+
+
 def _merge_urgent(day: str, plan: Dict, nos: List[str], names: Dict[str, str]) -> Dict[str, Dict]:
     """당일 배정 기록을 코스에 붙인다(같은 사람 코스가 있으면 그 끝, 없으면 새 코스) → {리드 No: {at, by_name, members}}."""
     out: Dict[str, Dict] = {}
@@ -873,9 +914,12 @@ def _merge_urgent(day: str, plan: Dict, nos: List[str], names: Dict[str, str]) -
     for r in rows:
         members = [m for m in (r.get('members') or '').split(',') if m in names]
         n = r['lead_no']
+        st = _urgent_state(r)
+        if st == 'stale':
+            _note_urgent_stale(day, n, r)
         out[n] = {'at': (r.get('at') or '')[11:16], 'by_name': _name_of_email(r.get('by') or ''), 'members': members,
-                  'state': r.get('state') or 'done', 'result': _loads(r.get('result')) or {}}
-        if out[n]['state'] == 'failed' or n in placed or n not in nos or not members:
+                  'state': st, 'result': _loads(r.get('result')) or {}}
+        if st in ('failed', 'stale') or n in placed or n not in nos or not members:
             continue
         c = next((c for c in plan['courses'] if not is_work(c) and c['members'] == members), None)
         if c is None:
@@ -925,12 +969,20 @@ def urgent_assign(day: str, lead_no: str, members: List[str], by: str, leads: It
     if bad:
         raise ValueError(f'{names[bad[0]]}님은 오늘 {hard[bad[0]]}예요.')
     with _conn() as conn:          # 두 사람이 동시에 눌러도 한 번만(먼저 들어온 것). 실패했던 건은 다시 할 수 있게
+        old = conn.execute('SELECT * FROM visit_plan_urgent WHERE day = ? AND lead_no = ?', (day, lead_no)).fetchone()
+        if old is not None and _urgent_state(dict(old)) == 'stale':      # 처리 중에 끊긴 줄도 다시 할 수 있게(11-24)
+            _note_urgent_stale(day, lead_no, dict(old))
+            conn.execute("DELETE FROM visit_plan_urgent WHERE day = ? AND lead_no = ? AND state = 'running' AND at IS ?",
+                         (day, lead_no, old['at']))
         conn.execute("DELETE FROM visit_plan_urgent WHERE day = ? AND lead_no = ? AND state = 'failed'", (day, lead_no))
         try:
             conn.execute("INSERT INTO visit_plan_urgent (day, lead_no, members, by, at, state) VALUES (?,?,?,?,?,'running')",
                          (day, lead_no, ','.join(members), by, _now()))
-        except Exception:
+        except sqlite3.IntegrityError:
             raise ValueError('방금 다른 사람이 이 현장을 당일 배정했어요. 새로 고쳐 주세요.')
+        except Exception as e:      # 겹침이 아닌 DB 오류를 '다른 사람이 했어요'로 덮지 않게(11-24 조용한 실패 점검)
+            logger.error(f'[방문일정] 당일 배정 기록 실패 {day} {lead_no}: {e}', exc_info=True)
+            raise
     names_txt = ','.join(names[m] for m in members)
     job = dict(day=day, lead_no=lead_no, lead=lead, v=v, members=members, names=names, names_txt=names_txt, by=by)
     if background:
@@ -947,7 +999,29 @@ def _urgent_done(day: str, lead_no: str, state: str, result: Dict) -> None:
 
 def _urgent_work(day: str, lead_no: str, lead: Dict, v: Dict, members: List[str], names: Dict[str, str],
                  names_txt: str, by: str) -> Dict:
-    """뒤에서 — 시트 영업 담당자 → 슬랙 List → 캔버스1 → 긴급 DM. 결과는 visit_plan_urgent.state/result."""
+    """뒤에서 — 시트 영업 담당자 → 슬랙 List → 캔버스1 → 긴급 DM. 결과는 visit_plan_urgent.state/result.
+    어느 단계에서 예외가 나도 'running' 에 묶이지 않게 'failed' + ERROR(11-24 조용한 실패 점검 — 전엔 영구 '처리 중')."""
+    prog: Dict[str, int] = {'sheet': 0, 'dm': 0}
+    try:
+        return _urgent_steps(day, lead_no, lead, v, members, names, names_txt, by, prog)
+    except Exception as e:
+        logger.error(f'[방문일정] {day} 당일 배정 {lead_no} 뒤 처리 실패({names_txt}, 시트 {"적음" if prog["sheet"] else "안 적음"}'
+                     f' · DM {prog["dm"]}/{len(members)}): {e}', exc_info=True, extra={'force_alert': True})
+        if prog['sheet']:
+            msg = (f'시트엔 담당자를 적었지만 긴급 DM 을 마치지 못했어요(보냄 {prog["dm"]}/{len(members)}명). '
+                   '매니저에게 직접 알려 주세요.')
+        else:
+            msg = '당일 배정을 끝내지 못했어요. 다시 해 주세요.'
+        out = {'message': msg}
+        try:
+            _urgent_done(day, lead_no, 'failed', out)
+        except Exception as e2:     # 이것도 못 쓰면 'running' 이 5분 뒤 '끊겼어요'로 보임
+            logger.error(f'[방문일정] 당일 배정 {lead_no} 실패 기록도 못 함: {e2}', exc_info=True)
+        return {'dm': prog['dm'], 'dm_failed': max(0, len(members) - prog['dm']), **out}
+
+
+def _urgent_steps(day: str, lead_no: str, lead: Dict, v: Dict, members: List[str], names: Dict[str, str],
+                  names_txt: str, by: str, prog: Dict[str, int]) -> Dict:
     from dashboard.services import visit_assignment_sync as vas
     from dashboard.services.lead_service import update_lead
     try:
@@ -959,6 +1033,7 @@ def _urgent_work(day: str, lead_no: str, lead: Dict, v: Dict, members: List[str]
         out = {'message': '시트에 담당자를 적지 못했어요. 다시 해 주세요.'}
         _urgent_done(day, lead_no, 'failed', out)
         return {'dm': 0, 'dm_failed': 0, **out}
+    prog['sheet'] = 1
     try:       # 슬랙 List 담당자 칸도 같이(바뀌면 슬랙 쪽이 시트를 List 값으로 덮어써서 맞춰 둔다)
         vas._update_slack_list_managers([{'lead': lead, 'lead_no': lead_no, 'phone': '', 'phone_digits': '',
                                           'assign': members, 'original': None, 'raw': ''}], {}, sheet_leads=None)
@@ -989,6 +1064,7 @@ def _urgent_work(day: str, lead_no: str, lead: Dict, v: Dict, members: List[str]
                 + (f'\n<{link}|방문 카드 보기>' if link else ''))
         if va._dm(_slack_of(m, names[m]), text):
             sent += 1
+            prog['dm'] = sent
         else:
             failed += 1
     out = {'dm': sent, 'dm_failed': failed}

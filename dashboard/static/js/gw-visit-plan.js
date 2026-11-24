@@ -177,9 +177,12 @@
     var u = (P.data.urgent || {})[v.lead_no];
     if (u) {
       var r = u.result || {};
-      var st = u.state === 'running' ? ' · 처리 중' : u.state === 'failed' ? ' 실패' : (r.dm_failed ? ' · DM ' + r.dm_failed + '명 실패' : '');
-      var tip = u.state === 'failed' ? (r.message || '다시 해 주세요') : (u.by_name || '') + ' 님이 당일 배정' + (r.dm_failed ? ' — 못 받은 사람에게 전화로 알려 주세요' : '');
-      return '<span class="gw-va-smark gw-vp-when urgent" title="' + esc(tip) + '">당일 배정 ' + (u.state === 'failed' ? '' : esc(u.at)) + esc(st) + '</span>';
+      // stale = '처리 중'이 5분 넘게 안 끝남(서버 재시작 등으로 끊김, 11-24 조용한 실패 점검) — 다시 배정할 수 있음
+      var gone = u.state === 'failed' || u.state === 'stale';
+      var st = u.state === 'running' ? ' · 처리 중' : u.state === 'stale' ? ' · 끊겼어요(다시 해 주세요)' : u.state === 'failed' ? ' 실패' : (r.dm_failed ? ' · DM ' + r.dm_failed + '명 실패' : '');
+      var tip = u.state === 'stale' ? '처리 중에 끊겼어요 — 시트 영업 담당자·긴급 DM 이 됐는지 확인하고 다시 배정해 주세요'
+        : u.state === 'failed' ? (r.message || '다시 해 주세요') : (u.by_name || '') + ' 님이 당일 배정' + (r.dm_failed ? ' — 못 받은 사람에게 전화로 알려 주세요' : '');
+      return '<span class="gw-va-smark gw-vp-when urgent" title="' + esc(tip) + '">당일 배정 ' + (gone ? '' : esc(u.at)) + esc(st) + '</span>';
     }
     if (isLate(v)) return '<span class="gw-va-smark gw-vp-when">확정 뒤 추가 ' + esc(hm(v.reg_at, P.data.confirmed_at.slice(0, 10))) + '</span>';
     if (!P.data.confirmed_at && !P.data.editable && v.reg_at && v.reg_at.slice(0, 10) === P.data.day) {
@@ -868,9 +871,19 @@
     if (r.work_dm) bits.push('사내 업무 DM ' + r.work_dm + '명');
     if (r.duty) bits.push('당번 DM ' + r.duty + '명');
     if (r.deassign) bits.push('재배정 안내 ' + r.deassign + '명');
+    if (r.car_notice) bits.push('차량 배정 변경 알림 ' + r.car_notice + '명');
     var bad = [];
     if ((r.sheet_failed || []).length) bad.push('시트 저장 실패 ' + r.sheet_failed.length + '건');
-    if (r.dm_failed) bad.push('DM 실패 ' + r.dm_failed + '명');
+    // 방문봇 연결이 없으면 DM 을 통째로 못 보냄(11-24 조용한 실패 점검) — 전엔 'DM 0명' 초록으로 보였다
+    if (r.bot_missing) {
+      var miss = ['담당자 ' + (r.dm_failed || 0) + '명'];
+      if (r.duty_failed) miss.push('당번 ' + r.duty_failed + '명');
+      if (r.deassign_failed) miss.push('재배정 안내 ' + r.deassign_failed + '명');
+      bad.push('방문봇 연결이 없어 DM 을 못 보냈어요(' + miss.join(' · ') + ') — 직접 알려 주세요');
+    } else if (r.dm_failed) bad.push('DM 실패 ' + r.dm_failed + '명');
+    if (r.car_request_failed) bad.push('차량 배정 요청 DM 실패(배정 담당에게 직접 알려 주세요)');
+    if (r.car_notice_failed) bad.push('차량 배정 변경 알림 실패(배정 담당에게 직접 알려 주세요)');
+    if (r.cards_error) bad.push('캔버스1 누락 점검을 못 했어요');
     if (r.work_dm_failed) bad.push('사내 업무 DM 실패 ' + r.work_dm_failed + '명');
     if (r.list_failed) bad.push('슬랙 List 실패 ' + r.list_failed + '건');
     if ((r.list_missing || []).length) bad.push('슬랙 List 담당자 칸에 선택지가 없는 사람이 있어요(' +

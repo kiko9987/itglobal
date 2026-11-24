@@ -1333,7 +1333,20 @@ def _send_dms_for_next_visit(assignments: List[Dict],
     # 방문봇 client
     client = _get_visit_client()
     if not client:
-        logger.warning('[ASSIGN/DM] 방문봇 client 초기화 실패')
+        # 담당자·당번 DM 을 통째로 못 보냄 — 전엔 WARNING 만 남기고 'DM 0명' 으로 성공처럼 보였다.
+        #   보낼 사람 수만큼 실패로 세어 화면 결과 '확인 필요'·슬랙 '(실패 N)' 에 나오게(11-24 조용한 실패 점검)
+        _need = [ini for ini, cur in current_by_mgr.items()
+                 if not (prev_v9_by_mgr.get(ini)
+                         and {lno for lno, _ in cur} == prev_v9_by_mgr[ini]['lead_nos']
+                         and (prev_v9_by_mgr[ini].get('memo') or '') == ' / '.join(memo_by_mgr.get(ini) or []))]
+        _gone = [ini for ini in prev_v9_by_mgr if ini not in current_by_mgr]
+        result['visit_bot_missing'] = True
+        result['visit_mgr_failed'] = len(_need)
+        result['deassign_failed'] = len(_gone)
+        result['online_duty_failed'] = len(online_duty or [])
+        logger.error(f'[ASSIGN/DM] 방문봇 연결이 없어 DM 을 못 보냈어요({target_date_iso}) — 담당자 {len(_need)}명 · '
+                     f'재배정 안내 {len(_gone)}명 · 당번 {len(online_duty or [])}명. 직접 알려 주세요.',
+                     extra={'force_alert': True})
         return result
 
     lead_nos_flagged = set()
