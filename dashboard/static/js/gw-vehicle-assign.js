@@ -48,7 +48,8 @@
   var S = { day: '', cars: [], staff: [], names: {}, canEdit: false, confirmed: false, dirty: false,
             visits: {}, places: {}, teams: [], seq: 0, focus: null, placeTries: 0, placeTimer: null,
             off: {}, half: {}, online: {}, work: {}, schedule: [], courses: null, plan: null, dayLabel: '',
-            splitOpen: {}, splitCourse: {}, memoOpen: {}, pick: '', pickHalf: '', duty: {}, extra: [], carWhen: '', draftNote: '' };
+            splitOpen: {}, splitCourse: {}, memoOpen: {}, pick: '', pickHalf: '', duty: {}, ownPick: {}, extra: [], carWhen: '', draftNote: '' };
+  // ownPick = 여러 명 코스에서 [본인 차량으로 이동]을 켜 '누가 자차로 가는지' 고르는 중인 코스
   // pickHalf = 이미 코스에 든 차를 체크했을 때 새 코스가 쓸 반나절('am'|'pm') · duty = 온라인 당번 {이니셜: '오전'|'오후'}
   // pick = 체크한 차(방문 일정처럼 줄을 눌러 체크 → 코스를 누르거나 위 줄에서 코스 고르기, 11-24 부장님) · splitCourse = [갈라 타기]를 연 코스
   // courses = 그룹웨어에서 확정한 방문 일정의 코스 — 슬랙으로 확정한 날은 null(그땐 일정확정 팀을 카드로)
@@ -215,12 +216,21 @@
       '</select>';
   }
   // 코스의 차 — 모두 같은 차(종일)면 그 번호판, 아무도 없으면 '', 섞였으면 '__mixed', 모두 자기 고정 차면 '__own'
+  function onOwn(m) {               // 종일 본인 차량(자차 칸)
+    var am = whereAt(m, 'am');
+    return !!am && isOwn(am) && whereAt(m, 'pm') === am;
+  }
+  function withoutOwn(ms) {        // 몇 사람만 본인 차량이면 그 사람들은 빼고 코스 차를 본다(모두면 그대로 — 코스 전체 본인 차량)
+    var rest = ms.filter(function (m) { return !onOwn(m); });
+    return rest.length ? rest : ms;
+  }
   function courseCar(g) {
     var ms = g.members.filter(function (m) { return !S.off[m]; });
     if (!ms.length) return '__none';
     var inG = groupOf();
     var one = ms.filter(function (m) { return (inG[m] || []).length < 2; });   // 두 코스에 든 사람은 다른 코스 차일 수 있어 빼고 본다
     if (one.length) ms = one;
+    ms = withoutOwn(ms);
     var vals = uniq(ms.map(function (m) {
       if (splitPerson(m)) return '__mixed';
       var at = whereAt(m, 'am');
@@ -234,7 +244,7 @@
     var ms = g.members.filter(function (m) { return !S.off[m]; });
     var inG = groupOf();
     var one = ms.filter(function (m) { return (inG[m] || []).length < 2; });
-    return one.length ? one : ms;
+    return withoutOwn(one.length ? one : ms);
   }
   function courseHalf(g) {            // 코스 사람 모두 같은 차의 같은 반나절만 → {car, half} / 아니면 null
     var ms = courseMembersForCar(g);
@@ -423,15 +433,41 @@
     var pk = S.canEdit && S.pick ? carOf(S.pick) : null;     // 차를 체크했으면 코스 카드를 눌러 그 차를 넣는다
     return '<section class="gw-va-card gw-vp-course gw-vc-course' + (pk ? ' pickable' : '') +
       '" data-ccourse="' + esc(g.key) + '"' + (pk ? ' tabindex="0" role="button" aria-label="' + esc(g.label + '에 ' + pk.label + ' 넣기') + '"' : '') +
-      '>' + head + carMemo(g) + hint + memo + sites + '</section>';
+      '>' + head + ownPickRow(g) + carMemo(g) + hint + memo + sites + '</section>';
   }
   // [본인 차량으로 이동] 체크(11-24 부장님) — 코스 전체가 자기 차로 가면 체크만. 체크하면 차 칸이 '본인 차량'(안에선 자차 칸)
+  function coursePeople(g) { return g.members.filter(function (m) { return !S.off[m]; }); }
   function ownCheck(g) {
     var cur = courseCar(g), oc = ownCar();
     if (!S.canEdit || !oc || cur === '__none') return '';
-    var on = cur === oc.plate;
+    var many = coursePeople(g).length > 1;
+    var on = cur === oc.plate || (many && (!!S.ownPick[g.key] || coursePeople(g).some(onOwn)));
     return '<label class="gw-vc-owncheck"><input type="checkbox" class="form-check-input" data-ownc="' + esc(g.key) + '"' +
       (on ? ' checked' : '') + '> 본인 차량으로 이동</label>';
+  }
+  // 여러 명 코스 — 자차로 가는 사람만 고른다(11-24 부장님: 체크하면 코스 차가 통째로 본인 차량이 되던 것).
+  //   고른 사람만 본인 차량, 나머지는 코스 차 그대로. 모두 고르면 코스 전체 본인 차량(YG+TH 처럼 한 사람 차로 같이 감)
+  function ownPickRow(g) {
+    var ps = coursePeople(g);
+    if (ps.length < 2 || !ownCar()) return '';
+    var mine = ps.filter(onOwn);
+    if (!S.canEdit) {
+      return mine.length && mine.length < ps.length
+        ? '<p class="gw-vc-ownpick"><i class="fas fa-car-side" aria-hidden="true"></i> 본인 차량: ' + esc(mine.map(name).join(', ')) + '</p>' : '';
+    }
+    if (!S.ownPick[g.key] && !mine.length) return '';
+    return '<div class="gw-vc-ownpick" role="group" aria-label="' + esc(g.label) + ' 본인 차량으로 가는 사람"><span>자차로 가는 사람</span>' +
+      ps.map(function (m) {
+        return '<label class="gw-vc-owncheck"><input type="checkbox" class="form-check-input" data-ownp="' + esc(m) + '" data-ckey="' +
+          esc(g.key) + '"' + (onOwn(m) ? ' checked' : '') + '> ' + esc(name(m)) + '</label>';
+      }).join('') + '</div>';
+  }
+  function courseBack(g, m) {      // 본인 차량에서 뺀 사람 — 코스 차로(반나절 코스면 그 반나절), 코스 차가 없으면 차 없음
+    var rest = { key: g.key, label: g.label, members: g.members.filter(function (x) { return x !== m; }) };   // 그 사람 빼고 본 코스 차
+    var hf = courseHalf(rest);
+    if (hf) { setCar(m, hf.car.plate, hf.half); return; }
+    var cur = courseCar(rest);
+    setCar(m, cur && cur.indexOf('__') !== 0 && !isOwn(carOf(cur)) ? cur : '', 'all');
   }
   // 코스 메모 한 줄(11-24 부장님) — 차가 들어간 코스에 아무 메모나(그 차의 메모로 저장, 배정 DM 에 같이 감)
   function memoCar(g) {           // 메모를 붙일 차 — 차 한 대인 코스(회사 차·본인 차량, 반나절 쓰는 차 포함)
@@ -753,7 +789,7 @@
       });
       S.confirmed = !!j.confirmed_at;
       S.names = {}; S.visits = {}; S.places = {}; S.off = {}; S.half = {}; S.online = {}; S.work = {}; S.duty = {}; S.pickHalf = '';
-      S.splitOpen = {}; S.splitCourse = {}; S.memoOpen = {}; S.extra = []; S.pick = '';
+      S.splitOpen = {}; S.splitCourse = {}; S.memoOpen = {}; S.ownPick = {}; S.extra = []; S.pick = '';
       j.staff.forEach(function (p) { S.names[p.code] = p.name; });
       // 확정 전 토요 휴무는 바뀔 수 있어 반차처럼 꼬리표만(방문 일정과 같게 — 코스에 넣을 수 있음, 11-23)
       (j.off || []).forEach(function (o) { if (o.soft) S.half[o.code] = o.why; else S.off[o.code] = o.why; });
@@ -851,7 +887,7 @@
       render();
       return;
     }
-    setCourse(key, c.plate);
+    setCourse(key, c.plate, true);
     delete S.splitCourse[key];
     S.pick = '';
     msg(g.label + '에 ' + c.label + ' 넣었어요.', 'ok');
@@ -883,12 +919,14 @@
     });
     return out;
   }
-  function setCourse(key, plate) {   // 코스 사람 모두(휴무 빼고) 종일 같은 차 / '' = 모두 뺀다
-    var g = groupByKey(key);
+  function setCourse(key, plate, keepOwn) {   // 코스 사람 모두(휴무 빼고) 종일 같은 차 / '' = 모두 뺀다
+    var g = groupByKey(key);                    // keepOwn = 몇 사람만 자차로 고른 코스면 그 사람은 그대로(11-24)
     if (!g) return;
     var prev = courseCar(g), inG = groupOf();
+    var some = keepOwn && coursePeople(g).some(onOwn) && !coursePeople(g).every(onOwn);
     g.members.forEach(function (m) {
       if (S.off[m]) return;
+      if (some && onOwn(m)) return;
       var at = whereIs(m);     // 두 코스에 든 사람 — 다른 코스 차를 이미 탔으면 그대로(다르면 메모로, 11-24)
       if ((inG[m] || []).length > 1 && at && at.plate !== prev) return;
       delete S.splitOpen[m];
@@ -905,11 +943,31 @@
       setDirty(true);
       return;
     }
-    if (t.dataset.ownc) {                     // [본인 차량으로 이동] — 켜면 코스 전체를 본인 차량으로, 끄면 차 없음
-      var oc = ownCar();
-      setCourse(t.dataset.ownc, t.checked ? oc.plate : '');
+    if (t.dataset.ownc) {                     // [본인 차량으로 이동] — 한 명 코스: 켜면 본인 차량·끄면 차 없음 / 여러 명: 켜면 사람 고르기
+      var oc = ownCar(), og = groupByKey(t.dataset.ownc);
+      if (og && coursePeople(og).length > 1) {
+        if (t.checked) S.ownPick[og.key] = 1;
+        else {                                // 끄면 자차로 고른 사람 모두 코스 차로
+          delete S.ownPick[og.key];
+          coursePeople(og).filter(onOwn).forEach(function (m) { setCar(m, '', 'all'); courseBack(og, m); });
+        }
+      } else {
+        setCourse(t.dataset.ownc, t.checked ? oc.plate : '');
+      }
       if (!ridersOf(oc).length) oc.note = '';
       focusAfter('[data-ownc="' + cssq(t.dataset.ownc) + '"]');
+      render();
+      return;
+    }
+    if (t.dataset.ownp) {                     // 여러 명 코스에서 자차로 가는 사람 하나씩
+      var pg = groupByKey(t.dataset.ckey), po = ownCar();
+      if (pg && po) {
+        if (t.checked) { setCar(t.dataset.ownp, po.plate, 'all'); unsplitEmpty(); }
+        else { setCar(t.dataset.ownp, '', 'all'); courseBack(pg, t.dataset.ownp); }
+        if (!ridersOf(po).length) po.note = '';
+        S.ownPick[pg.key] = 1;
+      }
+      focusAfter('[data-ownp="' + cssq(t.dataset.ownp) + '"][data-ckey="' + cssq(t.dataset.ckey) + '"]');
       render();
       return;
     }
@@ -984,7 +1042,7 @@
     }
     var cl = e.target.closest('[data-clearc]');
     if (cl) {
-      setCourse(cl.dataset.clearc, '');
+      setCourse(cl.dataset.clearc, '', true);
       var oc = ownCar();
       if (oc && !ridersOf(oc).length) oc.note = '';
       focusAfter('[data-ccourse="' + cssq(cl.dataset.clearc) + '"]');
@@ -1069,7 +1127,7 @@
       delete S.splitOpen[d.over.dataset.cperson];
       setCar(d.over.dataset.cperson, d.plate, 'all');
     } else {
-      setCourse(d.over.dataset.ccourse, d.plate);
+      setCourse(d.over.dataset.ccourse, d.plate, true);
     }
     S.pick = '';
     msg('');
