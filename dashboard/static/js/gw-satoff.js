@@ -272,7 +272,7 @@
       var names = s.names.slice();
       var chips = fullOff(s) ? fullChip(s, 'span') : names.map(function (n) {
         var gone = me.name === n && inDraft(draft.remove, di);
-        return '<span class="gw-cal-chip gw-so-chip' + (n === me.name ? ' mine' : '') + (gone ? ' gone' : '') + '">' + (gone ? '<s class="gw-so-strike">' + esc(n) + '</s>' : esc(n)) +
+        return '<span class="gw-cal-chip gw-so-chip' + (n === me.name ? ' mine' : '') + (gone ? ' gone' : '') + '">' + (gone ? '− <s class="gw-so-strike">' + esc(n) + '</s>' : esc(n)) +
           (gone ? '<small class="gw-so-ctag">취소</small>' : '') + '</span>';
       }).join('');
       if (inDraft(draft.add, di)) chips += '<span class="gw-cal-chip gw-so-chip mine add">+ ' + esc(me.name) + '<small class="gw-so-ctag">신청</small></span>';
@@ -320,7 +320,7 @@
       if (fullOff(s)) g += fullChip(s, 'div');
       else names.forEach(function (n) {
         var gone = me.name === n && inDraft(draft.remove, di);
-        g += '<div class="gw-cal-chip gw-so-chip' + (n === me.name ? ' mine' : '') + (gone ? ' gone' : '') + '">' + (gone ? '<s class="gw-so-strike">' + esc(n) + '</s>' : esc(n)) +
+        g += '<div class="gw-cal-chip gw-so-chip' + (n === me.name ? ' mine' : '') + (gone ? ' gone' : '') + '">' + (gone ? '− <s class="gw-so-strike">' + esc(n) + '</s>' : esc(n)) +
           (gone ? '<small class="gw-so-ctag">취소</small>' : '') + '</div>';
       });
       if (inDraft(draft.add, di)) g += '<div class="gw-cal-chip gw-so-chip mine add">+ ' + esc(me.name) + '<small class="gw-so-ctag">신청</small></div>';
