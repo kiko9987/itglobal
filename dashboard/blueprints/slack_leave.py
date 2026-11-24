@@ -915,16 +915,21 @@ def promo_notify(kind: str, payload) -> None:
             what = '촉구' if kind == 'notice' else '사용 시기 지정 통보'
             logger.error(f"{_LOG} 휴가 봇 토큰이 없어 {what} DM 을 못 보냄 — {rec.get('name')} (#{rec.get('id')}). "
                          '본인에게 직접 전해 주세요', extra={'force_alert': True})
-            if kind == 'designated' and rec.get('id'):
+            if rec.get('id'):
                 from dashboard.services import leave_promo as lp
-                lp.set_designate_dm(rec['id'], False)      # 촉진 탭에 '통보 DM 못 보냄'(11-24 추가분)
+                if kind == 'designated':
+                    lp.set_designate_dm(rec['id'], False)      # 촉진 탭에 '통보 DM 못 보냄'(11-24 추가분)
+                else:
+                    lp.set_notice_dm(rec['id'], False)         # 촉진 탭·경영지원 요약에 '촉구 DM 못 보냄'(11-24 조용한 실패 점검)
         return
     from dashboard.services import leave_promo as lp
     if kind == 'notice':
         rec = payload
-        if not _dm_blocks(client, rec.get('slack_id') or '', promo_notice_fallback(rec), promo_notice_blocks(rec)):
-            logger.error(f"{_LOG} 촉구 DM 을 못 보냄 — {rec['name']} (#{rec['id']}). 그룹웨어 내 휴가에는 보여요",
-                         extra={'force_alert': True})
+        ok = _dm_blocks(client, rec.get('slack_id') or '', promo_notice_fallback(rec), promo_notice_blocks(rec))
+        lp.set_notice_dm(rec['id'], ok)      # 결과를 기록 — 못 보냈으면 촉진 탭에 '촉구 DM 못 보냄'(11-24 조용한 실패 점검)
+        if not ok:
+            logger.error(f"{_LOG} 촉구 DM 을 못 보냄 — {rec['name']} (#{rec['id']}). "
+                         '본인에게 직접 전해 주세요(그룹웨어 내 휴가에는 보여요)', extra={'force_alert': True})
     elif kind == 'remind_plan':
         rec = payload
         _notify(client, rec.get('slack_id') or '',
@@ -949,8 +954,10 @@ def promo_notify(kind: str, payload) -> None:
         out = payload
         parts = []
         if out.get('sent'):
+            # 촉구 DM 은 이 요약보다 먼저 보낸다(leave_promo.daily) — 못 보낸 사람은 구별해 직접 전하게(11-24 조용한 실패 점검)
             parts.append('*오늘 촉구를 보냈어요*\n' + '\n'.join(
                 f"• {r['name']} — 안 쓴 연차 {lv.fmt_days(r['days'])}, 계획 기한 {lv.kdate(lv._d(r['plan_due']))}"
+                + (' — ⚠ 촉구 DM 못 보냄, 직접 전해 주세요' if r.get('notice_dm') == 'failed' else '')
                 for r in out['sent']))
         if out.get('due'):
             parts.append('*촉구를 보내야 해요* (자동 보내기 꺼짐)\n' + '\n'.join(

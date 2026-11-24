@@ -87,6 +87,8 @@ def _conn():
             cols = {r[1] for r in c.execute('PRAGMA table_info(leave_promotions)').fetchall()}
             if 'designate_dm' not in cols:      # 지정 통보 DM 결과 'sent'·'failed'(11-24 조용한 실패 점검), 옛 기록은 빈칸
                 c.execute('ALTER TABLE leave_promotions ADD COLUMN designate_dm TEXT')
+            if 'notice_dm' not in cols:         # 촉구 DM 결과 'sent'·'failed'(11-24 조용한 실패 점검), 옛 기록·플렉스는 빈칸
+                c.execute('ALTER TABLE leave_promotions ADD COLUMN notice_dm TEXT')
             c.commit()
             _ready, _ready_db = True, db
         yield c
@@ -475,6 +477,7 @@ def view(rec: dict, today: Optional[date] = None) -> dict:
         'source': 'flex' if str(rec.get('source') or '').startswith('flex:') else 'gw', 'note': rec.get('note') or '',
         'state': st['key'], 'state_label': st['label'],
         'designate_dm': rec.get('designate_dm') or '',      # 'failed' 면 촉진 탭에 '통보 DM 못 보냄'(11-24)
+        'notice_dm': rec.get('notice_dm') or '',            # 'failed' 면 촉진 탭에 '촉구 DM 못 보냄'(11-24)
     }
 
 
@@ -482,6 +485,14 @@ def set_designate_dm(pid: int, ok: bool) -> None:
     """지정 통보(근로기준법 61조) 슬랙 DM 결과 — 못 보냈으면 촉진 탭이 '직접 전해 주세요'를 띄운다(11-24 조용한 실패 점검)."""
     with _conn() as c:
         c.execute('UPDATE leave_promotions SET designate_dm=? WHERE id=?', ('sent' if ok else 'failed', pid))
+        c.commit()
+
+
+def set_notice_dm(pid: int, ok: bool) -> None:
+    """촉구(근로기준법 61조 촉진의 첫 단계) 슬랙 DM 결과 — 기록은 '보냄'으로 먼저 남고 DM 은 뒤에서 가므로,
+    못 보냈으면 촉진 탭·경영지원 요약이 '직접 전해 주세요'를 띄운다(11-24 조용한 실패 점검)."""
+    with _conn() as c:
+        c.execute('UPDATE leave_promotions SET notice_dm=? WHERE id=?', ('sent' if ok else 'failed', pid))
         c.commit()
 
 
@@ -513,9 +524,11 @@ def daily(today: Optional[date] = None, notify=None) -> dict:
         if auto():
             rec, err = send_notice(c['name'], c['kind'], c['grant_to'], actor='자동', today=today)
             if rec:
-                out['sent'].append(rec)
                 if notify:
                     notify('notice', rec)
+                    # 촉구 DM 결과(notice_dm)가 기록된 뒤 줄로 — 아래 경영지원 요약이 'DM 못 보냄'을 구별한다(11-24 조용한 실패 점검)
+                    rec = get(rec['id']) or rec
+                out['sent'].append(rec)
         else:
             out['due'].append(c)
     t = today.isoformat()

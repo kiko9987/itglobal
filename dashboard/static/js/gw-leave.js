@@ -768,7 +768,9 @@
         var canDes = j.can_manage && ['need_designate', 'late', 'planned'].indexOf(r.state) !== -1 && r.left > 0 && r.plan_due < todayIso();
         h += '<tr data-promo-row="' + esc(r.id) + '"><td><strong>' + esc(r.name) + '</strong>' + (r.source === 'flex' ? ' <span class="gw-badge gw-badge-resigned">플렉스</span>' : '') + '</td>' +
           '<td>' + esc(md0(r.grant_to)) + '까지<div class="text-muted small">' + esc(r.kind_label) + '</div></td>' +
-          '<td>' + esc(r.noticed_at.slice(0, 10)) + (r.ack_at ? '<div class="text-muted small">받음 ' + esc(r.ack_at.slice(0, 10)) + '</div>' : '') + '</td>' +
+          '<td>' + esc(r.noticed_at.slice(0, 10)) + (r.ack_at ? '<div class="text-muted small">받음 ' + esc(r.ack_at.slice(0, 10)) + '</div>' : '') +
+            // 촉구 DM 을 못 보냄 — 기록은 '보냄'이지만 본인은 슬랙으로 못 받았다. 직접 전해야 한다(11-24 조용한 실패 점검)
+            (r.notice_dm === 'failed' ? '<div class="text-danger small">⚠ 촉구 DM 못 보냄 — 직접 전해 주세요</div>' : '') + '</td>' +
           '<td class="n">' + days(r.days) + '<div class="text-muted small">지금 ' + days(r.left) + '</div></td>' +
           '<td>' + (r.plan_dates.length ? esc(pdates(r.plan_dates)) : '<span class="text-muted">기한 ' + esc(r.plan_due ? md(r.plan_due) : '-') + '</span>') + '</td>' +
           '<td>' + (r.designated_dates.length ? esc(pdates(r.designated_dates)) : '<span class="text-muted">기한 ' + esc(r.designate_due ? md(r.designate_due) : '-') + '</span>') +
