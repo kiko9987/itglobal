@@ -333,23 +333,25 @@
     sideEl.insertBefore(workedBox, sideEl.firstChild);
   }
 
+  // 오른쪽 칸은 달마다 숨겼다 보였다 하지 않는다 — 달을 넘기면 배치가 바뀌던 것(11-25 부장님). 비면 '없어요' 한 줄
+  var NONE = function (t) { return '<li class="gw-so-none">' + t + '</li>'; };
   function renderSide(d, me) {
     // 휴무 출근 기록
     var wk = d.worked || [];
     if (workedBox) {
-      workedBox.hidden = !wk.length;
+      workedBox.hidden = false;
       document.getElementById('soWorked').innerHTML = wk.map(function (w) {
         return '<li><div><strong>' + esc(w.name) + '</strong> ' + esc(w.label) + '</div>' +
           '<div class="gw-so-sub">' + esc(w.reason || '') + ' · 구두 승인 ' + esc(w.verbal_by || '') +
           (w.recorded_by && w.recorded_by !== w.name ? ' · 기록 ' + esc(w.recorded_by) : '') + '</div>' +
           (w.can_undo ? '<div class="gw-so-btns"><button type="button" class="btn btn-light btn-sm" data-wundo="' + esc(w.day) +
             '" data-name="' + esc(w.name) + '">되돌리기</button></div>' : '') + '</li>';
-      }).join('');
+      }).join('') || NONE('이 달 휴무 출근 기록이 없어요.');
     }
 
     // 변경 신청
     var ch = d.changes || [];
-    document.getElementById('soChangesBox').hidden = !ch.length;
+    document.getElementById('soChangesBox').hidden = false;
     document.getElementById('soChanges').innerHTML = ch.map(function (c) {
       var btns = '';
       if (c.status === 'wait' && me.approver) {
@@ -361,20 +363,19 @@
       return '<li><div><strong>' + esc(c.name) + '</strong> ' + esc(c.what) + ' <span class="gw-so-cst ' + c.status + '">' + esc(c.status_label) + '</span></div>' +
         '<div class="gw-so-sub">사유: ' + esc(c.reason || '') + (c.decide_note ? ' · 처리 메모: ' + esc(c.decide_note) : '') +
         (c.decided_by && c.status !== 'wait' ? ' · ' + esc(c.decided_by) : '') + '</div>' + (btns ? '<div class="gw-so-btns">' + btns + '</div>' : '') + '</li>';
-    }).join('');
+    }).join('') || NONE('이 달 변경 신청이 없어요.');
 
     // 기록
     var log = d.log || [];
-    document.getElementById('soLogBox').hidden = !log.length;
+    document.getElementById('soLogBox').hidden = !(me.manager || me.approver);   // 보는 사람(역할)으로만 — 달마다 같게
     document.getElementById('soLog').innerHTML = log.map(function (l) {
       return '<li><span>' + esc((l.at || '').slice(5, 16)) + '</span> ' + esc(l.actor || '') + ' · ' + esc(l.detail || '') + '</li>';
-    }).join('');
+    }).join('') || NONE('이 달 수정 기록이 없어요.');
 
-    // 오른쪽 칸에 보일 게 없으면 달력·근무표가 넓이를 다 쓴다
+    // 오른쪽 칸은 늘 둔다(휴무 출근·변경 신청 상자는 늘 보임) — 넓은 화면은 늘 두 칸
     if (sideEl) {
-      var any = Array.prototype.some.call(sideEl.children, function (c) { return !c.hidden; });
-      sideEl.hidden = !any;
-      document.getElementById('soPage').classList.toggle('has-side', any);
+      sideEl.hidden = false;
+      document.getElementById('soPage').classList.add('has-side');
     }
   }
 

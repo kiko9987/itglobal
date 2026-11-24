@@ -3024,6 +3024,7 @@ html:has(#bdPage) {
 .gw-so-cst.rejected { background: #fef2f2; color: #991b1b; }
 .gw-so-log li { font-size: 0.8rem; color: #475569; padding: 2px 0; }
 .gw-so-log li span { color: #64748b; }
+.gw-so-changes li.gw-so-none, .gw-so-log li.gw-so-none { color: #64748b; font-size: 0.85rem; padding: 4px 0; border-bottom: 0; }   /* 빈 상자 한 줄(11-25) */
 .gw-so-log summary { cursor: pointer; }
 .gw-so-hint { color: #475569; font-size: 0.88rem; }
 .gw-so .gw-cal-head .btn-link { color: #2a3038; text-underline-offset: 2px; }   /* 파랑 4.3:1 → 남색 */
