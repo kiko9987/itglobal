@@ -291,3 +291,25 @@ def test_dm_some_alerts_when_nobody_received(caplog):
     with caplog.at_level(logging.WARNING):
         so._dm_some(Half(), ['U1', 'U2'], 'x', DEC, '결재 요청')
     assert not any(r.levelno == logging.ERROR for r in caplog.records)
+
+
+def test_notify_failure_shown_on_screen(slack, monkeypatch):
+    """알림을 못 보내면 기록에 남겨 화면(view 의 notify_fail)이 '직접 알려 주세요'를 띄운다 —
+    ERROR 알림은 부장님께만 가서 버튼을 누른 사람은 몰랐음(11-24 조용한 실패 점검 추가분)."""
+    so.toggle(S5, '영업가', True, A, '영업가', TODAY)
+    so.submit(DEC, CO, '빈대리', TODAY)
+    real = slack.chat_postMessage
+
+    def down(channel, text='', blocks=None):
+        raise RuntimeError('channel_not_found')
+    monkeypatch.setattr(slack, 'chat_postMessage', down)
+    so.notify('submit', DEC, '빈대리')
+    msg = so.view(DEC, CO, '빈대리', TODAY)['notify_fail']
+    assert '결재 요청' in msg and '직접 알려 주세요' in msg
+    monkeypatch.setattr(slack, 'chat_postMessage', real)
+    so.decide(DEC, True, YG, '박용구')                                   # 다음 처리가 있으면 지난 일
+    so.notify('approve', DEC, '박용구')
+    assert so.view(DEC, CO, '빈대리', TODAY)['notify_fail'] == ''
+    monkeypatch.setattr(so, '_client', lambda: None)
+    so.notify('approve', DEC, '박용구')
+    assert '휴가 봇 연결 없음' in so.view(DEC, CO, '빈대리', TODAY)['notify_fail']

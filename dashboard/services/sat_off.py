@@ -308,6 +308,7 @@ def view(month: str, sid: str, name: str, today: Optional[date] = None) -> dict:
         'can_request_change': st == CONFIRMED and (r['member'] or r['manager']) and not r['approver'] and not my_wait,
         'changes': [x for x in changes if show_all or x['name'] == name],
         'log': recent_log(month) if show_all else [],
+        'notify_fail': notify_fail(month),       # 마지막 처리의 슬랙 알림을 못 보냈으면 그 문구(11-24)
     }
 
 
@@ -602,6 +603,7 @@ def _dm_some(client, uids, text: str, month: str, what: str) -> None:
     if not sent:
         logger.error(f'{_LOG} {what} 알림을 아무에게도 못 보냄 ({month}, 대상 {len(uids)}명) — 직접 알려 주세요',
                      extra={'force_alert': True})
+        _note_fail(what)
 
 
 def _post(client, text: str) -> bool:
@@ -612,7 +614,38 @@ def _post(client, text: str) -> bool:
         return True
     except Exception as e:
         logger.error(f'{_LOG} #휴가_일정 공지 실패 — 채널에 직접 올려 주세요: {e}', extra={'force_alert': True})
+        _note_fail('#휴가_일정 공지')
         return False
+
+
+# ── 못 보낸 알림을 화면에도(11-24 조용한 실패 점검 추가분) ─────────────────────────────
+# 알림은 뒤에서 나가 응답에 결과가 없다. ERROR 알림은 부장님께만 가므로, 버튼을 누른 사람도 알게
+# 토요일 휴무 기록에 'notify_fail' 한 줄을 남기고 화면(view 의 notify_fail)이 '직접 알려 주세요'를 띄운다.
+NOTIFY_FAIL = 'notify_fail'
+_fails = threading.local()
+
+
+def _note_fail(what: str) -> None:
+    items = getattr(_fails, 'items', None)
+    if items is not None:
+        items.append(what)
+
+
+def _record_fail(month: str, items: List[str]) -> None:
+    detail = f"슬랙 알림을 못 보냈어요({', '.join(dict.fromkeys(items))}). 직접 알려 주세요."
+    try:
+        with lv._conn() as conn:
+            _log(conn, '슬랙 알림', NOTIFY_FAIL, month, detail)
+    except Exception as e:
+        logger.error(f'{_LOG} 알림 실패 기록 실패 ({month}): {e}', exc_info=True)
+
+
+def notify_fail(month: str) -> str:
+    """이 달 마지막 기록이 '알림 못 보냄'이면 그 문구 — 그 뒤 다른 처리가 있으면 ''(지난 일)."""
+    with lv._conn() as conn:
+        r = conn.execute('SELECT action, detail FROM sat_off_log WHERE month=? ORDER BY id DESC LIMIT 1',
+                         (month,)).fetchone()
+    return r['detail'] if r and r['action'] == NOTIFY_FAIL else ''
 
 
 def _client():
@@ -647,6 +680,7 @@ def notify(kind: str, month: str, actor: str, change: Optional[dict] = None, not
         if not client:
             logger.error(f'{_LOG} 휴가 봇 토큰이 없어 알림을 못 보냄 ({kind} {month}) — 직접 알려 주세요',
                          extra={'force_alert': True})
+            _note_fail('휴가 봇 연결 없음')
             return
         t = _month_title(month)
         row = month_row(month)
@@ -692,7 +726,13 @@ def notify(kind: str, month: str, actor: str, change: Optional[dict] = None, not
 
 
 def _safe(fn, kind: str, month: str) -> None:
+    _fails.items = []
     try:
         fn()
     except Exception as e:
         logger.error(f'{_LOG} 알림 실패 ({kind} {month}): {e}', exc_info=True, extra={'force_alert': True})
+        _fails.items.append('알림 처리 오류')
+    finally:
+        items, _fails.items = _fails.items, None
+    if items:
+        _record_fail(month, items)

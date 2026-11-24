@@ -272,6 +272,7 @@
       done();
       data = j;
       render();
+      if (j.notify_fail) flash('⚠ ' + j.notify_fail, 'err');   // 이 달 마지막 처리의 슬랙 알림을 못 보냄(11-24)
       try { history.replaceState(null, '', '?month=' + k); } catch (e) { /* 무시 */ }
     }).catch(function (e) {
       if (my !== seq) return;
@@ -281,6 +282,20 @@
       barEl.innerHTML = '';
     });
   }
+  // 슬랙 알림은 뒤에서 나가므로 몇 초 뒤 다시 읽어 '못 보냄' 기록이 생겼으면 알려 준다(11-24 조용한 실패 점검).
+  // 다시 읽기 자체가 실패하면 그냥 둔다 — 못 보낸 알림은 서버가 이미 에러 알림으로 보냈고 다음 불러오기에도 보인다
+  function watchNotify(k) {
+    setTimeout(function () {
+      if (monthKey() !== k) return;
+      api('/api/satoff?month=' + k).then(function (j) {
+        if (monthKey() !== k || !j.notify_fail) return;
+        data = j;
+        render();
+        flash('⚠ ' + j.notify_fail, 'err');
+      }).catch(function () { /* 위 주석 */ });
+    }, 6000);
+  }
+
   if (NARROW) {
     var reflow = function () { if (data) render(); };
     if (NARROW.addEventListener) NARROW.addEventListener('change', reflow); else if (NARROW.addListener) NARROW.addListener(reflow);
@@ -432,9 +447,11 @@
     if (act === 'submit') {
       if (!window.confirm(title + ' 토요일 휴무표를 결재에 올릴까요? 올린 뒤에는 승인권자만 고칠 수 있어요.')) return;
       b.disabled = true;
-      // 슬랙 알림은 뒤에서 따로 나가 결과를 여기서 알 수 없다 → '보냈어요'라고 단정하지 않는다(11-21 점검)
+      // 슬랙 알림은 뒤에서 따로 나가 결과를 여기서 알 수 없다 → '보냈어요'라고 단정하지 않는다(11-21 점검).
+      // 못 보냈으면 서버가 기록에 남기고, watchNotify 가 잠시 뒤 다시 읽어 알려 준다(11-24 조용한 실패 점검)
       api('/api/satoff/submit', { method: 'POST', body: { month: k } }).then(function () {
         flash('결재를 올렸어요. 승인권자께 슬랙 알림이 가요.', 'ok');
+        watchNotify(k);
         return load();
       }).catch(function (e) { flash(e.message, 'err'); b.disabled = false; });
     } else if (act === 'approve') {
@@ -445,12 +462,13 @@
       api('/api/satoff/decide', { method: 'POST', body: { month: k, approve: true } }).then(function (j) {
         var extra = (j.affected || []).length ? ' 휴가 일수가 달라지는 신청 ' + j.affected.length + '건은 경영지원에 알림이 가요.' : '';
         flash('승인했어요. #휴가_일정에 공지가 올라가요.' + extra, 'ok');
+        watchNotify(k);
         return load();
       }).catch(function (e) { flash(e.message, 'err'); b.disabled = false; });
     } else if (act === 'return') {
       openNote('돌려보내기', title + ' 토요일 휴무표를 다시 작성 중으로 돌려요.', '돌려보내는 이유', '돌려보내기', function (note) {
         return api('/api/satoff/decide', { method: 'POST', body: { month: k, approve: false, note: note } })
-          .then(function () { return '돌려보냈어요. 올린 분께 슬랙 알림이 가요.'; });
+          .then(function () { watchNotify(k); return '돌려보냈어요. 올린 분께 슬랙 알림이 가요.'; });
       });
     } else if (act === 'undo') {
       draft = { add: [], remove: [] };
@@ -460,7 +478,7 @@
       var what = remove.map(function (x) { return md(x) + '(토) 빼기'; }).concat(add.map(function (x) { return md(x) + '(토) 넣기'; })).join(', ');
       openNote('변경 신청', what, '바꾸는 이유', '신청', function (reason) {
         return api('/api/satoff/change', { method: 'POST', body: { month: k, add: add, remove: remove, reason: reason } })
-          .then(function () { draft = { add: [], remove: [] }; return '변경 신청을 했어요. 승인권자 중 한 분이 승인하면 바뀌어요.'; });
+          .then(function () { draft = { add: [], remove: [] }; watchNotify(k); return '변경 신청을 했어요. 승인권자 중 한 분이 승인하면 바뀌어요.'; });
       });
     }
   });
@@ -477,12 +495,12 @@
       if (!window.confirm(c.name + ' 님 변경을 승인할까요?\n' + c.what + '\n\n승인하면 #휴가_일정에 공지돼요.')) return;
       b.disabled = true;
       api('/api/satoff/change/' + id + '/decide', { method: 'POST', body: { approve: true } }).then(function () {
-        flash(c.name + ' 님 변경을 승인했어요.', 'ok'); return load(true);
+        flash(c.name + ' 님 변경을 승인했어요.', 'ok'); watchNotify(data.month); return load(true);
       }).catch(function (e) { flash(e.message, 'err'); b.disabled = false; });
     } else if (act === 'reject') {
       openNote('변경 반려', c.name + ' 님 ' + c.what, '반려하는 이유', '반려', function (note) {
         return api('/api/satoff/change/' + id + '/decide', { method: 'POST', body: { approve: false, note: note } })
-          .then(function () { return c.name + ' 님 변경 신청을 반려했어요.'; });
+          .then(function () { watchNotify(data.month); return c.name + ' 님 변경 신청을 반려했어요.'; });
       });
     } else if (act === 'cancel') {
       if (!window.confirm('변경 신청을 취소할까요?')) return;
