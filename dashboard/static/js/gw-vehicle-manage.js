@@ -49,15 +49,35 @@
     return esc(shortDay(day)) + tag;
   }
 
-  var S = { kinds: [], cars: [] };
+  var S = { kinds: [], cars: [], accKinds: [], accStatus: [], accidents: [] };
+
+  // 차량 상태(U+ '차량상태 조회'와 같은 뜻, 11-24) — 점검 필요는 꼬리표, 양호면 전압·연료만 작게
+  function stateCell(c) {
+    var s = c.state;
+    if (!s) return c.uplus ? '<span class="text-muted small">U+ 연동 후</span>' : '<span class="text-muted">-</span>';
+    var bits = [];
+    if (s.voltage) bits.push(Number(s.voltage).toFixed(1) + 'V');
+    if (s.fuel != null && s.fuel > 0) bits.push('연료 ' + Math.round(s.fuel) + '%');
+    var head = s.issues.length
+      ? s.issues.map(function (x) { return '<span class="gw-badge gw-badge-reject">' + esc(x) + '</span>'; }).join(' ')
+      : '<span class="gw-badge gw-badge-active">양호</span>';
+    return head + (bits.length ? '<br><span class="text-muted small gw-vm-num">' + esc(bits.join(' · ')) + '</span>' : '');
+  }
 
   // ── 첫 화면 ──
   function load() {
     return api('/api/vehicles/manage').then(function (j) {
       S.kinds = j.kinds; S.cars = j.cars;
+      S.accKinds = j.accident_kinds || []; S.accStatus = j.accident_status || [];
+      var head = document.querySelector('.gw-vm-table thead tr');     // 칸 구성은 여기서(재시작 전 옛 템플릿과 어긋나지 않게)
+      if (head) {
+        head.innerHTML = '<th>차량</th><th>상태</th><th>보험 만기</th><th>검사 만기</th><th class="num">올해 비용</th>' +
+          '<th class="gw-vm-opt">최근 정비</th><th class="num gw-vm-opt">누적 km</th>';
+      }
       var top = (j.kinds_year || []).slice(0, 3).map(function (k) { return esc(k.kind) + ' ' + esc(won(k.amount)); }).join(' · ');
       $('vmStats').innerHTML =
-        '<div class="gw-stat"><div class="k">만기 지남·30일 안</div><div class="v">' + j.alerts + '<small> 대</small></div></div>' +
+        '<div class="gw-stat"><div class="k">점검 필요·만기 30일 안</div><div class="v">' + j.alerts + '<small> 대</small></div></div>' +
+        (j.open_accidents ? '<div class="gw-stat"><div class="k">처리 중인 사고</div><div class="v">' + j.open_accidents + '<small> 건</small></div></div>' : '') +
         '<div class="gw-stat"><div class="k">' + Number(j.month.slice(5)) + '월 차량비</div><div class="v">' + esc(won(j.month_total)) + '</div></div>' +
         '<div class="gw-stat"><div class="k">' + esc(j.year) + '년 차량비</div><div class="v">' + esc(won(j.year_total)) + '</div>' +
           (top ? '<div class="gw-vm-kinds">' + top + '</div>' : '') + '</div>';
@@ -66,13 +86,15 @@
         var own = c.ownership && c.ownership !== '법인 소유' ? '<span class="gw-vm-own">' + esc(c.ownership) + '</span>' : '';
         var kmCell = c.km != null ? esc(Number(c.km).toLocaleString('ko-KR')) + '<br><span class="text-muted small">' + esc(shortDay(c.km_day)) + '</span>'
           : (c.uplus ? '<span class="text-muted small">U+ 연동 후</span>' : '<span class="gw-badge gw-badge-wait">입력 필요</span>');
+        if (c.km != null && c.state && c.state.odometer) kmCell = esc(Math.round(c.km).toLocaleString('ko-KR')) + '<br><span class="text-muted small">U+ ' + esc(c.state.at) + '</span>';
         return '<tr tabindex="0" role="button" data-plate="' + esc(c.plate) + '" aria-label="' + esc(c.label + ' 자세히') + '"' +
           (c.warn ? ' class="gw-vm-warn"' : '') + '>' +
           '<td><strong>' + esc(c.label) + '</strong>' + tag + '<br><span class="text-muted small">' + esc(c.plate) + ' · ' + esc(c.model) + '</span> ' + own + '</td>' +
+          '<td>' + stateCell(c) + '</td>' +
           '<td>' + due(c.insurance_end, c.insurance_d) + (c.insurer ? '<br><span class="text-muted small">' + esc(c.insurer) + '</span>' : '') + '</td>' +
           '<td>' + due(c.inspection_end, c.inspection_d) + '</td>' +
           '<td class="num">' + (c.cost_year ? esc(won(c.cost_year)) : '<span class="text-muted">-</span>') + '</td>' +
-          '<td>' + (c.last_fix_day ? esc(shortDay(c.last_fix_day)) + '<br><span class="text-muted small">' + esc(c.last_fix_item) + '</span>' : '<span class="text-muted">-</span>') + '</td>' +
+          '<td class="gw-vm-opt">' + (c.last_fix_day ? esc(shortDay(c.last_fix_day)) + '<br><span class="text-muted small">' + esc(c.last_fix_item) + '</span>' : '<span class="text-muted">-</span>') + '</td>' +
           '<td class="num gw-vm-opt">' + kmCell + '</td></tr>';
       }).join('');
     }).catch(function (e) { msg(e.message, 'err'); });
@@ -140,6 +162,38 @@
       '<label>업체<input class="form-control form-control-sm" autocomplete="off" name="vendor" maxlength="40"></label>' +
       '<div class="gw-vm-actions"><button type="submit" class="btn btn-sm btn-primary">넣기</button></div></form></details>' + list + '</section>';
   }
+  // 사고 기록(11-24 — U+ '사고이력' 칸: 일자·시간·유형·운전자·보험사 + 장소·처리 상태·내용)
+  function opts(list, cur) {
+    return list.map(function (k) { return '<option' + (k === cur ? ' selected' : '') + '>' + esc(k) + '</option>'; }).join('');
+  }
+  function accForm(a, insurer) {
+    a = a || {};
+    return '<form class="gw-vm-form" id="vmAcc"' + (a.id ? ' data-id="' + a.id + '"' : '') + '>' +
+      '<label>사고 일자<input type="date" class="form-control form-control-sm" autocomplete="off" name="day" max="' + today() + '" value="' + esc(a.day || today()) + '" required></label>' +
+      '<label>시간<input type="time" class="form-control form-control-sm" autocomplete="off" name="tm" value="' + esc(a.tm || '') + '"></label>' +
+      '<label>사고 유형<select class="form-select form-select-sm" name="kind" autocomplete="off">' + opts(S.accKinds, a.kind) + '</select></label>' +
+      '<label>운전자<input class="form-control form-control-sm" autocomplete="off" name="driver" maxlength="20" value="' + esc(a.driver || '') + '"></label>' +
+      '<label>보험사<input class="form-control form-control-sm" autocomplete="off" name="insurer" maxlength="30" value="' + esc(a.insurer != null ? a.insurer : (insurer || '')) + '"></label>' +
+      '<label>처리<select class="form-select form-select-sm" name="status" autocomplete="off">' + opts(S.accStatus, a.status) + '</select></label>' +
+      '<label class="wide">장소<input class="form-control form-control-sm" autocomplete="off" name="place" maxlength="80" value="' + esc(a.place || '') + '"></label>' +
+      '<label class="wide">내용<textarea class="form-control form-control-sm" rows="2" name="memo" maxlength="500" autocomplete="off">' + esc(a.memo || '') + '</textarea></label>' +
+      '<div class="gw-vm-actions">' + (a.id ? '<button type="button" class="btn btn-sm btn-link" data-acc-cancel>그만두기</button>' : '') +
+      '<button type="submit" class="btn btn-sm btn-primary">' + (a.id ? '고친 내용 저장' : '넣기') + '</button></div></form>';
+  }
+  function accSection(rows, insurer) {
+    var list = rows.length ? '<table class="gw-table gw-vm-list"><thead><tr><th>일자</th><th>내용</th><th>처리</th></tr></thead><tbody>' +
+      rows.map(function (a) {
+        var st = a.status === '처리 끝' ? 'gw-badge-resigned' : (a.status === '보험 접수' ? 'gw-badge-field' : 'gw-badge-wait');
+        return '<tr><td class="gw-vm-day">' + esc(shortDay(a.day)) + (a.tm ? '<br><span class="text-muted small">' + esc(a.tm) + '</span>' : '') + '</td>' +
+          '<td><span class="gw-vm-kind">' + esc(a.kind) + '</span> ' + esc(a.memo || '') +
+            '<br><span class="text-muted small">' + esc([a.driver, a.place, a.insurer].filter(Boolean).join(' · ')) + '</span></td>' +
+          '<td><span class="gw-badge ' + st + '">' + esc(a.status) + '</span><br>' +
+            '<button type="button" class="btn btn-sm btn-link p-0" data-acc-edit="' + a.id + '">고치기</button> ' +
+            '<button type="button" class="btn btn-sm btn-link text-danger p-0" data-acc-del="' + a.id + '">삭제</button></td></tr>';
+      }).join('') + '</tbody></table>' : '<p class="text-muted small">사고 기록이 없어요.</p>';
+    return '<section class="gw-vm-sec" id="vmAccSec"><h3>사고 기록</h3>' +
+      '<details class="gw-vm-add" id="vmAccAdd"><summary>사고 기록 넣기</summary>' + accForm(null, insurer) + '</details>' + list + '</section>';
+  }
   function openCar(plate) {
     cur = S.cars.filter(function (c) { return c.plate === plate; })[0];
     box.hidden = false;
@@ -149,7 +203,9 @@
     $('vmCarTitle').focus();
     return api('/api/vehicles/manage/car?plate=' + encodeURIComponent(plate)).then(function (j) {
       $('vmCarBody').innerHTML = '<div class="gw-vh-msg" id="vmCarMsg" role="status" aria-live="polite"></div>' +
-        infoForm(cur, j.info) + costSection(cur, j.costs) + ((cur && !cur.uplus) || j.odometer.length ? odoSection(cur, j.odometer) : '');
+        infoForm(cur, j.info) + costSection(cur, j.costs) + accSection(j.accidents || [], j.info.insurer) +
+        ((cur && !cur.uplus) || j.odometer.length ? odoSection(cur, j.odometer) : '');
+      S.accidents = j.accidents || []; S.insurer = j.info.insurer || '';
     }).catch(function (e) { $('vmCarBody').innerHTML = '<p class="text-danger">' + esc(e.message) + '</p>'; });
   }
   function carMsg(text, kind) {
@@ -176,6 +232,10 @@
     if (f.id === 'vmInfo') { url = '/api/vehicles/manage/info/' + encodeURIComponent(cur.plate); done = '보험·검사 정보를 저장했어요.'; }
     else if (f.id === 'vmCost') { data.plate = cur.plate; url = '/api/vehicles/manage/costs'; done = '비용을 넣었어요.'; }
     else if (f.id === 'vmOdo') { data.plate = cur.plate; url = '/api/vehicles/manage/odometer'; done = '계기판 km 를 넣었어요.'; }
+    else if (f.id === 'vmAcc') {
+      data.plate = cur.plate; url = '/api/vehicles/manage/accidents';
+      if (f.getAttribute('data-id')) { data.id = f.getAttribute('data-id'); done = '사고 기록을 고쳤어요.'; } else done = '사고 기록을 넣었어요.';
+    }
     else return;
     btn.disabled = true;
     post(url, data).then(function () { return after(done); })
@@ -183,6 +243,29 @@
   });
   box.addEventListener('click', function (ev) {
     if (ev.target.closest('[data-close]')) { closeCar(); return; }
+    var ed = ev.target.closest('[data-acc-edit]');
+    if (ed) {                       // 고치기 — 넣기 칸을 그 기록으로 채워 그 자리에서 연다(새 창 없이)
+      var a = S.accidents.filter(function (x) { return String(x.id) === ed.getAttribute('data-acc-edit'); })[0];
+      var add = $('vmAccAdd');
+      if (a && add) {
+        add.innerHTML = '<summary>사고 기록 고치기</summary>' + accForm(a, S.insurer);
+        add.open = true;
+        var first = add.querySelector('input,select');
+        if (first) first.focus();
+      }
+      return;
+    }
+    if (ev.target.closest('[data-acc-cancel]')) {
+      var ad = $('vmAccAdd');
+      if (ad) { ad.innerHTML = '<summary>사고 기록 넣기</summary>' + accForm(null, S.insurer); ad.open = false; }
+      return;
+    }
+    var adel = ev.target.closest('[data-acc-del]');
+    if (adel && window.confirm('이 사고 기록을 지울까요? 지우면 되돌릴 수 없어요.')) {
+      post('/api/vehicles/manage/accidents/' + adel.getAttribute('data-acc-del') + '/delete', {})
+        .then(function () { return after('사고 기록을 지웠어요.'); }).catch(function (err) { carMsg(err.message, 'err'); });
+      return;
+    }
     var del = ev.target.closest('[data-del]');
     if (del && window.confirm('직접 넣은 이 비용을 지울까요?')) {
       post('/api/vehicles/manage/costs/' + del.getAttribute('data-del') + '/delete', {})

@@ -318,7 +318,7 @@ class SecurityMiddleware:
             'Referrer-Policy': 'strict-origin-when-cross-origin',
             'Content-Security-Policy': (
                 "default-src 'self'; "
-                "script-src 'self' 'unsafe-inline' http://localhost:5173 https://cdn.jsdelivr.net https://cdn.datatables.net https://code.jquery.com https://cdnjs.cloudflare.com; "
+                "script-src 'self' 'unsafe-inline' http://localhost:5173 https://cdn.jsdelivr.net https://cdn.datatables.net https://code.jquery.com https://cdnjs.cloudflare.com https://dapi.kakao.com https://t1.daumcdn.net; "
                 "style-src 'self' 'unsafe-inline' http://localhost:5173 https://cdn.jsdelivr.net https://cdn.datatables.net https://cdnjs.cloudflare.com https://use.fontawesome.com; "
                 "img-src 'self' data: https:; "
                 "font-src 'self' https://cdnjs.cloudflare.com https://use.fontawesome.com data:; "

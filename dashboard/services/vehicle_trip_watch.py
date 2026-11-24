@@ -191,6 +191,11 @@ def poll(now: Optional[datetime] = None, statuses: Optional[List[Dict]] = None) 
         except Exception as e:
             logger.warning(f'[운행종료] U+ 차량 상태 조회 실패: {e}')
             return {'error': str(e)}
+        try:        # 받은 김에 차량 상태도 저장(지금 위치·차량 관리 — API 아끼기)
+            from dashboard.services import vehicle_api_sync as vas
+            vas.save_state(statuses, now)
+        except Exception as e:
+            logger.warning(f'[운행종료] 차량 상태 저장 실패: {e}')
     moved = track(statuses, now)
     ends = ended_cars(now)
     asked = []

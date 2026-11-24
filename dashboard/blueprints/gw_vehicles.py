@@ -40,13 +40,25 @@ def _assign_open() -> bool:
     return not _is_field() and va.can_assign(_me())
 
 
+_NOW_PATHS = ('/vehicles/now', '/api/vehicles/now')     # 실시간 위치 — 전 직원(11-24 부장님: 온라인 당번도 봐야 함)
+
+
 def _gate():
-    """개발 중 — 부장님만(11-21). 방문 일정만 관리자에게 먼저(11-23), 차량 배정은 배정 담당에게 먼저(11-24)."""
+    """개발 중 — 부장님만(11-21). 방문 일정만 관리자에게 먼저(11-23), 차량 배정은 배정 담당에게 먼저(11-24),
+    실시간 위치는 전 직원(현장 포함, 11-24)."""
     if request.path.startswith(_PLAN_PATHS) and _plan_admin():
         return None
     if request.path.startswith(_ASSIGN_PATHS) and _assign_open():
         return None
+    if request.path.startswith(_NOW_PATHS):
+        return None
     return dev_preview_gate()
+
+
+def _kakao_js() -> str:
+    """카카오 지도 JavaScript 키(카카오 개발자 › 내 애플리케이션 › 앱 키). 없으면 지도 대신 목록만."""
+    import os
+    return (os.getenv('KAKAO_JS_KEY') or '').strip()
 
 
 gw_vehicles_bp.before_request(_gate)
@@ -478,6 +490,112 @@ def api_upload():
     return jsonify({'success': True, **res})
 
 
+# ── U+커넥트 기능 옮기기(11-24) — 운행기록부·운전 습관·가동률·경로(경영지원), 실시간 위치(전 직원) ──────────
+def _month_span() -> tuple:
+    m = _month()
+    y, mo = int(m[:4]), int(m[5:7])
+    last = date(y + (mo == 12), mo % 12 + 1, 1) - timedelta(days=1)
+    return m, f'{m}-01', last.isoformat()
+
+
+@gw_vehicles_bp.route('/api/vehicles/logbook.xlsx', methods=['GET'])
+@gw_page
+def api_logbook():
+    """국세청 업무용승용차 운행기록부 — 차량마다 한 장(plate 를 주면 그 차만)."""
+    if not _hr_admin():
+        return _deny()
+    from flask import Response
+    from urllib.parse import quote
+    m, start, end = _month_span()
+    plate = (request.args.get('plate') or '').strip()[:20]
+    with vl._conn() as conn:
+        plates = [r[0] for r in conn.execute('SELECT DISTINCT plate FROM vehicle_trips WHERE day BETWEEN ? AND ? ORDER BY plate',
+                                            (start, end)).fetchall()]
+    if plate:
+        plates = [plate]
+    if not plates:
+        return jsonify({'success': False, 'message': f'{m} 운행 기록이 없어요.'}), 404
+    data = vl.logbook_xlsx(plates, start, end, corp='아이티글로벌')
+    name = f"운행기록부_{m}{'_' + plate if plate else ''}.xlsx"
+    logger.info(f'[차량운행] 운행기록부 내려받기 {name} by {_me()}')
+    return Response(data, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    headers={'Content-Disposition': f"attachment; filename*=UTF-8''{quote(name)}"})
+
+
+@gw_vehicles_bp.route('/api/vehicles/insights', methods=['GET'])
+@gw_page
+def api_insights():
+    """운전 습관(사람별·차량별)·가동률 — 이 달."""
+    if not _hr_admin():
+        return _deny()
+    from dashboard.services import uplus_api as up
+    from dashboard.services import vehicle_api_sync as vas
+    m, start, end = _month_span()
+    try:
+        return jsonify({'success': True, 'month': m, 'habits': vas.habits(start, end), 'util': vas.utilization(start, end),
+                        'api': up.enabled('eco')})
+    except Exception as e:
+        logger.error(f'[차량운행] 운전 습관·가동률 실패: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': '불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요.'}), 500
+
+
+@gw_vehicles_bp.route('/api/vehicles/route', methods=['GET'])
+@gw_page
+def api_route():
+    """운행 한 건의 경로 좌표(카카오 지도 선)."""
+    if not _hr_admin():
+        return _deny()
+    from dashboard.services import vehicle_api_sync as vas
+    plate = (request.args.get('plate') or '').strip()[:20]
+    day = (request.args.get('day') or '').strip()
+    if not plate or not va.valid_day(day):
+        return jsonify({'success': False, 'message': '차량과 날짜를 골라 주세요.'}), 400
+    hm = re.compile(r'^\d{2}:\d{2}$')
+    start = request.args.get('start') or ''
+    end = request.args.get('end') or ''
+    try:
+        pts = vas.route(plate, day, start if hm.match(start) else '', end if hm.match(end) else '')
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        logger.warning(f'[차량운행] 경로 실패 {plate} {day}: {e}')
+        return jsonify({'success': False, 'message': 'U+ 에서 경로를 받지 못했어요. 잠시 뒤 다시 해 주세요.'}), 502
+    return jsonify({'success': True, 'points': pts, 'kakao_js': _kakao_js()})
+
+
+@gw_vehicles_bp.route('/vehicles/now')
+@gw_page
+def page_now():
+    return render_template('gw/vehicle_now.html', kakao_js=_kakao_js())
+
+
+@gw_vehicles_bp.route('/api/vehicles/now', methods=['GET'])
+@gw_page
+def api_now():
+    from dashboard.services import vehicle_api_sync as vas
+    try:
+        return jsonify({'success': True, **vas.now_view(), 'kakao_js': _kakao_js()})
+    except Exception as e:
+        logger.error(f'[차량위치] 불러오기 실패: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': '불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요.'}), 500
+
+
+@gw_vehicles_bp.route('/api/vehicles/now/near', methods=['GET'])
+@gw_page
+def api_now_near():
+    from dashboard.services import vehicle_api_sync as vas
+    addr = (request.args.get('addr') or '').strip()[:120]
+    if len(addr) < 2:
+        return jsonify({'success': False, 'message': '주소를 적어 주세요.'}), 400
+    try:
+        return jsonify({'success': True, **vas.nearest(addr)})
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        logger.error(f'[차량위치] 가까운 차 찾기 실패: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': '찾지 못했어요. 잠시 뒤 다시 해 주세요.'}), 500
+
+
 # ── 차량 관리(11-22) — 보험·검사 만기, 정비·비용(결재에서 자동), 계기판 km. 경영지원만 ─────────────
 @gw_vehicles_bp.route('/vehicles/manage')
 @gw_page
@@ -512,7 +630,36 @@ def api_manage_car():
     if not plate:
         return jsonify({'success': False, 'message': '차량을 골라 주세요.'}), 400
     return jsonify({'success': True, 'plate': plate, 'info': vm.info(plate), 'costs': vm.costs(plate=plate),
-                    'odometer': vm.odometer(plate)})
+                    'odometer': vm.odometer(plate), 'accidents': vm.accidents(plate)})
+
+
+@gw_vehicles_bp.route('/api/vehicles/manage/accidents', methods=['POST'])
+@gw_page
+def api_manage_accident_save():
+    """사고 기록 넣기(id 가 있으면 고치기)."""
+    if not _hr_admin():
+        return _deny()
+    b = request.get_json(silent=True) or {}
+    try:
+        acc_id = int(b.get('id') or 0) or None
+        res = vm.save_accident(b, _me(), acc_id)
+    except (TypeError, ValueError) as e:
+        return jsonify({'success': False, 'message': str(e) if str(e) else '값을 확인해 주세요.'}), 400
+    logger.info(f"[차량관리] 사고 기록 {'고침' if acc_id else '넣음'} {b.get('plate')} by {_me()}")
+    return jsonify({'success': True, **res})
+
+
+@gw_vehicles_bp.route('/api/vehicles/manage/accidents/<int:acc_id>/delete', methods=['POST'])
+@gw_page
+def api_manage_accident_delete(acc_id):
+    if not _hr_admin():
+        return _deny()
+    try:
+        vm.delete_accident(acc_id)
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+    logger.info(f'[차량관리] 사고 기록 지움 #{acc_id} by {_me()}')
+    return jsonify({'success': True})
 
 
 @gw_vehicles_bp.route('/api/vehicles/manage/info/<plate>', methods=['POST'])

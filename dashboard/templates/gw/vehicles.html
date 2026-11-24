@@ -17,15 +17,27 @@
       <button type="button" class="btn btn-sm btn-primary" id="vhUploadBtn">
         <i class="fas fa-upload me-1" aria-hidden="true"></i>운행일지 올리기</button>
       <input type="file" id="vhFile" accept=".zip,.xlsx" hidden>
+      <a class="btn btn-sm btn-outline-secondary" id="vhLogbook" href="/api/vehicles/logbook.xlsx" download>
+        <i class="fas fa-file-excel me-1" aria-hidden="true"></i>운행기록부 엑셀</a>
       <a class="btn btn-sm btn-outline-secondary" href="https://uconnect.uplus.co.kr/operationManagement/operationLog" target="_blank" rel="noopener">
         <i class="fas fa-up-right-from-square me-1" aria-hidden="true"></i>U+커넥트</a>
     </div>
   </div>
 
-  <p class="gw-vh-how">U+커넥트 [운행 관리 › 운행일지(국세청)]에서 차량을 모두 고르고 [운행일지 일괄 다운로드]로 받은 zip 파일을 그대로 올려 주세요.
-    이미 올린 운행은 다시 들어가지 않아요.</p>
+  <p class="gw-vh-how" id="vhHow">U+ 연동이 승인되면 매일 새벽 운행이 자동으로 들어와요. 그 전에는 U+커넥트 [운행 관리 › 운행일지(국세청)]에서
+    차량을 모두 고르고 [운행일지 일괄 다운로드]로 받은 zip 파일을 올려 주세요. 이미 들어온 운행은 다시 들어가지 않아요.</p>
   <div class="gw-vh-msg" id="vhMsg" role="status" aria-live="polite"></div>
 
+  {# U+ 메뉴 구성(운행일지·안전/경제운전 지수·가동률 리포트)을 탭 셋으로(11-24) #}
+  <div class="gw-ap-tabs" role="tablist" id="vhTabs" aria-label="운행일지 보기">
+    <button type="button" role="tab" data-tab="cars" class="active" aria-selected="true" aria-controls="vhPaneCars">차량별</button>
+    <button type="button" role="tab" data-tab="habits" aria-selected="false" tabindex="-1" aria-controls="vhPaneHabits">운전 습관</button>
+    <button type="button" role="tab" data-tab="util" aria-selected="false" tabindex="-1" aria-controls="vhPaneUtil">가동률</button>
+  </div>
+  <div id="vhPaneHabits" role="tabpanel" aria-label="운전 습관" hidden></div>
+  <div id="vhPaneUtil" role="tabpanel" aria-label="가동률" hidden></div>
+
+  <div id="vhPaneCars" role="tabpanel" aria-label="차량별">
   <div class="gw-stats" id="vhStats"></div>
 
   <div class="gw-panel gw-ap-tablewrap">
@@ -38,6 +50,7 @@
     </table>
   </div>
   <p class="gw-vh-foot">운전자 칸의 꼬리표는 이름을 어디서 가져왔는지예요. 배정은 <a href="/vehicles/assign">차량 배정</a>에 넣은 사람, 고정은 그 차를 평소 타는 사람, 추정은 그날 이 차가 간 지역에 방문 일정이 있던 영업 담당자예요. 회사(김포 걸포동)를 오가는 운행은 맞춰 보지 않아요.</p>
+  </div>
 </div>
 
 <div class="gw-drawer" id="vhCar" hidden>
@@ -53,5 +66,6 @@
 {% endblock %}
 
 {% block additional_js %}
+<script src="{{ gw_asset('js/gw-kmap.js') }}"></script>
 <script src="{{ gw_asset('js/gw-vehicles.js') }}"></script>
 {% endblock %}

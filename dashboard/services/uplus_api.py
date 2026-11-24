@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import os
 import threading
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 from dashboard.utils.logging_config import get_logger
@@ -149,9 +149,14 @@ def _num(x) -> Optional[float]:
     return v
 
 
+def _utc() -> bool:
+    """U+ 시각이 세계 표준시(UTC)로 오면 1 — 9시간 더한다. 규격서 예시는 한국 시각으로 보여 기본 0(승인 뒤 확인)."""
+    return (os.getenv('UPLUS_TIME_UTC', '0').strip().lower() in ('1', 'true', 'yes'))
+
+
 def parse_time(s) -> Optional[datetime]:
     """'2025-05-16 15:17:00.0' · '2025-03-17T20:04:27.000+00:00' → 한국 시각(naive).
-    +00:00 표기지만 규격서 예시는 한국 시각으로 보여 시각대를 바꾸지 않는다(승인 뒤 확인)."""
+    +00:00 표기지만 규격서 예시는 한국 시각으로 보여 시각대를 바꾸지 않는다(UPLUS_TIME_UTC=1 이면 +9시간)."""
     s = str(s or '').strip()
     if not s:
         return None
@@ -162,35 +167,137 @@ def parse_time(s) -> Optional[datetime]:
     s = s.split('.')[0]
     for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M'):
         try:
-            return datetime.strptime(s, fmt)
+            t = datetime.strptime(s, fmt)
+            return t + timedelta(hours=9) if _utc() else t
         except ValueError:
             pass
     return None
 
 
-def car_status() -> List[Dict]:
-    """모든 차 상태 — [{'plate', 'lat', 'lon', 'at'(datetime|None), 'speed', 'key_state', 'odometer'}].
-    위치가 없거나 0 인 차는 lat/lon None."""
+def _pages(name: str, body: Dict, limit: int = 100, max_pages: int = 50) -> List[Dict]:
+    """여러 쪽에 걸친 목록을 모두."""
     out: List[Dict] = []
-    page, limit = 1, 50
-    while page <= 10:
-        ext = call('status', {'page': page, 'limit': limit})
+    for page in range(1, max_pages + 1):
+        ext = call(name, dict(body, page=page, limit=limit))
         data = ext.get('data') or []
-        for d in data:
-            if not isinstance(d, dict):
-                continue
-            lat, lon = _num(d.get('latitude')), _num(d.get('longitude') or d.get('logitude'))
-            ok = lat and lon and abs(lat) > 1 and abs(lon) > 1
-            out.append({
-                'plate': str(d.get('vehicle_number') or '').replace(' ', ''),
-                'lat': lat if ok else None, 'lon': lon if ok else None,
-                'at': parse_time(d.get('created_at')),
-                'speed': _num(d.get('velocity')),
-                'key_state': str(d.get('key_state') or ''),
-                'odometer': _num(d.get('cumulative_driving_distance') or d.get('odometer')),
-            })
+        if isinstance(data, dict):
+            data = [data]
+        out += [d for d in data if isinstance(d, dict)]
         total = int(_num(ext.get('totalRecord')) or 0)
-        if len(data) < limit or page * limit >= total:
+        if len(data) < limit or (total and page * limit >= total):
             break
-        page += 1
+    return out
+
+
+def _plate(d: Dict) -> str:
+    return str(d.get('vehicle_number') or '').replace(' ', '')
+
+
+def _int(x) -> int:
+    v = _num(x)
+    return int(v) if v is not None else 0
+
+
+def trips(plate: str, day: str) -> List[Dict]:
+    """하루 운행 — 경제운전(사용 시작·끝, 주행 전·후 계기판, 거리, 연료) + 안전운전(급가속 등 횟수)을 시작 시각으로 합침.
+    [{'start', 'end'(datetime), 'odo_start', 'odo_end', 'km', 'fuel_ml', 'eco', 'safe', 'avg_speed', 'max_speed',
+      'rapid_acc', 'rapid_dec', 'sudden_stop', 'rapid_turn', 'rapid_u_turn', 'rapid_lane', 'rapid_pass'}]
+    시작·끝이 같고 거리가 0 인 줄(시동만 켬)은 뺀다."""
+    rng = {'vehicle_number': plate, 'start_date': f'{day} 00:00:00', 'end_date': f'{day} 23:59:59'}
+    eco = _pages('eco', rng) if enabled('eco') else []
+    safe = {str(d.get('use_start_dt')): d for d in (_pages('safe', rng) if enabled('safe') else [])}
+    out = []
+    for d in eco:
+        st, en = parse_time(d.get('use_start_dt')), parse_time(d.get('use_end_dt'))
+        if not st or st.date().isoformat() != day:
+            continue
+        o1, o2 = _num(d.get('before_odometer')), _num(d.get('after_odometer'))
+        km = _num(d.get('mileage'))
+        if not km and o1 is not None and o2 is not None:
+            km = round(abs(o2 - o1), 1)
+        km = km or 0.0
+        if (not en or en <= st) and km < 0.1:
+            continue
+        s = safe.get(str(d.get('use_start_dt'))) or {}
+        out.append({
+            'start': st, 'end': en, 'odo_start': o1, 'odo_end': o2, 'km': round(km, 1),
+            'fuel_ml': _num(d.get('fuel_consumption')), 'eco': _num(d.get('echo_driving_index')),
+            'safe': _num(s.get('safe_driving_index')),
+            'avg_speed': _num(d.get('avg_speed') if d.get('avg_speed') is not None else s.get('avg_speed')),
+            'max_speed': max(_num(d.get('max_speed')) or 0, _num(s.get('max_speed')) or 0),
+            'rapid_acc': _int(s.get('rapid_acceleration')), 'rapid_dec': _int(s.get('rapid_deceleration')),
+            'sudden_stop': _int(s.get('sudden_stop')), 'rapid_turn': _int(s.get('rapid_turn')),
+            'rapid_u_turn': _int(s.get('rapid_u_turn')), 'rapid_lane': _int(s.get('rapid_lane_change')),
+            'rapid_pass': _int(s.get('rapid_passing')),
+        })
+    out.sort(key=lambda t: t['start'])
+    return out
+
+
+def route_day(plate: str, day: str) -> List[Tuple[datetime, float, float]]:
+    """하루 경로(5초마다 좌표) — [(시각, 위도, 경도)] 시각 순, 같은 점 겹침 뺌."""
+    ext = call('route_day', {'vehicle_number': plate, 'select_day': day})
+    data = ext.get('data') or {}
+    if isinstance(data, list):
+        data = data[0] if data else {}
+    pts, last = [], None
+    for p in (data.get('location') or []):
+        t = parse_time(p.get('created_at'))
+        lat, lon = _num(p.get('latitude')), _num(p.get('longitude') or p.get('logitude'))
+        if not t or not lat or not lon or abs(lat) < 1:
+            continue
+        key = (t, lat, lon)
+        if key == last:
+            continue
+        last = key
+        pts.append(key)
+    pts.sort(key=lambda x: x[0])
+    return pts
+
+
+def locations() -> List[Dict]:
+    """모든 차 마지막 위치 — [{'plate', 'lat', 'lon'}]. 위치 API 가 없으면 차량 상태로."""
+    if not enabled('location'):
+        return [{'plate': s['plate'], 'lat': s['lat'], 'lon': s['lon'], 'at': s['at'], 'speed': s['speed']}
+                for s in car_status() if s['lat'] is not None]
+    out = []
+    for d in _pages('location', {}):
+        lat, lon = _num(d.get('latitude')), _num(d.get('longitude') or d.get('logitude'))
+        if lat and lon and abs(lat) > 1:
+            out.append({'plate': _plate(d), 'lat': lat, 'lon': lon, 'at': None, 'speed': None})
+    return out
+
+
+def vehicles() -> List[Dict]:
+    """U+ 에 등록된 차 — [{'plate', 'model_id', 'odometer', 'year', 'driver', 'imei'}]."""
+    return [{'plate': _plate(d), 'model_id': d.get('vehicle_model_id'), 'odometer': _num(d.get('cumulative_driving_distance')),
+             'year': f"{d.get('vehicle_year_year') or ''}", 'driver': d.get('driver_name') or '', 'imei': d.get('imei') or ''}
+            for d in _pages('vehicles', {})]
+
+
+def device_status(day: str) -> List[Dict]:
+    """단말 상태(그날) — [{'plate', 'model', 'status', 'fault_at'(datetime|None), 'memo'}]."""
+    rows = _pages('device_status', {'start_date': f'{day} 00:00:00', 'end_date': f'{day} 23:59:59'})
+    return [{'plate': _plate(d), 'model': d.get('model_name') or d.get('model_no') or '', 'status': str(d.get('status') or ''),
+             'fault_at': parse_time(d.get('disability_dt')), 'memo': d.get('error_memo') or ''} for d in rows]
+
+
+def car_status() -> List[Dict]:
+    """모든 차 상태 — [{'plate', 'lat', 'lon', 'at'(datetime|None), 'speed', 'key_state', 'odometer',
+    'fuel', 'voltage', 'tpms'(4칸), 'idle_sec'}]. 위치가 없거나 0 인 차는 lat/lon None."""
+    out: List[Dict] = []
+    for d in _pages('status', {}, limit=50, max_pages=10):
+        lat, lon = _num(d.get('latitude')), _num(d.get('longitude') or d.get('logitude'))
+        ok = lat and lon and abs(lat) > 1 and abs(lon) > 1
+        out.append({
+            'plate': _plate(d),
+            'lat': lat if ok else None, 'lon': lon if ok else None,
+            'at': parse_time(d.get('created_at')),
+            'speed': _num(d.get('velocity')),
+            'key_state': str(d.get('key_state') or ''),
+            'odometer': _num(d.get('cumulative_driving_distance') or d.get('odometer')),
+            'fuel': _num(d.get('fuel_level')), 'voltage': _num(d.get('device_voltage')),
+            'tpms': [_num(d.get(k)) for k in ('tpms_fl', 'tpms_fr', 'tpms_rl', 'tpms_rr')],
+            'idle_sec': _num(d.get('idling_seconds')), 'soc': _num(d.get('soc')),
+        })
     return out

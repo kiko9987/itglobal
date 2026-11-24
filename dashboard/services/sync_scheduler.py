@@ -480,6 +480,19 @@ def start_scheduler():
         )
         jobs.append('차량 운행 종료 감지 월~토 14~22시 10분마다 + 아침 09:10 다시 묻기')
 
+    # 2026-11-24 U+커넥트 기능 옮기기(services/vehicle_api_sync) — 키가 없으면 모두 바로 쉰다.
+    #   새벽 03:40 운행 기록(어제부터 3일), 07:30 단말 상태, 30분마다 차량 상태(06~23시), 08:40 경영지원 차량 알림.
+    if os.getenv('VEHICLE_API_SYNC_ENABLED', '1').strip().lower() not in ('0', 'false', 'no'):
+        _scheduler.add_job(_safe_vehicle_api_trips, 'cron', hour=3, minute=40,
+                           id='vehicle_api_trips', replace_existing=True)
+        _scheduler.add_job(_safe_vehicle_api_devices, 'cron', hour=7, minute=30,
+                           id='vehicle_api_devices', replace_existing=True)
+        _scheduler.add_job(_safe_vehicle_api_state, 'cron', hour='6-23', minute='5,35',
+                           id='vehicle_api_state', replace_existing=True)
+        _scheduler.add_job(_safe_vehicle_alerts, 'cron', hour=8, minute=40,
+                           id='vehicle_alerts', replace_existing=True)
+        jobs.append('U+ 운행 기록 03:40·단말 07:30·차량 상태 30분마다·차량 알림 08:40')
+
     # 2026-07-23 매일 아침 부재중/미완료 리마인드 (온라인 문의 채널) — 출근 직후.
     #   2026-10-07 출퇴근 08~17시 변경으로 09:00 → 08:10.
     _scheduler.add_job(
@@ -1266,6 +1279,32 @@ def _safe_vehicle_trip_poll():
             logger.info(f'[SCHED] 차량 운행 종료 감지: {result}')
     except Exception as exc:
         logger.error(f'[SCHED] 차량 운행 종료 감지 실패: {exc}', exc_info=True)
+
+
+def _safe_vehicle_api_run(name: str, fn_name: str):
+    try:
+        from dashboard.services import vehicle_api_sync as vas
+        result = getattr(vas, fn_name)()
+        if not (isinstance(result, dict) and (result.get('skipped') or result.get('cached'))):
+            logger.info(f'[SCHED] {name}: {result}')
+    except Exception as exc:
+        logger.error(f'[SCHED] {name} 실패: {exc}', exc_info=True)
+
+
+def _safe_vehicle_api_trips():
+    _safe_vehicle_api_run('U+ 운행 기록', 'sync_recent')
+
+
+def _safe_vehicle_api_devices():
+    _safe_vehicle_api_run('U+ 단말 상태', 'check_devices')
+
+
+def _safe_vehicle_api_state():
+    _safe_vehicle_api_run('U+ 차량 상태', 'refresh_state')
+
+
+def _safe_vehicle_alerts():
+    _safe_vehicle_api_run('차량 알림', 'send_alerts')
 
 
 def _safe_vehicle_trip_morning():

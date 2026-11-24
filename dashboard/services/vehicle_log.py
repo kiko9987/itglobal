@@ -585,11 +585,109 @@ def vehicle_days(ym: str, plate: str, leads: Iterable[dict]) -> Dict:
         for v in m:
             d['matched'][v['lead_no']] = v
     assigned, fixed = _assignments(start, end)
+    try:        # U+ API 로 받은 운행의 지표(급가속 등·최고 속도·출퇴근) — 경로 지도 단추도 이것이 있을 때만(11-24)
+        from dashboard.services import vehicle_api_sync as vas
+        mets = vas.metrics(start, end, plate)
+    except Exception:
+        mets = {}
     for d in days.values():          # 운행마다 운전자(배정한 날만 — 오후 교대 반영)
         for t in d['trips']:
             t['driver'] = trip_driver(d['day'], plate, t['start'], assigned)
+            m = mets.get((plate, d['day'], t['start']))
+            if m:
+                t['route'] = True
+                t['max_speed'] = int(m['max_speed'] or 0)
+                t['safe'] = m['safe']
+                t['commute'] = bool(m['commute'])
+                t['events'] = {k: m[k] or 0 for k in ('rapid_acc', 'rapid_dec', 'sudden_stop', 'rapid_turn',
+                                                      'rapid_u_turn', 'rapid_lane', 'rapid_pass')}
     out = []
     for d in sorted(days.values(), key=lambda x: x['day'], reverse=True):
         drivers, src = _drivers_for(d['day'], plate, assigned, fixed, list(d['matched'].values()))
         out.append({'day': d['day'], 'km': round(d['km'], 1), 'trips': d['trips'], 'drivers': drivers, 'source': src})
     return {'month': ym, 'plate': plate, 'model': _models().get(plate, ''), 'label': _labels().get(plate, ''), 'days': out}
+
+
+# ── 국세청 운행기록부 엑셀(11-24 부장님 — U+ '운행일지(국세청)' 내려받기를 그룹웨어에서) ─────────────
+WD_KO = '월화수목금토일'
+
+
+def logbook_rows(plate: str, start: str, end: str) -> List[Dict]:
+    """운행기록부 줄 — 사용일자·부서·성명·주행 전/후 km·주행거리·출퇴근용·일반업무용·비고.
+    성명 = 운전자 답 > 배정(13시 뒤 오후) > 고정 사용자. 모르면 빈칸(만들어 넣지 않는다)."""
+    from dashboard.services import hr
+    assigned, fixed = _assignments(start, end)
+    depts = {r['name']: r.get('department') or '' for r in hr._rows("SELECT name, department FROM hr_people")}
+    with _conn() as conn:
+        rows = conn.execute('SELECT * FROM vehicle_trips WHERE plate = ? AND day BETWEEN ? AND ? ORDER BY day, start_time',
+                            (plate, start, end)).fetchall()
+    out = []
+    for r in rows:
+        name = trip_driver(r['day'], plate, r['start_time'], assigned) or fixed.get(plate, '')
+        d = date.fromisoformat(r['day'])
+        out.append({
+            'day': f"{r['day']}({WD_KO[d.weekday()]})", 'dept': depts.get(name, ''), 'name': name,
+            'odo_start': r['odo_start'], 'odo_end': r['odo_end'], 'km': r['km'] or 0,
+            'commute': r['commute_km'] or 0, 'business': r['business_km'] or 0,
+            'note': ' → '.join(x for x in (r['from_addr'] or '', r['to_addr'] or '') if x)[:120],
+            'time': f"{(r['start_time'] or '')[:5]}~{(r['end_time'] or '')[:5]}",
+        })
+    return out
+
+
+def logbook_xlsx(plates: List[str], start: str, end: str, corp: str = '') -> bytes:
+    """차량마다 한 장 — 국세청 「업무용승용차 운행기록부」 칸 그대로. 마지막 줄에 합계·업무사용비율."""
+    import openpyxl
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    labels, models = _labels(), _models()
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    thin = Side(style='thin', color='999999')
+    box = Border(left=thin, right=thin, top=thin, bottom=thin)
+    head_fill = PatternFill('solid', fgColor='F1F5F9')
+    center = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    for plate in plates:
+        rows = logbook_rows(plate, start, end)
+        ws = wb.create_sheet(re.sub(r'[\/*?:\[\]]', '', (labels.get(plate) or plate))[:28] or plate)
+        ws.append(['업무용승용차 운행기록부'])
+        ws['A1'].font = Font(size=14, bold=True)
+        ws.append(['과세기간', f'{start} ~ {end}', '', '법인명', corp])
+        ws.append(['차종', models.get(plate) or labels.get(plate) or '', '', '자동차등록번호', plate])
+        ws.append([])
+        ws.append(['사용일자(요일)', '사용자', '', '운행 내역', '', '', '', '', '비고', '운행 시각'])
+        ws.append(['', '부서', '성명', '주행 전 계기판의 거리(km)', '주행 후 계기판의 거리(km)', '주행거리(km)',
+                   '업무용 사용거리(km)', '', '', ''])
+        ws.append(['', '', '', '', '', '', '출·퇴근용(km)', '일반 업무용(km)', '', ''])
+        for rng in ('A5:A7', 'B5:C5', 'D5:H5', 'I5:I7', 'J5:J7', 'B6:B7', 'C6:C7', 'D6:D7', 'E6:E7', 'F6:F7', 'G6:H6'):
+            ws.merge_cells(rng)
+        for row in ws.iter_rows(min_row=5, max_row=7, max_col=10):
+            for c in row:
+                c.fill, c.border, c.alignment = head_fill, box, center
+                c.font = Font(bold=True)
+        tot = com = bus = 0.0
+        for r in rows:
+            ws.append([r['day'], r['dept'], r['name'], r['odo_start'], r['odo_end'], r['km'], r['commute'] or None,
+                       r['business'] or None, r['note'], r['time']])
+            tot += r['km']
+            com += r['commute']
+            bus += r['business']
+        last = ws.max_row
+        ws.append(['합계', '', '', '', '', round(tot, 1), round(com, 1), round(bus, 1),
+                   f'업무사용비율 {round((com + bus) / tot * 100, 1) if tot else 0}%', ''])
+        for row in ws.iter_rows(min_row=8, max_row=ws.max_row, max_col=10):
+            for c in row:
+                c.border = box
+                if c.column in (4, 5, 6, 7, 8):
+                    c.number_format = '#,##0.0'
+        for c in ws[ws.max_row]:
+            c.font = Font(bold=True)
+        for col, w in zip('ABCDEFGHIJ', (16, 12, 10, 14, 14, 11, 12, 12, 48, 13)):
+            ws.column_dimensions[col].width = w
+        ws.freeze_panes = 'A8'
+        if not rows:
+            ws.cell(row=last + 1, column=9, value='이 기간 운행 기록이 없어요')
+    if not wb.worksheets:
+        wb.create_sheet('운행기록부')
+    bio = io.BytesIO()
+    wb.save(bio)
+    return bio.getvalue()

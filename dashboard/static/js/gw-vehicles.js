@@ -134,6 +134,7 @@
     api('/api/vehicles' + (state.month ? '?month=' + encodeURIComponent(state.month) : '')).then(function (j) {
       if (my !== state.seq) return;
       state.month = j.month;
+      logbookLink();
       if (quiet && !(j.resolving || j.pending_dongs)) msg('');
       render(j);
     }).catch(function (e) {
@@ -175,13 +176,42 @@
       return '<div class="gw-vh-visit"><b>' + names(x.who) + '</b> <span class="text-muted">' + esc(x.lead_no) + '</span><br>' +
         '<span class="gw-vh-addr">' + esc(x.addr) + '</span></div>';
     }).join('');
+    var ev = t.events ? EVENT_NAMES.filter(function (e) { return t.events[e[0]]; })
+      .map(function (e) { return e[1] + ' ' + t.events[e[0]]; }) : [];
+    if (t.max_speed) ev.push('최고 ' + t.max_speed + 'km/h');
+    var extra = (ev.length ? '<br><span class="gw-vh-ev">' + esc(ev.join(' · ')) + '</span>' : '') +
+      (t.route ? '<br><button type="button" class="btn btn-sm btn-link p-0 gw-vh-routebtn" data-route="' + esc(t.start) + '" data-end="' + esc(t.end) +
+        '" aria-label="' + esc(t.start + ' 출발 운행 경로 보기') + '"><i class="fas fa-route me-1" aria-hidden="true"></i>경로</button>' : '');
     return '<tr' + (t.home ? ' class="gw-vh-home"' : '') + '><td class="gw-vh-time">' + esc(t.start) + '<br><span class="text-muted">' + esc(t.end) + '</span>' +
       (t.driver ? '<br><span class="gw-vh-src assigned">' + esc(t.driver) + '</span>' : '') + '</td>' +
       '<td>' + esc(shortAddr(t.to)) + (t.home ? ' <span class="gw-badge gw-badge-resigned">회사</span>' : '') +
-        '<br><span class="text-muted small">' + esc(shortAddr(t.from)) + '에서</span></td>' +
+        (t.commute ? ' <span class="gw-badge gw-badge-field">출퇴근</span>' : '') +
+        '<br><span class="text-muted small">' + esc(shortAddr(t.from)) + '에서</span>' + extra + '</td>' +
       '<td class="num">' + esc(km(t.km)) + '</td><td>' + (v || '') + '</td></tr>';
   }
+  // U+ '운행 이력/경로' 아래 횟수 칸과 같은 이름(11-24)
+  var EVENT_NAMES = [['rapid_acc', '급가속'], ['rapid_dec', '급감속'], ['sudden_stop', '급정지'], ['rapid_turn', '급회전'],
+    ['rapid_u_turn', '급U턴'], ['rapid_lane', '급차선변경'], ['rapid_pass', '급추월']];
+  var carPlate = '';
+  function showRoute(btn) {
+    var sec = btn.closest('.gw-vh-day');
+    var day = sec && sec.getAttribute('data-day');
+    if (!day) return;
+    var boxEl = $('vhRoute');
+    boxEl.hidden = false;
+    $('vhRouteHead').textContent = dayLabel(day) + ' ' + btn.getAttribute('data-route') + '~' + btn.getAttribute('data-end') + ' 경로';
+    $('vhRouteMap').innerHTML = '<p class="gw-vn-mapmsg">경로를 불러오는 중…</p>';
+    boxEl.scrollIntoView({ block: 'nearest' });
+    api('/api/vehicles/route?plate=' + encodeURIComponent(carPlate) + '&day=' + encodeURIComponent(day) +
+        '&start=' + encodeURIComponent(btn.getAttribute('data-route')) + '&end=' + encodeURIComponent(btn.getAttribute('data-end'))).then(function (j) {
+      if (!j.points || j.points.length < 2) { $('vhRouteMap').innerHTML = '<p class="gw-vn-mapmsg">이 운행의 경로 점이 없어요.</p>'; return; }
+      if (!j.kakao_js) { $('vhRouteMap').innerHTML = '<p class="gw-vn-mapmsg">지도 키를 넣으면 경로가 지도에 그려져요.</p>'; return; }
+      return window.GWKMap.route($('vhRouteMap'), j.kakao_js, j.points)
+        .catch(function () { $('vhRouteMap').innerHTML = '<p class="gw-vn-mapmsg">지도를 불러오지 못했어요.</p>'; });
+    }).catch(function (e) { $('vhRouteMap').innerHTML = '<p class="gw-vn-mapmsg">' + esc(e.message) + '</p>'; });
+  }
   function openCar(plate) {
+    carPlate = plate;
     box.hidden = false;
     document.body.classList.add('gw-drawer-open');
     $('vhCarTitle').textContent = plate;
@@ -190,9 +220,12 @@
     api('/api/vehicles/car?month=' + encodeURIComponent(state.month) + '&plate=' + encodeURIComponent(plate)).then(function (j) {
       $('vhCarTitle').textContent = (j.label ? j.label + ' · ' + j.plate : j.plate) + (j.model ? ' · ' + j.model : '');
       var days = j.days || [];
-      $('vhCarBody').innerHTML = '<p class="gw-vh-sub">' + esc(monthLabel(j.month)) + ' · 최근 날짜부터. 동일 지역 방문은 그날 이 차가 도착한 지역의 방문 일정이에요.</p>' +
+      $('vhCarBody').innerHTML = '<p class="gw-vh-sub">' + esc(monthLabel(j.month)) + ' · 최근 날짜부터. 동일 지역 방문은 그날 이 차가 도착한 지역의 방문 일정이에요.' +
+          ' <a href="/api/vehicles/logbook.xlsx?month=' + encodeURIComponent(j.month) + '&plate=' + encodeURIComponent(j.plate) + '" download>이 차 운행기록부 엑셀</a></p>' +
+        '<section class="gw-vh-route" id="vhRoute" hidden><div class="gw-vh-routehead"><b id="vhRouteHead">경로</b>' +
+          '<button type="button" class="btn-close" id="vhRouteClose" aria-label="경로 닫기"></button></div><div class="gw-vh-routemap" id="vhRouteMap"></div></section>' +
         (days.length ? days.map(function (d) {
-          return '<section class="gw-vh-day"><div class="gw-vh-dayhead"><b>' + esc(dayLabel(d.day)) + '</b>' +
+          return '<section class="gw-vh-day" data-day="' + esc(d.day) + '"><div class="gw-vh-dayhead"><b>' + esc(dayLabel(d.day)) + '</b>' +
             '<span>' + esc(km(d.km)) + '</span><span class="gw-vh-who">' + who(d.drivers, d.source) + '</span></div>' +
             '<table class="gw-table gw-vh-trips"><thead><tr><th>시각</th><th>도착지</th><th class="num">거리</th><th>동일 지역 방문</th></tr></thead><tbody>' +
             d.trips.map(tripRow).join('') + '</tbody></table></section>';
@@ -207,7 +240,12 @@
     var tr = ev.target.closest('tr[data-plate]');
     if (tr && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); opener = tr; openCar(tr.getAttribute('data-plate')); }
   });
-  box.addEventListener('click', function (ev) { if (ev.target.closest('[data-close]')) closeCar(); });
+  box.addEventListener('click', function (ev) {
+    if (ev.target.closest('[data-close]')) { closeCar(); return; }
+    if (ev.target.closest('#vhRouteClose')) { $('vhRoute').hidden = true; $('vhRouteMap').innerHTML = ''; return; }
+    var rb = ev.target.closest('[data-route]');
+    if (rb) showRoute(rb);
+  });
   document.addEventListener('keydown', function (ev) {
     if (ev.key === 'Escape' && !box.hidden) closeCar();
     trapTab(ev);
@@ -242,6 +280,135 @@
       });
   });
 
-  $('vhMonth').addEventListener('change', function () { state.month = this.value; msg(''); load(); });
+  // ── 탭(11-24) — 차량별 / 운전 습관(U+ 안전/경제운전 지수) / 가동률(U+ 가동률 리포트) ──
+  var tab = 'cars', insight = { month: '', data: null };
+  var PANES = { cars: 'vhPaneCars', habits: 'vhPaneHabits', util: 'vhPaneUtil' };
+  function setTab(t) {
+    tab = t;
+    Array.prototype.forEach.call(document.querySelectorAll('#vhTabs button[data-tab]'), function (b) {
+      var on = b.getAttribute('data-tab') === t;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+      b.tabIndex = on ? 0 : -1;
+    });
+    Object.keys(PANES).forEach(function (k) { if ($(PANES[k])) $(PANES[k]).hidden = k !== t; });
+    if (t !== 'cars') loadInsights();
+  }
+  function logbookLink() {
+    var a = $('vhLogbook');
+    if (a) a.href = '/api/vehicles/logbook.xlsx' + (state.month ? '?month=' + encodeURIComponent(state.month) : '');
+  }
+  function score(v) {
+    if (v == null) return '<span class="text-muted">-</span>';
+    var band = v >= 80 ? 'good' : v >= 60 ? 'ok' : v >= 26 ? 'warn' : 'bad';
+    return '<span class="gw-vh-score ' + band + '">' + esc(Math.round(v)) + '점</span>';
+  }
+  function bands(rows) {           // U+ 와 같은 구간 80-100 / 60-79 / 26-59 / 0-25
+    var b = [[80, 100, 0], [60, 79, 0], [26, 59, 0], [0, 25, 0]];
+    rows.forEach(function (r) { if (r.safe == null) return; b.forEach(function (x) { if (r.safe >= x[0] && r.safe <= x[1] + 0.99) x[2]++; }); });
+    return b;
+  }
+  var habitBy = 'people';
+  function renderHabits(h, month) {
+    var rows = h[habitBy] || [];
+    var avg = function (k) {
+      var w = 0, t = 0;
+      (habitBy === 'people' ? h.people : h.cars).forEach(function (r) { if (r[k] != null) { t += r[k] * r.km; w += r.km; } });
+      return w ? Math.round(t / w) : null;
+    };
+    var bd = bands(rows);
+    var head = '<div class="gw-stats"><div class="gw-stat"><div class="k">' + (habitBy === 'people' ? '운전한 사람' : '운행한 차') +
+      '</div><div class="v">' + rows.length + '<small> ' + (habitBy === 'people' ? '명' : '대') + '</small></div></div>' +
+      '<div class="gw-stat"><div class="k">평균 안전운전 점수</div><div class="v">' + (avg('safe') != null ? avg('safe') + '<small> 점</small>' : '-') + '</div>' +
+        '<div class="gw-vm-kinds">' + bd.map(function (x) { return x[0] + '~' + x[1] + '점 ' + x[2]; }).join(' · ') + '</div></div>' +
+      '<div class="gw-stat"><div class="k">평균 경제운전 점수</div><div class="v">' + (avg('eco') != null ? avg('eco') + '<small> 점</small>' : '-') + '</div></div></div>';
+    var seg = '<div class="gw-seg gw-vh-seg" role="group" aria-label="묶는 기준">' +
+      '<button type="button" class="gw-seg-btn" data-hby="people" aria-pressed="' + (habitBy === 'people') + '">사람별</button>' +
+      '<button type="button" class="gw-seg-btn" data-hby="cars" aria-pressed="' + (habitBy === 'cars') + '">차량별</button></div>';
+    var table = rows.length ? '<div class="gw-panel gw-ap-tablewrap"><table class="gw-table gw-vh-habit"><thead><tr>' +
+      '<th>' + (habitBy === 'people' ? '운전자' : '차량') + '</th><th class="num">운행</th><th class="num">거리</th><th class="num">안전</th><th class="num">경제</th>' +
+      '<th class="num gw-vh-opt">급가속</th><th class="num gw-vh-opt">급감속</th><th class="num gw-vh-opt">급정지</th>' +
+      '<th class="num">위험 행동<br><span class="small">100km당</span></th><th class="num">최고 속도</th><th class="num">과속</th></tr></thead><tbody>' +
+      rows.map(function (r) {
+        return '<tr><td><strong>' + esc(r.name) + '</strong></td><td class="num">' + r.trips + '번</td><td class="num">' + esc(km(r.km)) + '</td>' +
+          '<td class="num">' + score(r.safe) + '</td><td class="num">' + score(r.eco) + '</td>' +
+          '<td class="num gw-vh-opt">' + r.acc + '</td><td class="num gw-vh-opt">' + r.dec + '</td><td class="num gw-vh-opt">' + r.stop + '</td>' +
+          '<td class="num">' + (r.rapid_per100 != null ? r.rapid_per100 : '-') + '</td><td class="num">' + (r.max_speed ? r.max_speed + 'km/h' : '-') + '</td>' +
+          '<td class="num">' + (r.speeding ? '<span class="gw-badge gw-badge-reject">' + r.speeding + '번</span>' : '0') + '</td></tr>';
+      }).join('') + '</tbody></table></div>' : '';
+    $('vhPaneHabits').innerHTML = rows.length
+      ? head + seg + table + '<p class="gw-vh-foot">점수는 U+ 가 운행마다 매긴 안전·경제운전 지수를 거리로 평균 낸 거예요(위험 행동·비경제 행동 횟수 기준). ' +
+        '운전자는 운전자 답 › 배정 순서로 정해요. 과속은 최고 속도 ' + esc(h.speed_limit) + 'km/h 이상인 운행이에요.</p>'
+      : '<div class="gw-panel gw-empty-box"><p class="gw-empty">' + esc(monthLabel(month)) + ' 운전 습관 기록이 아직 없어요. U+ 연동이 승인되면 매일 새벽 운행과 함께 자동으로 쌓여요.</p></div>';
+  }
+  function hm(min) {
+    var h = Math.floor(min / 60), m = Math.round(min % 60);
+    return (h ? h + '시간 ' : '') + m + '분';
+  }
+  function renderUtil(u, month) {
+    var cars = u.cars || [];
+    if (!u.has_data) {
+      $('vhPaneUtil').innerHTML = '<div class="gw-panel gw-empty-box"><p class="gw-empty">' + esc(monthLabel(month)) + ' 가동률 기록이 아직 없어요. U+ 연동이 승인되면 운행 시간으로 계산돼요.</p></div>';
+      return;
+    }
+    var tot = cars.reduce(function (a, c) { return a + c.hours * 60; }, 0);
+    var dayAvg = cars.length && u.workdays ? tot / cars.length / u.workdays : 0;
+    var rate = u.workdays ? Math.round(dayAvg / 540 * 1000) / 10 : 0;
+    $('vhPaneUtil').innerHTML = '<div class="gw-stats">' +
+      '<div class="gw-stat"><div class="k">근무일</div><div class="v">' + u.workdays + '<small> 일</small></div></div>' +
+      '<div class="gw-stat"><div class="k">차 한 대 하루 평균 운행</div><div class="v gw-vh-up">' + esc(hm(dayAvg)) + '</div></div>' +
+      '<div class="gw-stat"><div class="k">전체 가동률</div><div class="v">' + rate + '<small> %</small></div></div></div>' +
+      '<div class="gw-panel gw-ap-tablewrap"><table class="gw-table gw-vh-util"><thead><tr><th>차량</th><th class="num">운행한 날</th>' +
+      '<th class="num">하루 평균 운행</th><th class="num gw-vh-opt">하루 평균 횟수</th><th>가동률</th></tr></thead><tbody>' +
+      cars.map(function (c) {
+        var avgMin = u.workdays ? c.hours * 60 / u.workdays : 0;
+        var r = c.rate || 0;
+        return '<tr><td><strong>' + esc(c.label) + '</strong><span class="gw-vh-plate">' + esc(c.plate) + '</span></td>' +
+          '<td class="num">' + c.days + '일</td><td class="num">' + esc(hm(avgMin)) + '</td>' +
+          '<td class="num gw-vh-opt">' + (u.workdays ? Math.round(c.trips / u.workdays * 10) / 10 : 0) + '번</td>' +
+          '<td><div class="gw-vh-bar" role="img" aria-label="가동률 ' + r + '%"><span style="width:' + Math.min(100, r) + '%"></span></div>' +
+          '<span class="gw-vh-barnum">' + r + '%</span></td></tr>';
+      }).join('') + '</tbody></table></div>' +
+      '<p class="gw-vh-foot">가동률 = 운행 시간 ÷ 업무 시간(하루 9시간, 08~17시 — U+ 가동률 리포트와 같은 기준). 근무일은 월~토 중 공휴일을 뺀 날이에요. ' +
+      '차를 줄이거나 늘릴 때 근거로 보세요.</p>';
+  }
+  function loadInsights() {
+    if (insight.month === state.month && insight.data) { draw(); return; }
+    var pane = $(PANES[tab]);
+    pane.innerHTML = '<div class="gw-panel gw-empty-box"><p class="gw-empty">불러오는 중…</p></div>';
+    api('/api/vehicles/insights' + (state.month ? '?month=' + encodeURIComponent(state.month) : '')).then(function (j) {
+      insight = { month: j.month, data: j };
+      draw();
+    }).catch(function (e) { pane.innerHTML = '<div class="gw-panel gw-empty-box"><p class="gw-empty">' + esc(e.message) + '</p></div>'; });
+    function draw() {
+      if (tab === 'habits') renderHabits(insight.data.habits, insight.data.month);
+      if (tab === 'util') renderUtil(insight.data.util, insight.data.month);
+    }
+  }
+  if ($('vhTabs')) {
+    $('vhTabs').addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-tab]');
+      if (b) setTab(b.getAttribute('data-tab'));
+    });
+    $('vhTabs').addEventListener('keydown', function (e) {
+      if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(e.key) === -1) return;
+      var tabs = Array.prototype.slice.call($('vhTabs').querySelectorAll('button[data-tab]'));
+      var i = tabs.indexOf(document.activeElement);
+      if (i < 0) return;
+      e.preventDefault();
+      var n = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+      tabs[n].focus();
+      tabs[n].click();
+    });
+    $('vhPaneHabits').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-hby]');
+      if (b && insight.data) { habitBy = b.getAttribute('data-hby'); renderHabits(insight.data.habits, insight.data.month); }
+    });
+  }
+
+  $('vhMonth').addEventListener('change', function () {
+    state.month = this.value; msg(''); logbookLink(); load();
+    if (tab !== 'cars') loadInsights();
+  });
   load();
 })();

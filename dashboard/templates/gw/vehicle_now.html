@@ -1,0 +1,49 @@
+{% extends "modern_base.html" %}
+
+{% block title %}실시간 위치 - 아이티글로벌그룹{% endblock %}
+
+{% block additional_css %}
+<link rel="stylesheet" href="{{ gw_asset('css/gw-pages.css') }}">
+{% endblock %}
+
+{% block content %}
+{# 실시간 위치(11-24) — U+커넥트 '실시간 차량 위치'를 그룹웨어로. 전 직원(온라인 당번이 급한 방문에 가까운 차를 찾음).
+   왼쪽 차량 목록(전체·운행 중·정지) + 오른쪽 카카오 지도, 위 주소 칸으로 가까운 차. 규칙은 services/vehicle_api_sync.py #}
+<div class="gw-page gw-vn" id="vnPage" data-kakao="{{ kakao_js or '' }}">
+  <div class="gw-page-head">
+    <h1 class="gw-page-title">실시간 위치</h1>
+    <div class="gw-page-actions">
+      <span class="gw-vn-when" id="vnWhen" aria-live="polite"></span>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="vnReload">
+        <i class="fas fa-rotate-right me-1" aria-hidden="true"></i>새로 고침</button>
+    </div>
+  </div>
+
+  <form class="gw-vn-near" id="vnNear" role="search" aria-label="가까운 차 찾기">
+    <label class="visually-hidden" for="vnAddr">방문 주소</label>
+    <input class="form-control" id="vnAddr" name="addr" type="search" maxlength="120" autocomplete="off" enterkeyhint="search"
+           placeholder="방문 주소를 적으면 가까운 차부터 보여 줘요 (예: 강서구 공항대로 247)">
+    <button type="submit" class="btn btn-primary">가까운 차 찾기</button>
+    <button type="button" class="btn btn-link" id="vnNearClear" hidden>지우기</button>
+  </form>
+  <div class="gw-vh-msg" id="vnMsg" role="status" aria-live="polite"></div>
+
+  <div class="gw-vn-body">
+    <section class="gw-panel gw-vn-list" aria-label="차량 목록">
+      <div class="gw-ap-tabs gw-vn-filter" role="tablist" id="vnFilter" aria-label="운행 상태">
+        <button type="button" role="tab" data-f="all" class="active" aria-selected="true">전체 <b id="vnCntAll">-</b></button>
+        <button type="button" role="tab" data-f="moving" aria-selected="false" tabindex="-1">운행 중 <b id="vnCntMoving">-</b></button>
+        <button type="button" role="tab" data-f="stop" aria-selected="false" tabindex="-1">정지 <b id="vnCntStop">-</b></button>
+      </div>
+      <ul class="gw-vn-cars" id="vnCars"><li class="gw-empty">불러오는 중…</li></ul>
+    </section>
+    <div class="gw-panel gw-vn-map" id="vnMap" aria-label="차량 지도"></div>
+  </div>
+  <p class="gw-vh-foot">위치는 U+ 단말이 보낸 마지막 위치예요. 30초마다 새로 받아요. 차를 누르면 지도가 그 차로 움직여요. 거리는 직선 거리예요.</p>
+</div>
+{% endblock %}
+
+{% block additional_js %}
+<script src="{{ gw_asset('js/gw-kmap.js') }}"></script>
+<script src="{{ gw_asset('js/gw-vehicle-now.js') }}"></script>
+{% endblock %}

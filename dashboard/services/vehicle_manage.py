@@ -78,8 +78,26 @@ _DDL = [
         created_at TEXT,
         UNIQUE (plate, day)
     )''',
+    # 사고 기록(11-24 — U+ '사고이력' 칸 그대로: 차량·보험사·일자·시간·유형·운전자·비고 + 장소·처리 상태)
+    '''CREATE TABLE IF NOT EXISTS vehicle_accidents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        plate TEXT NOT NULL,
+        day TEXT NOT NULL,
+        tm TEXT,
+        kind TEXT,
+        driver TEXT,
+        insurer TEXT,
+        place TEXT,
+        memo TEXT,
+        status TEXT NOT NULL DEFAULT '처리 중',
+        created_by TEXT,
+        created_at TEXT,
+        updated_at TEXT
+    )''',
 ]
 _table_ready = False
+ACCIDENT_KINDS = ('차대차', '차대사람', '차량 단독', '주차 중 피해', '기타')
+ACCIDENT_STATUS = ('처리 중', '보험 접수', '처리 끝')
 
 
 def _db():
@@ -325,6 +343,52 @@ def add_cost(plate: str, day: str, kind: str, item: str, amount, vendor: str, by
         return {'id': cur.lastrowid}
 
 
+def accidents(plate: str = '', limit: int = 100) -> List[Dict]:
+    q = 'SELECT * FROM vehicle_accidents' + (' WHERE plate = ?' if plate else '') + ' ORDER BY day DESC, id DESC LIMIT ?'
+    with _conn() as conn:
+        return [dict(r) for r in conn.execute(q, (plate, limit) if plate else (limit,)).fetchall()]
+
+
+def save_accident(values: Dict, by: str, acc_id: Optional[int] = None) -> Dict:
+    """사고 기록 넣기·고치기. 운전자는 이름 그대로(배정 명단 밖 사람도 있을 수 있음)."""
+    plate = (values.get('plate') or '').strip()
+    if plate not in {c['plate'] for c in _fleet()}:
+        raise ValueError('차량을 골라 주세요.')
+    day = (values.get('day') or '').strip()
+    try:
+        if date.fromisoformat(day) > date.today():
+            raise ValueError('사고 일자가 오늘 뒤예요.')
+    except ValueError as e:
+        raise ValueError(str(e) if '오늘' in str(e) else '사고 일자를 골라 주세요.')
+    tm = (values.get('tm') or '').strip()
+    if tm and not re.match(r'^\d{2}:\d{2}$', tm):
+        raise ValueError('사고 시간이 올바르지 않아요.')
+    kind = values.get('kind') or ''
+    if kind not in ACCIDENT_KINDS:
+        raise ValueError('사고 유형을 골라 주세요.')
+    status = values.get('status') or '처리 중'
+    if status not in ACCIDENT_STATUS:
+        status = '처리 중'
+    row = (plate, day, tm, kind, (values.get('driver') or '').strip()[:20], (values.get('insurer') or '').strip()[:30],
+           (values.get('place') or '').strip()[:80], (values.get('memo') or '').strip()[:500], status)
+    with _conn() as conn:
+        if acc_id:
+            cur = conn.execute('UPDATE vehicle_accidents SET plate=?, day=?, tm=?, kind=?, driver=?, insurer=?, place=?, memo=?, '
+                               'status=?, updated_at=? WHERE id=?', row + (_now(), acc_id))
+            if not cur.rowcount:
+                raise ValueError('없는 기록이에요.')
+            return {'id': acc_id}
+        cur = conn.execute('INSERT INTO vehicle_accidents (plate, day, tm, kind, driver, insurer, place, memo, status, '
+                           'created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', row + (by, _now(), _now()))
+        return {'id': cur.lastrowid}
+
+
+def delete_accident(acc_id: int) -> None:
+    with _conn() as conn:
+        if not conn.execute('DELETE FROM vehicle_accidents WHERE id = ?', (acc_id,)).rowcount:
+            raise ValueError('없는 기록이에요.')
+
+
 def delete_cost(cost_id: int) -> None:
     """직접 넣은 줄만 지운다(결재에서 온 줄은 결재가 근거라 지우지 않음)."""
     with _conn() as conn:
@@ -466,6 +530,39 @@ def overview(today: Optional[date] = None) -> Dict:
             'km': lk.get('km'), 'km_day': lk.get('day') or '', 'warn': warn,
         })
     cars.sort(key=lambda x: (not x['warn'], x['usage'] == 'off', x['label']))
-    return {'today': today.isoformat(), 'year': year, 'month': month, 'cars': cars, 'alerts': alerts,
+    # 차량 상태(U+ 차량 상태 API, 11-24) — U+ '차량상태 조회'처럼 전압·연료·누적 km·단말, 점검 필요는 위로
+    states, devices = {}, {}
+    try:
+        from dashboard.services import vehicle_api_sync as vas
+        states = vas.states()
+        with vas._conn() as conn:
+            devices = {r['plate']: dict(r) for r in conn.execute('SELECT * FROM vehicle_device').fetchall()}
+    except Exception as e:
+        logger.warning(f'[차량관리] 차량 상태 읽기 실패: {e}')
+    now = datetime.now()
+    checks = 0
+    for c in cars:
+        s = states.get(c['plate']) or {}
+        dv = devices.get(c['plate']) or {}
+        issues = []
+        v = s.get('voltage')
+        if v and 0 < v < 11.8 and '전기' not in (c.get('fuel') or ''):
+            issues.append('배터리 낮음')
+        if s.get('at') and (now - datetime.strptime(s['at'], '%Y-%m-%d %H:%M:%S')).days >= 3:
+            issues.append('단말 신호 끊김')
+        if dv.get('fault_at') and dv['fault_at'][:10] >= (today.replace(day=1)).isoformat():
+            issues.append('단말 장애')
+        c['state'] = {'voltage': v, 'fuel': s.get('fuel'), 'odometer': s.get('odometer'),
+                      'at': (s.get('at') or '')[5:16].replace('-', '/'), 'issues': issues} if (s or dv) else None
+        if c['state'] and c['state']['odometer'] and not c.get('km'):
+            c['km'], c['km_day'] = round(c['state']['odometer'], 1), (s.get('at') or '')[:10]
+        checks += bool(issues)
+        c['warn'] = c['warn'] or bool(issues)
+    cars.sort(key=lambda x: (not x['warn'], x['usage'] == 'off', x['label']))
+    with _conn() as conn:
+        open_acc = conn.execute("SELECT COUNT(*) FROM vehicle_accidents WHERE status != '처리 끝'").fetchone()[0]
+    return {'today': today.isoformat(), 'year': year, 'month': month, 'cars': cars, 'alerts': alerts + checks,
+            'checks': checks, 'open_accidents': open_acc, 'has_state': bool(states),
+            'accident_kinds': list(ACCIDENT_KINDS), 'accident_status': list(ACCIDENT_STATUS),
             'month_total': month_total, 'year_total': year_total,
             'kinds_year': [{'kind': k, 'amount': v} for k, v in sorted(kinds_year.items(), key=lambda kv: -kv[1])]}

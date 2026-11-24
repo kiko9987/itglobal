@@ -153,5 +153,5 @@ def test_routes_hr_admin_only(db, monkeypatch):
 
 def test_menu_three_items():
     area = next(a for a in gw.AREAS if a['key'] == 'vehicle')
-    assert [i['label'] for i in area['items']] == ['운행일지', '차량 관리']   # 차량 배정은 방문 일정 탭으로만(11-24)
-    assert area['items'][1]['hr_admin']
+    assert [i['label'] for i in area['items']] == ['실시간 위치', '운행일지', '차량 관리']   # 배정은 방문 일정 탭으로만, 위치는 전 직원(11-24)
+    assert area['items'][0]['field'] and area['items'][2]['hr_admin']

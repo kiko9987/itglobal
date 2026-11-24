@@ -3740,3 +3740,72 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-vh-missing li { padding: 4px 0; border-top: 1px solid #f1f5f9; }
 .gw-vh-missing .d { font-variant-numeric: tabular-nums; color: #475569; }
 .gw-vh-missing .p, .gw-vh-missing .a { color: #94a3b8; font-size: 0.8rem; }
+
+/* ── U+커넥트 기능 옮기기(11-24): 실시간 위치·운행일지 탭·경로·운전 습관·가동률 ── */
+/* 운행일지 탭 · 사람별/차량별 */
+#vhTabs { margin: 0 0 12px; }
+.gw-vh-seg { margin: 0 0 10px; }
+.gw-seg-btn[aria-pressed="true"] { background: #fff; color: #0f172a; font-weight: 600; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08); }
+.gw-vh-habit td, .gw-vh-util td { vertical-align: middle; }
+.gw-vh-habit .num, .gw-vh-util .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.gw-vh-score { font-variant-numeric: tabular-nums; font-weight: 600; }
+.gw-vh-score.good { color: #166534; }
+.gw-vh-score.ok { color: #1e40af; }
+.gw-vh-score.warn { color: #b45309; }
+.gw-vh-score.bad { color: #b91c1c; }
+.gw-vh-bar { display: inline-block; width: 120px; height: 8px; border-radius: 4px; background: #eef0f3; vertical-align: middle; overflow: hidden; }
+.gw-vh-bar > span { display: block; height: 100%; border-radius: 4px; background: #2a3038; }
+.gw-vh-barnum { margin-left: 8px; font-variant-numeric: tabular-nums; font-size: 0.86rem; }
+.gw-vh-ev { color: #b45309; font-size: 0.76rem; }
+.gw-vh-routebtn { font-size: 0.8rem; text-decoration: none; }
+/* 펼침창 안 경로 지도 */
+.gw-vh-route { margin: 0 0 14px; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
+.gw-vh-routehead { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #f8fafc; font-size: 0.88rem; }
+.gw-vh-routemap { height: 280px; background: #f1f5f9; }
+.gw-kmap-pin { padding: 2px 8px; border-radius: 9999px; background: #2a3038; color: #fff; font-size: 12px; font-weight: 600; white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.25); }
+.gw-kmap-pin.end { background: #b91c1c; }
+
+/* 실시간 위치 — U+ 처럼 왼쪽 목록 + 오른쪽 지도 */
+.gw-vn-when { color: #64748b; font-size: 0.84rem; font-variant-numeric: tabular-nums; align-self: center; }
+.gw-vn-near { display: flex; gap: 8px; margin: 0 0 10px; }
+.gw-vn-near .form-control { flex: 1 1 auto; }
+.gw-vn-near .btn { white-space: nowrap; }
+.gw-vn-body { display: grid; grid-template-columns: 340px 1fr; gap: 12px; align-items: stretch; }
+.gw-vn-list { padding: 12px; display: flex; flex-direction: column; min-height: 0; max-height: calc(100vh - 250px); }
+.gw-vn-filter { align-self: flex-start; }
+.gw-vn-cars { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1 1 auto; }
+.gw-vn-cars > li + li { border-top: 1px solid #f1f5f9; }
+.gw-vn-car { display: flex; flex-direction: column; gap: 2px; width: 100%; padding: 10px 6px; border: 0; background: transparent; text-align: left;
+  border-radius: 8px; color: #1a1c20; }
+.gw-vn-car:hover:not(:disabled) { background: #f8fafc; }
+.gw-vn-car:focus-visible { outline: 2px solid #2a3038; outline-offset: -2px; }
+.gw-vn-car:disabled { opacity: 0.6; cursor: default; }
+.gw-vn-top { display: flex; align-items: baseline; gap: 6px; }
+.gw-vn-plate { color: #64748b; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.gw-vn-km { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; font-size: 0.86rem; }
+.gw-vn-mid { font-size: 0.84rem; color: #334155; }
+.gw-vn-addr { font-size: 0.8rem; color: #64748b; }
+.gw-vn-state { display: inline-block; border-radius: 4px; padding: 0 6px; font-size: 0.74rem; line-height: 1.6; }
+.gw-vn-state.moving { background: #dcfce7; color: #166534; }
+.gw-vn-state.stop { background: #f1f5f9; color: #475569; }
+.gw-vn-state.none { background: #fef3c7; color: #92400e; }
+.gw-vn-map { padding: 0; min-height: 520px; height: calc(100vh - 250px); overflow: hidden; background: #f1f5f9; position: relative; }
+.gw-vn-mapmsg { margin: 0; padding: 40px 20px; color: #64748b; text-align: center; font-size: 0.9rem; }
+.gw-vn-pin { padding: 3px 9px; border: 0; border-radius: 9999px; background: #fff; color: #1a1c20; font-size: 12px; font-weight: 600; white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.28); cursor: pointer; }
+.gw-vn-pin.moving { background: #166534; color: #fff; }
+.gw-vn-pin.crew { border: 1px solid #94a3b8; }
+@media (max-width: 767.98px) {
+  .gw-vn .gw-page-head { flex-wrap: wrap; gap: 8px; }
+  .gw-vn-near { flex-wrap: wrap; }
+  .gw-vn-near .form-control { font-size: 16px; min-height: 44px; flex-basis: 100%; }
+  .gw-vn-near .btn, .gw-vn .gw-page-actions .btn { min-height: 44px; }
+  .gw-vn-body { grid-template-columns: 1fr; }
+  .gw-vn-map { order: -1; min-height: 0; height: 46vh; }
+  .gw-vn-list { max-height: none; }
+  .gw-vn-car { min-height: 44px; }
+  .gw-vh-routemap { height: 240px; }
+  .gw-vh-habit .gw-vh-opt, .gw-vh-util .gw-vh-opt { display: none; }
+  .gw-vh-bar { width: 64px; }
+}
