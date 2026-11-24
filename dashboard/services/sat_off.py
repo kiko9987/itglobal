@@ -119,29 +119,46 @@ def manager_ids() -> tuple:
     return tuple(dict.fromkeys(coordinator_ids() + approver_ids() + lv.manager_ids()))
 
 
-def members() -> List[dict]:
-    """대상자 — 인사카드 부서가 기술영업인 재직자 [{name, slack_id}] (이름순)."""
+def _tech_sales(on: Optional[date] = None) -> Tuple[List[dict], List[dict]]:
+    """(대상자, 인센) — 인사카드 부서가 기술영업인 재직자를 인센 시작일(on 기준, 기본 오늘)로 가른다(이름순).
+    인센은 격주휴무가 없어 스케줄 근무 대상에서 빠진다(11-25 부장님). 인센 칸이 아직 없는 DB(재시작 전)면 모두 대상."""
+    on_iso = (on or date.today()).isoformat()
     with lv._conn() as conn:
         if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='hr_people'").fetchone():
-            return []
-        rows = conn.execute('SELECT name, slack_id FROM hr_people WHERE department=? AND status != ? ORDER BY name',
-                            (MEMBER_DEPT, lv._HR_RESIGNED)).fetchall()
-    return [{'name': r[0], 'slack_id': r[1] or ''} for r in rows]
+            return [], []
+        has_inc = 'incentive_from' in {r[1] for r in conn.execute('PRAGMA table_info(hr_people)')}
+        rows = conn.execute(f"SELECT name, slack_id, {'incentive_from' if has_inc else 'NULL'} FROM hr_people "
+                            'WHERE department=? AND status != ? ORDER BY name', (MEMBER_DEPT, lv._HR_RESIGNED)).fetchall()
+    mem, inc = [], []
+    for name, sid, frm in rows:
+        p = {'name': name, 'slack_id': sid or ''}
+        (inc if frm and str(frm)[:10] <= on_iso else mem).append(p)
+    return mem, inc
 
 
-def is_member(name: str) -> bool:
-    return bool(name) and lv._department(name) == MEMBER_DEPT
+def members(on: Optional[date] = None) -> List[dict]:
+    """대상자 — 인사카드 부서가 기술영업인 재직자 중 인센이 아닌 사람 [{name, slack_id}] (이름순)."""
+    return _tech_sales(on)[0]
 
 
-def _member(name: str) -> Optional[dict]:
-    return next((m for m in members() if m['name'] == name), None)
+def incentive_members(on: Optional[date] = None) -> List[dict]:
+    """기술영업 중 인센(on 기준) — 스케줄 근무 대상이 아님. 화면에 '인센' 으로 따로 보여 준다."""
+    return _tech_sales(on)[1]
 
 
-def role(sid: str, name: str = '') -> Dict[str, bool]:
+def is_member(name: str, on: Optional[date] = None) -> bool:
+    return bool(name) and _member(name, on) is not None
+
+
+def _member(name: str, on: Optional[date] = None) -> Optional[dict]:
+    return next((m for m in members(on) if m['name'] == name), None)
+
+
+def role(sid: str, name: str = '', on: Optional[date] = None) -> Dict[str, bool]:
     approver = bool(sid) and sid in approver_ids()
     coordinator = bool(sid) and sid in coordinator_ids()
     manager = bool(sid) and sid in manager_ids()
-    member = bool(name) and _member(name) is not None
+    member = bool(name) and _member(name, on) is not None
     return {'member': member, 'coordinator': coordinator, 'approver': approver, 'manager': manager}
 
 
@@ -256,7 +273,7 @@ def work_saturdays(name: str, start: date, end: date) -> Dict[date, bool]:
     while d <= end:
         sats.append(d)
         d += timedelta(days=7)
-    if not sats or not is_member(name):
+    if not sats or not is_member(name, sats[0]):
         return {}
     months = sorted({_month_of(s) for s in sats})
     with lv._conn() as conn:
@@ -318,7 +335,8 @@ def view(month: str, sid: str, name: str, today: Optional[date] = None) -> dict:
     today = today or date.today()
     row = month_row(month)
     st = row['status']
-    r = role(sid, name)
+    on = max(today, _first(month))           # 앞달이면 그달 1일 기준(인센 시작 반영)
+    r = role(sid, name, on)
     p = picks(month)
     c = counts(month)
     wk = worked(month)
@@ -342,7 +360,8 @@ def view(month: str, sid: str, name: str, today: Optional[date] = None) -> dict:
         'decided_by': row.get('decided_by') or '', 'decided_at': row.get('decided_at') or '',
         'note': row.get('note') or '',
         'saturdays': sats,
-        'members': [{'name': m['name'], 'count': c.get(m['name'], 0), 'worked': wc.get(m['name'], 0)} for m in members()],
+        'members': [{'name': m['name'], 'count': c.get(m['name'], 0), 'worked': wc.get(m['name'], 0)} for m in members(on)],
+        'incentive': [m['name'] for m in incentive_members(on)],      # 기술영업 인센 — 스케줄 대상 아님(11-25)
         'me': {'name': name, **r},
         # 휴무 출근(11-24) — 결재 올린 뒤(대기·확정)부터. 작성 중엔 달력에서 이름을 빼면 됨
         'can_mark_worked': st in (WAIT, CONFIRMED) and (r['member'] or r['manager'] or r['approver']),
@@ -393,9 +412,9 @@ def toggle(day: Optional[date], target: str, on: bool, sid: str, actor_name: str
            today: Optional[date] = None) -> dict:
     """토요일 칸에 이름 넣기(on)·빼기. 반환 {names, count, warn}."""
     today = today or date.today()
-    r = role(sid, actor_name)
+    r = role(sid, actor_name, day)
     month = _check_day(day, today, r['approver'])
-    m = _member(target)
+    m = _member(target, day)
     if not m:
         raise SatOffError(f'{target} 님은 스케줄 근무 대상(기술영업)이 아니에요.')
     if target != actor_name and not (r['manager'] or r['approver']):
@@ -427,7 +446,7 @@ def mark_worked(day: Optional[date], target: str, verbal_by: str, reason: str, s
     """휴무 출근 기록 — 쉬기로 한 토요일에 급히 나옴. 박정우·박용구 중 한 분께 구두로 승인받은 뒤 본인이 남긴다
     (결재 단계 없음, 11-24 부장님). 그날은 쉬는 사람에서 빠지고(차량·방문 배정·휴가 일수는 근무로 봄) 기록이 남는다."""
     today = today or date.today()
-    r = role(sid, actor_name)
+    r = role(sid, actor_name, day)
     if not day or day.weekday() != 5:
         raise SatOffError('토요일만 고를 수 있어요.')
     if holiday_name(day):
@@ -438,7 +457,7 @@ def mark_worked(day: Optional[date], target: str, verbal_by: str, reason: str, s
     st = month_row(month)['status']
     if st == OPEN:
         raise SatOffError('아직 작성 중인 달이에요. 달력에서 이름을 빼면 돼요.')
-    m = _member(target)
+    m = _member(target, day)
     if not m:
         raise SatOffError(f'{target} 님은 스케줄 근무 대상(기술영업)이 아니에요.')
     if target != actor_name and not (r['manager'] or r['approver']):
@@ -565,10 +584,10 @@ def request_change(month: str, target: str, add, remove, reason: str, sid: str, 
                    today: Optional[date] = None) -> dict:
     """확정된 달 바꾸기 — 승인권자가 아니면 결재 대기로 남고, 승인권자가 하면 바로 반영."""
     today = today or date.today()
-    r = role(sid, actor_name)
+    r = role(sid, actor_name, _first(month))
     if month_row(month)['status'] != CONFIRMED:
         raise SatOffError('확정된 달만 변경 신청을 해요. 작성 중인 달은 달력에서 바로 바꾸면 돼요.')
-    m = _member(target)
+    m = _member(target, _first(month))
     if not m:
         raise SatOffError(f'{target} 님은 스케줄 근무 대상(기술영업)이 아니에요.')
     if target != actor_name and not (r['manager'] or r['approver']):
@@ -644,7 +663,7 @@ def affected_leaves(month: str) -> List[dict]:
     """확정·변경으로 일수가 달라지는 휴가 — 그달 토요일이 낀 대상자 휴가 중 저장된 일수와 다시 센 일수가 다른 것.
     자동으로 고치지 않는다(연차 차감 배분이 얽힘) — 경영지원에 알려 휴가 관리에서 고치게."""
     sats = saturdays(month)
-    names = {m['name'] for m in members()}
+    names = {m['name'] for m in members(_first(month))}
     if not sats or not names:
         return []
     a, b = sats[0].isoformat(), sats[-1].isoformat()

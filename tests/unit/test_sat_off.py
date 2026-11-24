@@ -420,3 +420,24 @@ def test_view_open_to_all_but_construction_and_cleaning(slack, monkeypatch):
     with pytest.raises(so.SatOffError, match='대상'):
         so.toggle(S5, '박민우', True, 'UMW', '박민우', TODAY)
     assert not hasattr(so_bp.gw_satoff_bp, 'before_request_funcs') or not so_bp.gw_satoff_bp.before_request_funcs.get(None)
+
+
+# ── 인센(11-25 부장님: 기술영업 중 인센 구간은 격주휴무가 없음) ─────────────
+def test_incentive_excluded_from_schedule_from_start_date(slack):
+    p = hr.find_by_slack(B)
+    hr.update_person(p['id'], {'incentive_from': '2027-01-01'}, ADMIN)          # 영업나 — 1월부터 인센
+    assert hr.is_incentive(hr.get_person(p['id']), date(2027, 1, 1))
+    assert not hr.is_incentive(hr.get_person(p['id']), date(2026, 12, 31))
+    assert [m['name'] for m in so.members(date(2026, 12, 1))] == ['빈대리', '영업가', '영업나', '영업다']
+    assert [m['name'] for m in so.members(date(2027, 1, 1))] == ['빈대리', '영업가', '영업다']
+    assert [m['name'] for m in so.incentive_members(date(2027, 1, 1))] == ['영업나']
+    # 12월은 대상, 1월은 대상 아님 — 화면·고르기 모두 그달 기준
+    so.toggle(S5, '영업나', True, B, '영업나', TODAY)
+    with pytest.raises(so.SatOffError, match='대상'):
+        so.toggle(date(2027, 1, 9), '영업나', True, B, '영업나', TODAY)
+    v = so.view('2027-01', B, '영업나', TODAY)
+    assert '영업나' not in [m['name'] for m in v['members']] and v['incentive'] == ['영업나'] and not v['me']['member']
+    assert so.view(DEC, B, '영업나', TODAY)['incentive'] == []
+    # 휴가 일수 — 인센 달은 근무표를 따르지 않고 예전 규칙(첫날·마지막 날 토요일만)
+    assert so.work_saturdays('영업나', date(2027, 1, 9), date(2027, 1, 16)) == {}
+    assert lv.work_pattern('영업나') == lv.WORK_SAT_SCHEDULE

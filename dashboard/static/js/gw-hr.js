@@ -78,6 +78,15 @@
     return ' <span class="gw-badge gw-badge-field">' + esc(p.job_role || '현장') + '</span>';
   }
 
+  // 인센(11-25 부장님) — 인사카드 인센 시작일이 오늘 이전이면. 시작일이 앞날이면 '인센 예정'
+  function incentiveBadge(p) {
+    var v = (p.incentive_from || '').slice(0, 10);
+    if (!v || p.status === '퇴사') return '';
+    var t = new Date(), today = t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2);
+    return v <= today ? ' <span class="gw-badge gw-badge-incentive" title="인센 시작일 ' + esc(v) + '">인센</span>'
+      : ' <span class="gw-badge gw-badge-incentive soon" title="인센 시작일 ' + esc(v) + '">인센 예정</span>';
+  }
+
   function statusBadge(s) {
     var cls = s === '재직' ? 'gw-badge-active' : (s === '휴직' ? 'gw-badge-leave' : 'gw-badge-resigned');
     return '<span class="gw-badge ' + cls + '">' + esc(s) + '</span>';
@@ -104,7 +113,7 @@
     var h = '<div class="gw-card">';
     h += '<div class="gw-card-head"><div class="gw-avatar gw-avatar-lg" aria-hidden="true">' + initial(p.name) + '</div>' +
       '<div><h2 class="gw-card-name">' + esc(p.name) + ' ' + statusBadge(p.status) +
-      fieldBadge(p) + '</h2>' +
+      fieldBadge(p) + incentiveBadge(p) + '</h2>' +
       '<div class="gw-card-org">' + (org(p) || '<span class="text-muted">소속 없음</span>') + '</div></div>';
     if (p.can_edit && CFG.mode !== 'me') {   // 수정은 구성원 화면에서(내 정보엔 수정 창이 없음)
       h += '<div class="gw-card-actions">' +
@@ -124,6 +133,7 @@
       dd('그룹 입사일', p.group_hire_date) +
       dd('계약 형태', p.contract_type) +
       dd('직무', p.job_role) +
+      (p.incentive_from ? dd('인센 시작일', p.incentive_from) : '') +
       '</dl>';
 
     var selfMode = CFG.mode === 'me' && p.can_self_edit;
@@ -798,7 +808,7 @@
         '<span class="gw-avatar" aria-hidden="true">' + initial(p.name) + '</span>' +
         '<span><span class="gw-list-name">' + esc(p.name) + '</span>' +
         (p.status !== '재직' ? ' ' + statusBadge(p.status) : '') +
-        (p.status !== '퇴사' ? fieldBadge(p) : '') +
+        (p.status !== '퇴사' ? fieldBadge(p) : '') + incentiveBadge(p) +
         '<br><span class="gw-list-sub">' + esc(sub || '-') + '</span></span></button></li>';
     }).join('') || '<li class="gw-empty">맞는 구성원이 없습니다.</li>';
     if (focusId) {
@@ -832,7 +842,7 @@
   var editingId = null;
   var FIELDS = ['name', 'status', 'contract_type', 'hire_date', 'group_hire_date', 'department', 'job_role',
     'job_rank', 'job_title', 'work_email', 'personal_email', 'phone', 'address', 'gender', 'birth_date',
-    'login_email', 'access', 'slack_id', 'resign_date', 'last_work_date', 'resign_reason', 'memo'];
+    'login_email', 'access', 'slack_id', 'resign_date', 'last_work_date', 'resign_reason', 'memo', 'incentive_from'];
 
   // 수정 창의 로그인 방식 문구를 카드와 같게(템플릿이 옛 문구여도 맞춰짐)
   if (formEl && formEl.elements.access) {

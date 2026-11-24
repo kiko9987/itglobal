@@ -33,14 +33,14 @@ FIELDS = [
     ('hire_date', '입사일'), ('group_hire_date', '그룹 입사일'),
     ('resign_date', '퇴사일'), ('last_work_date', '마지막 근무일'), ('resign_reason', '퇴사 사유'),
     ('department', '부서'), ('job_role', '직무'), ('job_rank', '직급'), ('job_title', '직책'),
-    ('contract_type', '계약 형태'),
+    ('contract_type', '계약 형태'), ('incentive_from', '인센 시작일'),
     ('work_email', '회사 메일'), ('personal_email', '개인 메일'), ('phone', '전화'),
     ('gender', '성별'), ('birth_date', '생년월일'), ('address', '주소'),
     ('login_email', '그룹웨어 로그인 메일'), ('access', '로그인 방식'),
     ('slack_id', '슬랙 ID'), ('memo', '메모'),
 ]
 EDITABLE = [k for k, _ in FIELDS]
-_DATE_FIELDS = ('hire_date', 'group_hire_date', 'resign_date', 'last_work_date', 'birth_date')
+_DATE_FIELDS = ('hire_date', 'group_hire_date', 'resign_date', 'last_work_date', 'birth_date', 'incentive_from')
 
 _DDL = [
     '''CREATE TABLE IF NOT EXISTS hr_people (
@@ -48,7 +48,7 @@ _DDL = [
         name TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT '재직',
         hire_date TEXT, group_hire_date TEXT, resign_date TEXT, last_work_date TEXT, resign_reason TEXT,
-        department TEXT, job_role TEXT, job_rank TEXT, job_title TEXT, contract_type TEXT,
+        department TEXT, job_role TEXT, job_rank TEXT, job_title TEXT, contract_type TEXT, incentive_from TEXT,
         work_email TEXT, personal_email TEXT, phone TEXT, gender TEXT, birth_date TEXT, address TEXT,
         ssn_enc TEXT,
         login_email TEXT, access TEXT NOT NULL DEFAULT 'staff',
@@ -142,6 +142,12 @@ def is_hr_admin(email: str) -> bool:
     return bool(email) and email.strip().lower() in hr_admins()
 
 
+def is_incentive(person: Optional[dict], on: Optional[date] = None) -> bool:
+    """인센(인센티브 구간)인가 — 인사카드 인센 시작일이 on(기본 오늘) 이전이면. 11-25 부장님."""
+    v = ((person or {}).get('incentive_from') or '').strip()
+    return bool(v) and v[:10] <= (on or date.today()).isoformat()
+
+
 def is_admin_email(email: str) -> bool:
     """로그인 계정 권한이 관리자(admin·super_admin)이고 쓰는 중인가 — 방문 일정·차량 배정을 관리자에게 다 열 때(11-25 부장님).
     세션이 없는 서비스 쪽 확인용. 못 읽으면 False(권한을 넓히지 않음)."""
@@ -197,7 +203,8 @@ def mask_ssn(full: str) -> str:
 
 
 # ── 조회 ──────────────────────────────────────────────────────────────
-_LIST_COLS = 'id, name, status, department, job_role, job_rank, job_title, hire_date, resign_date, access, login_email, work_email'
+_LIST_COLS = ('id, name, status, department, job_role, job_rank, job_title, hire_date, resign_date, access, login_email, '
+              'work_email, incentive_from')
 
 
 def list_people(include_resigned: bool = False) -> List[dict]:
@@ -618,6 +625,10 @@ def _migrate(conn) -> None:
         conn.execute('ALTER TABLE hr_documents ADD COLUMN tag TEXT')
     except sqlite3.OperationalError:
         pass      # 이미 있음
+    # 인센 시작일(11-25 부장님) — 기술영업 중 인센티브 구간(입사 3년 뒤). 그날부터 '인센' 배지, 스케줄 근무 대상에서 빠짐
+    cols = {r[1] for r in conn.execute('PRAGMA table_info(hr_people)')}
+    if 'incentive_from' not in cols:
+        conn.execute('ALTER TABLE hr_people ADD COLUMN incentive_from TEXT')
 
 
 def _ensure_doc_tag() -> None:
