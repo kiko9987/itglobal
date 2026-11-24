@@ -154,7 +154,8 @@ def assigners() -> List[str]:
 def can_assign(email: str) -> bool:
     from dashboard.services import hr
     email = (email or '').strip().lower()
-    return bool(email) and (hr.is_hr_admin(email) or email in assigners())
+    # 관리자(admin·super_admin)는 모두(11-25 부장님 '어드민한테는 다 열어줘')
+    return bool(email) and (hr.is_hr_admin(email) or email in assigners() or hr.is_admin_email(email))
 
 
 # ── 차량·직원 ───────────────────────────────────────────────────────────

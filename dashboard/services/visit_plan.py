@@ -101,8 +101,12 @@ def _now() -> str:
 
 # ── 권한·사람 ───────────────────────────────────────────────────────────
 def can_plan(email: str) -> bool:
+    """방문 일정 짜기·확정 — 일정 담당(JW·대표님·부장님) + 관리자 모두(11-25 부장님 '어드민한테는 다 열어줘')."""
     from dashboard.services.visit_assignment_sync import PLANNER_EMAILS
-    return (email or '').strip().lower() in PLANNER_EMAILS
+    if (email or '').strip().lower() in PLANNER_EMAILS:
+        return True
+    from dashboard.services import hr
+    return hr.is_admin_email(email)
 
 
 def _name_of_email(email: str) -> str:

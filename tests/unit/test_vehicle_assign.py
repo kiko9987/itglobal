@@ -532,3 +532,16 @@ def test_resend_to_people_who_missed_dm(db, monkeypatch):
     down.clear()
     again = va.resend('2026-11-21', res['retry'])
     assert again == {'notified': 1, 'failed': [], 'retry': []} and [s for s, _ in sent] == ['UTH']
+
+
+def test_admins_can_plan_and_assign(db):
+    """관리자(admin·super_admin)는 방문 일정 짜기·확정과 차량 배정을 모두(11-25 부장님 '어드민한테는 다 열어줘')."""
+    from dashboard.services import visit_plan as vp
+    d = hr._db()
+    d.create_user('관리자', 'boss2@example.com', 'pw-Test-1234!', 'admin')
+    d.create_user('편집자', 'staff2@example.com', 'pw-Test-1234!', 'editor')
+    assert hr.is_admin_email('boss2@example.com') and hr.is_admin_email('BOSS2@example.com ')
+    assert not hr.is_admin_email('staff2@example.com') and not hr.is_admin_email('nobody@example.com') and not hr.is_admin_email('')
+    assert vp.can_plan('boss2@example.com') and va.can_assign('boss2@example.com')
+    assert not vp.can_plan('staff2@example.com') and not va.can_assign('staff2@example.com')
+    assert vp.can_plan('jw@itg-aircon.com')                       # 일정 담당은 그대로

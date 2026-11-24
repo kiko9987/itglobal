@@ -142,6 +142,20 @@ def is_hr_admin(email: str) -> bool:
     return bool(email) and email.strip().lower() in hr_admins()
 
 
+def is_admin_email(email: str) -> bool:
+    """로그인 계정 권한이 관리자(admin·super_admin)이고 쓰는 중인가 — 방문 일정·차량 배정을 관리자에게 다 열 때(11-25 부장님).
+    세션이 없는 서비스 쪽 확인용. 못 읽으면 False(권한을 넓히지 않음)."""
+    if not email:
+        return False
+    try:
+        u = _db().get_user_by_email(email.strip().lower())
+    except Exception as e:
+        logger.warning(f'[HR] 관리자 확인 실패 — 관리자 아님으로 봄: {e}')
+        return False
+    return bool(u) and u.get('permission_level') in ('admin', 'super_admin') \
+        and bool(u.get('is_active', True)) and not u.get('is_resigned')
+
+
 def can_view_all_leave(email: str) -> bool:
     return is_hr_admin(email) or (bool(email) and email.strip().lower() in leave_viewers())
 
