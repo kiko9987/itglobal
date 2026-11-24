@@ -194,10 +194,8 @@ def test_uplus_trips_merge(monkeypatch):
     assert up.parse_time('2026-11-23T00:30:00.000+00:00') == datetime(2026, 11, 23, 9, 30)
 
 
-def test_now_menu_only_after_keys(monkeypatch):
-    monkeypatch.setattr(gw, '_uplus_on', lambda: False)
-    assert [a['key'] for a in gw.build_nav('/home', 'field', field=True)['areas']] == ['leave', 'hr']
-    monkeypatch.setattr(gw, '_uplus_on', lambda: True)
+def test_now_menu_open_without_keys(monkeypatch):
+    monkeypatch.setattr(gw, '_uplus_on', lambda: False)      # 키 전이라도 메뉴는 연다(11-24 부장님)
     nav = gw.build_nav('/vehicles/now', 'field', field=True)
     assert [a['key'] for a in nav['areas']] == ['leave', 'hr', 'vehicle'] and [i['label'] for i in nav['items']] == ['실시간 위치']
     assert [a['label'] for a in gw.build_nav('/home', 'editor')['areas']][-1] == '차량'
@@ -220,7 +218,11 @@ def test_now_page_open_to_all_and_field(db, monkeypatch):
             s['user'] = {'email': 'staff@example.com', 'permission_level': 'user'}
         j = cl.get('/api/vehicles/now').get_json()
         assert j['success'] and 'cars' in j
-        assert cl.get('/api/vehicles/insights').status_code in (302, 403)      # 운전 습관은 경영지원·개발 중 명단만
-        assert cl.get('/api/vehicles/logbook.xlsx').status_code in (302, 403)
+        assert cl.get('/api/vehicles/insights').status_code == 403            # 운전 습관은 경영지원만
+        assert cl.get('/api/vehicles/logbook.xlsx').status_code == 403
+        monkeypatch.setattr(bp, '_hr_admin', lambda: True)                    # 경영지원은 개발 중 명단 밖이어도 들어옴(11-24)
+        assert cl.get("/api/vehicles/insights").get_json()["success"]   # 운행 표가 없는 새 DB 에서도(11-24)
+        assert cl.get('/api/vehicles/manage').status_code != 403              # 개발 중 문을 통과
+        assert cl.get('/api/vehicles/assign').status_code == 403              # 차량 배정은 그대로(배정 담당)
     assert field_path_allowed('GET', '/vehicles/now') and field_path_allowed('GET', '/api/vehicles/now/near')
     assert not field_path_allowed('GET', '/api/vehicles/insights')

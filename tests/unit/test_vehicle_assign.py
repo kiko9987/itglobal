@@ -282,11 +282,13 @@ def test_dev_preview_only_kiko(db, monkeypatch):
         # 차량 배정 화면만 배정 담당에게 먼저 열림(11-24 — JW 가 방문 일정 확정 뒤 바로 차를 넣음). 다른 차량 화면은 그대로 개발 중
         assert cl.get('/vehicles/assign').get_data(as_text=True) == 'gw/vehicle_assign.html'
         assert cl.get('/api/vehicles/assign?day=2026-11-21').get_json()['success']
-        for path in ('/vehicles', '/leave/saturday'):
-            assert cl.get(path).get_data(as_text=True) == 'gw/dev_preview.html', path
-        for path in ('/api/vehicles', '/api/satoff'):
-            r = cl.get(path)
-            assert r.status_code == 403 and '개발 중' in r.get_json()['message'], path
+        assert cl.get('/leave/saturday').get_data(as_text=True) == 'gw/dev_preview.html'
+        r = cl.get('/api/satoff')
+        assert r.status_code == 403 and '개발 중' in r.get_json()['message']
+        # 운행일지는 경영지원에게 열림(11-24 "메뉴는 다 오픈") — 배정 담당(경영지원 아님)은 경영지원만 안내
+        assert cl.get('/vehicles').status_code == 302
+        r = cl.get('/api/vehicles')
+        assert r.status_code == 403 and '경영지원' in r.get_json()['message']
         assert cl.post('/api/satoff/toggle', json={}).status_code == 403
         with cl.session_transaction() as s:
             s['user'] = {'email': kiko, 'permission_level': 'super_admin'}

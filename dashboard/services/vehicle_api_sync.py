@@ -481,6 +481,9 @@ def habits(start: str, end: str) -> Dict:
     who = va._who_map()
     cars = {c['plate']: c for c in va.fleet(True)}
     lim = _speed_limit()
+    from dashboard.services import vehicle_log as vl
+    with vl._conn():         # 운행 표(vehicle_trips)가 아직 없는 새 DB 에서도(11-24 테스트에서 발견)
+        pass
     with _conn() as conn:
         rows = conn.execute('SELECT m.*, t.km FROM vehicle_trip_metrics m LEFT JOIN vehicle_trips t '
                             'ON t.plate = m.plate AND t.day = m.day AND t.start_time = m.start_time '

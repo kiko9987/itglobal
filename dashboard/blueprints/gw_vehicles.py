@@ -52,7 +52,19 @@ def _gate():
         return None
     if request.path.startswith(_NOW_PATHS):
         return None
+    if _hr_open(request.path):
+        return None
     return dev_preview_gate()
+
+
+# 운행일지·차량 관리 — 경영지원(인사 관리자)에게 연다(11-24 부장님 "메뉴는 다 오픈"). 화면·API 안에서 _hr_admin 을 다시 본다.
+_HR_EXACT = ('/vehicles', '/api/vehicles', '/api/vehicles/car', '/api/vehicles/upload', '/api/vehicles/logbook.xlsx',
+             '/api/vehicles/insights', '/api/vehicles/route')
+_HR_PREFIX = ('/vehicles/manage', '/api/vehicles/manage')
+
+
+def _hr_open(path: str) -> bool:
+    return path in _HR_EXACT or path.startswith(_HR_PREFIX)
 
 
 def _kakao_js() -> str:
