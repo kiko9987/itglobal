@@ -3063,7 +3063,7 @@ html:has(#bdPage) {
 .gw-so-matrix thead th { font-weight: 600; color: #475569; border-bottom: 1px solid #e2e8f0; }
 .gw-so-matrix thead th.today { color: #c2410c; }
 .gw-so-matrix thead th small { display: block; font-weight: 400; font-size: 0.72rem; }
-.gw-so-matrix tbody th, .gw-so-matrix tfoot th { text-align: left; font-weight: 500; }
+.gw-so-matrix tbody th, .gw-so-matrix tfoot th { text-align: center; font-weight: 500; }   /* 이름도 다른 칸처럼 가운데(11-25 부장님) */
 .gw-so-matrix tr.mine th { font-weight: 700; }
 .gw-so-matrix tr.mine { background: #fafafa; }
 .gw-so-matrix td.work { color: #94a3b8; }
