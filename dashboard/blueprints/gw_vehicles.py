@@ -69,6 +69,38 @@ def _leads() -> list:
     return [] if df is None else df.to_dict('records')
 
 
+_LEAD_DAY = re.compile(r'^(\d{4})[-./](\d{1,2})[-./](\d{1,2})')
+
+
+def _day_leads(leads: list, day: str) -> list:
+    """그날에 걸친 방문 리드만(11-24 부장님: 날짜를 바꿀 때 오래 걸림 — 아래 함수마다 리드 5천 건 날짜를 다시 읽던 것).
+    대부분(지난 날·다른 날 한 날짜)은 앞 날짜만 보고 바로 거르고, 기간('~')이거나 모양이 다른 것만 두 날짜 읽기
+    (일정 목록·방문 일정 = 시작~끝, 운행일지 = vl._visit_days)로 본다 — 어느 쪽에도 빠지지 않게."""
+    from dashboard.services import visit_assignment_sync as vas
+    d = date.fromisoformat(day)
+    out = []
+    for lead in leads:
+        vd = lead.get('방문 예정일')
+        if not vd:
+            continue
+        s = str(vd).strip().lstrip("'")
+        m = _LEAD_DAY.match(s)
+        if m and '~' not in s:
+            try:
+                if date(int(m.group(1)), int(m.group(2)), int(m.group(3))) == d:
+                    out.append(lead)
+            except ValueError:
+                pass
+            continue
+        st = vas._parse_visit_date_start(vd)
+        if st and st > d:
+            continue
+        en = vas._parse_visit_date_end(vd) if st else None
+        if (st and st <= d <= (en if en and en >= st else st)) or day in vl._visit_days(vd):
+            out.append(lead)
+    return out
+
+
 def _resolve_later(start: str, end: str) -> None:
     """방문 주소의 동 찾기(행안부) — 1분쯤 걸려 올리기 응답과 떼어 뒤에서."""
     def run():
@@ -153,7 +185,7 @@ def api_assign_get():
     day = _day()
     leads: list = []
     try:        # 일정확정 결과(리드 시트 방문 예정일·영업 담당자) — 못 읽어도 배정은 할 수 있게
-        leads = _leads()
+        leads = _day_leads(_leads(), day)      # 그날 리드만 한 번 골라 아래 모두에 넘긴다(모두 그날만 봄)
         visitors, teams = va.visitors(day, leads), va.teams(day, leads)
         try:    # 그룹웨어에서 확정한 날은 그 팀 그대로(시트 캐시가 늦게 바뀌어도, 11-22)
             teams = vp.confirmed_teams(day, leads) or teams     # 슬랙으로 정한 오늘·지난 날은 시트 코스(11-23)

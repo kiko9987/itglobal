@@ -426,11 +426,12 @@ class UserDatabase:
                 ORDER BY created_at DESC
             ''')
             users = cursor.fetchall()
-            logger.info(f"[USER_DB] get_all_users() 호출: DB에서 {len(users)}명 조회됨")
+            # 사람마다 INFO 로그를 남기던 것 → DEBUG(11-24: 차량 배정 날짜 하나 여는 데 수십 번 불려 로그 쓰기만 수백 ms)
+            logger.debug(f"[USER_DB] get_all_users() 호출: DB에서 {len(users)}명 조회됨")
             result = [self._user_to_dict(user) for user in users]
-            logger.info(f"[USER_DB] get_all_users() 반환: {len(result)}명의 딕셔너리 변환 완료")
-            for user in result:
-                logger.info(f"[USER_DB]   - {user['name']} ({user['email']}) is_resigned={user['is_resigned']}")
+            if logger.isEnabledFor(logging.DEBUG):
+                for user in result:
+                    logger.debug(f"[USER_DB]   - {user['name']} ({user['email']}) is_resigned={user['is_resigned']}")
             return result
 
     def get_resigned_managers(self) -> List[Dict]:

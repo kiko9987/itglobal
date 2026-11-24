@@ -488,3 +488,13 @@ def test_request_skipped_when_confirmer_assigns(db, monkeypatch):
     assert set(va._DEFAULT_ASSIGNERS) == {'jw@itg-aircon.com', 'sj@itg-aircon.com'}     # 기본 배정 담당 = SJ + JW
     monkeypatch.setattr(va, 'assigners', lambda: ['sj@example.com', 'jw@example.com'])
     assert va.request_assignment('2026-11-26', 'JW@example.com') == 0 and sent == []      # JW 가 확정 → 안 보냄
+
+
+def test_day_leads_prefilter():
+    """차량 배정 조회는 그날에 걸친 리드만 먼저 고른다(11-24 속도) — 한 날짜·기간·달 넘김·끝이 앞·빈칸."""
+    from dashboard.blueprints.gw_vehicles import _day_leads
+    L = [{'리드 No': n, '방문 예정일': v} for n, v in [
+        ('a', '2026-11-25'), ('b', "'2026-11-25"), ('c', '2026-11-24~26'), ('d', '2026-11-29~12-02'),
+        ('e', '2026-11-24'), ('f', '2026-11-25~20'), ('g', ''), ('h', None), ('i', '2026.11.25')]]
+    assert [x['리드 No'] for x in _day_leads(L, '2026-11-25')] == ['a', 'b', 'c', 'f', 'i']
+    assert [x['리드 No'] for x in _day_leads(L, '2026-12-01')] == ['d']
