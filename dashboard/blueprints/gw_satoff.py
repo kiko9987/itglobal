@@ -177,6 +177,34 @@ def api_change_decide(cid):
     return jsonify({'success': True, 'change': c})
 
 
+@gw_satoff_bp.route('/api/satoff/worked', methods=['POST'])
+@gw_page
+def api_worked():
+    """휴무 출근 기록(on=true)·되돌리기(on=false) — 구두 승인 뒤 본인이(11-24 부장님). 결재 단계·승인권자 알림 없음."""
+    body = request.get_json(silent=True) or {}
+    on = body.get('on', True) is not False
+    try:
+        name, sid = _actor()
+        target = (body.get('name') or name).strip()
+        day = _day(body.get('day'))
+        if on:
+            res = so.mark_worked(day, target, body.get('verbal_by') or '', body.get('reason') or '', sid, name)
+        else:
+            res = so.undo_worked(day, target, sid, name)
+        m = res['day'][:7]
+    except Exception as e:
+        return _err(e)
+    logger.info(f'[토요휴무] {res["day"]} {target} 휴무 출근 {"기록" if on else "되돌림"} by {name}')
+    try:
+        if so.affected_leaves(m):     # 휴가 일수가 달라지는 신청이 있을 때만 경영지원에 알림
+            so.notify('worked' if on else 'worked_undo', m, name,
+                      change={'name': target, 'label': so.kday(day)})
+    except Exception as e:            # 기록은 저장됨 — 알림 확인만 실패
+        logger.error(f'[토요휴무] 휴무 출근 뒤 휴가 일수 확인 실패 ({target} {res["day"]}): {e}', exc_info=True,
+                     extra={'force_alert': True})
+    return jsonify({'success': True, **res})
+
+
 @gw_satoff_bp.route('/api/satoff/change/<int:cid>/cancel', methods=['POST'])
 @gw_page
 def api_change_cancel(cid):

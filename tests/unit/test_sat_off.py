@@ -108,14 +108,75 @@ def test_day_rules(slack):
         so.toggle(date(2027, 6, 5), '영업가', True, A, '영업가', TODAY)
 
 
-def test_coordinator_picks_for_others_and_over_limit_warns(slack):
+def test_coordinator_picks_for_others_without_monthly_limit(slack):
+    """한 달 몇 번 기준은 없다(11-24 부장님 — 급한 주말 공사로 자주 바뀜). 3번째도 경고 없이."""
     for d in (S5, S12):
         so.toggle(d, '영업나', True, CO, '빈대리', TODAY)
     r = so.toggle(S19, '영업나', True, CO, '빈대리', TODAY)
-    assert r['count'] == 3 and '3번째' in r['warn']                     # 막지 않고 경고만
+    assert r['count'] == 3 and r['warn'] == ''
     v = so.view(DEC, CO, '빈대리', TODAY)
-    assert v['pick_others'] and v['can_submit'] and not v['can_decide']
+    assert v['pick_others'] and v['can_submit'] and not v['can_decide'] and 'limit' not in v
     assert {m['name']: m['count'] for m in v['members']}['영업나'] == 3
+
+
+# ── 휴무 출근(11-24 부장님) ─────────────────────────────────────────────
+def test_worked_after_verbal_approval_by_self(slack):
+    """쉬기로 한 토요일에 급히 나옴 — 구두 승인 뒤 본인이 기록. 쉬는 사람에서 빠지고 휴무 출근으로 남는다."""
+    so.toggle(S5, '영업가', True, A, '영업가', TODAY)
+    so.toggle(S12, '영업가', True, A, '영업가', TODAY)
+    with pytest.raises(so.SatOffError, match='작성 중'):
+        so.mark_worked(S5, '영업가', '박정우', '현장', A, '영업가', TODAY)       # 작성 중엔 이름을 빼면 됨
+    _confirm()
+    v = so.view(DEC, A, '영업가', TODAY)
+    assert v['can_mark_worked'] and v['approvers'] == ['박정우', '박용구']
+    with pytest.raises(so.SatOffError, match='구두로 승인'):
+        so.mark_worked(S5, '영업가', '영업나', '현장', A, '영업가', TODAY)       # 승인권자가 아님
+    with pytest.raises(so.SatOffError, match='어떤 일'):
+        so.mark_worked(S5, '영업가', '박정우', ' ', A, '영업가', TODAY)
+    with pytest.raises(so.SatOffError, match='쉬는 날이 아니'):
+        so.mark_worked(S19, '영업가', '박정우', '현장', A, '영업가', TODAY)
+    with pytest.raises(PermissionError):
+        so.mark_worked(S5, '영업가', '박정우', '현장', B, '영업나', TODAY)       # 남의 것은 취합 담당·승인권자만
+    r = so.mark_worked(S5, '영업가', '박정우', '강남 현장 공사', A, '영업가', TODAY)
+    assert r['verbal_by'] == '박정우' and r['label'] == '12/5(토)'
+    assert so.picks(DEC)['2026-12-05'] == [] and so.counts(DEC)['영업가'] == 1     # 쉬는 사람에서 빠짐
+    v = so.view(DEC, A, '영업가', TODAY)
+    assert [s['worked'] for s in v['saturdays']][:2] == [['영업가'], []]
+    assert {m['name']: (m['count'], m['worked']) for m in v['members']}['영업가'] == (1, 1)
+    assert v['worked'][0]['reason'] == '강남 현장 공사' and v['worked'][0]['can_undo']
+    assert not so.view(DEC, B, '영업나', TODAY)['worked'][0]['can_undo']        # 남은 되돌리지 못함
+    assert any('휴무 출근 (구두 승인 박정우)' in x['detail'] for x in so.recent_log(DEC))
+    # 근무로 바뀐 날 — 휴가 일수·차량 배정은 근무로 본다
+    assert so.work_saturdays('영업가', S5, S12) == {S5: True, S12: False}
+    assert lv.count_days(lv.ANNUAL, S5, S5, '영업가') == 1
+    assert not slack.to(JW) or not any('휴무 출근' in t for t in slack.to(JW))     # 승인권자 DM 없음(구두 승인)
+
+
+def test_worked_undo_and_re_add_clear_record(slack):
+    so.toggle(S5, '영업가', True, A, '영업가', TODAY)
+    _confirm()
+    so.mark_worked(S5, '영업가', '박용구', '현장', CO, '빈대리', TODAY)          # 취합 담당이 대신 기록
+    with pytest.raises(PermissionError):
+        so.undo_worked(S5, '영업가', B, '영업나')
+    so.undo_worked(S5, '영업가', A, '영업가')
+    assert so.picks(DEC)['2026-12-05'] == ['영업가'] and so.worked(DEC) == []
+    with pytest.raises(so.SatOffError, match='기록이 없'):
+        so.undo_worked(S5, '영업가', A, '영업가')
+    # 출근 기록 뒤 승인권자가 다시 쉬는 날로 넣으면 출근 기록은 지운다(둘 다 남지 않게)
+    so.mark_worked(S5, '영업가', '박정우', '현장', A, '영업가', TODAY)
+    so.toggle(S5, '영업가', True, JW, '박정우', TODAY)
+    assert so.picks(DEC)['2026-12-05'] == ['영업가'] and so.worked(DEC) == []
+
+
+def test_worked_past_day_within_a_month(slack):
+    """다음 주에 적어도 된다 — 한 달 안 지난 토요일까지. 그보다 오래된 건 승인권자만."""
+    so.toggle(S5, '영업가', True, A, '영업가', TODAY)
+    _confirm()
+    so.mark_worked(S5, '영업가', '박정우', '현장', A, '영업가', date(2026, 12, 9))
+    so.undo_worked(S5, '영업가', A, '영업가')
+    with pytest.raises(so.SatOffError, match='한 달보다'):
+        so.mark_worked(S5, '영업가', '박정우', '현장', A, '영업가', date(2027, 1, 20))
+    so.mark_worked(S5, '영업가', '박정우', '현장', JW, '박정우', date(2027, 1, 20))
 
 
 # ── 결재 ───────────────────────────────────────────────────────────────
@@ -314,3 +375,26 @@ def test_notify_failure_shown_on_screen(slack, monkeypatch):
     monkeypatch.setattr(so, '_client', lambda: None)
     so.notify('approve', DEC, '박용구')
     assert '휴가 봇 연결 없음' in so.view(DEC, CO, '빈대리', TODAY)['notify_fail']
+
+
+def test_worked_api_route(slack, monkeypatch):
+    """POST /api/satoff/worked — on=true 기록, on=false 되돌리기. 휴가 일수 영향이 없으면 알림 없음."""
+    import inspect
+    from flask import Flask
+    from dashboard.blueprints import gw_satoff as so_bp
+    so.toggle(S5, '영업가', True, A, '영업가', TODAY)
+    _confirm()
+    monkeypatch.setattr(so_bp, '_actor', lambda: ('영업가', A))
+    view = inspect.unwrap(so_bp.api_worked)                      # 로그인·개발 중 문은 다른 시험이 봄
+    app = Flask(__name__)
+    before = len(slack.posts)
+    with app.test_request_context(json={'day': '2026-12-05', 'verbal_by': '박정우', 'reason': '현장'}):
+        j = view().get_json()
+    assert j['success'] and j['name'] == '영업가' and so.picks(DEC)['2026-12-05'] == []
+    assert len(slack.posts) == before                              # 구두 승인 — 알림 없음
+    with app.test_request_context(json={'day': '2026-12-05', 'verbal_by': '', 'reason': '현장'}):
+        r = view()
+    assert r[1] == 400                                             # 이미 출근 기록 → 쉬는 날이 아님 등 업무 오류
+    with app.test_request_context(json={'day': '2026-12-05', 'on': False}):
+        assert view().get_json()['success']
+    assert so.picks(DEC)['2026-12-05'] == ['영업가']

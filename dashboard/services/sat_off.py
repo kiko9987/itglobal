@@ -7,7 +7,9 @@
 - 대상 = 인사카드 부서 '기술영업'(재직). 달력의 토요일을 눌러 자기 이름을 넣고 뺀다.
 - 달 상태: 작성 중 → (취합 담당이 [결재 올리기]) 결재 대기 → (박정우·박용구 둘 중 한 분 승인) 확정.
   돌려보내면 다시 작성 중. 확정 뒤 바꾸는 건 변경 신청 → 둘 중 한 분 승인(부장님 11-20).
-- 한 달 2번을 넘게 골라도 막지 않고 경고만(전체휴무 같은 예외가 있음).
+- 한 달 몇 번인지는 정하지 않는다(11-24 부장님 — 예전엔 2번 기준 경고). 사람별 횟수만 보여 준다.
+- 휴무 출근(11-24 부장님): 쉬기로 한 토요일에 급한 주말 공사로 나오면 박정우·박용구 중 한 분께 구두로 승인받고
+  본인이 [휴무 출근 기록]으로 남긴다(결재 단계 없음). 그날은 쉬는 사람에서 빠지고 휴무 출근으로 남는다.
 - 확정된 달은 휴가 일수에 쓰인다: 기술영업이 그달 토요일에 휴가를 내면, 휴무표에서 쉬는 토요일은 빼고 근무 토요일은 센다
   (leave.count_days). 확정 전 달은 예전 규칙(휴가 첫날·마지막 날로 고른 토요일만 셈).
 - 승인권자(박정우·박용구)는 어느 상태에서든 직접 고칠 수 있다(기록이 남음).
@@ -28,8 +30,9 @@ logger = get_logger(__name__)
 _LOG = '[토요휴무]'
 
 MEMBER_DEPT = '기술영업'
-MONTHLY_LIMIT = 2
-AHEAD_MONTHS = 6                       # 몇 달 앞까지 고를 수 있나(결혼식·해외여행은 3달 전에 알리기로 함)
+# 한 달 몇 번 쉬는지는 정해 두지 않는다 — 급한 주말 공사로 쉬는 날에도 나오는 일이 많아(11-24 부장님) 횟수는 보여 주기만
+WORKED_BACK_DAYS = 31                  # 휴무 출근은 지난 날도 기록할 수 있게(다음 주에 적는 경우) — 한 달까지
+AHEAD_MONTHS = 6                      # 몇 달 앞까지 고를 수 있나(결혼식·해외여행은 3달 전에 알리기로 함)
 _DEFAULT_COORDINATORS = ('U0BHDBCEUHL',)   # 빈승정 대리 — 취합 담당(2024-12 격주휴무 회의)
 
 OPEN, WAIT, CONFIRMED = 'open', 'wait', 'confirmed'
@@ -69,6 +72,18 @@ DDL = [
         decided_by TEXT,
         decided_at TEXT,
         decide_note TEXT
+    )''',
+    # 휴무 출근(11-24 부장님) — 쉬기로 한 토요일에 급한 주말 공사로 나온 날. 박정우·박용구께 구두로 승인받고 본인이 기록.
+    # 쉬는 사람 표(sat_off_days)에서는 빠져(차량·방문·휴가 일수는 근무로 봄) 여기 남는다
+    '''CREATE TABLE IF NOT EXISTS sat_off_worked (
+        day TEXT NOT NULL,
+        name TEXT NOT NULL,
+        slack_id TEXT,
+        verbal_by TEXT,
+        reason TEXT,
+        recorded_by TEXT,
+        recorded_at TEXT,
+        PRIMARY KEY (day, name)
     )''',
     '''CREATE TABLE IF NOT EXISTS sat_off_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -210,6 +225,29 @@ def counts(month: str) -> Dict[str, int]:
     return c
 
 
+def worked(month: str) -> List[dict]:
+    """그달 휴무 출근 기록 [{day, label, name, verbal_by, reason, recorded_by, recorded_at}] (날짜·이름순)."""
+    with lv._conn() as conn:
+        rows = conn.execute('SELECT day, name, verbal_by, reason, recorded_by, recorded_at FROM sat_off_worked '
+                            'WHERE day LIKE ? ORDER BY day, name', (month + '-%',)).fetchall()
+    return [dict(r, label=kday(lv._d(r['day']))) for r in rows]
+
+
+def approvers() -> List[dict]:
+    """구두 승인할 수 있는 분 [{name, slack_id}] — 휴가 승인권자(박정우·박용구) 순서대로, 인사카드 이름."""
+    ids = approver_ids()
+    if not ids:
+        return []
+    with lv._conn() as conn:
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='hr_people'").fetchone():
+            return []
+        q = ','.join('?' * len(ids))
+        rows = conn.execute(f'SELECT name, slack_id FROM hr_people WHERE slack_id IN ({q}) AND status != ?',
+                            (*ids, lv._HR_RESIGNED)).fetchall()
+    by_sid = {r[1]: r[0] for r in rows}
+    return [{'name': by_sid[s], 'slack_id': s} for s in ids if s in by_sid]
+
+
 def work_saturdays(name: str, start: date, end: date) -> Dict[date, bool]:
     """휴가 일수용 — 기간 안 토요일 중 휴무표가 확정된 달의 것만 {토요일: 근무하는 날인가}.
     대상자가 아니거나 확정 전 달이면 넣지 않는다(→ 예전 규칙)."""
@@ -283,11 +321,16 @@ def view(month: str, sid: str, name: str, today: Optional[date] = None) -> dict:
     r = role(sid, name)
     p = picks(month)
     c = counts(month)
+    wk = worked(month)
+    wc: Dict[str, int] = {}
+    for w in wk:
+        wc[w['name']] = wc.get(w['name'], 0) + 1
     sats = []
     for d in saturdays(month):
         hol = holiday_name(d)
         sats.append({'day': d.isoformat(), 'label': kday(d), 'holiday': hol, 'past': d < today,
-                     'names': p.get(d.isoformat(), []), 'mine': name in p.get(d.isoformat(), [])})
+                     'names': p.get(d.isoformat(), []), 'mine': name in p.get(d.isoformat(), []),
+                     'worked': [w['name'] for w in wk if w['day'] == d.isoformat()]})
     in_range = _month_of(today) <= month <= editable_until(today)
     can_edit_open = st == OPEN and in_range and (r['member'] or r['manager'])
     changes = _changes(month)
@@ -298,9 +341,13 @@ def view(month: str, sid: str, name: str, today: Optional[date] = None) -> dict:
         'submitted_by': row.get('submitted_by') or '', 'submitted_at': row.get('submitted_at') or '',
         'decided_by': row.get('decided_by') or '', 'decided_at': row.get('decided_at') or '',
         'note': row.get('note') or '',
-        'saturdays': sats, 'limit': MONTHLY_LIMIT,
-        'members': [{'name': m['name'], 'count': c.get(m['name'], 0)} for m in members()],
+        'saturdays': sats,
+        'members': [{'name': m['name'], 'count': c.get(m['name'], 0), 'worked': wc.get(m['name'], 0)} for m in members()],
         'me': {'name': name, **r},
+        # 휴무 출근(11-24) — 결재 올린 뒤(대기·확정)부터. 작성 중엔 달력에서 이름을 빼면 됨
+        'can_mark_worked': st in (WAIT, CONFIRMED) and (r['member'] or r['manager'] or r['approver']),
+        'approvers': [a['name'] for a in approvers()],
+        'worked': [dict(w, can_undo=w['name'] == name or r['manager'] or r['approver']) for w in wk],
         'can_toggle': can_edit_open or r['approver'],
         'pick_others': r['manager'],                       # 남의 이름도 넣고 뺄 수 있음(작성 중일 때)
         'can_submit': st == OPEN and r['manager'] and in_range,
@@ -364,14 +411,75 @@ def toggle(day: Optional[date], target: str, on: bool, sid: str, actor_name: str
         if on:
             conn.execute('INSERT OR IGNORE INTO sat_off_days (day, name, slack_id, added_by, added_at) '
                          'VALUES (?, ?, ?, ?, ?)', (key, target, m['slack_id'], actor_name, _now()))
+            conn.execute('DELETE FROM sat_off_worked WHERE day=? AND name=?', (key, target))   # 다시 쉬면 출근 기록은 지움
         else:
             conn.execute('DELETE FROM sat_off_days WHERE day=? AND name=?', (key, target))
         how = '넣음' if on else '뺌'
         _log(conn, actor_name, 'toggle', month,
              f'{kday(day)} {target} {how}' + (f' (확정 뒤 직접 수정)' if st != OPEN else ''))
     n = counts(month).get(target, 0)
-    warn = f'{target} 님은 이번 달 {n}번째예요. 한 달 {MONTHLY_LIMIT}번이 기본이에요.' if on and n > MONTHLY_LIMIT else ''
-    return {'names': picks(month).get(key, []), 'count': n, 'warn': warn}
+    # 한 달 몇 번 기준 경고는 뺐다(11-24 부장님 — 급한 주말 공사로 쉬는 날이 자주 바뀜). warn 은 화면 호환용으로 빈 값
+    return {'names': picks(month).get(key, []), 'count': n, 'warn': ''}
+
+
+def mark_worked(day: Optional[date], target: str, verbal_by: str, reason: str, sid: str, actor_name: str,
+                today: Optional[date] = None) -> dict:
+    """휴무 출근 기록 — 쉬기로 한 토요일에 급히 나옴. 박정우·박용구 중 한 분께 구두로 승인받은 뒤 본인이 남긴다
+    (결재 단계 없음, 11-24 부장님). 그날은 쉬는 사람에서 빠지고(차량·방문 배정·휴가 일수는 근무로 봄) 기록이 남는다."""
+    today = today or date.today()
+    r = role(sid, actor_name)
+    if not day or day.weekday() != 5:
+        raise SatOffError('토요일만 고를 수 있어요.')
+    if holiday_name(day):
+        raise SatOffError(f'{kday(day)}은 공휴일({holiday_name(day)})이라 모두 쉬는 날이에요.')
+    if day < today - timedelta(days=WORKED_BACK_DAYS) and not r['approver']:
+        raise SatOffError('한 달보다 지난 토요일은 승인권자께 고쳐 달라고 말씀해 주세요.')
+    month = _month_of(day)
+    st = month_row(month)['status']
+    if st == OPEN:
+        raise SatOffError('아직 작성 중인 달이에요. 달력에서 이름을 빼면 돼요.')
+    m = _member(target)
+    if not m:
+        raise SatOffError(f'{target} 님은 스케줄 근무 대상(기술영업)이 아니에요.')
+    if target != actor_name and not (r['manager'] or r['approver']):
+        raise PermissionError('다른 사람의 휴무 출근은 취합 담당·승인권자만 기록할 수 있어요.')
+    if target == actor_name and not (r['member'] or r['manager'] or r['approver']):
+        raise PermissionError('스케줄 근무 대상이 아니에요.')
+    verbal_by = (verbal_by or '').strip()
+    if verbal_by not in {a['name'] for a in approvers()}:
+        raise SatOffError('구두로 승인해 주신 분을 골라 주세요.')
+    reason = (reason or '').strip()[:200]
+    if not reason:
+        raise SatOffError('어떤 일로 나오는지 적어 주세요. (예: ○○ 현장 공사)')
+    key = day.isoformat()
+    with lv._conn() as conn:
+        cur = conn.execute('DELETE FROM sat_off_days WHERE day=? AND name=?', (key, target))
+        if cur.rowcount != 1:
+            raise SatOffError(f'{kday(day)}은 {target} 님이 쉬는 날이 아니에요. 새로 고쳐 주세요.')
+        conn.execute('INSERT OR REPLACE INTO sat_off_worked (day, name, slack_id, verbal_by, reason, recorded_by, '
+                     'recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                     (key, target, m['slack_id'], verbal_by, reason, actor_name, _now()))
+        _log(conn, actor_name, 'worked', month, f'{kday(day)} {target} 휴무 출근 (구두 승인 {verbal_by}) — {reason}')
+    return {'day': key, 'label': kday(day), 'name': target, 'verbal_by': verbal_by, 'reason': reason}
+
+
+def undo_worked(day: Optional[date], target: str, sid: str, actor_name: str) -> dict:
+    """휴무 출근 기록 되돌리기(잘못 눌렀을 때) — 그날을 다시 쉬는 날로. 본인·취합 담당·승인권자."""
+    r = role(sid, actor_name)
+    if target != actor_name and not (r['manager'] or r['approver']):
+        raise PermissionError('본인 기록만 되돌릴 수 있어요.')
+    if not day:
+        raise SatOffError('날짜를 다시 골라 주세요.')
+    key, month = day.isoformat(), _month_of(day)
+    with lv._conn() as conn:
+        w = conn.execute('SELECT slack_id FROM sat_off_worked WHERE day=? AND name=?', (key, target)).fetchone()
+        if not w:
+            raise SatOffError('휴무 출근 기록이 없어요. 새로 고쳐 주세요.')
+        conn.execute('DELETE FROM sat_off_worked WHERE day=? AND name=?', (key, target))
+        conn.execute('INSERT OR IGNORE INTO sat_off_days (day, name, slack_id, added_by, added_at) VALUES (?, ?, ?, ?, ?)',
+                     (key, target, w['slack_id'], actor_name, _now()))
+        _log(conn, actor_name, 'worked_undo', month, f'{kday(day)} {target} 휴무 출근 되돌림(다시 쉬는 날)')
+    return {'day': key, 'name': target}
 
 
 def submit(month: str, sid: str, actor_name: str, today: Optional[date] = None) -> dict:
@@ -450,6 +558,7 @@ def _apply(conn, month: str, name: str, slack_id: str, add: List[str], remove: L
     for x in add:
         conn.execute('INSERT OR IGNORE INTO sat_off_days (day, name, slack_id, added_by, added_at) VALUES (?, ?, ?, ?, ?)',
                      (x, name, slack_id, actor, now))
+        conn.execute('DELETE FROM sat_off_worked WHERE day=? AND name=?', (x, name))   # 다시 쉬면 출근 기록은 지움
 
 
 def request_change(month: str, target: str, add, remove, reason: str, sid: str, actor_name: str,
@@ -674,7 +783,8 @@ def _who_sid(name: str) -> str:
 
 
 def notify(kind: str, month: str, actor: str, change: Optional[dict] = None, note: str = '') -> None:
-    """kind: submit·approve·return·change_request·change_approve·change_reject. 실패해도 화면 처리는 그대로."""
+    """kind: submit·approve·return·change_request·change_approve·change_reject·worked·worked_undo.
+    실패해도 화면 처리는 그대로."""
     def run():
         client = _client()
         if not client:
@@ -722,6 +832,13 @@ def notify(kind: str, month: str, actor: str, change: Optional[dict] = None, not
             else:
                 _dm_some(client, [who], f"↩️ 스케줄 근무 변경 신청을 {actor} 님이 반려했어요. 쉬는 토요일: {change['what']}\n사유: {note}",
                          month, f"{change['name']} 님 스케줄 근무 변경 반려")
+        elif kind in ('worked', 'worked_undo') and change:
+            # 휴무 출근은 구두 승인이라 승인권자 DM·채널 글은 없음. 휴가 일수만 달라질 수 있어 그때만 경영지원에
+            if affected_leaves(month):
+                how = '휴무 출근' if kind == 'worked' else '휴무 출근 되돌림'
+                _dm_some(client, lv.manager_ids(), f"ℹ️ {change['name']} 님 {change['label']} {how}으로 휴가 일수가 달라지는 "
+                                                   '신청이 있어요. 휴가 관리에서 확인해 주세요.', month,
+                         f"{change['name']} 님 {how}으로 휴가 일수 고칠 신청")
     _run_bg(lambda: _safe(run, kind, month))
 
 

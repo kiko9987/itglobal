@@ -84,6 +84,11 @@ def test_build_nav_active_and_admin_only():
     # 펼친 왼쪽 줄용 하위 메뉴(children) — 권한대로 거르고, 지금 화면만 켜짐
     hr_area = next(a for a in gw.build_nav('/leave/team', 'editor', leave_all=True)['areas'] if a['key'] == 'leave')
     assert [(c['label'], c['active']) for c in hr_area['children']] == [('내 휴가', False), ('전사 휴가 관리', True)]
+    # 일반 직원(전사 휴가 보기 권한 없음·기술영업 아님) — 휴가 메뉴는 '내 휴가'만(11-24 부장님 확인)
+    staff_area = next(a for a in gw.build_nav('/leave', 'editor')['areas'] if a['key'] == 'leave')
+    assert [c['label'] for c in staff_area['children']] == ['내 휴가']
+    sales_area = next(a for a in gw.build_nav('/leave', 'editor', sat_off=True)['areas'] if a['key'] == 'leave')
+    assert [c['label'] for c in sales_area['children']] == ['내 휴가', '스케줄 근무']    # 기술영업은 스케줄 근무까지
     sales = next(a for a in gw.build_nav('/home', 'editor')['areas'] if a['key'] == 'sales')
     assert [c['label'] for c in sales['children']] == ['프로젝트', '고객 리드', '입찰 공고', '매출 통계'] and not sales['active']
     assert not any(c['active'] for c in sales['children'])

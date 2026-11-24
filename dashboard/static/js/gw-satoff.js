@@ -124,7 +124,7 @@
         var nw = narrow();   // 휴대폰은 칸이 아니라 줄마다 단추
         h += '<p class="gw-so-how">' + (me.member && !d.pick_others
           ? (nw ? '쉬고 싶은 토요일의 [내 이름 넣기]를 누르세요. 다시 누르면 빠져요.'
-            : '쉬고 싶은 토요일 칸을 누르면 내 이름이 들어가고, 한 번 더 누르면 빠져요.') + ' 한 달 ' + d.limit + '번이 기본이에요.'
+            : '쉬고 싶은 토요일 칸을 누르면 내 이름이 들어가고, 한 번 더 누르면 빠져요.')
           : (nw ? '토요일마다 [쉬는 사람 고르기]로 고르세요.' : '토요일 칸을 눌러 쉬는 사람을 고르세요.') +
             ' 다 모이면 [결재 올리기]를 눌러 주세요.') + '</p>';
       } else {
@@ -150,11 +150,73 @@
           '<button type="button" class="btn btn-light btn-sm" data-act="undo">되돌리기</button></div>';
       }
     }
+    // 휴무 출근(11-24) — 결재 올린 뒤(대기·확정). 서버가 재시작 전이면 can_mark_worked 가 없어 안 보임
+    if (d.can_mark_worked) {
+      var who = (d.approvers || []).join('·') || '승인권자';
+      h += '<p class="gw-so-how">쉬기로 한 토요일에 급한 공사로 나오게 되면 ' + esc(who) +
+        ' 님 중 한 분께 말씀드린 뒤 [휴무 출근 기록]을 눌러 주세요.</p>';
+      acts = '<button type="button" class="btn btn-outline-secondary btn-sm" data-act="worked">휴무 출근 기록</button>' + acts;
+    }
     barEl.innerHTML = h;
     actEl.innerHTML = acts;
 
     if (narrow()) renderList(d, me); else renderGrid(d, me);
+    renderTable(d, me);
     renderSide(d, me);
+  }
+
+  // 휴무 출근 칩 — 달력 칸·휴대폰 목록 공용
+  function workedChips(s, tag) {
+    return (s.worked || []).map(function (n) {
+      return '<' + tag + ' class="gw-cal-chip gw-so-chip worked" title="' + esc(n + ' — 휴무 출근') + '">' + esc(n) +
+        ' <small>출근</small><span class="visually-hidden"> (쉬기로 했다가 휴무 출근)</span></' + tag + '>';
+    }).join('');
+  }
+
+  // ── 토요일 근무표(11-24 부장님) — 사람 × 토요일 표. 칸마다 근무·쉼·휴무 출근, 끝에 쉰 횟수·휴무 출근 횟수 ──
+  // 표 자리는 JS 가 만든다(서버가 옛 템플릿이어도 보이게 — 11-24 템플릿 캐시 사고)
+  var tableEl = document.getElementById('soTable');
+  if (!tableEl) {
+    tableEl = document.createElement('section');
+    tableEl.className = 'gw-panel gw-so-table';
+    tableEl.id = 'soTable';
+    calEl.parentNode.insertBefore(tableEl, calEl.nextSibling);
+  }
+  function renderTable(d, me) {
+    var sats = d.saturdays || [];
+    var mem = d.members || [];
+    if (!sats.length || !mem.length) { tableEl.hidden = true; return; }
+    var off = {}, wk = {};
+    sats.forEach(function (s) {
+      s.names.forEach(function (n) { off[s.day + '|' + n] = true; });
+      (s.worked || []).forEach(function (n) { wk[s.day + '|' + n] = true; });
+    });
+    var h = '<h3 class="gw-so-h">토요일 근무표</h3><div class="gw-so-tablewrap"><table class="gw-so-matrix">' +
+      '<caption class="visually-hidden">' + cur.y + '년 ' + cur.m + '월 토요일마다 근무·쉼·휴무 출근</caption><thead><tr><th scope="col">이름</th>';
+    sats.forEach(function (s) {
+      h += '<th scope="col" class="' + (s.day === todayIso ? 'today' : '') + '">' + md(s.day) +
+        (s.holiday ? '<small class="gw-so-hol">' + esc(s.holiday) + '</small>' : '') + '</th>';
+    });
+    h += '<th scope="col" class="n">쉼</th><th scope="col" class="n">휴무 출근</th></tr></thead><tbody>';
+    mem.forEach(function (m) {
+      h += '<tr' + (m.name === me.name ? ' class="mine"' : '') + '><th scope="row">' + esc(m.name) + '</th>';
+      sats.forEach(function (s) {
+        var k = s.day + '|' + m.name;
+        if (s.holiday) h += '<td class="hol">공휴일</td>';
+        else if (wk[k]) h += '<td><span class="gw-so-cell worked">휴무 출근</span></td>';
+        else if (off[k]) h += '<td><span class="gw-so-cell off">쉼</span></td>';
+        else h += '<td class="work">근무</td>';
+      });
+      h += '<td class="n">' + (m.count || 0) + '</td><td class="n">' + (m.worked || 0) + '</td></tr>';
+    });
+    h += '</tbody><tfoot><tr><th scope="row">근무</th>';
+    sats.forEach(function (s) {
+      var n = mem.filter(function (m) { return !off[s.day + '|' + m.name]; }).length;
+      h += '<td>' + (s.holiday ? '-' : n + '명') + '</td>';
+    });
+    h += '<td></td><td></td></tr></tfoot></table></div>';
+    tableEl.innerHTML = h;
+    tableEl.hidden = false;
   }
 
   // 휴대폰 — 그달 토요일만 한 줄씩. 누를 일은 줄마다 단추 하나(44px)
@@ -178,6 +240,7 @@
           (gone ? '<span class="visually-hidden"> (빼기로 고름)</span>' : '') + '</span>';
       }).join('');
       if (inDraft(draft.add, di)) chips += '<span class="gw-cal-chip gw-so-chip mine add">' + esc(me.name) + '<span class="visually-hidden"> (넣기로 고름)</span></span>';
+      chips += workedChips(s, 'span');
       var label = mode ? actLabel(mode, s, di) : '';
       var btn = label
         ? '<button type="button" class="btn btn-outline-secondary gw-so-act" data-day="' + di + '" data-mode="' + mode + '" aria-label="' +
@@ -224,6 +287,7 @@
           (gone ? '<span class="visually-hidden"> (빼기로 고름)</span>' : '') + '</div>';
       });
       if (inDraft(draft.add, di)) g += '<div class="gw-cal-chip gw-so-chip mine add">' + esc(me.name) + '<span class="visually-hidden"> (넣기로 고름)</span></div>';
+      g += workedChips(s, 'div');
       if (mode === 'self' && !s.mine) g += '<div class="gw-so-plus" aria-hidden="true">+ 내 이름</div>';
       if (mode === 'pick') g += '<div class="gw-so-plus" aria-hidden="true">+ 고르기</div>';
       if (mode === 'draft' && !s.mine && !inDraft(draft.add, di)) g += '<div class="gw-so-plus" aria-hidden="true">+ 바꿔 쉬기</div>';
@@ -234,14 +298,33 @@
     calEl.innerHTML = g + '</div>';
   }
 
+  // 오른쪽 칸 — 휴무 출근 기록·변경 신청·고친 기록. 사람별 횟수는 근무표 끝 칸으로 옮겼다(11-24, 2번 기준도 뺌)
+  var sideEl = document.querySelector('#soPage .gw-so-side');
+  var oldCounts = document.getElementById('soCounts');            // 재시작 전 옛 템플릿의 횟수 상자 — 숨김
+  if (oldCounts && oldCounts.closest('section')) oldCounts.closest('section').hidden = true;
+  var workedBox = document.getElementById('soWorkedBox');
+  if (!workedBox && sideEl) {
+    workedBox = document.createElement('section');
+    workedBox.className = 'gw-panel gw-so-box';
+    workedBox.id = 'soWorkedBox';
+    workedBox.hidden = true;
+    workedBox.innerHTML = '<h3 class="gw-so-h">휴무 출근</h3><ul class="gw-so-changes" id="soWorked"></ul>';
+    sideEl.insertBefore(workedBox, sideEl.firstChild);
+  }
+
   function renderSide(d, me) {
-    // 사람별 횟수
-    document.getElementById('soLimit').textContent = '(한 달 ' + d.limit + '번 기본)';
-    document.getElementById('soCounts').innerHTML = (d.members || []).map(function (m) {
-      var over = m.count > d.limit;
-      return '<li class="' + (over ? 'over' : m.count ? '' : 'zero') + (m.name === me.name ? ' mine' : '') + '"><span>' + esc(m.name) + '</span>' +
-        '<b>' + m.count + '번' + (over ? ' <span class="gw-so-warn">기본보다 많음</span>' : '') + '</b></li>';
-    }).join('') || '<li class="zero">대상자가 없어요.</li>';
+    // 휴무 출근 기록
+    var wk = d.worked || [];
+    if (workedBox) {
+      workedBox.hidden = !wk.length;
+      document.getElementById('soWorked').innerHTML = wk.map(function (w) {
+        return '<li><div><strong>' + esc(w.name) + '</strong> ' + esc(w.label) + '</div>' +
+          '<div class="gw-so-sub">' + esc(w.reason || '') + ' · 구두 승인 ' + esc(w.verbal_by || '') +
+          (w.recorded_by && w.recorded_by !== w.name ? ' · 기록 ' + esc(w.recorded_by) : '') + '</div>' +
+          (w.can_undo ? '<div class="gw-so-btns"><button type="button" class="btn btn-light btn-sm" data-wundo="' + esc(w.day) +
+            '" data-name="' + esc(w.name) + '">되돌리기</button></div>' : '') + '</li>';
+      }).join('');
+    }
 
     // 변경 신청
     var ch = d.changes || [];
@@ -265,6 +348,13 @@
     document.getElementById('soLog').innerHTML = log.map(function (l) {
       return '<li><span>' + esc((l.at || '').slice(5, 16)) + '</span> ' + esc(l.actor || '') + ' · ' + esc(l.detail || '') + '</li>';
     }).join('');
+
+    // 오른쪽 칸에 보일 게 없으면 달력·근무표가 넓이를 다 쓴다
+    if (sideEl) {
+      var any = Array.prototype.some.call(sideEl.children, function (c) { return !c.hidden; });
+      sideEl.hidden = !any;
+      document.getElementById('soPage').classList.toggle('has-side', any);
+    }
   }
 
   function load(keepDraft) {
@@ -481,6 +571,8 @@
         return api('/api/satoff/decide', { method: 'POST', body: { month: k, approve: false, note: note } })
           .then(function () { watchNotify(k); return '돌려보냈어요. 올린 분께 슬랙 알림이 가요.'; });
       });
+    } else if (act === 'worked') {
+      openWorked();
     } else if (act === 'undo') {
       draft = { add: [], remove: [] };
       render();
@@ -523,6 +615,99 @@
       }).catch(function (e) { flash(e.message, 'err'); b.disabled = false; });
     }
   });
+
+  // ── 휴무 출근 기록 창(11-24 부장님) — 구두 승인 뒤 본인이. 창은 JS 가 만든다(템플릿 캐시와 무관하게) ──
+  var wkEl = null, wkModal = null;
+  function workedModal() {
+    if (wkEl) return wkEl;
+    wkEl = document.createElement('div');
+    wkEl.className = 'modal fade';
+    wkEl.id = 'soWorkedModal';
+    wkEl.tabIndex = -1;
+    wkEl.setAttribute('aria-labelledby', 'soWkTitle');
+    wkEl.setAttribute('aria-hidden', 'true');
+    wkEl.innerHTML =
+      '<div class="modal-dialog modal-dialog-centered modal-fullscreen-sm-down"><form class="modal-content" id="soWkForm" novalidate>' +
+      '<div class="modal-header"><h2 class="modal-title fs-5" id="soWkTitle">휴무 출근 기록</h2>' +
+      '<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button></div>' +
+      '<div class="modal-body">' +
+      '<p class="gw-so-hint">쉬기로 한 토요일에 급한 공사로 나오는 날을 남겨요. 남기면 그날은 근무로 바뀌어 차량·방문 배정에도 근무로 보여요.</p>' +
+      '<div class="mb-3" id="soWkNameWrap"><label class="form-label" for="soWkName">누가</label><select class="form-select" id="soWkName"></select></div>' +
+      '<div class="mb-3"><label class="form-label" for="soWkDay">쉬기로 했던 토요일</label><select class="form-select" id="soWkDay"></select></div>' +
+      '<div class="mb-3"><label class="form-label" for="soWkBy">구두로 승인해 주신 분</label><select class="form-select" id="soWkBy"></select></div>' +
+      '<div class="mb-1"><label class="form-label" for="soWkReason">어떤 일로 나오나요</label>' +
+      '<input type="text" class="form-control" id="soWkReason" maxlength="200" autocomplete="off" placeholder="예: ○○ 현장 공사"></div>' +
+      '<div class="gw-lv-err" id="soWkErr" role="alert"></div></div>' +
+      '<div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">닫기</button>' +
+      '<button type="submit" class="btn btn-primary" id="soWkSave">기록</button></div></form></div>';
+    document.body.appendChild(wkEl);
+    document.getElementById('soWkName').addEventListener('change', fillWorkedDays);
+    document.getElementById('soWkForm').addEventListener('submit', saveWorked);
+    return wkEl;
+  }
+  function fillWorkedDays() {
+    var who = document.getElementById('soWkName').value;
+    var days = (data.saturdays || []).filter(function (s) { return !s.holiday && s.names.indexOf(who) !== -1; });
+    var sel = document.getElementById('soWkDay');
+    sel.innerHTML = days.length
+      ? days.map(function (s) { return '<option value="' + esc(s.day) + '">' + esc(md(s.day)) + '(토)' + (s.past ? ' · 지난 날' : '') + '</option>'; }).join('')
+      : '<option value="">이번 달 쉬기로 한 토요일이 없어요</option>';
+    sel.disabled = !days.length;
+    document.getElementById('soWkSave').disabled = !days.length;
+  }
+  function openWorked() {
+    if (!data) return;
+    var me = data.me || {};
+    var el = workedModal();
+    var others = me.manager || me.approver;
+    var names = others ? (data.members || []).map(function (m) { return m.name; }) : [me.name];
+    var nameSel = document.getElementById('soWkName');
+    nameSel.innerHTML = names.map(function (n) { return '<option value="' + esc(n) + '">' + esc(n) + '</option>'; }).join('');
+    if (names.indexOf(me.name) !== -1) nameSel.value = me.name;
+    document.getElementById('soWkNameWrap').hidden = !others;
+    document.getElementById('soWkBy').innerHTML = '<option value="">고르기</option>' + (data.approvers || []).map(function (n) {
+      return '<option value="' + esc(n) + '"' + (n === me.name ? ' selected' : '') + '>' + esc(n) + '</option>';
+    }).join('');
+    document.getElementById('soWkReason').value = '';
+    document.getElementById('soWkErr').textContent = '';
+    fillWorkedDays();
+    wkModal = showModal(el, document.getElementById(others ? 'soWkName' : 'soWkDay'));
+  }
+  function saveWorked(ev) {
+    ev.preventDefault();
+    var err = document.getElementById('soWkErr');
+    var body = {
+      on: true,
+      name: document.getElementById('soWkName').value,
+      day: document.getElementById('soWkDay').value,
+      verbal_by: document.getElementById('soWkBy').value,
+      reason: document.getElementById('soWkReason').value.trim()
+    };
+    if (!body.day) { err.textContent = '쉬기로 했던 토요일을 골라 주세요.'; return; }
+    if (!body.verbal_by) { err.textContent = '구두로 승인해 주신 분을 골라 주세요.'; document.getElementById('soWkBy').focus(); return; }
+    if (!body.reason) { err.textContent = '어떤 일로 나오는지 적어 주세요.'; document.getElementById('soWkReason').focus(); return; }
+    var btn = document.getElementById('soWkSave');
+    btn.disabled = true;
+    api('/api/satoff/worked', { method: 'POST', body: body }).then(function () {
+      if (wkModal) wkModal.hide();
+      flash(body.name + ' 님 ' + md(body.day) + ' 토요일을 휴무 출근으로 남겼어요. 그날은 근무로 바뀌었어요.', 'ok');
+      return load(true);
+    }).catch(function (e) { err.textContent = e.message; })
+      .then(function () { btn.disabled = false; });
+  }
+  if (sideEl) {
+    sideEl.addEventListener('click', function (ev) {
+      var b = ev.target.closest('[data-wundo]');
+      if (!b) return;
+      var day = b.getAttribute('data-wundo'), who = b.getAttribute('data-name');
+      if (!window.confirm(who + ' 님 ' + md(day) + ' 토요일 휴무 출근을 되돌릴까요? 그날은 다시 쉬는 날이 돼요.')) return;
+      b.disabled = true;
+      api('/api/satoff/worked', { method: 'POST', body: { on: false, day: day, name: who } }).then(function () {
+        flash(who + ' 님 ' + md(day) + ' 토요일을 다시 쉬는 날로 되돌렸어요.', 'ok');
+        return load(true);
+      }).catch(function (e) { flash(e.message, 'err'); b.disabled = false; });
+    });
+  }
 
   load();
 })();

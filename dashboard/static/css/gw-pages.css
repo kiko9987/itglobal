@@ -3032,12 +3032,35 @@ html:has(#bdPage) {
 .gw-so-actions:empty { display: none; }
 .gw-so-actions.is-loading { opacity: 0.4; pointer-events: none; }
 @media (min-width: 1200px) {
-  .gw-page.gw-so { display: grid; grid-template-columns: minmax(0, 1fr) 280px; column-gap: 16px; align-items: start; }
-  .gw-page.gw-so > * { grid-column: 1 / -1; }
-  .gw-page.gw-so > .gw-cal { grid-column: 1; }
-  .gw-page.gw-so > .gw-so-side { grid-column: 2; margin-top: 0; grid-template-columns: minmax(0, 1fr); }
   .gw-so .gw-cal-grid { grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 1.6fr) minmax(0, 1fr); }
+  /* 오른쪽 칸(휴무 출근·변경 신청·기록)이 있을 때만 두 칸 — 달력·근무표는 왼쪽, 오른쪽 칸은 두 줄에 걸침 */
+  .gw-page.gw-so.has-side { display: grid; grid-template-columns: minmax(0, 1fr) 300px; column-gap: 16px; align-items: start;
+    grid-auto-flow: row dense; }
+  .gw-page.gw-so.has-side > * { grid-column: 1 / -1; }
+  .gw-page.gw-so.has-side > .gw-cal, .gw-page.gw-so.has-side > .gw-so-table { grid-column: 1; }
+  .gw-page.gw-so.has-side > .gw-so-side { grid-column: 2; grid-row: span 2; margin-top: 0; grid-template-columns: minmax(0, 1fr); }
 }
+.gw-so-side[hidden] { display: none; }
+/* 토요일 근무표(11-24) — 사람 × 토요일 */
+.gw-so-table { margin-top: 14px; padding: 12px 14px; }
+.gw-so-table[hidden] { display: none; }
+.gw-so-tablewrap { overflow-x: auto; }
+.gw-so-matrix { width: 100%; border-collapse: collapse; font-size: 0.88rem; font-variant-numeric: tabular-nums; }
+.gw-so-matrix th, .gw-so-matrix td { padding: 6px 8px; border-bottom: 1px solid #eef0f3; text-align: center; white-space: nowrap; }
+.gw-so-matrix thead th { font-weight: 600; color: #475569; border-bottom: 1px solid #e2e8f0; }
+.gw-so-matrix thead th.today { color: #c2410c; }
+.gw-so-matrix thead th small { display: block; font-weight: 400; font-size: 0.72rem; }
+.gw-so-matrix tbody th, .gw-so-matrix tfoot th { text-align: left; font-weight: 500; }
+.gw-so-matrix tr.mine th { font-weight: 700; }
+.gw-so-matrix tr.mine { background: #fafafa; }
+.gw-so-matrix td.work { color: #94a3b8; }
+.gw-so-matrix td.hol { color: #94a3b8; font-size: 0.78rem; }
+.gw-so-matrix td.n { font-weight: 600; color: #1e293b; }
+.gw-so-matrix tfoot td, .gw-so-matrix tfoot th { color: #475569; font-size: 0.82rem; border-bottom: 0; }
+.gw-so-cell { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; }
+.gw-so-cell.off { background: #e0f2fe; color: #075985; }
+.gw-so-cell.worked, .gw-so-chip.worked { background: #ffedd5; color: #9a3412; }
+.gw-so-chip.worked small { font-size: 0.7em; }
 @media (max-width: 767.98px) {
   .gw-so-plus { display: none; }
   .gw-so-sat .gw-so-chip { white-space: normal; word-break: keep-all; }
