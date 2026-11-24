@@ -203,7 +203,8 @@ def test_trip_routes_and_field_paths(db, monkeypatch):
         me['name'] = '모르는사람'
         assert cl.get('/api/vehicles/trip').get_json()['trips'] == []
         assert cl.post('/api/vehicles/trip/end', json={'day': today, 'plate': '16소4041'}).status_code == 403
-    assert field_path_allowed('GET', '/api/vehicles/trip') and field_path_allowed('POST', '/api/vehicles/trip/end')
+    # 현장 세션엔 차량 화면이 없다(11-25 부장님) — 운전자 확인은 저녁 슬랙 DM 단추로
+    assert not field_path_allowed('GET', '/api/vehicles/trip') and not field_path_allowed('POST', '/api/vehicles/trip/end')
 
 
 def test_confirm_dm_mentions_end_button_only_after_open(db, monkeypatch):

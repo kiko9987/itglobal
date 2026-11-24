@@ -253,8 +253,9 @@ def test_routes_view_for_all_edit_for_assigner(db, monkeypatch):
         assert cl.post('/api/vehicles/assign/parse', json={'text': 'YM 레이'}).status_code == 404   # 카톡 붙여넣기 없음
         f = cl.post('/api/vehicles/fleet/133가6633', json={'fixed_user': 'JK'}).get_json()
         assert f['car']['fixed_user'] == 'JK'
-    assert field_path_allowed('GET', '/vehicles/assign') and field_path_allowed('GET', '/api/vehicles/assign')
-    assert not field_path_allowed('POST', '/api/vehicles/assign')
+    # 현장 세션은 차량 배정 화면·운행 종료도 못 연다(11-25 부장님 '차량도 보여줄 필요 없어')
+    assert not field_path_allowed('GET', '/vehicles/assign') and not field_path_allowed('GET', '/api/vehicles/assign')
+    assert not field_path_allowed('POST', '/api/vehicles/assign') and not field_path_allowed('POST', '/api/vehicles/trip/end')
 
 
 def test_dev_preview_only_kiko(db, monkeypatch):

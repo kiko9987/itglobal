@@ -196,9 +196,11 @@ def test_uplus_trips_merge(monkeypatch):
 
 def test_now_menu_open_without_keys(monkeypatch):
     monkeypatch.setattr(gw, '_uplus_on', lambda: False)      # 키 전이라도 메뉴는 연다(11-24 부장님)
-    nav = gw.build_nav('/vehicles/now', 'field', field=True)
-    assert [a['key'] for a in nav['areas']] == ['leave', 'hr', 'vehicle'] and [i['label'] for i in nav['items']] == ['실시간 위치']
+    nav = gw.build_nav('/vehicles/now', 'editor')
+    assert any(i['label'] == '실시간 위치' and i['active'] for i in nav['items'])
     assert [a['label'] for a in gw.build_nav('/home', 'editor')['areas']][-1] == '차량'
+    # 현장·미화엔 차량 메뉴가 없다(11-25 부장님 '차량도 보여줄 필요 없어')
+    assert [a['key'] for a in gw.build_nav('/home', 'field', field=True)['areas']] == ['leave', 'hr']
 
 
 def test_now_page_open_to_all_and_field(db, monkeypatch):
@@ -224,5 +226,6 @@ def test_now_page_open_to_all_and_field(db, monkeypatch):
         assert cl.get("/api/vehicles/insights").get_json()["success"]   # 운행 표가 없는 새 DB 에서도(11-24)
         assert cl.get('/api/vehicles/manage').status_code != 403              # 개발 중 문을 통과
         assert cl.get('/api/vehicles/assign').status_code == 403              # 차량 배정은 그대로(배정 담당)
-    assert field_path_allowed('GET', '/vehicles/now') and field_path_allowed('GET', '/api/vehicles/now/near')
+    # 현장 세션은 차량 화면·API 를 못 연다(11-25)
+    assert not field_path_allowed('GET', '/vehicles/now') and not field_path_allowed('GET', '/api/vehicles/now/near')
     assert not field_path_allowed('GET', '/api/vehicles/insights')

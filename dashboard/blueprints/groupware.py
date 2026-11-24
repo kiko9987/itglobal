@@ -21,12 +21,10 @@ groupware_bp = Blueprint('groupware', __name__)
 
 # ── 현장 세션 문지기 ───────────────────────────────────────────────────
 # 슬랙 링크로 들어온 현장·미화 직원(session.user.gw_field)은 아래 경로만. 나머지(기존 PM 화면·API)는 전부 막는다.
-_FIELD_PAGES = ('/home', '/hr/me', '/leave', '/yearend', '/vehicles/assign', '/vehicles/now', '/logout', '/login')
+# 차량 화면(실시간 위치·차량 배정·운행 종료)은 현장에 안 보인다(11-25 부장님 '차량도 보여줄 필요 없어').
+#   차량 배정 DM 에는 그룹웨어 링크가 없고, 운전자 확인은 저녁 슬랙 DM 단추(vehicle_driver)로 따로 한다
+_FIELD_PAGES = ('/home', '/hr/me', '/leave', '/yearend', '/logout', '/login')
 _FIELD_API = [
-    (('GET',), re.compile(r'^/api/vehicles/now(/near)?$')),   # 실시간 차량 위치(전 직원, 11-24)
-    (('GET',), re.compile(r'^/api/vehicles/assign$')),    # 차량 배정 보기만(고치기는 배정 담당자, 11-20)
-    (('GET',), re.compile(r'^/api/vehicles/trip$')),      # 오늘 내가 탄 차(11-22)
-    (('POST',), re.compile(r'^/api/vehicles/trip/end$')), # [운행 종료] + 운전자(그 차에 탄 사람만 — vehicle_driver.end_trip, 11-22)
     (('GET',), re.compile(r'^/api/home$')),              # 홈(현장은 내 휴가만 담김)
     (('GET',), re.compile(r'^/api/hr/people/\d+$')),     # 본인 카드(본인 여부는 화면 쪽에서 다시 확인)
     (('GET',), re.compile(r'^/api/leave/me$')),          # 내 휴가(+신청 창 정보)

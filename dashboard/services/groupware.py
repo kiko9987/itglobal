@@ -216,7 +216,7 @@ AREAS = [
         # 휴가·인사 뒤에 둔다 — 현장 세션은 첫 영역이 로고 자리라 휴가가 먼저여야 한다.
         'key': 'vehicle', 'label': '차량', 'icon': 'fas fa-car',
         'items': [
-            {'href': '/vehicles/now', 'label': '실시간 위치', 'icon': 'fas fa-location-dot', 'field': True},   # 전 직원(11-24 — 키 전이라도 메뉴는 열어 둠, 부장님)
+            {'href': '/vehicles/now', 'label': '실시간 위치', 'icon': 'fas fa-location-dot'},   # 사무실 전 직원(11-24). 현장·미화는 뺌(11-25 부장님)
             {'href': '/vehicles', 'label': '운행일지', 'icon': 'fas fa-route', 'hr_admin': True},   # U+커넥트 운행(11-22 이름)
             {'href': '/vehicles/manage', 'label': '차량 관리', 'icon': 'fas fa-screwdriver-wrench', 'hr_admin': True},  # 11-22
         ],
