@@ -41,15 +41,15 @@
   var page = $('vnPage');
   var S = { cars: [], filter: 'all', near: null, map: null, kakao: null, overlays: {}, target: null, timer: null, key: page.getAttribute('data-kakao') || '' };
 
+  function isStop(c) { return c.lat != null && !c.moving; }     // 위치를 모르는 차는 정지로 세지 않는다(11-24)
   function counts() {
-    var mv = S.cars.filter(function (c) { return c.moving; }).length;
     $('vnCntAll').textContent = S.cars.length;
-    $('vnCntMoving').textContent = mv;
-    $('vnCntStop').textContent = S.cars.length - mv;
+    $('vnCntMoving').textContent = S.cars.filter(function (c) { return c.moving; }).length;
+    $('vnCntStop').textContent = S.cars.filter(isStop).length;
   }
   function shown() {
     var list = S.near ? S.near : S.cars;
-    return list.filter(function (c) { return S.filter === 'all' || (S.filter === 'moving' ? c.moving : !c.moving); });
+    return list.filter(function (c) { return S.filter === 'all' || (S.filter === 'moving' ? c.moving : isStop(c)); });
   }
   function row(c) {
     var state = c.lat == null ? '<span class="gw-vn-state none">위치 없음</span>'

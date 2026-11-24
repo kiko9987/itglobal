@@ -54,7 +54,7 @@
   // 차량 상태(U+ '차량상태 조회'와 같은 뜻, 11-24) — 점검 필요는 꼬리표, 양호면 전압·연료만 작게
   function stateCell(c) {
     var s = c.state;
-    if (!s) return c.uplus ? '<span class="text-muted small">U+ 연동 후</span>' : '<span class="text-muted">-</span>';
+    if (!s) return c.uplus ? '<span class="text-muted small text-nowrap">U+ 연동 후</span>' : '<span class="text-muted">-</span>';
     var bits = [];
     if (s.voltage) bits.push(Number(s.voltage).toFixed(1) + 'V');
     if (s.fuel != null && s.fuel > 0) bits.push('연료 ' + Math.round(s.fuel) + '%');
@@ -85,7 +85,7 @@
         var tag = c.usage === 'off' ? ' <span class="gw-badge gw-badge-resigned">배정 안 함</span>' : '';
         var own = c.ownership && c.ownership !== '법인 소유' ? '<span class="gw-vm-own">' + esc(c.ownership) + '</span>' : '';
         var kmCell = c.km != null ? esc(Number(c.km).toLocaleString('ko-KR')) + '<br><span class="text-muted small">' + esc(shortDay(c.km_day)) + '</span>'
-          : (c.uplus ? '<span class="text-muted small">U+ 연동 후</span>' : '<span class="gw-badge gw-badge-wait">입력 필요</span>');
+          : (c.uplus ? '<span class="text-muted small text-nowrap">U+ 연동 후</span>' : '<span class="gw-badge gw-badge-wait">입력 필요</span>');
         if (c.km != null && c.state && c.state.odometer) kmCell = esc(Math.round(c.km).toLocaleString('ko-KR')) + '<br><span class="text-muted small">U+ ' + esc(c.state.at) + '</span>';
         return '<tr tabindex="0" role="button" data-plate="' + esc(c.plate) + '" aria-label="' + esc(c.label + ' 자세히') + '"' +
           (c.warn ? ' class="gw-vm-warn"' : '') + '>' +
