@@ -152,10 +152,10 @@ def assigners() -> List[str]:
 
 
 def can_assign(email: str) -> bool:
+    """차량 배정 고치기·확정·차량 설정 — 관리자(admin·super_admin)만(11-25 부장님 '작성 권한은 어드민한테만').
+    배정 담당 명단(vehicle_assigners)은 '차량 배정해 주세요' DM 받을 사람만 정한다(그중 관리자에게만 보냄)."""
     from dashboard.services import hr
-    email = (email or '').strip().lower()
-    # 관리자(admin·super_admin)는 모두(11-25 부장님 '어드민한테는 다 열어줘')
-    return bool(email) and (hr.is_hr_admin(email) or email in assigners() or hr.is_admin_email(email))
+    return hr.is_admin_email(email)
 
 
 # ── 차량·직원 ───────────────────────────────────────────────────────────
@@ -808,7 +808,7 @@ def _dm_assigners(text: str, skip: str = '') -> SentCount:
     """배정 담당(설정 명단)에게 DM — 보낸 수 + 못 보낸 사람. 못 보낸 사람이 있거나 명단이 비면 ERROR(11-24)."""
     from dashboard.services import hr
     n, failed = 0, []
-    every = assigners()
+    every = [e for e in assigners() if hr.is_admin_email(e)]     # 고칠 수 없는 사람에게 '배정해 주세요'를 보내지 않게(11-25)
     targets = [e for e in every if e != skip]
     for email in targets:
         sid = ((hr.find_by_email(email) or {}).get('slack_id')) or ''

@@ -31,6 +31,7 @@ def db(tmp_path, monkeypatch):
     monkeypatch.setattr(va, 'CAR_DM_ON', True)         # 운영에선 꺼 둠(11-23) — 꺼진 때는 test_car_dm_off 에서
     sent = []
     monkeypatch.setattr(va, '_dm', lambda sid, text: sent.append((sid, text)) or True)
+    d.create_user('배정', ASSIGNER, 'pw-Test-1234!', 'admin')    # 고치기는 관리자만(11-25) — 배정하는 사람은 관리자
     gw._invalidate()
     yield sent
     gw._invalidate()
@@ -224,10 +225,19 @@ def test_routes_view_for_all_edit_for_assigner(db, monkeypatch):
     monkeypatch.setattr(va, 'day_off', lambda d: {'off': [{'code': 'JK', 'name': '강해', 'why': '연차'}], 'half': []})   # 휴가 DB 안 읽게
     resolve = []
     monkeypatch.setattr(bp, '_resolve_later', lambda s, e: resolve.append((s, e)))   # 행안부 부르지 않게
+    people = {'staff@example.com': {'name': '사무', 'department': '영업', 'status': '재직'},
+              'crew@example.com': {'name': '시공', 'department': '기술시공(내부)', 'status': '재직'}}
+    monkeypatch.setattr(hr, 'find_by_email', lambda e: people.get((e or '').lower()))
     app = Flask(__name__)
     app.secret_key = 'x'
     app.register_blueprint(bp.gw_vehicles_bp)
     with app.test_client() as cl:
+        # 시공·미화 부서는 방문 일정·차량 배정 모두 안 보임(11-25 부장님)
+        with cl.session_transaction() as s:
+            s['user'] = {'email': 'crew@example.com', 'permission_level': 'user'}
+        assert cl.get('/api/vehicles/assign?day=2026-11-21').status_code == 403
+        assert cl.get('/api/vehicles/plan?day=2026-11-21').status_code == 403
+        assert cl.get('/vehicles/assign').status_code == 302 and cl.get('/visits/plan').status_code == 302
         with cl.session_transaction() as s:
             s['user'] = {'email': 'staff@example.com', 'permission_level': 'user'}
         j = cl.get('/api/vehicles/assign?day=2026-11-21').get_json()
@@ -241,9 +251,11 @@ def test_routes_view_for_all_edit_for_assigner(db, monkeypatch):
         assert j['off'] == [{'code': 'JK', 'name': '강해', 'why': '연차'}] and j['half'] == []
         assert [g['cat'] for g in j['schedule']] == ['온라인 방문'] and j['schedule'][0]['items'][0]['who'] == ['서준']
         assert cl.get('/vehicles/assign').get_data(as_text=True) == 'gw/vehicle_assign.html'
+        assert cl.get('/visits/plan').get_data(as_text=True) == 'gw/visit_plan.html'
         assert cl.post('/api/vehicles/assign', json={'day': '2026-11-21', 'rows': []}).status_code == 403
+        assert cl.post('/api/vehicles/fleet/133가6633', json={'fixed_user': 'JK'}).status_code == 403
         with cl.session_transaction() as s:
-            s['user'] = {'email': ASSIGNER, 'permission_level': 'user'}
+            s['user'] = {'email': ASSIGNER, 'permission_level': 'admin'}
         assert cl.get('/api/vehicles/assign?day=2026-11-21').get_json()['can_edit']
         r = cl.post('/api/vehicles/assign', json={'day': '2026-11-21', 'confirm': True,
                                                   'rows': [{'plate': '237허5358', 'people': ['TH']}]}).get_json()
@@ -260,7 +272,7 @@ def test_routes_view_for_all_edit_for_assigner(db, monkeypatch):
 
 def test_dev_preview_only_kiko(db, monkeypatch):
     """차량은 개발 중 — 부장님만 들어가고, 다른 사람은 '아직 개발 중' 안내·API 403(11-21). 스케줄 근무는 11-25 엶.
-    차량 배정 화면만 배정 담당(SJ·JW)에게 먼저(11-24)."""
+    방문 일정·차량 배정은 시공·미화 뺀 모두(11-25)."""
     import dashboard.auth as auth
     from dashboard.blueprints import gw_satoff as so_bp
     from dashboard.blueprints import gw_vehicles as bp
@@ -280,7 +292,7 @@ def test_dev_preview_only_kiko(db, monkeypatch):
     with app.test_client() as cl:
         with cl.session_transaction() as s:
             s['user'] = {'email': ASSIGNER, 'permission_level': 'admin'}
-        # 차량 배정 화면만 배정 담당에게 먼저 열림(11-24 — JW 가 방문 일정 확정 뒤 바로 차를 넣음). 다른 차량 화면은 그대로 개발 중
+        # 차량 배정 화면은 개발 중 문과 상관없이 열림(11-25 시공·미화 뺀 모두). 다른 차량 화면은 그대로 개발 중
         assert cl.get('/vehicles/assign').get_data(as_text=True) == 'gw/vehicle_assign.html'
         assert cl.get('/api/vehicles/assign?day=2026-11-21').get_json()['success']
         # 스케줄 근무는 11-25 개발 중 문을 뗐다(시공·미화 빼고 모두) — 개발 중 안내가 아님. 볼 수 있는 사람은 test_sat_off 에서
@@ -296,7 +308,7 @@ def test_dev_preview_only_kiko(db, monkeypatch):
             s['user'] = {'email': kiko, 'permission_level': 'super_admin'}
         assert cl.get('/vehicles/assign').get_data(as_text=True) == 'gw/vehicle_assign.html'
         assert cl.get('/api/vehicles/assign?day=2026-11-21').get_json()['success']
-    # 배정 담당은 차량 배정 화면을 열 수 있으니(11-24) 개발 중 명단과 상관없이 '차량 배정해 주세요' DM 을 받는다
+    # 배정 담당(관리자)은 개발 중 명단과 상관없이 '차량 배정해 주세요' DM 을 받는다
     monkeypatch.setattr(hr, 'find_by_email', lambda e: {'slack_id': 'USJ'})
     assert va.request_assignment('2026-11-21') == 1
 
@@ -536,7 +548,7 @@ def test_resend_to_people_who_missed_dm(db, monkeypatch):
 
 
 def test_admins_can_plan_and_assign(db):
-    """관리자(admin·super_admin)는 방문 일정 짜기·확정과 차량 배정을 모두(11-25 부장님 '어드민한테는 다 열어줘')."""
+    """방문 일정 짜기·확정과 차량 배정은 관리자(admin·super_admin)만(11-25 부장님 '작성 권한은 어드민한테만')."""
     from dashboard.services import visit_plan as vp
     d = hr._db()
     d.create_user('관리자', 'boss2@example.com', 'pw-Test-1234!', 'admin')
@@ -545,4 +557,4 @@ def test_admins_can_plan_and_assign(db):
     assert not hr.is_admin_email('staff2@example.com') and not hr.is_admin_email('nobody@example.com') and not hr.is_admin_email('')
     assert vp.can_plan('boss2@example.com') and va.can_assign('boss2@example.com')
     assert not vp.can_plan('staff2@example.com') and not va.can_assign('staff2@example.com')
-    assert vp.can_plan('jw@itg-aircon.com')                       # 일정 담당은 그대로
+    assert not vp.can_plan('jw@example.com') and not va.can_assign('jw@example.com')   # 관리자 계정이 아니면 일정 담당도 못 고침

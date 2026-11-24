@@ -232,12 +232,12 @@ def _sat_off_menu(email: str) -> bool:
 
 
 def _planner_menu(email: str, level: str = '') -> bool:
-    """영업 > 방문 일정 메뉴 — 일정 담당(JW·대표님·부장님, 11-22). 지금은 관리자에게만 먼저 연 상태(11-23)."""
-    if gw.VISIT_PLAN_ADMIN_ONLY:
-        return level in gw.ADMIN_LEVELS
+    """영업 > 방문 일정 메뉴 — 시공·미화를 뺀 모두(11-25 부장님, 고치기는 관리자만). 실패하면 숨김."""
+    if level in gw.ADMIN_LEVELS:
+        return True
     try:
-        from dashboard.services.visit_plan import can_plan, is_duty_today
-        return can_plan(email) or is_duty_today(email)      # 오늘 온라인 당번도(당일 배정, 11-23)
+        from dashboard.services.visit_plan import can_view
+        return can_view(email)
     except Exception:
         return False
 

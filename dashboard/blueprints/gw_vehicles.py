@@ -1,17 +1,16 @@
 """그룹웨어 「차량 운행」·「차량 배정」(2026-11-20) — U+커넥트 운행일지를 올려 차량별 운행과 운전자를 보고,
 다음 날 차마다 탈 사람을 정한다(배정 규칙은 services/vehicle_assign.py).
 운행 규칙은 services/vehicle_log.py. 운행 기록은 위치라 인사 관리자(경영지원)만 — 현장 세션은 groupware 문지기가 막는다.
-배정은 직원 모두(현장 포함) 볼 수 있고 고치기는 배정 담당자(설정 vehicle_assigners, 기본 SJ)·인사 관리자.
+방문 일정·차량 배정은 시공·미화를 뺀 직원 모두 보고, 고치기·확정은 관리자만(11-25 부장님).
 상태 바꾸는 API 는 /api/ 로 시작해야 보안 미들웨어를 통과한다.
 """
 import re
 import threading
 from datetime import date, timedelta
 
-from flask import Blueprint, jsonify, redirect, render_template, request
+from flask import Blueprint, jsonify, redirect, render_template, request, session
 
 from dashboard.blueprints.hr import _hr_admin, _is_admin, _is_field, _me, _my_person, dev_preview_gate, gw_page
-from dashboard.services import groupware as gw
 from dashboard.services import hr
 from dashboard.services import vehicle_assign as va
 from dashboard.services import vehicle_driver as vd
@@ -23,33 +22,27 @@ from dashboard.utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 gw_vehicles_bp = Blueprint('gw_vehicles', __name__)
-_PLAN_PATHS = ('/visits/plan', '/api/vehicles/plan')
+# 방문 일정·차량 배정(+ 배정 화면의 차량 설정) — 시공·미화를 뺀 모두에게 연다(11-25 부장님). 고치기는 각 API 가 관리자만.
+_SCHED_PATHS = ('/visits/plan', '/api/vehicles/plan', '/vehicles/assign', '/api/vehicles/assign', '/api/vehicles/fleet/')
 
 
-def _plan_admin() -> bool:
-    """방문 일정을 관리자에게 먼저 연 동안(11-23 부장님) — 관리자(사무실 세션)면 들어온다."""
-    return gw.VISIT_PLAN_ADMIN_ONLY and _is_admin() and not _is_field()
-
-
-_ASSIGN_PATHS = ('/vehicles/assign', '/api/vehicles/assign')
-
-
-def _assign_open() -> bool:
-    """차량 배정 화면만 배정 담당(SJ·JW)에게 먼저(11-24 부장님 — JW 가 방문 일정 확정 뒤 바로 차를 넣음).
-    운행일지·차량 관리 등 다른 차량 화면은 여전히 개발 중 명단만."""
-    return not _is_field() and va.can_assign(_me())
+def _can_view() -> bool:
+    """방문 일정·차량 배정을 볼 수 있나 — 현장 세션이 아니고 시공·미화 부서가 아닌 재직자(관리자는 늘)."""
+    return not _is_field() and (_is_admin() or vp.can_view(_me()))
 
 
 _NOW_PATHS = ('/vehicles/now', '/api/vehicles/now')     # 실시간 위치 — 전 직원(11-24 부장님: 온라인 당번도 봐야 함)
 
 
 def _gate():
-    """개발 중 — 부장님만(11-21). 방문 일정만 관리자에게 먼저(11-23), 차량 배정은 배정 담당에게 먼저(11-24),
+    """개발 중 — 부장님만(11-21). 방문 일정·차량 배정은 시공·미화 뺀 모두(11-25),
     실시간 위치는 전 직원(현장 포함, 11-24)."""
-    if request.path.startswith(_PLAN_PATHS) and _plan_admin():
-        return None
-    if request.path.startswith(_ASSIGN_PATHS) and _assign_open():
-        return None
+    if request.path.startswith(_SCHED_PATHS):
+        if not session.get('user') or _can_view():
+            return None         # 로그인 확인은 각 화면(gw_page)이 한다
+        if request.path.startswith('/api/'):
+            return jsonify({'success': False, 'message': '볼 수 없는 화면이에요.'}), 403
+        return redirect('/home')
     if request.path.startswith(_NOW_PATHS):
         return None
     if _hr_open(request.path):
@@ -205,7 +198,7 @@ def api_car():
     return jsonify({'success': True, **data})
 
 
-# ── 차량 배정(11-20) — 보기는 직원 모두(현장 포함), 고치기는 배정하는 사람(SJ)·인사 관리자 ──────────
+# ── 차량 배정(11-20) — 보기는 시공·미화 뺀 모두, 고치기는 관리자만(11-25) ──────────
 def _can_assign() -> bool:
     return not _is_field() and va.can_assign(_me())
 
@@ -216,12 +209,9 @@ def _day() -> str:
 
 
 def _vtabs() -> dict:
-    """방문 일정 ↔ 차량 배정 탭(11-24 부장님) — 각 화면을 열 수 있는지. 둘 다 될 때만 탭 줄을 보인다.
-    차량 배정 = 개발 중 문(dev_preview) 통과, 방문 일정 = page_visit_plan 과 같은 조건(관리자 먼저 열림 포함)."""
-    dev = gw.dev_preview_ok(_me())
-    cars = dev or _assign_open()
-    plan = _plan_admin() or ((dev or _assign_open()) and (_can_plan() or (not _is_field() and vp.is_duty_today(_me()))))
-    return {'plan': bool(plan), 'cars': bool(cars)}
+    """방문 일정 ↔ 차량 배정 탭(11-24 부장님). 두 화면은 같은 사람에게 열려 있어(11-25) 늘 둘 다."""
+    ok = _can_view()
+    return {'plan': ok, 'cars': ok}
 
 
 @gw_vehicles_bp.route('/vehicles/assign')
@@ -306,7 +296,7 @@ def api_assign_get():
         view['confirmed_name'] = (p or {}).get('name') or view['confirmed_by']
     try:        # 그룹웨어 방문 일정 확정 한 줄(11-22) — 화면 위에 '○ 방문 일정 확정 · 코스 n개'
         info = vp.confirmed_info(day)
-        view['plan'] = {**info, 'can_open': _can_plan() or _plan_admin(), 'cars_saved_at': va.last_saved_at(day)} if info else None
+        view['plan'] = {**info, 'can_open': _can_view(), 'cars_saved_at': va.last_saved_at(day)} if info else None
         view['work'] = vp.confirmed_work(day)      # 사내 업무(차 필요 없음, 11-23)
         view['courses'] = vp.confirmed_courses(day, leads)     # 위 칸을 코스로(11-23) — 확정한 날 + 슬랙으로 정한 오늘·지난 날
     except Exception as e:
@@ -325,7 +315,7 @@ def api_assign_get():
 @gw_page
 def api_assign_save():
     if not _can_assign():
-        return jsonify({'success': False, 'message': '차량 배정은 배정 담당자만 고칠 수 있어요.'}), 403
+        return jsonify({'success': False, 'message': '차량 배정은 관리자만 고칠 수 있어요.'}), 403
     body = request.get_json(silent=True) or {}
     day = (body.get('day') or '').strip()
     # base = 화면이 불러올 때 받은 그날 판. 안 보낸 옛 화면(재시작 직후 열려 있던 것)은 예전처럼 저장(11-24 조용한 실패 점검 17번)
@@ -350,7 +340,7 @@ def api_assign_save():
 def api_assign_resend():
     """못 받은 사람에게 배정 DM 다시 보내기(11-24 조용한 실패 점검 추가분)."""
     if not _can_assign():
-        return jsonify({'success': False, 'message': '차량 배정은 배정 담당자만 고칠 수 있어요.'}), 403
+        return jsonify({'success': False, 'message': '차량 배정은 관리자만 고칠 수 있어요.'}), 403
     body = request.get_json(silent=True) or {}
     day = (body.get('day') or '').strip()
     codes = [str(c)[:20] for c in (body.get('codes') or []) if c][:50]
@@ -366,7 +356,7 @@ def api_assign_resend():
 
 
 # ── 방문 일정(11-22 부장님, 영업 > 방문 일정 /visits/plan) — 슬랙 캔버스2 + /일정확정 대신 그룹웨어에서 짜고 확정.
-#    규칙은 services/visit_plan.py. 화면·고치기·확정은 일정 담당(JW·대표님·부장님), 현장 세션은 문지기가 막음
+#    규칙은 services/visit_plan.py. 보기는 시공·미화 뺀 모두, 고치기·확정·당일 배정은 관리자만(11-25), 현장 세션은 문지기가 막음
 def _can_plan() -> bool:
     return not _is_field() and vp.can_plan(_me())
 
@@ -374,9 +364,6 @@ def _can_plan() -> bool:
 @gw_vehicles_bp.route('/visits/plan')
 @gw_page
 def page_visit_plan():
-    # 일정 담당 + 오늘 온라인 당번(당일 배정하려고, 11-23)
-    if not (_can_plan() or _plan_admin()) and (_is_field() or not vp.is_duty_today(_me())):
-        return redirect('/vehicles/assign')
     return render_template('gw/visit_plan.html', vtabs=_vtabs(), vtab_on='plan')
 
 
@@ -398,7 +385,7 @@ def api_plan_get():
         logger.error(f'[방문일정] 불러오기 실패: {e}', exc_info=True)
         return jsonify({'success': False, 'message': '불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요.'}), 500
     data['can_edit'] = bool(data.pop('can_plan')) and data['editable'] and not _is_field()
-    data['to_cars'] = bool(_assign_open())     # 확정이 끝나면 차량 배정 탭으로 바로 넘어갈 사람(배정 담당, 11-24)
+    data['to_cars'] = _can_assign()     # 확정이 끝나면 차량 배정 탭으로 바로 넘어갈 사람(고칠 수 있는 사람, 11-24)
     data['can_urgent'] = not _is_field() and vp.can_urgent(_me(), day)
     return jsonify({'success': True, **data})
 
@@ -406,7 +393,7 @@ def api_plan_get():
 @gw_vehicles_bp.route('/api/vehicles/plan/urgent', methods=['POST'])
 @gw_page
 def api_plan_urgent():
-    """당일 배정(11-23) — 오늘 생긴 현장을 근처 매니저에게. 일정 담당·오늘 온라인 당번."""
+    """당일 배정(11-23) — 오늘 생긴 현장을 근처 매니저에게. 관리자만(11-25)."""
     if _is_field():
         return jsonify({'success': False, 'message': '사무실에서만 할 수 있어요.'}), 403
     body = request.get_json(silent=True) or {}
@@ -435,7 +422,7 @@ def _plan_body():
 @gw_page
 def api_plan_save():
     if not _can_plan():
-        return jsonify({'success': False, 'message': '방문 일정은 일정 담당자만 고칠 수 있어요.'}), 403
+        return jsonify({'success': False, 'message': '방문 일정은 관리자만 고칠 수 있어요.'}), 403
     day, plan = _plan_body()
     try:
         leads = _plan_leads()
@@ -456,7 +443,7 @@ def api_plan_save():
 @gw_page
 def api_plan_confirm():
     if not _can_plan():
-        return jsonify({'success': False, 'message': '방문 일정은 일정 담당자만 확정할 수 있어요.'}), 403
+        return jsonify({'success': False, 'message': '방문 일정은 관리자만 확정할 수 있어요.'}), 403
     day, plan = _plan_body()
     try:
         st = vp.start_confirm(day, plan, _me(), _plan_leads(), _fresh_leads)
@@ -524,7 +511,7 @@ def api_trip_end():
 @gw_page
 def api_fleet_update(plate):
     if not _can_assign():
-        return jsonify({'success': False, 'message': '차량 설정은 배정 담당자만 고칠 수 있어요.'}), 403
+        return jsonify({'success': False, 'message': '차량 설정은 관리자만 고칠 수 있어요.'}), 403
     try:
         car = va.update_car(plate, request.get_json(silent=True) or {}, _me())
     except ValueError as e:

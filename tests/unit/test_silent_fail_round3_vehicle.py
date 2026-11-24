@@ -61,6 +61,7 @@ def vdb(tmp_path, monkeypatch):
     monkeypatch.setattr(va, 'CAR_DM_ON', True)
     sent = []
     monkeypatch.setattr(va, '_dm', lambda sid, text: sent.append((sid, text)) or True)
+    d.create_user('배정', ASSIGNER, 'pw-Test-1234!', 'admin')    # 고치기는 관리자만(11-25)
     gw._invalidate()
     yield sent
     gw._invalidate()

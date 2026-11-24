@@ -31,6 +31,7 @@ def _warnings(monkeypatch, mod):
 def _car_env(monkeypatch, ok=False):
     monkeypatch.setattr(va, 'CAR_DM_ON', True)
     monkeypatch.setattr(va, 'assigners', lambda: [ASSIGNER])
+    monkeypatch.setattr(hr, 'is_admin_email', lambda e: e == ASSIGNER)     # 배정 DM 은 관리자인 배정 담당에게만(11-25)
     monkeypatch.setattr(hr, 'find_by_email', lambda e: {'slack_id': 'USJ'} if e == ASSIGNER else None)
     sent = []
     monkeypatch.setattr(va, '_dm', lambda sid, text: sent.append((sid, text)) or ok)
@@ -54,6 +55,14 @@ def test_request_assignment_counts_failed(db, monkeypatch):
     # 보낼 필요가 없는 0(배정 담당이 확정) — failed 없음
     r = va.request_assignment(DAY, ASSIGNER)
     assert r == 0 and va.failed_of(r) == []
+
+
+def test_assign_dm_skips_non_admin_assigner(db, monkeypatch):
+    """배정 담당 명단에 있어도 관리자가 아니면(고칠 수 없으니) '차량 배정해 주세요' DM 을 보내지 않는다(11-25)."""
+    sent = _car_env(monkeypatch, ok=True)
+    monkeypatch.setattr(va, 'assigners', lambda: [ASSIGNER, 'staff9@example.com'])
+    monkeypatch.setattr(hr, 'find_by_email', lambda e: {'slack_id': 'U' + e[:3]})
+    assert va.request_assignment(DAY) == 1 and [s for s, _ in sent] == ['Usj@']
 
 
 def test_notify_plan_changed_no_target_vs_failed(db, monkeypatch):

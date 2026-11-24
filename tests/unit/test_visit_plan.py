@@ -34,6 +34,7 @@ def db(tmp_path, monkeypatch):
         monkeypatch.setattr(mod, '_db', lambda: d)
         monkeypatch.setattr(mod, '_table_ready', False)
     monkeypatch.setattr(vp, '_table_ready', False)
+    d.create_user('박기획', 'p@example.com', 'pw-Test-1234!', 'admin')   # 고치기·확정은 관리자만(11-25) — 짜는 사람은 관리자
     monkeypatch.setattr(va, 'staff', lambda: [dict(p) for p in STAFF])
     monkeypatch.setattr(va, 'day_off', lambda day: {'off': [{'code': 'SJ', 'name': '오늘', 'why': '연차'}], 'half': []})
     monkeypatch.setattr(vas, '_load_initial_maps',
@@ -188,15 +189,14 @@ def test_past_day_from_sheet(db, monkeypatch):
 
 
 def test_urgent_assign(db, monkeypatch):
-    """당일 배정(11-23 부장님) — 오늘만, 일정 담당·오늘 온라인 당번. 시트·List·긴급 DM, 두 번은 안 됨."""
+    """당일 배정(11-23 부장님) — 오늘만, 관리자만(11-25: 전엔 오늘 온라인 당번도). 시트·List·긴급 DM, 두 번은 안 됨."""
     today = date.today().isoformat()
     leads = [{**_lead('L-1', '김가람'), '방문 예정일': today},
              {**_lead('L-7', '', '서준'), '방문 예정일': today, '플랫폼': '기타', '상담 시간': today.replace('-', '.') + '. 08:12'}]
     monkeypatch.setattr(vp, 'can_plan', lambda e: e == 'p@example.com')
     monkeypatch.setattr(va, 'online_duty', lambda d: [{'code': 'JK', 'name': '강해', 'shift': ''}])
-    assert vp.can_urgent('p@example.com', today) and vp.can_urgent('jk@example.com', today)       # 담당·당번
+    assert vp.can_urgent('p@example.com', today) and not vp.can_urgent('jk@example.com', today)   # 관리자만 — 당번은 이제 못 함
     assert not vp.can_urgent('ym@example.com', today) and not vp.can_urgent('p@example.com', DAY)  # 그 밖·오늘 아님
-    assert vp.is_duty_today('jk@example.com') and not vp.is_duty_today('p@example.com')
     wrote, sent, lists = {}, [], []
     import dashboard.services.lead_service as ls
     monkeypatch.setattr(ls, 'update_lead', lambda no, vals: wrote.update({no: vals}) or {'success': True})
@@ -205,13 +205,14 @@ def test_urgent_assign(db, monkeypatch):
     monkeypatch.setattr(va, '_dm', lambda sid, text: sent.append((sid, text)) or True)
     import dashboard.services.visit_canvas_sync as vcs
     monkeypatch.setattr(vcs, 'rebuild_canvas_async', lambda: None)
-    with pytest.raises(PermissionError):
-        vp.urgent_assign(today, 'L-7', ['TH'], 'ym@example.com', leads, background=False)
+    for who in ('ym@example.com', 'jk@example.com'):
+        with pytest.raises(PermissionError):
+            vp.urgent_assign(today, 'L-7', ['TH'], who, leads, background=False)
     with pytest.raises(ValueError, match='이미 담당자'):
-        vp.urgent_assign(today, 'L-1', ['TH'], 'jk@example.com', leads, background=False)
+        vp.urgent_assign(today, 'L-1', ['TH'], 'p@example.com', leads, background=False)
     with pytest.raises(ValueError, match='연차'):
-        vp.urgent_assign(today, 'L-7', ['SJ'], 'jk@example.com', leads, background=False)
-    res = vp.urgent_assign(today, 'L-7', ['TH'], 'jk@example.com', leads, background=False)
+        vp.urgent_assign(today, 'L-7', ['SJ'], 'p@example.com', leads, background=False)
+    res = vp.urgent_assign(today, 'L-7', ['TH'], 'p@example.com', leads, background=False)
     assert res == {'names': '서준', 'dm': 1, 'dm_failed': 0}
     assert wrote == {'L-7': {'영업 담당자': '서준'}} and lists == [['TH']]
     assert sent[0][0] == 'UTH' and ':rotating_light:' in sent[0][1] and '당일 배정' in sent[0][1] and 'L-7' in sent[0][1]
@@ -303,8 +304,25 @@ def test_save_rejects_today(db):
         vp.save(date.today().isoformat(), {'courses': []}, 'p@example.com', LEADS)
 
 
-def test_planner_permission():
-    assert vp.can_plan('JW@itg-aircon.com') and not vp.can_plan('sj@itg-aircon.com') and not vp.can_plan('')
+def test_planner_permission(monkeypatch):
+    """고치기는 관리자 계정만(11-25) — 일정 담당 명단(PLANNER_EMAILS)이어도 관리자가 아니면 못 고침."""
+    monkeypatch.setattr(hr, 'is_admin_email', lambda e: (e or '').strip().lower() == 'boss@example.com')
+    monkeypatch.setattr('dashboard.services.visit_assignment_sync.PLANNER_EMAILS', ('p2@example.com',))
+    assert vp.can_plan('boss@example.com') and not vp.can_plan('p2@example.com') and not vp.can_plan('')
+
+
+def test_can_view_excludes_crew_and_cleaning(monkeypatch):
+    """보기는 시공·미화를 뺀 재직자 모두(11-25 부장님) — 관리자는 부서와 상관없이, 인사카드 없거나 퇴사면 안 보임."""
+    people = {'sales@example.com': {'department': '기술영업', 'status': '재직'},
+              'office@example.com': {'department': '경영지원', 'status': '재직'},
+              'crew@example.com': {'department': '기술시공(내부)', 'status': '재직'},
+              'clean@example.com': {'department': '미화', 'status': '재직'},
+              'gone@example.com': {'department': '영업', 'status': '퇴사'},
+              'bossc@example.com': {'department': '기술시공(내부)', 'status': '재직'}}
+    monkeypatch.setattr(hr, 'find_by_email', lambda e: people.get(e))
+    monkeypatch.setattr(hr, 'is_admin_email', lambda e: e == 'bossc@example.com')
+    assert vp.can_view('sales@example.com') and vp.can_view('office@example.com') and vp.can_view('bossc@example.com')
+    assert not any(vp.can_view(e) for e in ('crew@example.com', 'clean@example.com', 'gone@example.com', 'nobody@example.com', ''))
 
 
 # ── /일정확정 본체 공용 ──────────────────────────────────────────────────
@@ -402,7 +420,7 @@ def test_canvas_commit_still_matches_by_phone(monkeypatch):
 
 
 def test_plan_routes_permission(db, monkeypatch):
-    """보기는 사무실 직원, 고치기·확정은 일정 담당자만. 현장 세션은 길이 막혀 있다(문지기 목록에 없음)."""
+    """보기는 시공·미화 뺀 직원, 고치기·확정은 관리자만(11-25). 현장 세션은 길이 막혀 있다(문지기 목록에 없음)."""
     import dashboard.auth as auth
     from flask import Flask
     from dashboard.blueprints import gw_vehicles as bp
@@ -417,8 +435,9 @@ def test_plan_routes_permission(db, monkeypatch):
     monkeypatch.setattr(vas, 'commit_plan', lambda parsed, target_date=None: {'ok': True, 'dm': {}})
     monkeypatch.setattr(vp, '_audit', lambda res, by: [])
     monkeypatch.setattr(va, 'request_assignment', lambda day=None, by='': 0)
-    monkeypatch.setattr('dashboard.services.visit_assignment_sync.PLANNER_EMAILS', ('p@example.com',))
     monkeypatch.setattr(bp, 'render_template', lambda name, **k: name)
+    monkeypatch.setattr(hr, 'find_by_email', lambda e: {'name': '사무', 'department': '영업', 'status': '재직'}
+                        if e == 'staff@example.com' else None)
     app = Flask(__name__)
     app.secret_key = 'x'
     app.register_blueprint(bp.gw_vehicles_bp)
@@ -426,12 +445,13 @@ def test_plan_routes_permission(db, monkeypatch):
     with app.test_client() as cl:
         with cl.session_transaction() as s:
             s['user'] = {'email': 'staff@example.com', 'permission_level': 'user'}
+        assert cl.get('/visits/plan').get_data(as_text=True) == 'gw/visit_plan.html'    # 보기는 열림(11-25)
         j = cl.get(f'/api/vehicles/plan?day={DAY}').get_json()
         assert j['success'] and j['can_edit'] is False and len(j['visits']) == 5
         assert cl.post('/api/vehicles/plan', json={'day': DAY, 'plan': plan}).status_code == 403
         assert cl.post('/api/vehicles/plan/confirm', json={'day': DAY, 'plan': plan}).status_code == 403
         with cl.session_transaction() as s:
-            s['user'] = {'email': 'p@example.com', 'permission_level': 'user'}
+            s['user'] = {'email': 'p@example.com', 'permission_level': 'admin'}
         assert cl.get(f'/api/vehicles/plan?day={DAY}').get_json()['can_edit'] is True
         r = cl.post('/api/vehicles/plan', json={'day': DAY, 'plan': plan}).get_json()
         assert r['success'] and r['source'] == 'saved' and r['saved_name'] == '박기획'
@@ -442,10 +462,6 @@ def test_plan_routes_permission(db, monkeypatch):
         assert cl.get('/visits/plan').status_code == 200                     # 영업 > 방문 일정 화면
         info = vp.confirmed_info(DAY)
         assert info['courses'] == 1 and info['confirmed_at']
-        with cl.session_transaction() as s2:
-            s2['user'] = {'email': 'staff@example.com', 'permission_level': 'user'}
-        r = cl.get('/visits/plan')
-        assert r.status_code == 302 and r.headers['Location'].endswith('/vehicles/assign')   # 일정 담당 아니면 차량 배정으로
     assert not field_path_allowed('GET', '/api/vehicles/plan') and not field_path_allowed('POST', '/api/vehicles/plan/confirm')
 
 
@@ -458,8 +474,8 @@ def test_menu_planner_only():
     assert '방문 일정' not in [c['label'] for a in gw.build_nav('/home', 'field', field=True)['areas'] for c in a['children']]
 
 
-def test_admin_only_open(db, monkeypatch):
-    """방문 일정만 관리자에게 먼저(11-23) — 관리자는 보기, 고치기는 일정 담당만. 차량 배정은 여전히 개발 중, 일반 직원은 못 들어옴."""
+def test_view_all_edit_admin(db, monkeypatch):
+    """방문 일정·차량 배정 — 개발 중 명단과 상관없이 시공·미화 뺀 모두 보기, 고치기는 관리자 계정만(11-25 부장님)."""
     import dashboard.auth as auth
     from flask import Flask
     from dashboard.blueprints import gw_vehicles as bp
@@ -468,32 +484,38 @@ def test_admin_only_open(db, monkeypatch):
     monkeypatch.setattr(auth, '_validate_session', lambda require_admin=False: None)
     monkeypatch.setattr(gw, 'can_use', lambda e: True)
     monkeypatch.setattr(gw, 'DEV_PREVIEW_USERS', ('boss@example.com',))
-    monkeypatch.setattr(gw, 'VISIT_PLAN_ADMIN_ONLY', True)
     monkeypatch.setattr(bp, '_leads', lambda: LEADS)
     monkeypatch.setattr(bp, '_plan_leads', lambda: LEADS)
     monkeypatch.setattr(bp, 'render_template', lambda name, **k: name)
     monkeypatch.setattr(hr_bp, 'render_template', lambda name, **k: name)
-    monkeypatch.setattr('dashboard.services.visit_assignment_sync.PLANNER_EMAILS', ('p@example.com',))
+    people = {'staff@example.com': {'name': '사무', 'department': '기술영업', 'status': '재직'},
+              'crew@example.com': {'name': '시공', 'department': '기술시공(내부)', 'status': '재직'},
+              'clean@example.com': {'name': '미화', 'department': '미화', 'status': '재직'}}
+    monkeypatch.setattr(hr, 'find_by_email', lambda e: people.get(e))
     app = Flask(__name__)
     app.secret_key = 'x'
     app.register_blueprint(bp.gw_vehicles_bp)
     plan = {'courses': [{'members': ['TH'], 'leads': ['L-3'], 'memo': ''}], 'online': [], 'online_shared': False}
     with app.test_client() as cl:
         with cl.session_transaction() as s:
-            s['user'] = {'email': 'admin@example.com', 'permission_level': 'admin'}
+            s['user'] = {'email': 'staff@example.com', 'permission_level': 'user'}
         assert cl.get('/visits/plan').get_data(as_text=True) == 'gw/visit_plan.html'
+        assert cl.get('/vehicles/assign').get_data(as_text=True) == 'gw/vehicle_assign.html'
         assert cl.get(f'/api/vehicles/plan?day={DAY}').get_json()['can_edit'] is False
         assert cl.post('/api/vehicles/plan', json={'day': DAY, 'plan': plan}).status_code == 403
-        assert cl.get('/vehicles/assign').get_data(as_text=True) == 'gw/dev_preview.html'
+        assert cl.post('/api/vehicles/plan/confirm', json={'day': DAY, 'plan': plan}).status_code == 403
         with cl.session_transaction() as s:
             s['user'] = {'email': 'p@example.com', 'permission_level': 'admin'}
         assert cl.get(f'/api/vehicles/plan?day={DAY}').get_json()['can_edit'] is True
-        with cl.session_transaction() as s:
-            s['user'] = {'email': 'staff@example.com', 'permission_level': 'user'}
-        assert cl.get('/visits/plan').get_data(as_text=True) == 'gw/dev_preview.html'
-        assert cl.get(f'/api/vehicles/plan?day={DAY}').status_code == 403
+        for who in ('crew@example.com', 'clean@example.com'):
+            with cl.session_transaction() as s:
+                s['user'] = {'email': who, 'permission_level': 'user'}
+            assert cl.get('/visits/plan').status_code == 302 and cl.get('/vehicles/assign').status_code == 302
+            assert cl.get(f'/api/vehicles/plan?day={DAY}').status_code == 403
+            assert cl.get(f'/api/vehicles/assign?day={DAY}').status_code == 403
     assert gw_bp._planner_menu('a@example.com', 'admin') and gw_bp._planner_menu('a@example.com', 'super_admin')
-    assert not gw_bp._planner_menu('p@example.com', 'user')
+    assert gw_bp._planner_menu('staff@example.com', 'user')
+    assert not gw_bp._planner_menu('crew@example.com', 'user') and not gw_bp._planner_menu('clean@example.com', 'user')
 
 
 def _confirm(monkeypatch, plan, notices=None):
@@ -620,17 +642,15 @@ def test_same_site(db):
 
 
 def test_visit_tabs_only_when_both_open(db, monkeypatch):
-    """방문 일정 ↔ 차량 배정 탭(11-24) — 두 화면을 다 열 수 있을 때만. 관리자(방문 일정만 먼저 열림)는 탭 없음."""
+    """방문 일정 ↔ 차량 배정 탭(11-24) — 두 화면은 같은 사람에게 열려(11-25) 볼 수 있으면 둘 다."""
     from flask import Flask
     from dashboard.blueprints import gw_vehicles as bp
-    monkeypatch.setattr(gw, 'DEV_PREVIEW_USERS', ('p@example.com', 'boss@example.com'))
-    monkeypatch.setattr(gw, 'VISIT_PLAN_ADMIN_ONLY', True)
-    monkeypatch.setattr('dashboard.services.visit_assignment_sync.PLANNER_EMAILS', ('p@example.com',))
+    monkeypatch.setattr(hr, 'find_by_email', lambda e: {'department': '기술영업', 'status': '재직'} if e == 'staff@example.com' else None)
     app = Flask(__name__)
     app.secret_key = 'x'
-    cases = [('p@example.com', 'user', {'plan': True, 'cars': True}),          # 일정 담당 + 개발 중 명단
-             ('boss@example.com', 'user', {'plan': False, 'cars': True}),      # 차량만(일정 담당 아님) — 탭 줄 안 보임
-             ('admin@example.com', 'admin', {'plan': True, 'cars': False})]    # 방문 일정만 먼저 열린 관리자
+    cases = [('p@example.com', 'admin', {'plan': True, 'cars': True}),
+             ('staff@example.com', 'user', {'plan': True, 'cars': True}),
+             ('nobody@example.com', 'user', {'plan': False, 'cars': False})]    # 인사카드 없음
     for email, level, want in cases:
         with app.test_request_context('/visits/plan'):
             from flask import session
@@ -649,14 +669,13 @@ def test_plan_save_stops_when_leads_unreadable(db, monkeypatch):
     monkeypatch.setattr(gw, 'DEV_PREVIEW_USERS', ())
     monkeypatch.setattr(bp, '_leads', lambda: LEADS)
     monkeypatch.setattr(bp, '_plan_leads', lambda: LEADS)
-    monkeypatch.setattr('dashboard.services.visit_assignment_sync.PLANNER_EMAILS', ('p@example.com',))
     app = Flask(__name__)
     app.secret_key = 'x'
     app.register_blueprint(bp.gw_vehicles_bp)
     plan = {'courses': [{'members': ['TH'], 'leads': ['L-3'], 'memo': ''}], 'online': [], 'online_shared': False}
     with app.test_client() as cl:
         with cl.session_transaction() as s:
-            s['user'] = {'email': 'p@example.com', 'permission_level': 'user'}
+            s['user'] = {'email': 'p@example.com', 'permission_level': 'admin'}
         assert cl.post('/api/vehicles/plan', json={'day': DAY, 'plan': plan}).get_json()['success']
 
         def down():

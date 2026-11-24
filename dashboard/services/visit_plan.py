@@ -100,13 +100,32 @@ def _now() -> str:
 
 
 # ── 권한·사람 ───────────────────────────────────────────────────────────
+CLOSED_DEPTS = ('시공', '미화')   # 부서 이름에 들어 있으면 방문 일정·차량 배정이 안 보임(스케줄 근무와 같은 기준)
+
+
 def can_plan(email: str) -> bool:
-    """방문 일정 짜기·확정 — 일정 담당(JW·대표님·부장님) + 관리자 모두(11-25 부장님 '어드민한테는 다 열어줘')."""
-    from dashboard.services.visit_assignment_sync import PLANNER_EMAILS
-    if (email or '').strip().lower() in PLANNER_EMAILS:
-        return True
+    """방문 일정 짜기·확정·당일 배정 — 관리자(admin·super_admin)만(11-25 부장님 '작성 권한은 어드민한테만')."""
     from dashboard.services import hr
     return hr.is_admin_email(email)
+
+
+def can_view(email: str) -> bool:
+    """방문 일정·차량 배정 보기 — 시공·미화를 뺀 재직자 모두(11-25 부장님). 관리자는 부서와 상관없이.
+    현장 세션(슬랙 링크 로그인)은 groupware 문지기가 따로 막는다. 못 읽으면 False(넓히지 않음)."""
+    from dashboard.services import hr
+    if not email:
+        return False
+    if hr.is_admin_email(email):
+        return True
+    try:
+        p = hr.find_by_email(email)
+    except Exception as e:
+        logger.warning(f'[방문일정] 보기 권한 확인 실패 — 안 보임으로 봄: {e}')
+        return False
+    if not p or p.get('status') == hr.STATUS_RESIGNED:
+        return False
+    dept = p.get('department') or ''
+    return not any(x in dept for x in CLOSED_DEPTS)
 
 
 def _name_of_email(email: str) -> str:
@@ -943,25 +962,11 @@ def run_state(day: str) -> Dict:
 # ── 당일 배정(11-23 부장님) ──────────────────────────────────────────────
 #    그날 생긴 현장은 온라인 당번이 고객과 통화한 뒤 근처 매니저에게 바로 보낸다 — 그 결과를 시트·List 에 남기고
 #    매니저에게 긴급 DM(주소·연락처·문의). 이미 정한 코스는 건드리지 않는다. 오늘만.
-def _local(email: str) -> str:
-    return (email or '').strip().lower().split('@')[0].upper()
-
-
 def can_urgent(email: str, day: str) -> bool:
-    """당일 배정 — 오늘만, 일정 담당 또는 그날 온라인 당번."""
+    """당일 배정 — 오늘만, 관리자만(11-25 부장님 '작성 권한은 어드민한테만' — 전엔 오늘 온라인 당번도)."""
     if day != date.today().isoformat() or not email:
         return False
-    if can_plan(email):
-        return True
-    try:
-        return _local(email) in {o['code'] for o in va.online_duty(day)}
-    except Exception:
-        return False
-
-
-def is_duty_today(email: str) -> bool:
-    """오늘 온라인 당번 — 방문 일정 메뉴·화면을 열어 준다(당일 배정하려고)."""
-    return can_urgent(email, date.today().isoformat()) and not can_plan(email)
+    return can_plan(email)
 
 
 def _urgent_rows(day: str) -> List[Dict]:
@@ -1041,7 +1046,7 @@ def urgent_assign(day: str, lead_no: str, members: List[str], by: str, leads: It
     """당일 배정 — 확인하고 기록만 남긴 뒤 바로 돌려준다. 시트 영업 담당자·슬랙 List·캔버스1·긴급 DM 은 뒤에서
     (11-23 부장님: 한 번에 11초쯤 걸려 화면이 멈춘 줄 알았음). 막는 문제는 ValueError / PermissionError."""
     if not can_urgent(by, day):
-        raise PermissionError('당일 배정은 오늘 일정만, 일정 담당이나 오늘 온라인 당번이 할 수 있어요.')
+        raise PermissionError('당일 배정은 오늘 일정만, 관리자가 할 수 있어요.')
     leads = list(leads)
     vs = visits(day, leads, done=True)
     v = next((x for x in vs if x['lead_no'] == lead_no), None)

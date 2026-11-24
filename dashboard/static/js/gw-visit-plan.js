@@ -465,7 +465,7 @@
     if (late) notes.push('확정 뒤 새로 생긴 현장 ' + late + '건 — 코스에 넣고 다시 확정해 주세요.');
     if (!d.editable) notes.push('오늘과 지난 날 일정은 고칠 수 없어요.' +
       (d.source === 'sheet' ? ' 시트 영업 담당자대로 보여 줘요(방문 완료한 현장 포함).' : ''));
-    else if (!P.canEdit) notes.push('방문 일정은 일정 담당자만 고칠 수 있어요.');
+    else if (!P.canEdit) notes.push('방문 일정은 관리자만 고칠 수 있어요.');
     $('vpStatus').innerHTML = parts.join(' ') + notes.map(function (n) { return '<span class="gw-va-draft">' + esc(n) + '</span>'; }).join('');
   }
   function render() {

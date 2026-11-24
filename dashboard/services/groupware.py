@@ -98,9 +98,6 @@ def is_pilot(email: str) -> bool:
 DEV_PREVIEW_USERS: tuple = ('kiko@itg-aircon.com',)
 
 
-# 방문 일정(영업 > 방문 일정)만 관리자(admin·super_admin)에게 먼저 연다(11-23 부장님) — 고치기·확정은 그대로 일정 담당만.
-# 차량 배정은 위 명단 그대로. 모두에게 열 때는 False 로(그러면 일정 담당 + 오늘 온라인 당번 메뉴로 돌아감).
-VISIT_PLAN_ADMIN_ONLY: bool = True
 ADMIN_LEVELS = ('admin', 'super_admin')
 
 
