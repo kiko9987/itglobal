@@ -67,6 +67,13 @@
   var calEl = document.getElementById('soCal');
   var barEl = document.getElementById('soBar');
   var actEl = document.getElementById('soActions');
+  if (!actEl) {   // 서버가 옛 템플릿을 들고 있으면(재시작 전) 자리를 직접 만든다 — 없으면 화면 전체가 멈췄음(11-24)
+    actEl = document.createElement('div');
+    actEl.className = 'gw-so-actions';
+    actEl.id = 'soActions';
+    var headEl = document.querySelector('#soPage .gw-cal-head');
+    if (headEl) headEl.appendChild(actEl);
+  }
   var flashEl = document.getElementById('soFlash');
 
   function monthKey() { return cur.y + '-' + pad(cur.m); }
