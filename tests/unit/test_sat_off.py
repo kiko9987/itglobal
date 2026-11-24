@@ -480,3 +480,54 @@ def test_half_cap_per_saturday(slack):
         so.undo_worked(S5, '영업가', A, '영업가')                          # 되돌리면 3명 → 막힘
     assert so.worked(DEC)[0]['name'] == '영업가'                            # 기록은 그대로 남음
     assert '절반' in so.undo_worked(S5, '영업가', JW, '박정우')['warn']     # 승인권자는 경고만
+
+
+# ── 전체 휴무(11-25 부장님: 관리자가 달력에서 토요일 하루를 모두 쉬는 날로) ──────
+def test_full_off_set_and_undo(slack):
+    so.toggle(S26, '영업가', True, A, '영업가', TODAY)                  # 각자 고른 사람
+    _confirm()
+    so.mark_worked(S26, '영업가', '박정우', '현장', A, '영업가', TODAY)   # 영업가는 그날 휴무 출근
+    r = so.set_full_off(S26, True, '고광일', '연말 전체 휴무')
+    assert r['count'] == 3                                              # 영업가(출근) 빼고 3명, 절반 제한 없음
+    assert sorted(so.picks(DEC)['2026-12-26']) == ['빈대리', '영업나', '영업다']
+    v = so.view(DEC, A, '영업가', TODAY)
+    assert v['full_days'] == {'2026-12-26': '연말 전체 휴무'}
+    assert {m['name']: m['count'] for m in v['members']}['영업나'] == 1  # 각자 쉰 횟수에 하루(격주 1일 차감)
+    assert any('전체 휴무로 지정' in x['detail'] for x in so.recent_log(DEC))
+    # 풀면 전체 휴무로 넣은 이름만 뺀다
+    so.toggle(S12, '영업나', True, JW, '박정우', TODAY)
+    so.set_full_off(S26, False, '고광일')
+    assert so.picks(DEC)['2026-12-26'] == [] and so.full_days(DEC) == {}
+    assert so.picks(DEC)['2026-12-12'] == ['영업나']
+    with pytest.raises(so.SatOffError, match='전체 휴무가 아니'):
+        so.set_full_off(S26, False, '고광일')
+    with pytest.raises(so.SatOffError, match='토요일만'):
+        so.set_full_off(date(2026, 12, 25), True, '고광일')
+    with pytest.raises(so.SatOffError, match='공휴일'):
+        so.set_full_off(date(2026, 10, 3), True, '고광일')
+
+
+def test_full_off_keeps_own_picks_when_undone(slack):
+    so.toggle(S26, '영업가', True, A, '영업가', TODAY)                  # 영업가는 원래 그날 쉬기로 함
+    so.set_full_off(S26, True, '고광일')
+    assert len(so.picks(DEC)['2026-12-26']) == 4
+    so.set_full_off(S26, False, '고광일')
+    assert so.picks(DEC)['2026-12-26'] == ['영업가']                    # 각자 고른 건 남음
+
+
+def test_full_off_api_admin_only(slack, monkeypatch):
+    import inspect
+    from flask import Flask, session
+    from dashboard.blueprints import gw_satoff as so_bp
+    view = inspect.unwrap(so_bp.api_full_off)
+    monkeypatch.setattr(so_bp, '_who', lambda: ('고광일', KIKO, ''))
+    app = Flask(__name__)
+    app.secret_key = 'x'
+    with app.test_request_context(json={'day': '2026-12-26', 'on': True}):
+        session['user'] = {'email': 'staff@example.com', 'permission_level': 'editor'}
+        r = view()
+        assert r[1] == 403 and '관리자' in r[0].get_json()['message']
+    with app.test_request_context(json={'day': '2026-12-26', 'on': True, 'note': '연말'}):
+        session['user'] = {'email': 'boss@example.com', 'permission_level': 'admin'}
+        j = view().get_json()
+    assert j['success'] and j['count'] == 4 and so.full_days(DEC) == {'2026-12-26': '연말'}

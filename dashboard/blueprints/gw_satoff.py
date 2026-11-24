@@ -6,7 +6,7 @@ from datetime import date
 
 from flask import Blueprint, jsonify, redirect, render_template, request, session
 
-from dashboard.blueprints.hr import BUG_ERRORS, _hr_admin, _me, gw_page
+from dashboard.blueprints.hr import BUG_ERRORS, _hr_admin, _is_admin, _is_field, _me, gw_page
 from dashboard.services import hr
 from dashboard.services import sat_off as so
 from dashboard.utils.logging_config import get_logger
@@ -102,6 +102,7 @@ def api_view():
     except Exception as e:
         return _err(e)
     data['why'] = why
+    data['can_full_off'] = _is_admin() and not _is_field()      # 전체 휴무 지정·풀기 — 관리자(11-25)
     return jsonify({'success': True, **data})
 
 
@@ -207,6 +208,29 @@ def api_worked():
     except Exception as e:            # 기록은 저장됨 — 알림 확인만 실패
         logger.error(f'[토요휴무] 휴무 출근 뒤 휴가 일수 확인 실패 ({target} {res["day"]}): {e}', exc_info=True,
                      extra={'force_alert': True})
+    return jsonify({'success': True, **res})
+
+
+@gw_satoff_bp.route('/api/satoff/full', methods=['POST'])
+@gw_page
+def api_full_off():
+    """전체 휴무 지정(on=true)·풀기(on=false) — 관리자(admin·super_admin)만(11-25 부장님)."""
+    if not _is_admin() or _is_field():
+        return jsonify({'success': False, 'message': '전체 휴무는 관리자만 정할 수 있어요.'}), 403
+    body = request.get_json(silent=True) or {}
+    on = body.get('on', True) is not False
+    try:
+        name, _sid = _who()[:2]
+        res = so.set_full_off(_day(body.get('day')), on, name or _me(), body.get('note') or '')
+    except Exception as e:
+        return _err(e)
+    logger.info(f'[토요휴무] {res["day"]} 전체 휴무 {"지정" if on else "풂"} by {name or _me()} ({res["count"]}명)')
+    m = res['day'][:7]
+    try:
+        if so.month_row(m)['status'] == so.CONFIRMED and so.affected_leaves(m):
+            so.notify('full_off', m, name, change={'label': so.kday(_day(body.get('day'))), 'how': '지정' if on else '풂'})
+    except Exception as e:            # 저장은 됨 — 알림 확인만 실패
+        logger.error(f'[토요휴무] 전체 휴무 뒤 휴가 일수 확인 실패 ({res["day"]}): {e}', exc_info=True, extra={'force_alert': True})
     return jsonify({'success': True, **res})
 
 

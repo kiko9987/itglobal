@@ -85,6 +85,14 @@ DDL = [
         recorded_at TEXT,
         PRIMARY KEY (day, name)
     )''',
+    # 전체 휴무(11-25 부장님) — 관리자가 토요일 하루를 모두 쉬는 날로. 대상자를 그날 쉬는 사람(sat_off_days, added_by=FULL_TAG)으로
+    # 넣으므로 근무표·횟수(격주 1일 차감)·차량·방문·휴가 일수가 따로 손대지 않아도 맞는다. 이 표는 표시·풀기용
+    '''CREATE TABLE IF NOT EXISTS sat_off_full (
+        day TEXT PRIMARY KEY,
+        note TEXT,
+        set_by TEXT,
+        set_at TEXT
+    )''',
     '''CREATE TABLE IF NOT EXISTS sat_off_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         at TEXT NOT NULL,
@@ -242,6 +250,48 @@ def counts(month: str) -> Dict[str, int]:
     return c
 
 
+FULL_TAG = '전체 휴무'
+
+
+def full_days(month: str) -> Dict[str, str]:
+    """그달 전체 휴무 토요일 {날짜: 메모}."""
+    with lv._conn() as conn:
+        rows = conn.execute('SELECT day, note FROM sat_off_full WHERE day LIKE ?', (month + '-%',)).fetchall()
+    return {r['day']: r['note'] or '' for r in rows}
+
+
+def set_full_off(day: Optional[date], on: bool, actor_name: str, note: str = '') -> dict:
+    """전체 휴무 지정(on)·풀기 — 관리자만(권한은 화면 API 가 본다). 지정하면 그달 대상자(인센티브 제외) 중 그날 휴무 출근을
+    기록하지 않은 사람을 모두 쉬는 사람으로 넣는다(절반 제한 없음). 풀면 전체 휴무로 넣은 이름만 뺀다(각자 고른 건 남김)."""
+    if not day or day.weekday() != 5:
+        raise SatOffError('토요일만 고를 수 있어요.')
+    if holiday_name(day):
+        raise SatOffError(f'{kday(day)}은 공휴일({holiday_name(day)})이라 이미 모두 쉬는 날이에요.')
+    key, month = day.isoformat(), _month_of(day)
+    note = (note or '').strip()[:100]
+    now = _now()
+    with lv._conn() as conn:
+        if on:
+            conn.execute('INSERT OR REPLACE INTO sat_off_full (day, note, set_by, set_at) VALUES (?, ?, ?, ?)',
+                         (key, note or None, actor_name, now))
+            worked_names = {r[0] for r in conn.execute('SELECT name FROM sat_off_worked WHERE day=?', (key,))}
+            n = 0
+            for m in members(_first(month)):
+                if m['name'] in worked_names:
+                    continue
+                cur = conn.execute('INSERT OR IGNORE INTO sat_off_days (day, name, slack_id, added_by, added_at) '
+                                   'VALUES (?, ?, ?, ?, ?)', (key, m['name'], m['slack_id'], FULL_TAG, now))
+                n += cur.rowcount
+            _log(conn, actor_name, 'full_off', month, f'{kday(day)} 전체 휴무로 지정 — {n}명 넣음' + (f' ({note})' if note else ''))
+        else:
+            if not conn.execute('SELECT 1 FROM sat_off_full WHERE day=?', (key,)).fetchone():
+                raise SatOffError(f'{kday(day)}은 전체 휴무가 아니에요. 새로 고쳐 주세요.')
+            conn.execute('DELETE FROM sat_off_full WHERE day=?', (key,))
+            n = conn.execute('DELETE FROM sat_off_days WHERE day=? AND added_by=?', (key, FULL_TAG)).rowcount
+            _log(conn, actor_name, 'full_off_undo', month, f'{kday(day)} 전체 휴무 풂 — {n}명 뺌')
+    return {'day': key, 'on': on, 'count': n}
+
+
 def worked(month: str) -> List[dict]:
     """그달 휴무 출근 기록 [{day, label, name, verbal_by, reason, recorded_by, recorded_at}] (날짜·이름순)."""
     with lv._conn() as conn:
@@ -368,6 +418,7 @@ def view(month: str, sid: str, name: str, today: Optional[date] = None) -> dict:
         'can_mark_worked': st in (WAIT, CONFIRMED) and (r['member'] or r['manager'] or r['approver']),
         'approvers': [a['name'] for a in approvers()],
         'worked': [dict(w, can_undo=w['name'] == name or r['manager'] or r['approver']) for w in wk],
+        'full_days': full_days(month),           # 전체 휴무 토요일 {날짜: 메모}(11-25). 지정·풀기 권한은 화면 API(can_full_off)
         'can_toggle': can_edit_open or r['approver'],
         'pick_others': r['manager'],                       # 남의 이름도 넣고 뺄 수 있음(작성 중일 때)
         'can_submit': st == OPEN and r['manager'] and in_range,
@@ -879,6 +930,11 @@ def notify(kind: str, month: str, actor: str, change: Optional[dict] = None, not
             else:
                 _dm_some(client, [who], f"↩️ 스케줄 근무 변경 신청을 {actor} 님이 반려했어요. 쉬는 토요일: {change['what']}\n사유: {note}",
                          month, f"{change['name']} 님 스케줄 근무 변경 반려")
+        elif kind == 'full_off' and change:
+            # 전체 휴무 지정·풀기(11-25) — 확정된 달이라 휴가 일수가 달라질 때만 경영지원에
+            if affected_leaves(month):
+                _dm_some(client, lv.manager_ids(), f"ℹ️ {change['label']} 전체 휴무 {change['how']}로 휴가 일수가 달라지는 신청이 있어요. "
+                                                   '휴가 관리에서 확인해 주세요.', month, f"{change['label']} 전체 휴무로 휴가 일수 고칠 신청")
         elif kind in ('worked', 'worked_undo') and change:
             # 휴무 출근은 구두 승인이라 승인권자 DM·채널 글은 없음. 휴가 일수만 달라질 수 있어 그때만 경영지원에
             if affected_leaves(month):

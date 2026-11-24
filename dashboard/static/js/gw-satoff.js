@@ -162,6 +162,13 @@
         ' 님 중 한 분께 말씀드린 뒤 [휴무 출근 기록]을 눌러 주세요.</p>';
       acts = '<button type="button" class="btn btn-outline-secondary btn-sm" data-act="worked">휴무 출근 기록</button>' + acts;
     }
+    // 전체 휴무 지정·풀기 — 관리자(11-25)
+    if (d.can_full_off) {
+      acts = '<button type="button" class="btn btn-outline-secondary btn-sm" data-act="full">전체 휴무</button>' + acts;
+      // 관리자가 '나한테만 보이는 기능'인 줄 알게(11-25 부장님)
+      h += '<p class="gw-so-how gw-so-admin-note"><i class="fas fa-lock" aria-hidden="true"></i> ' +
+        '[전체 휴무] 단추는 관리자에게만 보여요. 토요일 하루를 모두 쉬는 날로 정할 때 써요.</p>';
+    }
     barEl.innerHTML = h;
     actEl.innerHTML = acts;
 
@@ -171,8 +178,16 @@
   }
 
   // 쉬는 사람 n/최대(11-25 — 한 토요일 절반까지). 재시작 전 서버엔 max_off 가 없어 '' (예전처럼 인원만)
+  // 전체 휴무(11-25) — 그날은 이름 대신 '전체 휴무' 한 칸
+  function fullOff(s) { return !!(data && data.full_days && Object.prototype.hasOwnProperty.call(data.full_days, s.day)); }
+  function fullChip(s, tag) {
+    var note = (data.full_days || {})[s.day] || '';
+    return '<' + tag + ' class="gw-cal-chip gw-so-chip fulloff"' + (note ? ' title="' + esc(note) + '"' : '') + '>전체 휴무 ' +
+      s.names.length + '명' + (note ? '<span class="visually-hidden"> — ' + esc(note) + '</span>' : '') + '</' + tag + '>';
+  }
   function capHtml(s) {
     var cap = data && data.max_off;
+    if (fullOff(s)) return '<span class="gw-so-cap full">전체</span>';
     if (cap == null || s.holiday) return '';
     var n = s.names.length;
     return '<span class="gw-so-cap' + (n >= cap ? ' full' : '') + '" title="쉬는 사람 ' + n + '명 · 최대 ' + cap + '명">' +
@@ -250,7 +265,7 @@
       var di = s.day;
       var mode = clickMode(s);
       var names = s.names.slice();
-      var chips = names.map(function (n) {
+      var chips = fullOff(s) ? fullChip(s, 'span') : names.map(function (n) {
         var gone = me.name === n && inDraft(draft.remove, di);
         return '<span class="gw-cal-chip gw-so-chip' + (n === me.name ? ' mine' : '') + (gone ? ' gone' : '') + '">' + esc(n) +
           (gone ? '<span class="visually-hidden"> (빼기로 고름)</span>' : '') + '</span>';
@@ -297,7 +312,8 @@
         esc(label + (mode === 'self' ? (s.mine ? ' — 눌러서 내 이름 빼기' : ' — 눌러서 내 이름 넣기') : ' — 눌러서 고치기')) + '"' : '';
       g += '<div class="' + cls + ' gw-so-sat' + (mode ? ' can' : '') + (s.past ? ' past' : '') + '"' + attrs + '>' +
         '<div class="gw-cal-num">' + dd + (s.holiday ? ' <small class="gw-so-hol">' + esc(s.holiday) + '</small>' : '') + capHtml(s) + '</div>';
-      names.forEach(function (n) {
+      if (fullOff(s)) g += fullChip(s, 'div');
+      else names.forEach(function (n) {
         var gone = me.name === n && inDraft(draft.remove, di);
         g += '<div class="gw-cal-chip gw-so-chip' + (n === me.name ? ' mine' : '') + (gone ? ' gone' : '') + '">' + esc(n) +
           (gone ? '<span class="visually-hidden"> (빼기로 고름)</span>' : '') + '</div>';
@@ -589,6 +605,8 @@
         return api('/api/satoff/decide', { method: 'POST', body: { month: k, approve: false, note: note } })
           .then(function () { watchNotify(k); return '돌려보냈어요. 올린 분께 슬랙 알림이 가요.'; });
       });
+    } else if (act === 'full') {
+      openFull();
     } else if (act === 'worked') {
       openWorked();
     } else if (act === 'undo') {
@@ -633,6 +651,72 @@
       }).catch(function (e) { flash(e.message, 'err'); b.disabled = false; });
     }
   });
+
+  // ── 전체 휴무 창(11-25 부장님) — 관리자. 토요일 하나를 고르고 지정하거나 풀기 ──
+  var fullEl = null, fullModal = null;
+  function fullModalEl() {
+    if (fullEl) return fullEl;
+    fullEl = document.createElement('div');
+    fullEl.className = 'modal fade';
+    fullEl.id = 'soFullModal';
+    fullEl.tabIndex = -1;
+    fullEl.setAttribute('aria-labelledby', 'soFullTitle');
+    fullEl.setAttribute('aria-hidden', 'true');
+    fullEl.innerHTML =
+      '<div class="modal-dialog modal-dialog-centered"><form class="modal-content" id="soFullForm" novalidate>' +
+      '<div class="modal-header"><h2 class="modal-title fs-5" id="soFullTitle">전체 휴무</h2>' +
+      '<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button></div>' +
+      '<div class="modal-body">' +
+      '<p class="gw-so-hint">고른 토요일엔 스케줄 근무 대상 모두가 쉬는 사람으로 들어가요. 각자 쉰 횟수에 하루씩 들어가요(격주 1일 차감).</p>' +
+      '<p class="gw-so-admin-note small mb-3"><i class="fas fa-lock" aria-hidden="true"></i> 전체 휴무 설정은 관리자에게만 보여요.</p>' +
+      '<div class="mb-3"><label class="form-label" for="soFullDay">토요일</label><select class="form-select" id="soFullDay"></select></div>' +
+      '<div class="mb-1" id="soFullNoteWrap"><label class="form-label" for="soFullNote">메모</label>' +
+      '<input type="text" class="form-control" id="soFullNote" maxlength="100" autocomplete="off" placeholder="예: 연말 전체 휴무"></div>' +
+      '<div class="gw-lv-err" id="soFullErr" role="alert"></div></div>' +
+      '<div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">닫기</button>' +
+      '<button type="submit" class="btn btn-primary" id="soFullSave">전체 휴무로</button></div></form></div>';
+    document.body.appendChild(fullEl);
+    document.getElementById('soFullDay').addEventListener('change', syncFull);
+    document.getElementById('soFullForm').addEventListener('submit', saveFull);
+    return fullEl;
+  }
+  function isFullDay(day) { return !!(data && data.full_days && Object.prototype.hasOwnProperty.call(data.full_days, day)); }
+  function syncFull() {
+    var on = isFullDay(document.getElementById('soFullDay').value);
+    var b = document.getElementById('soFullSave');
+    b.textContent = on ? '전체 휴무 풀기' : '전체 휴무로';
+    b.className = 'btn ' + (on ? 'btn-outline-danger' : 'btn-primary');
+    document.getElementById('soFullNoteWrap').hidden = on;
+  }
+  function openFull() {
+    if (!data) return;
+    var el = fullModalEl();
+    var sats = (data.saturdays || []).filter(function (s) { return !s.holiday; });
+    document.getElementById('soFullDay').innerHTML = sats.map(function (s) {
+      return '<option value="' + esc(s.day) + '">' + esc(md(s.day)) + '(토)' + (fullOff(s) ? ' · 전체 휴무' : '') + '</option>';
+    }).join('');
+    document.getElementById('soFullNote').value = '';
+    document.getElementById('soFullErr').textContent = '';
+    syncFull();
+    fullModal = showModal(el, document.getElementById('soFullDay'));
+  }
+  function saveFull(ev) {
+    ev.preventDefault();
+    var day = document.getElementById('soFullDay').value;
+    if (!day) return;
+    var on = !isFullDay(day);
+    if (!on && !window.confirm(md(day) + ' 토요일 전체 휴무를 풀까요? 전체 휴무로 넣은 이름만 빠지고, 각자 고른 사람은 남아요.')) return;
+    var btn = document.getElementById('soFullSave');
+    btn.disabled = true;
+    api('/api/satoff/full', { method: 'POST', body: { day: day, on: on, note: document.getElementById('soFullNote').value.trim() } })
+      .then(function (j) {
+        if (fullModal) fullModal.hide();
+        flash(md(day) + ' 토요일을 ' + (on ? '전체 휴무로 정했어요 (' + j.count + '명 넣음).' : '전체 휴무에서 풀었어요.'), 'ok');
+        return load(true);
+      })
+      .catch(function (e) { document.getElementById('soFullErr').textContent = e.message; })
+      .then(function () { btn.disabled = false; });
+  }
 
   // ── 휴무 출근 기록 창(11-24 부장님) — 구두 승인 뒤 본인이. 창은 JS 가 만든다(템플릿 캐시와 무관하게) ──
   var wkEl = null, wkModal = null;

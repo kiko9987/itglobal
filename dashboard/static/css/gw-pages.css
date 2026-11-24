@@ -3067,6 +3067,9 @@ html:has(#bdPage) {
 .gw-so-cell.off { background: #e0f2fe; color: #075985; }
 .gw-so-cell.worked, .gw-so-chip.worked { background: #ffedd5; color: #9a3412; }
 .gw-so-chip.worked small { font-size: 0.7em; }
+.gw-so-chip.fulloff { background: #ede9fe; color: #4c1d95; font-weight: 600; }   /* 전체 휴무(11-25) */
+.gw-so-admin-note { color: #6d28d9; }   /* 관리자에게만 보이는 기능 안내(11-25) */
+.gw-so-admin-note .fa-lock { font-size: 0.85em; }
 @media (max-width: 767.98px) {
   .gw-so-plus { display: none; }
   .gw-so-sat .gw-so-chip { white-space: normal; word-break: keep-all; }
