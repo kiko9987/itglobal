@@ -3714,3 +3714,16 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-va-schedbox .gw-va-pre[hidden] + .gw-va-sched > summary { border-radius: 11px; }
 /* 차량 배정 차 목록 머리의 '배정 n / m대' — 제목보다 작고 옅게(11-24 부장님: 글자가 튐) */
 #vcCarCount { font-size: 0.84rem; color: #475569; font-variant-numeric: tabular-nums; }
+/* 차량 배정 오전·오후 나눠 쓰기(11-24) */
+.gw-vc-half { display: inline-block; padding: 0 6px; border-radius: 999px; background: #eef2ff; color: #3730a3; font-size: 0.76rem; font-weight: 700; }
+.gw-vc-halfsel { width: auto; display: inline-block; }
+.gw-vc-splitnote { flex-basis: 100%; color: #475569; font-size: 0.8rem; }
+/* 나눠 쓰기로 체크한 '코스 있음' 차는 체크한 모양 그대로(흐린 글자가 진한 바탕에 묻히던 것) · 위 줄은 세 줄로 */
+.gw-vc-car.used.on { background: #2a3038; border-color: #2a3038; color: #ffffff; }
+.gw-vc-car.used.on .gw-vc-carhead strong, .gw-vc-car.used.on .gw-vc-carhead small, .gw-vc-car.used.on .gw-vc-cwho, .gw-vc-car.used.on .gw-vc-clabel { color: #ffffff; }
+.gw-vc-bar.split { flex-wrap: wrap; row-gap: 6px; }
+.gw-vc-bar.split > strong { flex-basis: 100%; }
+.gw-vc-bar.split .gw-vc-halfsel { flex: 0 0 auto; width: auto; min-height: 31px; padding-top: 2px; padding-bottom: 2px; }
+@media (max-width: 991.98px) {
+  .gw-vc-bar.split .gw-vc-halfsel { min-height: 44px; font-size: 16px; }
+}

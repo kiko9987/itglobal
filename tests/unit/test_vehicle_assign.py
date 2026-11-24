@@ -395,6 +395,23 @@ def test_plan_changed_dm_only_when_cars_saved(db, monkeypatch):
     assert va.notify_plan_changed('2026-11-24', '추가 서준', ASSIGNER.upper()) == 0 and not sent
 
 
+def test_half_shared_car_dm(db):
+    """차 한 대를 두 코스가 오전·오후로 나눠 씀(11-24) — 확정 뒤 나누면 바뀐 사람에게 'X 오전만/오후만' +
+    반대 반나절에 그 차를 쓰는 사람. 같은 차 오전·오후 그대로인 사람(바뀐 게 없는 사람)에게는 안 감."""
+    sent = db
+    va.save_day('2026-11-25', [{'plate': '03모8021', 'people': ['MJ']}, {'plate': va.OWN, 'people': ['YG', 'TH']},
+                               {'plate': '16소4041', 'people': ['JSH']}], ASSIGNER, confirm=True)
+    sent.clear()
+    res = va.save_day('2026-11-25', [{'plate': '03모8021', 'people': ['MJ'], 'pm': ['YG', 'TH']},
+                                     {'plate': '16소4041', 'people': ['JSH']}], ASSIGNER)
+    assert res['notified'] == 3
+    dm = {sid: t for sid, t in sent}
+    assert set(dm) == {'UMJ', 'UYG', 'UTH'}
+    assert '쏘렌토 8021' in dm['UMJ'] and '오전만' in dm['UMJ'] and '오후에는' in dm['UMJ'] and '임산' in dm['UMJ']
+    assert '오후만' in dm['UTH'] and '함께 타는 사람: 임산' in dm['UTH'] and '오전에는 박다솜' in dm['UTH']
+    assert '배정 없음' not in dm['UYG']
+
+
 def test_own_car_dm_text():
     """본인 차량 DM 은 화면 꼬리표와 같은 말(11-24)."""
     assert va._car_text(va.OWN, {}) == '*본인 차량*으로 이동'

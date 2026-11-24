@@ -631,6 +631,21 @@ def _person_text(day: str, code: str, rows: Dict[str, Dict], cars: Dict[str, Dic
         if others:
             lines.append(f"함께 타는 사람: {', '.join(others)}")
         notes = [r['note']] if r.get('note') else []
+    elif bool(w['am']) != bool(w['pm']) and (w['am'] or w['pm']) != OWN:
+        # 차 한 대를 두 코스가 오전·오후로 나눠 씀(11-24) — '오전만' + 반대 반나절에 그 차를 쓰는 사람(차를 넘겨줄 상대)
+        half = 'am' if w['am'] else 'pm'
+        plate = w[half]
+        r = rows[plate]
+        mine = r['people'] if half == 'am' else pm_of(r)
+        theirs = [p for p in (pm_of(r) if half == 'am' else r['people']) if p not in mine]
+        label = '오전' if half == 'am' else '오후'
+        lines.append(f":car: {day_label(day)} 차량: {_car_text(plate, cars)} {label}만")
+        others = [display(p, who) for p in mine if p != code]
+        if others:
+            lines.append(f"함께 타는 사람: {', '.join(others)}")
+        if theirs:
+            lines.append(f"{'오후' if half == 'am' else '오전'}에는 {', '.join(display(p, who) for p in theirs)} 님이 이 차를 써요.")
+        notes = [r['note']] if r.get('note') else []
     else:
         lines.append(f":car: {day_label(day)} 차량 — 오전·오후가 달라요")
         notes = []
