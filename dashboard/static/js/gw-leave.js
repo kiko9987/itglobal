@@ -771,7 +771,9 @@
           '<td>' + esc(r.noticed_at.slice(0, 10)) + (r.ack_at ? '<div class="text-muted small">받음 ' + esc(r.ack_at.slice(0, 10)) + '</div>' : '') + '</td>' +
           '<td class="n">' + days(r.days) + '<div class="text-muted small">지금 ' + days(r.left) + '</div></td>' +
           '<td>' + (r.plan_dates.length ? esc(pdates(r.plan_dates)) : '<span class="text-muted">기한 ' + esc(r.plan_due ? md(r.plan_due) : '-') + '</span>') + '</td>' +
-          '<td>' + (r.designated_dates.length ? esc(pdates(r.designated_dates)) : '<span class="text-muted">기한 ' + esc(r.designate_due ? md(r.designate_due) : '-') + '</span>') + '</td>' +
+          '<td>' + (r.designated_dates.length ? esc(pdates(r.designated_dates)) : '<span class="text-muted">기한 ' + esc(r.designate_due ? md(r.designate_due) : '-') + '</span>') +
+            // 지정 통보 DM 을 못 보냄 — 근로기준법 61조 통보라 직접 전해야 한다(11-24 조용한 실패 점검)
+            (r.designate_dm === 'failed' ? '<div class="text-danger small">⚠ 통보 DM 못 보냄 — 직접 전해 주세요</div>' : '') + '</td>' +
           '<td>' + esc(r.state_label) + '</td>' +
           '<td>' + (canDes ? '<button type="button" class="btn btn-sm btn-outline-primary" data-promo-des="' + esc(r.id) + '" data-left="' + esc(r.left) + '" data-max="' + esc(r.grant_to) +
             '" data-plan="' + esc(pdates(r.plan_dates)) + '">사용일 지정</button>' : '') + '</td></tr>';

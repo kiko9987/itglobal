@@ -884,6 +884,9 @@ def promo_notify(kind: str, payload) -> None:
             what = '촉구' if kind == 'notice' else '사용 시기 지정 통보'
             logger.error(f"{_LOG} 휴가 봇 토큰이 없어 {what} DM 을 못 보냄 — {rec.get('name')} (#{rec.get('id')}). "
                          '본인에게 직접 전해 주세요', extra={'force_alert': True})
+            if kind == 'designated' and rec.get('id'):
+                from dashboard.services import leave_promo as lp
+                lp.set_designate_dm(rec['id'], False)      # 촉진 탭에 '통보 DM 못 보냄'(11-24 추가분)
         return
     from dashboard.services import leave_promo as lp
     if kind == 'notice':
@@ -898,9 +901,11 @@ def promo_notify(kind: str, payload) -> None:
                 '그룹웨어 [내 휴가]에서 [사용 계획 내기]를 눌러 쓸 날짜를 알려 주세요.')
     elif kind == 'designated':
         rec = payload
-        if not _dm_blocks(client, rec.get('slack_id') or '', '📮 연차 사용 시기 지정 통보',
-                          [{'type': 'section', 'text': {'type': 'mrkdwn', 'text':
-                            '📮 *연차 사용 시기 지정 통보* (근로기준법 제61조)\n' + lp.designate_text(rec)}}]):
+        ok = _dm_blocks(client, rec.get('slack_id') or '', '📮 연차 사용 시기 지정 통보',
+                        [{'type': 'section', 'text': {'type': 'mrkdwn', 'text':
+                          '📮 *연차 사용 시기 지정 통보* (근로기준법 제61조)\n' + lp.designate_text(rec)}}])
+        lp.set_designate_dm(rec['id'], ok)      # 결과를 기록 — 못 보냈으면 촉진 탭에 '통보 DM 못 보냄'(11-24 추가분)
+        if not ok:
             # 촉구(notice)와 같게 — 기록은 '지정함'인데 통보가 안 갔으면 알아야 한다(11-24 조용한 실패 점검 7번)
             logger.error(f"{_LOG} 사용 시기 지정 통보 DM 을 못 보냄 — {rec['name']} (#{rec['id']}). "
                          '본인에게 직접 전해 주세요(그룹웨어 내 휴가에는 보여요)', extra={'force_alert': True})

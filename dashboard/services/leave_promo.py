@@ -84,6 +84,9 @@ def _conn():
         if not _ready or _ready_db is not db:
             for ddl in _DDL:
                 c.execute(ddl)
+            cols = {r[1] for r in c.execute('PRAGMA table_info(leave_promotions)').fetchall()}
+            if 'designate_dm' not in cols:      # 지정 통보 DM 결과 'sent'·'failed'(11-24 조용한 실패 점검), 옛 기록은 빈칸
+                c.execute('ALTER TABLE leave_promotions ADD COLUMN designate_dm TEXT')
             c.commit()
             _ready, _ready_db = True, db
         yield c
@@ -471,7 +474,15 @@ def view(rec: dict, today: Optional[date] = None) -> dict:
         'designated_by': rec.get('designated_by') or '', 'designated_dates': rec.get('designated_dates') or [],
         'source': 'flex' if str(rec.get('source') or '').startswith('flex:') else 'gw', 'note': rec.get('note') or '',
         'state': st['key'], 'state_label': st['label'],
+        'designate_dm': rec.get('designate_dm') or '',      # 'failed' 면 촉진 탭에 '통보 DM 못 보냄'(11-24)
     }
+
+
+def set_designate_dm(pid: int, ok: bool) -> None:
+    """지정 통보(근로기준법 61조) 슬랙 DM 결과 — 못 보냈으면 촉진 탭이 '직접 전해 주세요'를 띄운다(11-24 조용한 실패 점검)."""
+    with _conn() as c:
+        c.execute('UPDATE leave_promotions SET designate_dm=? WHERE id=?', ('sent' if ok else 'failed', pid))
+        c.commit()
 
 
 def for_person(name: str, today: Optional[date] = None) -> List[dict]:

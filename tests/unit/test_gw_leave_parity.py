@@ -166,6 +166,21 @@ def test_promo_send_ack_plan_designate_web(client, mgr, lp):
     assert any('사용 시기 지정 통보' in p['text'] for p in mgr.to('UMW'))
     rec = lp.get(pid)
     assert rec['status'] == lp.DESIGNATED and lv.get(rec['designated_rids'][0])['status'] == lv.APPROVED
+    assert rec['designate_dm'] == 'sent'
+    # 지정 통보 DM 이 실패하면 기록·촉진 탭에 남는다 — 전엔 결과를 버렸음(11-24 조용한 실패 점검)
+
+    class _Down:
+        def conversations_open(self, users):
+            raise RuntimeError('channel_not_found')
+    real = slack_leave._client
+    slack_leave._client = lambda: _Down()
+    try:
+        slack_leave.promo_notify('designated', rec)
+    finally:
+        slack_leave._client = real
+    assert lp.get(pid)['designate_dm'] == 'failed'
+    row = next(r for r in client.get('/api/leave/promotions').get_json()['rows'] if r['id'] == pid)
+    assert row['designate_dm'] == 'failed'
 
 
 def test_promo_daily_auto_and_manager_summary(slack, mgr, lp, monkeypatch):
