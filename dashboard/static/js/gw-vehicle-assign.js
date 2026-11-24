@@ -259,8 +259,8 @@
       var own = one.length === 1 ? ownCars()[one[0]] : null;
       return '<span class="gw-vc-slot own"><i class="fas fa-car-side" aria-hidden="true"></i> ' + esc(own ? own.label : '각자 고정 차') + '</span>';
     }
-    if (cur && isOwn(carOf(cur))) {     // 차 없는 코스에 메모를 적은 것(예전 자차 칸) — 경고 대신 '회사 차 없이'
-      return '<span class="gw-vc-slot own"><i class="fas fa-note-sticky" aria-hidden="true"></i> 회사 차 없이' + x('회사 차 없이') + '</span>';
+    if (cur && isOwn(carOf(cur))) {     // 차 없는 코스에 메모를 적은 것(안에선 자차 칸) — 경고 대신 '본인 차량'(11-24 부장님)
+      return '<span class="gw-vc-slot own"><i class="fas fa-user" aria-hidden="true"></i> 본인 차량' + x('본인 차량') + '</span>';
     }
     if (cur) {
       var c = carOf(cur);
@@ -362,7 +362,7 @@
       '>' + head + carMemo(g) + hint + memo + sites + '</section>';
   }
   // 코스 메모 한 줄(11-24 부장님) — 자차로 가는 사람 같은 드문 예외만 적는다. 그 코스 차의 메모로 저장(배정 DM 에 같이 감)
-  //   차 없는 코스(자차로 가는 한 사람 등)도 메모를 적으면 그 코스는 '회사 차 없이'로 보고 경고에서 뺀다(안에선 자차 칸에 저장)
+  //   차 없는 코스(자차로 가는 한 사람 등)도 메모를 적으면 그 코스는 '본인 차량'으로 보고 경고에서 뺀다(안에선 자차 칸에 저장)
   function memoCar(g) {           // 메모를 붙일 차 — 차 한 대인 코스는 그 차, 차 없는 코스는 자차 칸
     var cur = courseCar(g);
     if (cur === '') return ownCar();
@@ -619,7 +619,7 @@
       S.day = j.day; S.cars = j.cars; S.staff = j.staff; S.canEdit = !!j.can_edit; S.dmOff = !!j.dm_off;
       S.cars.forEach(function (c) {
         c.pm = Array.isArray(c.pm) ? c.pm : null;
-        if (isOwn(c)) c.label = '본인 차량 (자차)';     // 화면에서 부르는 이름(11-23 부장님 — '자차'만으론 어색)
+        if (isOwn(c)) c.label = '본인 차량';     // 화면에서 부르는 이름(11-24 부장님 — 꼬리표는 '본인 차량'만)
       });
       S.confirmed = !!j.confirmed_at;
       S.names = {}; S.visits = {}; S.places = {}; S.off = {}; S.half = {}; S.online = {}; S.work = {};
@@ -723,7 +723,7 @@
     groups().forEach(function (g) {
       var ms = g.members.filter(function (m) { return !S.off[m] && (inG[m] || []).length < 2; });
       var cars = uniq(ms.map(whereIs).filter(Boolean));
-      if (cars.length !== 1 || isOwn(cars[0])) return;          // 차가 없거나 여러 대·'회사 차 없이' 코스는 그대로
+      if (cars.length !== 1 || isOwn(cars[0])) return;          // 차가 없거나 여러 대·'본인 차량' 코스는 그대로
       ms.filter(noCar).forEach(function (m) {
         setCar(m, cars[0].plate, 'all');
         out.push(name(m) + ' 님 → ' + g.label + ' ' + cars[0].label);
@@ -750,7 +750,7 @@
       var mc = carOf(t.dataset.cmemo), mg = groupByKey(t.dataset.ckey), v = t.value.trim();
       mc.note = v;
       setDirty(true);
-      if (isOwn(mc) && mg) {                  // 차 없는 코스 — 메모를 적으면 '회사 차 없이', 지우면 다시 '차 없음'
+      if (isOwn(mc) && mg) {                  // 차 없는 코스 — 메모를 적으면 '본인 차량', 지우면 다시 '차 없음'
         var cc = courseCar(mg);
         if (v && cc === '') setCourse(mg.key, mc.plate);
         else if (!v && cc === mc.plate) setCourse(mg.key, '');
