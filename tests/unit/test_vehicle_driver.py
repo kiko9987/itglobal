@@ -94,7 +94,7 @@ def test_split_answer_am_pm(db):
 
 
 def test_log_uses_actual_driver(db):
-    from tests.unit.test_vehicle_log import _xlsx, LEADS
+    from test_vehicle_log import _xlsx, LEADS
     trips = [('2026-11-23(월)', '09:10:00', '경기도 김포시 걸포동', '서울특별시 영등포구 영등포동', 30.0),
              ('2026-11-23(월)', '14:00:00', '서울특별시 영등포구 영등포동', '서울특별시 강남구 역삼동', 15.0)]
     vl.import_upload('a.xlsx', _xlsx(trips=trips), 'x')

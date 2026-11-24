@@ -70,7 +70,7 @@ def test_staff_excludes_office(monkeypatch):
 
 
 def _leads_1121():
-    from tests.unit.test_vehicle_log import _lead
+    from test_vehicle_log import _lead
     return [_lead('L-1', '2026-11-21', '부천 길주로 1', '오늘, 윤솔'),
             _lead('L-2', '2026-11-21', '부천 길주로 2', '오늘, 윤솔'),
             _lead('L-3', '2026-11-21', '부천 길주로 3', '서준, 한별'),
@@ -86,7 +86,7 @@ def test_teams_from_schedule(db):
 
 
 def test_visitors_with_visits_that_day(db):
-    from tests.unit.test_vehicle_log import _lead
+    from test_vehicle_log import _lead
     leads = [_lead('L-1', '2026-11-21', '용인 수지구 심곡로 11', '김가람, 이나래'),
              _lead('L-2', '2026-11-21', '부천 길주로 1', '김가람'),
              _lead('L-3', '2026-11-22', '부천 길주로 2', '박다솜'),                     # 다른 날
@@ -102,7 +102,7 @@ def test_visitors_with_visits_that_day(db):
 def test_visitor_places_use_road_units(db):
     """갈 곳은 방문 일정과 같은 도로명 기준 — 찾아 둔 지번 동('풍덕천동')이 있어도 '용인 수지구'(11-24 부장님),
     같은 주소 두 번은 한 곳."""
-    from tests.unit.test_vehicle_log import _lead
+    from test_vehicle_log import _lead
     with vl._conn() as conn:
         conn.execute('INSERT INTO vehicle_addr_dong (addr, dong, checked_at) VALUES (?,?,?)',
                      ('용인 수지구 심곡로 11', '풍덕천동', '2026-11-21 09:00'))
@@ -198,7 +198,7 @@ def test_next_workday():
 
 
 def test_vehicle_log_prefers_assignment(db):
-    from tests.unit.test_vehicle_log import _xlsx, T1, LEADS
+    from test_vehicle_log import _xlsx, T1, LEADS
     vl.import_upload('a.xlsx', _xlsx(trips=T1), 'x')
     # 운행일지 시험 차량(12가3456)은 차량 목록에 없어 배정할 수 없다 → 실제 차 번호로 바꿔 넣는다
     with vl._conn() as conn:
@@ -219,7 +219,7 @@ def test_routes_view_for_all_edit_for_assigner(db, monkeypatch):
     monkeypatch.setattr(gw, 'can_use', lambda e: True)
     monkeypatch.setattr(hr, 'hr_admins', lambda: [])
     monkeypatch.setattr(bp, 'render_template', lambda name, **k: name)
-    from tests.unit.test_vehicle_log import _lead
+    from test_vehicle_log import _lead
     monkeypatch.setattr(bp, '_leads', lambda: [_lead('L-1', '2026-11-21', '부천 길주로 1', '서준')])
     monkeypatch.setattr(va, 'day_off', lambda d: {'off': [{'code': 'JK', 'name': '강해', 'why': '연차'}], 'half': []})   # 휴가 DB 안 읽게
     resolve = []
@@ -365,7 +365,7 @@ def test_halves_dm_text_and_changes(db):
 
 
 def test_trip_driver_by_half(db):
-    from tests.unit.test_vehicle_log import _xlsx, LEADS
+    from test_vehicle_log import _xlsx, LEADS
     trips = [('2026-11-23(월)', '09:10:00', '경기도 김포시 걸포동', '서울특별시 영등포구 영등포동', 30.0),
              ('2026-11-23(월)', '14:00:00', '서울특별시 영등포구 영등포동', '서울특별시 강남구 역삼동', 15.0)]
     vl.import_upload('a.xlsx', _xlsx(trips=trips), 'x')
