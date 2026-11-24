@@ -6,7 +6,7 @@ from datetime import date
 
 from flask import Blueprint, jsonify, redirect, render_template, request, session
 
-from dashboard.blueprints.hr import BUG_ERRORS, _hr_admin, _me, dev_preview_gate, gw_page
+from dashboard.blueprints.hr import BUG_ERRORS, _hr_admin, _me, gw_page
 from dashboard.services import hr
 from dashboard.services import sat_off as so
 from dashboard.utils.logging_config import get_logger
@@ -14,7 +14,8 @@ from dashboard.utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 gw_satoff_bp = Blueprint('gw_satoff', __name__)
-gw_satoff_bp.before_request(dev_preview_gate)   # 개발 중 — 부장님만(11-21)
+# 개발 중 문(dev_preview_gate)은 뗐다 — 시공·미화를 뺀 모두에게 연다(11-25 부장님). 고르기·결재는 그대로 역할별
+CLOSED_DEPTS = ('시공', '미화')   # 부서 이름에 들어 있으면 안 보임(기술시공(내부)·미화). 현장 세션은 groupware 문지기가 따로 막음
 
 
 def _who():
@@ -25,20 +26,24 @@ def _who():
 
 
 def can_view_email(email: str) -> bool:
-    """메뉴 보이기용(가벼운 확인) — 기술영업·취합 담당·승인권자·경영지원·전사 휴가 보기. 실제 권한은 API 가 다시 확인."""
+    """볼 수 있나(메뉴·화면·API 공용) — 시공·미화를 뺀 재직자(11-25 부장님). 기술영업·취합 담당·승인권자·전사 휴가 보기는
+    부서와 상관없이. 고르기·결재 같은 고치는 일은 서비스가 역할로 다시 확인한다(그 밖의 직원은 보기만)."""
     if not email:
         return False
     if hr.can_view_all_leave(email):
         return True
     p = hr.find_by_email(email)
-    if not p:
+    if not p or p.get('status') == hr.STATUS_RESIGNED:
         return False
-    return p.get('department') == so.MEMBER_DEPT or (p.get('slack_id') or '') in so.manager_ids()
+    dept = p.get('department') or ''
+    if dept == so.MEMBER_DEPT or (p.get('slack_id') or '') in so.manager_ids():
+        return True
+    return not any(x in dept for x in CLOSED_DEPTS)
 
 
 def _allowed(name: str, sid: str) -> bool:
     r = so.role(sid, name)
-    return r['member'] or r['manager'] or r['approver'] or _hr_admin() or hr.can_view_all_leave(_me())
+    return r['member'] or r['manager'] or r['approver'] or _hr_admin() or can_view_email(_me())
 
 
 def _err(e: Exception):
@@ -90,7 +95,7 @@ def page_satoff():
 def api_view():
     name, sid, why = _who()
     if not _allowed(name, sid):
-        return jsonify({'success': False, 'message': '스케줄 근무는 기술영업과 결재하는 분만 볼 수 있어요.'}), 403
+        return jsonify({'success': False, 'message': '스케줄 근무를 볼 수 없는 계정이에요.'}), 403
     try:
         m = so.parse_month(request.args.get('month') or '') or date.today().strftime('%Y-%m')
         data = so.view(m, sid if not why else '', name)

@@ -317,7 +317,7 @@ def test_menu_visibility(slack, monkeypatch):
     monkeypatch.setattr(hr, 'can_view_all_leave', lambda e: e == 'boss@itg-aircon.com')
     assert can_view_email(f'{A.lower()}@itg-aircon.com')                 # 기술영업
     assert can_view_email(f'{JW.lower()}@itg-aircon.com')                # 승인권자
-    assert not can_view_email('umw@itg-aircon.com')                       # '영업'(대상 아님)
+    assert can_view_email('umw@itg-aircon.com')                           # '영업'도 보기는 됨(11-25 시공·미화만 뺌)
     assert can_view_email('boss@itg-aircon.com')
     nav = gw.build_nav('/leave/saturday', 'editor', sat_off=True)
     items = [it for a in nav['areas'] for it in a['children']]
@@ -398,3 +398,25 @@ def test_worked_api_route(slack, monkeypatch):
     with app.test_request_context(json={'day': '2026-12-05', 'on': False}):
         assert view().get_json()['success']
     assert so.picks(DEC)['2026-12-05'] == ['영업가']
+
+
+# ── 누가 보나(11-25 부장님: 시공·미화 빼고 모두에게 엶) ─────────────────────
+def test_view_open_to_all_but_construction_and_cleaning(slack, monkeypatch):
+    from dashboard.blueprints import gw_satoff as so_bp
+    for name, uid, dept in (('시공가', 'USG', '기술시공(내부)'), ('미화가', 'UMH', '미화'), ('무부서', 'UNO', '')):
+        hr.create_person({'name': name, 'status': '재직', 'hire_date': '2022-05-23', 'department': dept,
+                          'slack_id': uid, 'work_email': f'{uid.lower()}@itg-aircon.com'}, ADMIN)
+    monkeypatch.setattr(hr, 'can_view_all_leave', lambda e: False)
+    ok = {e: so_bp.can_view_email(e) for e in ('ua0001@itg-aircon.com', 'uco@itg-aircon.com', 'ujw@itg-aircon.com',
+                                                'umw@itg-aircon.com', 'ukiko@itg-aircon.com', 'uno@itg-aircon.com',
+                                                'usg@itg-aircon.com', 'umh@itg-aircon.com', 'nobody@itg-aircon.com', '')}
+    assert ok == {'ua0001@itg-aircon.com': True, 'uco@itg-aircon.com': True, 'ujw@itg-aircon.com': True,   # 기술영업·취합·CEO
+                  'umw@itg-aircon.com': True, 'ukiko@itg-aircon.com': True, 'uno@itg-aircon.com': True,    # 영업·경영지원·부서 없음
+                  'usg@itg-aircon.com': False, 'umh@itg-aircon.com': False,                               # 시공·미화
+                  'nobody@itg-aircon.com': False, '': False}
+    # 보기만 하는 직원(영업) — 고르기·휴무 출근은 서비스가 막는다
+    v = so.view(DEC, 'UMW', '박민우', TODAY)
+    assert not v['can_toggle'] and not v['can_submit'] and not v['can_mark_worked'] and not v['me']['member']
+    with pytest.raises(so.SatOffError, match='대상'):
+        so.toggle(S5, '박민우', True, 'UMW', '박민우', TODAY)
+    assert not hasattr(so_bp.gw_satoff_bp, 'before_request_funcs') or not so_bp.gw_satoff_bp.before_request_funcs.get(None)

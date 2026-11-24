@@ -258,7 +258,7 @@ def test_routes_view_for_all_edit_for_assigner(db, monkeypatch):
 
 
 def test_dev_preview_only_kiko(db, monkeypatch):
-    """토요일 휴무·차량은 개발 중 — 부장님만 들어가고, 다른 사람은 '아직 개발 중' 안내·API 403(11-21).
+    """차량은 개발 중 — 부장님만 들어가고, 다른 사람은 '아직 개발 중' 안내·API 403(11-21). 스케줄 근무는 11-25 엶.
     차량 배정 화면만 배정 담당(SJ·JW)에게 먼저(11-24)."""
     import dashboard.auth as auth
     from dashboard.blueprints import gw_satoff as so_bp
@@ -282,9 +282,10 @@ def test_dev_preview_only_kiko(db, monkeypatch):
         # 차량 배정 화면만 배정 담당에게 먼저 열림(11-24 — JW 가 방문 일정 확정 뒤 바로 차를 넣음). 다른 차량 화면은 그대로 개발 중
         assert cl.get('/vehicles/assign').get_data(as_text=True) == 'gw/vehicle_assign.html'
         assert cl.get('/api/vehicles/assign?day=2026-11-21').get_json()['success']
-        assert cl.get('/leave/saturday').get_data(as_text=True) == 'gw/dev_preview.html'
+        # 스케줄 근무는 11-25 개발 중 문을 뗐다(시공·미화 빼고 모두) — 개발 중 안내가 아님. 볼 수 있는 사람은 test_sat_off 에서
+        assert cl.get('/leave/saturday').get_data(as_text=True) != 'gw/dev_preview.html'
         r = cl.get('/api/satoff')
-        assert r.status_code == 403 and '개발 중' in r.get_json()['message']
+        assert '개발 중' not in (r.get_json() or {}).get('message', '')
         # 운행일지는 경영지원에게 열림(11-24 "메뉴는 다 오픈") — 배정 담당(경영지원 아님)은 경영지원만 안내
         assert cl.get('/vehicles').status_code == 302
         r = cl.get('/api/vehicles')

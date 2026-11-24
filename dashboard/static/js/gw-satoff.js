@@ -118,7 +118,11 @@
     var h = '';
     var acts = '';   // 그달 결재 단추 — 달·상태 줄 오른쪽(actEl). 변경 신청 단추는 고른 내용 옆(bar)에 그대로
     if (d.why) h += '<div class="gw-so-note warn">' + esc(d.why) + '</div>';
-    if (d.status === 'open') {
+    // 기술영업·취합 담당·승인권자가 아닌 직원 — 보기만(11-25 시공·미화 빼고 모두에게 엶)
+    var viewer = !(me.member || me.manager || me.approver);
+    if (viewer) {
+      h += '<p class="gw-so-how">기술영업의 토요일 근무 스케줄이에요. 보기만 할 수 있어요.</p>';
+    } else if (d.status === 'open') {
       if (d.note && d.decided_by) h += '<div class="gw-so-note warn">↩️ ' + esc(d.decided_by) + ' 님이 돌려보냈어요: ' + esc(d.note) + '</div>';
       if (d.can_toggle) {
         var nw = narrow();   // 휴대폰은 칸이 아니라 줄마다 단추

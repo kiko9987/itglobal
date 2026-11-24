@@ -93,13 +93,13 @@ def is_pilot(email: str) -> bool:
     return bool(email) and email.lower() in _load()['pilots']
 
 
-# 개발 중 화면(토요일 휴무·차량, 11-21 부장님) — 이 명단만 들어가고, 다른 사람은 '아직 개발 중' 안내.
+# 개발 중 화면(차량, 11-21 부장님 — 스케줄 근무는 11-25 시공·미화 빼고 모두에게 엶) — 이 명단만 들어가고, 다른 사람은 '아직 개발 중' 안내.
 # 메뉴는 그대로 보인다. 모두에게 열 때는 비운다(()).
 DEV_PREVIEW_USERS: tuple = ('kiko@itg-aircon.com',)
 
 
 # 방문 일정(영업 > 방문 일정)만 관리자(admin·super_admin)에게 먼저 연다(11-23 부장님) — 고치기·확정은 그대로 일정 담당만.
-# 차량 배정·토요 휴무는 위 명단 그대로. 모두에게 열 때는 False 로(그러면 일정 담당 + 오늘 온라인 당번 메뉴로 돌아감).
+# 차량 배정은 위 명단 그대로. 모두에게 열 때는 False 로(그러면 일정 담당 + 오늘 온라인 당번 메뉴로 돌아감).
 VISIT_PLAN_ADMIN_ONLY: bool = True
 ADMIN_LEVELS = ('admin', 'super_admin')
 
