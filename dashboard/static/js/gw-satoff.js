@@ -146,12 +146,12 @@
     } else {
       h += '<p class="gw-so-how">' + esc(d.decided_by) + ' 님이 승인해 확정됐어요(' + esc((d.decided_at || '').slice(5, 16)) + ').' +
         (me.approver ? (narrow() ? ' [휴무자 선택]으로 바로 고칠 수 있어요. 기록이 남아요.' : ' 토요일 칸을 눌러 바로 고칠 수 있어요. 기록이 남아요.')
-          : d.can_request_change ? (narrow() ? ' 쉬는 날을 바꾸려면 빼고 싶은 내 휴무는 [이 날 빼기], 새로 쉴 토요일은 [이 날 쉬기]로 고른 뒤 [변경 신청]을 눌러 주세요.'
-            : ' 쉬는 날을 바꾸려면 빼고 싶은 내 휴무 칸과 새로 쉴 토요일 칸을 눌러 고른 뒤 [변경 신청]을 눌러 주세요.') : '') + '</p>';
+          : d.can_request_change ? (narrow() ? ' 쉬는 날을 바꾸려면 취소할 내 휴무는 [휴무 취소], 새로 쉴 토요일은 [휴무 신청]으로 고른 뒤 [변경 신청]을 눌러 주세요.'
+            : ' 쉬는 날을 바꾸려면 취소할 내 휴무 칸과 새로 쉴 토요일 칸을 눌러 고른 뒤 [변경 신청]을 눌러 주세요.') : '') + '</p>';
       if (draft.add.length || draft.remove.length) {
         // 바꿀 내용 — 달력 칩과 같은 색 꼬리표(빼기 빨강·넣기 초록, 11-25 부장님 '잘 인식이 안돼')
-        var parts = draft.remove.map(function (x) { return '<span class="gw-so-dtag gone">' + esc(md(x)) + '(토) 빼기</span>'; })
-          .concat(draft.add.map(function (x) { return '<span class="gw-so-dtag add">' + esc(md(x)) + '(토) 넣기</span>'; }));
+        var parts = draft.remove.map(function (x) { return '<span class="gw-so-dtag gone">' + esc(md(x)) + '(토) 휴무 취소</span>'; })
+          .concat(draft.add.map(function (x) { return '<span class="gw-so-dtag add">' + esc(md(x)) + '(토) 휴무 신청</span>'; }));
         h += '<div class="gw-so-draft"><span class="gw-so-dlabel">바꿀 내용</span> ' + parts.join(' ') + ' ' +
           '<button type="button" class="btn btn-primary btn-sm" data-act="change">변경 신청</button> ' +
           '<button type="button" class="btn btn-light btn-sm" data-act="undo">되돌리기</button></div>';
@@ -260,8 +260,8 @@
     if (mode === 'self') return s.mine ? '내 이름 빼기' : '내 이름 넣기';
     if (mode === 'pick') return '휴무자 선택';
     if (mode === 'draft') {
-      if (s.mine) return inDraft(draft.remove, di) ? '빼기 취소' : '이 날 빼기';
-      return inDraft(draft.add, di) ? '넣기 취소' : '이 날 쉬기';
+      if (s.mine) return inDraft(draft.remove, di) ? '취소 되돌리기' : '휴무 취소';
+      return inDraft(draft.add, di) ? '신청 되돌리기' : '휴무 신청';
     }
     return '';
   }
@@ -273,9 +273,9 @@
       var chips = fullOff(s) ? fullChip(s, 'span') : names.map(function (n) {
         var gone = me.name === n && inDraft(draft.remove, di);
         return '<span class="gw-cal-chip gw-so-chip' + (n === me.name ? ' mine' : '') + (gone ? ' gone' : '') + '">' + esc(n) +
-          (gone ? ' <small class="gw-so-ctag">빼기</small>' : '') + '</span>';
+          (gone ? ' <small class="gw-so-ctag">취소</small>' : '') + '</span>';
       }).join('');
-      if (inDraft(draft.add, di)) chips += '<span class="gw-cal-chip gw-so-chip mine add">+ ' + esc(me.name) + ' <small class="gw-so-ctag">넣기</small></span>';
+      if (inDraft(draft.add, di)) chips += '<span class="gw-cal-chip gw-so-chip mine add">+ ' + esc(me.name) + ' <small class="gw-so-ctag">신청</small></span>';
       chips += workedChips(s, 'span');
       var label = mode ? actLabel(mode, s, di) : '';
       var btn = label
@@ -321,15 +321,15 @@
       else names.forEach(function (n) {
         var gone = me.name === n && inDraft(draft.remove, di);
         g += '<div class="gw-cal-chip gw-so-chip' + (n === me.name ? ' mine' : '') + (gone ? ' gone' : '') + '">' + esc(n) +
-          (gone ? ' <small class="gw-so-ctag">빼기</small>' : '') + '</div>';
+          (gone ? ' <small class="gw-so-ctag">취소</small>' : '') + '</div>';
       });
-      if (inDraft(draft.add, di)) g += '<div class="gw-cal-chip gw-so-chip mine add">+ ' + esc(me.name) + ' <small class="gw-so-ctag">넣기</small></div>';
+      if (inDraft(draft.add, di)) g += '<div class="gw-cal-chip gw-so-chip mine add">+ ' + esc(me.name) + ' <small class="gw-so-ctag">신청</small></div>';
       g += workedChips(s, 'div');
       if (mode === 'self' && !s.mine) g += isFull(s) ? '<div class="gw-so-plus" aria-hidden="true">쉬는 사람이 다 찼어요</div>'
         : '<div class="gw-so-plus" aria-hidden="true">+ 내 이름</div>';
       // '+ 고르기'는 뺐다 — 점선 테두리·위 안내 줄과 겹침(11-25 부장님). 직원용 '+ 내 이름'·'+ 휴무 변경하기'는 눌렀을 때 일을 알려 줘 남김
-      if (mode === 'draft' && !s.mine && !inDraft(draft.add, di)) g += '<div class="gw-so-plus" aria-hidden="true">+ 휴무 변경하기</div>';
-      if (mode === 'draft' && s.mine && !inDraft(draft.remove, di)) g += '<div class="gw-so-plus minus" aria-hidden="true">− 휴무 빼기</div>';   // 내 휴무는 눌러서 뺄 수 있다는 표시(11-25 부장님 '빼기 안내가 없어')
+      if (mode === 'draft' && !s.mine && !inDraft(draft.add, di)) g += '<div class="gw-so-plus" aria-hidden="true">+ 휴무 신청</div>';
+      if (mode === 'draft' && s.mine && !inDraft(draft.remove, di)) g += '<div class="gw-so-plus minus" aria-hidden="true">− 휴무 취소</div>';   // 내 휴무는 눌러서 취소할 수 있다는 표시(11-25 부장님 — '휴무 취소/휴무 신청' 짝)
       g += '</div>';
     }
     var tail = (7 - ((lead + lastDay) % 7)) % 7;
@@ -624,7 +624,7 @@
       render();
     } else if (act === 'change') {
       var add = draft.add.slice(), remove = draft.remove.slice();
-      var what = remove.map(function (x) { return md(x) + '(토) 빼기'; }).concat(add.map(function (x) { return md(x) + '(토) 넣기'; })).join(', ');
+      var what = remove.map(function (x) { return md(x) + '(토) 휴무 취소'; }).concat(add.map(function (x) { return md(x) + '(토) 휴무 신청'; })).join(', ');
       openNote('변경 신청', what, '바꾸는 이유', '신청', function (reason) {
         return api('/api/satoff/change', { method: 'POST', body: { month: k, add: add, remove: remove, reason: reason } })
           .then(function () { draft = { add: [], remove: [] }; watchNotify(k); return '변경 신청을 했어요. 승인권자 중 한 분이 승인하면 바뀌어요.'; });

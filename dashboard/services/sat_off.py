@@ -367,9 +367,9 @@ def change_text(c: dict) -> str:
         return f'{rm[0]} → {ad[0]}'
     parts = []
     if rm:
-        parts.append(', '.join(rm) + ' 빼기')
+        parts.append(', '.join(rm) + ' 휴무 취소')
     if ad:
-        parts.append(', '.join(ad) + ' 넣기')
+        parts.append(', '.join(ad) + ' 휴무 신청')
     return ' · '.join(parts)
 
 
