@@ -504,7 +504,9 @@
       (crewRows.length ? '<div class="gw-vc-sub">시공팀 차 <small>현장 지원·물품 운반 때만</small></div>' +
         crewRows.map(function (c) { return carRow(c, inG); }).join('') : '');
     // 아래 바 경고 — 코스 단위로 짧게('차 없는 코스: 코스 1, 코스 3'), 코스 밖 사람만 이름으로
-    var missG = gs.filter(function (g) { return g.members.some(noCar); }).map(function (g) { return g.label; });
+    var missG = gs.filter(function (g) { return g.members.some(noCar); }).map(function (g) {
+      return g.label === '혼자' ? g.members.map(name).join('·') : g.label;     // 코스 이름이 '혼자'인 팀(확정 전)은 사람 이름으로 — '혼자, 혼자, 혼자'로 나오던 것
+    });
     var missP = Object.keys(S.visits).filter(function (c) { return S.names[c] && !inG[c] && noCar(c); }).map(name);
     var warn = $('vcWarn');
     if (warn) {

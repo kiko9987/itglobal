@@ -3231,7 +3231,7 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
 .gw-va-halfhead { font-size: 0.76rem; font-weight: 700; color: #475569; }
 .gw-va-splitbtn { align-self: flex-start; padding: 0; font-size: 0.8rem; }
 .gw-va-person.halfonly .gw-va-where { color: #c2410c; }
-.gw-va-reset { margin-right: auto; }
+.gw-va-reset { margin-right: 0; }   /* [저장만] 바로 왼쪽에 붙임(11-24 부장님 — 가운데 덩그러니 떠 있었음). 왼쪽 끝은 차 없는 코스 경고 자리 */
 @media (max-width: 767.98px) {
   .gw-va-splitbtn { min-height: 44px; }
   .gw-va-reset { margin-right: 0; }
