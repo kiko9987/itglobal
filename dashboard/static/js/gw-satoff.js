@@ -452,6 +452,8 @@
 
   document.getElementById('soPrev').addEventListener('click', function () { move(-1); });
   document.getElementById('soNext').addEventListener('click', function () { move(1); });
+  // '이번 달'은 ◀ ▶ 와 같은 테두리 버튼으로 — 밑줄 링크라 어색했음(11-25 부장님). 재시작 전 옛 템플릿에도 바로 적용
+  document.getElementById('soToday').className = 'btn btn-sm btn-outline-secondary';
   document.getElementById('soToday').addEventListener('click', function () {
     cur = { y: now.getFullYear(), m: now.getMonth() + 1 }; flash(''); load();
   });

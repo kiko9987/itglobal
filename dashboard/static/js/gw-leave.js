@@ -960,6 +960,8 @@
   document.getElementById('lvNext').addEventListener('click', function () {
     cur.m += 1; if (cur.m > 12) { cur.m = 1; cur.y += 1; } loadCal();
   });
+  // '이번 달'은 ◀ ▶ 와 같은 테두리 버튼으로(11-25 부장님). 재시작 전 옛 템플릿에도 바로 적용
+  document.getElementById('lvToday').className = 'btn btn-sm btn-outline-secondary';
   document.getElementById('lvToday').addEventListener('click', function () {
     cur = { y: now.getFullYear(), m: now.getMonth() + 1 }; loadCal();
   });
