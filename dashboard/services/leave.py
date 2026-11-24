@@ -197,6 +197,48 @@ def count_days(ltype: str, start: date, end: Optional[date], name: str = '',
     return float(n)
 
 
+def _day_note(d: date, pattern: str, first: date, last: date, plan: Dict[date, bool]) -> str:
+    """미리보기에 적을 날 — 평일 공휴일과 토요일만(일요일은 누구나 빠져 적지 않음). staff_workday 와 같은 순서로 판단."""
+    wd = d.weekday()
+    if wd == 6:
+        return ''
+    if _is_holiday(d):
+        return '공휴일이라 빠져요.'
+    if wd != 5:
+        return ''
+    if plan and d in plan:
+        return '스케줄 근무표에서 근무하는 토요일이라 들어가요.' if plan[d] else '스케줄 근무표에서 쉬는 토요일이라 빠져요.'
+    if pattern == WORK_SAT:
+        return '토요일도 근무일이라 들어가요.'
+    if pattern == WORK_SAT_SCHEDULE:
+        return ('휴가 첫날이나 마지막 날인 토요일은 근무일로 봐서 들어가요.' if d in (first, last)
+                else '기간 가운데 낀 토요일은 근무가 없는 날로 봐서 빠져요.')
+    return '토요일은 근무일이 아니라 빠져요.'
+
+
+def days_preview(name: str, ltype: str, start: Optional[date], end: Optional[date] = None) -> dict:
+    """신청 창 일수 미리보기(11-24 부장님) — {days, lines}. 고른 토요일·공휴일이 일수에 드는지 날짜와 까닭을 함께.
+    날짜가 없거나 마지막 날이 앞서면 {}(그건 신청할 때 validate 가 알려 준다)."""
+    if not start:
+        return {}
+    end = start if ltype in HALF_TYPES else (end or start)
+    if end < start or (end - start).days > 366:      # 잘못 고른 먼 날짜 — 창에서 바꿀 때마다 오래 세지 않게
+        return {}
+    pattern = work_pattern(name) if name else WORK_WEEKDAY
+    days = count_days(ltype, start, end, name)
+    plan = _sat_plan(name, pattern, start, end)
+    notes: Dict[str, List[date]] = {}
+    d = start
+    while d <= end:
+        note = _day_note(d, pattern, start, end, plan)
+        if note:
+            notes.setdefault(note, []).append(d)
+        d += timedelta(days=1)
+    lines = [f'휴가 일수: {fmt_days(days)}']
+    lines += [f"{', '.join(kdate(x, True) for x in ds)} — {note}" for note, ds in notes.items()]
+    return {'days': days, 'lines': lines}
+
+
 def add_months(d: date, n: int) -> date:
     y, m = divmod(d.month - 1 + n, 12)
     y, m = d.year + y, m + 1
@@ -1077,20 +1119,37 @@ def cancel_mode(row: dict, uid: str, today: Optional[date] = None) -> str:
     today = today or date.today()
     mine = uid in (row.get('slack_id'), row.get('submitter_id'))
     if mine and row['status'] == APPROVED and _d(row['start']) < today <= _d(row['end']) \
-            and count_days(row['ltype'], _d(row['start']), today - timedelta(days=1), row['name']) > 0:
+            and _last_counted_before(row, today) is not None:
         return 'rest'
     return 'all'
 
 
+def _last_counted_before(row: dict, today: date) -> Optional[date]:
+    """원래 기간으로 셌을 때 today 전에 마지막으로 휴가 일수에 든 날 — 없으면 None.
+    남은 날 취소의 새 마지막 날. '어제'로 자르면 영업 직원이 일요일에 취소할 때 기간 가운데라 안 세던 토요일이
+    새 마지막 날이 되어 하루 더 빠졌다(11-24 부장님). 원래 기간 기준으로 센 날까지만 남긴다."""
+    start, end, name = _d(row['start']), _d(row['end']), row['name']
+    pattern = work_pattern(name)
+    d = min(today - timedelta(days=1), end)
+    plan = _sat_plan(name, pattern, start, d) if d >= start else {}
+    while d >= start:
+        if staff_workday(d, pattern, start, end, plan):
+            return d
+        d -= timedelta(days=1)
+    return None
+
+
 def cut_rest(rid: int, uid: str, actor_name: str, today: Optional[date] = None) -> Optional[dict]:
-    """쓰는 중인 휴가의 오늘부터 남은 날 취소 — 기간을 어제까지로 줄이고 연차를 다시 뗀다(남은 날 몫은 돌아옴)."""
+    """쓰는 중인 휴가의 오늘부터 남은 날 취소 — 기간을 어제까지 중 센 마지막 날로 줄이고 연차를 다시 뗀다(남은 날 몫은 돌아옴)."""
     today = today or date.today()
     now = _now()
     with _conn() as conn:
         row = _row(conn, rid)
         if not row or cancel_mode(row, uid, today) != 'rest':
             return None
-        new_end = today - timedelta(days=1)
+        new_end = _last_counted_before(row, today)    # 어제까지 중 원래 기간으로 센 마지막 날
+        if new_end is None:
+            return None
         start = _d(row['start'])
         days = count_days(row['ltype'], start, new_end, row['name'])
         cur = conn.execute('UPDATE leave_requests SET "end"=?, days=?, updated_at=? WHERE id=? AND status=? '
@@ -1613,7 +1672,7 @@ def cancel_notice_text(row: dict) -> str:
 def cut_notice_text(row: dict, today: Optional[date] = None) -> str:
     """쓰는 중인 휴가를 오늘부터 취소했을 때 새 글."""
     today = today or date.today()
-    return f"❗ {row['name']} · {kdate(today, True)}부터 휴가 취소 (어제까지만 휴가)"
+    return f"❗ {row['name']} · {kdate(today, True)}부터 휴가 취소 ({kdate(_d(row['end']), True)}까지만 휴가)"
 
 
 def step_line(row: dict, step_rows: List[dict], names: Tuple[str, str] = ('박정우', '박용구')) -> str:

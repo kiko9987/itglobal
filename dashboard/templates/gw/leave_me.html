@@ -62,6 +62,9 @@
           <div class="gw-lv-hint" id="lvEndHint">하루만 쉬면 비워 두세요. 쉬는 날(일요일·공휴일, 근무 없는 토요일)은 일수에서 빠져요.</div>
         </div>
 
+        {# 일수 미리보기(11-24) — 날짜를 고르면 몇 일로 세는지, 고른 토요일·공휴일이 드는지 #}
+        <div class="gw-lv-days" id="lvDays" role="status" aria-live="polite" hidden></div>
+
         <div class="gw-lv-field">
           <label class="form-label" for="lvReason">사유</label>
           <input type="text" class="form-control" id="lvReason" name="reason" maxlength="200" placeholder="예: 개인 사정"

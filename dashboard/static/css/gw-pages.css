@@ -1787,6 +1787,9 @@ td .gw-badge { vertical-align: 1px; line-height: 1.3; }
 .gw-lv-opt { font-weight: 400; color: #64748b; font-size: 0.82rem; }
 .gw-lv-hint { font-size: 0.8rem; color: #64748b; margin-top: 4px; }
 .gw-lv-proof { margin: 0 0 8px; color: #9a3412; }
+.gw-lv-days { margin: -4px 0 14px; background: #f1f5f9; border: 1px solid #e2e8f0; color: #334155; border-radius: 8px; padding: 8px 12px; font-size: 0.88rem; }
+.gw-lv-days[hidden] { display: none; }
+.gw-lv-days ul { margin: 4px 0 0; padding-left: 18px; }
 .gw-lv-err { color: #b91c1c; font-size: 0.85rem; margin-top: 4px; }
 .gw-lv-err:empty { display: none; }
 .gw-lv-form .modal-footer .btn { min-height: 44px; min-width: 88px; }

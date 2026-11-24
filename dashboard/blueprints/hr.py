@@ -608,6 +608,18 @@ def api_leave_apply():
     return jsonify({'success': True, 'id': row['id'], 'status': row['status'], 'days': row['days']})
 
 
+@hr_bp.route('/api/leave/preview', methods=['POST'])
+@gw_page
+def api_leave_preview():
+    """신청 창 일수 미리보기 — 날짜를 고를 때마다(고른 토요일이 일수에 드는지 미리 보이게, 11-24)."""
+    from dashboard.services import leave_web
+    try:
+        return jsonify({'success': True, **leave_web.preview(session.get('user') or {},
+                                                             request.get_json(silent=True) or {})})
+    except Exception as e:
+        return _fail(e)
+
+
 @hr_bp.route('/api/leave/<int:rid>/cancel', methods=['POST'])
 @gw_page
 def api_leave_cancel(rid):

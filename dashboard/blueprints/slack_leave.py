@@ -67,7 +67,9 @@ def _datepicker(block_id: str, label: str, initial: str = '', optional: bool = F
     el = {'type': 'datepicker', 'action_id': block_id, 'placeholder': _plain('날짜 고르기')}
     if initial:
         el['initial_date'] = initial
-    b = {'type': 'input', 'block_id': block_id, 'label': _plain(label), 'element': el, 'optional': optional}
+    # 날짜를 고르면 창을 다시 그려 일수 미리보기를 바꾼다(11-24)
+    b = {'type': 'input', 'block_id': block_id, 'label': _plain(label), 'element': el, 'optional': optional,
+         'dispatch_action': True}
     if hint:
         b['hint'] = _plain(hint)
     return b
@@ -96,6 +98,15 @@ def leave_view(meta: dict, vals: Optional[dict] = None) -> dict:
         blocks.append(_datepicker('lv_start', '시작일', vals.get('start', '')))
         blocks.append(_datepicker('lv_end', '마지막 날', vals.get('end', ''), optional=True,
                                   hint='하루만 쉬면 비워 두세요. 쉬는 날(일요일·공휴일, 근무 없는 토요일)은 일수에서 빠져요.'))
+    # 일수 미리보기(11-24 부장님) — 고른 토요일·공휴일이 일수에 드는지 신청 전에 보이게
+    try:
+        pv = lv.days_preview(name, ltype, lv._d(vals.get('start') or ''), lv._d(vals.get('end') or '')) if name else {}
+    except Exception as exc:          # 미리보기가 안 돼도 신청 창은 열려야 한다 — 일수는 신청할 때 다시 센다
+        logger.warning(f'{_LOG} 일수 미리보기 실패 ({name}): {exc}', exc_info=True)
+        pv = {}
+    if pv.get('lines'):
+        blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text':
+                       '\n'.join([f"*{pv['lines'][0]}*"] + [f'• {x}' for x in pv['lines'][1:]])}]})
     reason = {'type': 'plain_text_input', 'action_id': 'lv_reason', 'max_length': 200,
               'placeholder': _plain('예: 개인 사정')}
     if vals.get('reason'):
@@ -581,7 +592,7 @@ def register_leave_handlers(app) -> None:
             logger.error(f'{_LOG} 신청 창 열기 실패: {exc}', exc_info=True)
 
     def _redraw(ack, body, client):
-        """종류를 고르면 창을 다시 그린다(경조사 세부·반차 날짜 칸)."""
+        """종류·날짜를 고르면 창을 다시 그린다(경조사 세부·반차 날짜 칸·일수 미리보기)."""
         ack()
         view = body.get('view') or {}
         meta = json.loads(view.get('private_metadata') or '{}')
@@ -607,6 +618,8 @@ def register_leave_handlers(app) -> None:
             fail(error='휴가 신청 창을 열지 못했어요. 잠시 뒤 다시 눌러 주세요.')
 
     app.action('lv_type')(_redraw)
+    app.action('lv_start')(_redraw)      # 날짜를 고르면 일수 미리보기를 다시(11-24)
+    app.action('lv_end')(_redraw)
 
     @app.view(lv.CB_SUBMIT)
     def handle_leave_submit(ack, body, view):

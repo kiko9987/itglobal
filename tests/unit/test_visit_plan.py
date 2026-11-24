@@ -133,7 +133,7 @@ def test_warnings(db):
     assert all(w['level'] == 'error' and '빼야 확정돼요' in w['text'] for w in offs)   # 휴가자는 확정을 막음(11-23)
     assert 'twice' in by and all(w['level'] == 'warn' for w in ws if w['kind'] != 'off')
     # 확정 전 토요 휴무는 막지 않고 경고만
-    soft = {'off': [{'code': 'SJ', 'name': '오늘', 'why': '토요 휴무(확정 전)', 'soft': True}], 'half': []}
+    soft = {'off': [{'code': 'SJ', 'name': '오늘', 'why': '스케줄 근무 쉬는 날(확정 전)', 'soft': True}], 'half': []}
     assert {w['level'] for w in vp.warnings(plan, vs, soft, names) if w['kind'] == 'off'} == {'warn'}
 
 

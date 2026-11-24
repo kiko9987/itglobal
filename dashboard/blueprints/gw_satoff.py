@@ -90,7 +90,7 @@ def page_satoff():
 def api_view():
     name, sid, why = _who()
     if not _allowed(name, sid):
-        return jsonify({'success': False, 'message': '토요일 휴무는 기술영업과 결재하는 분만 볼 수 있어요.'}), 403
+        return jsonify({'success': False, 'message': '스케줄 근무는 기술영업과 결재하는 분만 볼 수 있어요.'}), 403
     try:
         m = so.parse_month(request.args.get('month') or '') or date.today().strftime('%Y-%m')
         data = so.view(m, sid if not why else '', name)

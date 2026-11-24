@@ -509,6 +509,27 @@
       document.getElementById('lvProof').hidden = (form.needs_proof || []).indexOf(t) === -1;
     }
 
+    // 일수 미리보기(11-24 부장님) — 종류·날짜를 바꿀 때마다 서버에 세어 달라고 한다(토요일 근무 규칙·스케줄 근무표가
+    // 사람마다 달라 화면에서 세지 않음). 늦게 온 앞선 답이 새 답을 덮지 않게 번호를 붙인다. 못 받으면 그냥 숨김.
+    var daysEl = document.getElementById('lvDays');
+    var daysSeq = 0;
+    function refreshDays() {
+      var seq = ++daysSeq;
+      var t = typeSel.value;
+      var half = (form.half_types || []).indexOf(t) !== -1;
+      if (!f.start.value) { daysEl.hidden = true; return; }
+      api('/api/leave/preview', { method: 'POST', body: { type: t, start: f.start.value, end: half ? '' : f.end.value } })
+        .then(function (j) {
+          if (seq !== daysSeq) return;
+          var lines = (j && j.lines) || [];
+          if (!lines.length) { daysEl.hidden = true; return; }
+          daysEl.innerHTML = '<strong>' + esc(lines[0]) + '</strong>' + (lines.length > 1
+            ? '<ul>' + lines.slice(1).map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '');
+          daysEl.hidden = false;
+        })
+        .catch(function () { if (seq === daysSeq) daysEl.hidden = true; });
+    }
+
     // 칸 비우기는 처음 열 때·신청이 된 뒤에만 — 실수로 닫았다 다시 열면 적던 것이 그대로 있게(11-16 점검)
     var applyFresh = true;
     var closingAfterApply = false;   // 신청 성공으로 닫을 때는 묻지 않음
@@ -554,6 +575,7 @@
       selectIfThere(typeSel, keepType);
       selectIfThere(subSel, keepSub);
       syncType();
+      refreshDays();
       if (window.bootstrap) { returnFocusOnHide(modalEl); window.bootstrap.Modal.getOrCreateInstance(modalEl).show(); }
     }
 
@@ -579,6 +601,7 @@
       f.end.value = half || v.end === v.start ? '' : (v.end || '');
       document.getElementById('lvEnd').min = f.start.value || '';
       f.reason.value = v.reason || '';
+      refreshDays();
       document.getElementById('lvApplyLeft').innerHTML = '<strong>' + esc(ed.what) + '</strong><br>' +
         (ed.mode === 'change'
           ? '바뀐 날짜로 다시 승인받아요. 승인되면 원래 휴가는 자동으로 취소되고, 반려되면 원래 휴가가 그대로 남아요.'
@@ -600,12 +623,14 @@
     });
 
     applyBtn.addEventListener('click', openApply);
-    typeSel.addEventListener('change', function () { clearErrors(); syncType(); });
+    typeSel.addEventListener('change', function () { clearErrors(); syncType(); refreshDays(); });
     // 시작일을 고르면 마지막 날 달력이 그 달에서 열리게
     document.getElementById('lvStart').addEventListener('change', function () {
       var end = document.getElementById('lvEnd');
       end.min = this.value || '';
+      refreshDays();
     });
+    document.getElementById('lvEnd').addEventListener('change', refreshDays);
 
     f.addEventListener('submit', function (ev) {
       ev.preventDefault();
@@ -863,7 +888,7 @@
         var waitN = todays.filter(function (e) { return e.status === '대기'; }).length;
         open = ' role="button" tabindex="0" data-day="' + di + '" aria-haspopup="dialog" aria-label="' +
           esc(md(di) + ' 휴가 ' + todays.length + '명' + (waitN ? ', 승인 대기 ' + waitN + '명' : '') +
-            (sat ? ', 토요일 휴무 ' + sat.names.length + '명' : '') + ' 보기') + '"';
+            (sat ? ', 토요일에 쉬는 사람 ' + sat.names.length + '명' : '') + ' 보기') + '"';
       }
       h += '<div class="gw-cal-day' + (wd >= 5 ? ' we' : '') + (di === todayIso ? ' today' : '') + ((todays.length || sat) ? ' has' : '') + '"' + open + '>' +
         '<div class="gw-cal-num">' + d + '</div>';
@@ -875,7 +900,7 @@
           '<span class="visually-hidden">' + (e.status === '대기' ? ' 승인 대기' : ' 승인됨') + '</span></div>';
       });
       if (sat) {
-        h += '<div class="gw-cal-chip sat" title="' + esc('토요일 휴무(' + sat.status_label + ') · ' + sat.names.join(', ')) + '">' +
+        h += '<div class="gw-cal-chip sat" title="' + esc('스케줄 근무 쉬는 날(' + sat.status_label + ') · ' + sat.names.join(', ')) + '">' +
           '토 휴무 ' + sat.names.length + '명</div>';
       }
       h += '</div>';
@@ -908,14 +933,14 @@
     var list = dayEntries(di);
     var sat = calSat[di];
     if ((!list.length && !sat) || !dayModalEl) return;
-    document.getElementById('lvDayTitle').textContent = md(di) + (list.length ? ' 휴가 ' + list.length + '명' : ' 토요일 휴무');
+    document.getElementById('lvDayTitle').textContent = md(di) + (list.length ? ' 휴가 ' + list.length + '명' : ' 토요일에 쉬는 사람');
     document.getElementById('lvDayBody').innerHTML = '<ul class="gw-lv-day-list">' + list.map(function (e) {
       var kind = e.type + (e.half ? ' ' + e.half : '');
       var span = e.start === e.end ? '' : md(e.start) + ' ~ ' + md(e.end);
       return '<li><div class="gw-lv-day-main"><strong>' + esc(e.name) + '</strong> ' + statusBadge(e.status) + '</div>' +
         '<div class="gw-lv-day-sub">' + esc(kind) + (span ? ' · ' + esc(span) : '') + '</div></li>';
-    }).join('') + '</ul>' + (sat ? '<p class="gw-lv-day-sub mt-2 mb-0"><strong>토요일 휴무</strong> (' + esc(sat.status_label) + ') ' +
-      esc(sat.names.join(', ')) + ' · <a href="/leave/saturday?month=' + esc(di.slice(0, 7)) + '">휴무표 보기</a></p>' : '');
+    }).join('') + '</ul>' + (sat ? '<p class="gw-lv-day-sub mt-2 mb-0"><strong>스케줄 근무 쉬는 날</strong> (' + esc(sat.status_label) + ') ' +
+      esc(sat.names.join(', ')) + ' · <a href="/leave/saturday?month=' + esc(di.slice(0, 7)) + '">스케줄 근무표 보기</a></p>' : '');
     if (window.bootstrap) { returnFocusOnHide(dayModalEl); window.bootstrap.Modal.getOrCreateInstance(dayModalEl).show(); }
   }
 
