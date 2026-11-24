@@ -33,7 +33,7 @@ FIELDS = [
     ('hire_date', '입사일'), ('group_hire_date', '그룹 입사일'),
     ('resign_date', '퇴사일'), ('last_work_date', '마지막 근무일'), ('resign_reason', '퇴사 사유'),
     ('department', '부서'), ('job_role', '직무'), ('job_rank', '직급'), ('job_title', '직책'),
-    ('contract_type', '계약 형태'), ('incentive_from', '인센 시작일'),
+    ('contract_type', '계약 형태'), ('incentive_from', '인센티브 시작일'),
     ('work_email', '회사 메일'), ('personal_email', '개인 메일'), ('phone', '전화'),
     ('gender', '성별'), ('birth_date', '생년월일'), ('address', '주소'),
     ('login_email', '그룹웨어 로그인 메일'), ('access', '로그인 방식'),
@@ -143,7 +143,7 @@ def is_hr_admin(email: str) -> bool:
 
 
 def is_incentive(person: Optional[dict], on: Optional[date] = None) -> bool:
-    """인센(인센티브 구간)인가 — 인사카드 인센 시작일이 on(기본 오늘) 이전이면. 11-25 부장님."""
+    """인센티브 구간인가 — 인사카드 인센티브 시작일이 on(기본 오늘) 이전이면. 11-25 부장님."""
     v = ((person or {}).get('incentive_from') or '').strip()
     return bool(v) and v[:10] <= (on or date.today()).isoformat()
 
@@ -625,7 +625,7 @@ def _migrate(conn) -> None:
         conn.execute('ALTER TABLE hr_documents ADD COLUMN tag TEXT')
     except sqlite3.OperationalError:
         pass      # 이미 있음
-    # 인센 시작일(11-25 부장님) — 기술영업 중 인센티브 구간(입사 3년 뒤). 그날부터 '인센' 배지, 스케줄 근무 대상에서 빠짐
+    # 인센티브 시작일(11-25 부장님) — 기술영업 중 인센티브 구간(입사 3년 뒤). 그날부터 '인센티브' 배지, 스케줄 근무 대상에서 빠짐
     cols = {r[1] for r in conn.execute('PRAGMA table_info(hr_people)')}
     if 'incentive_from' not in cols:
         conn.execute('ALTER TABLE hr_people ADD COLUMN incentive_from TEXT')

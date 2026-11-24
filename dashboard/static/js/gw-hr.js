@@ -78,13 +78,13 @@
     return ' <span class="gw-badge gw-badge-field">' + esc(p.job_role || '현장') + '</span>';
   }
 
-  // 인센(11-25 부장님) — 인사카드 인센 시작일이 오늘 이전이면. 시작일이 앞날이면 '인센 예정'
+  // 인센티브(11-25 부장님) — 인사카드 인센티브 시작일이 오늘 이전이면. 시작일이 앞날이면 '인센티브 예정'
   function incentiveBadge(p) {
     var v = (p.incentive_from || '').slice(0, 10);
     if (!v || p.status === '퇴사') return '';
     var t = new Date(), today = t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2);
-    return v <= today ? ' <span class="gw-badge gw-badge-incentive" title="인센 시작일 ' + esc(v) + '">인센</span>'
-      : ' <span class="gw-badge gw-badge-incentive soon" title="인센 시작일 ' + esc(v) + '">인센 예정</span>';
+    return v <= today ? ' <span class="gw-badge gw-badge-incentive" title="인센티브 시작일 ' + esc(v) + '">인센티브</span>'
+      : ' <span class="gw-badge gw-badge-incentive soon" title="인센티브 시작일 ' + esc(v) + '">인센티브 예정</span>';
   }
 
   function statusBadge(s) {
@@ -133,7 +133,7 @@
       dd('그룹 입사일', p.group_hire_date) +
       dd('계약 형태', p.contract_type) +
       dd('직무', p.job_role) +
-      (p.incentive_from ? dd('인센 시작일', p.incentive_from) : '') +
+      (p.incentive_from ? dd('인센티브 시작일', p.incentive_from) : '') +
       '</dl>';
 
     var selfMode = CFG.mode === 'me' && p.can_self_edit;

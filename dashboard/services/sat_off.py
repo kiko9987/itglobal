@@ -120,8 +120,8 @@ def manager_ids() -> tuple:
 
 
 def _tech_sales(on: Optional[date] = None) -> Tuple[List[dict], List[dict]]:
-    """(대상자, 인센) — 인사카드 부서가 기술영업인 재직자를 인센 시작일(on 기준, 기본 오늘)로 가른다(이름순).
-    인센은 격주휴무가 없어 스케줄 근무 대상에서 빠진다(11-25 부장님). 인센 칸이 아직 없는 DB(재시작 전)면 모두 대상."""
+    """(대상자, 인센티브) — 인사카드 부서가 기술영업인 재직자를 인센티브 시작일(on 기준, 기본 오늘)로 가른다(이름순).
+    인센티브은 격주휴무가 없어 스케줄 근무 대상에서 빠진다(11-25 부장님). 인센티브 칸이 아직 없는 DB(재시작 전)면 모두 대상."""
     on_iso = (on or date.today()).isoformat()
     with lv._conn() as conn:
         if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='hr_people'").fetchone():
@@ -137,12 +137,12 @@ def _tech_sales(on: Optional[date] = None) -> Tuple[List[dict], List[dict]]:
 
 
 def members(on: Optional[date] = None) -> List[dict]:
-    """대상자 — 인사카드 부서가 기술영업인 재직자 중 인센이 아닌 사람 [{name, slack_id}] (이름순)."""
+    """대상자 — 인사카드 부서가 기술영업인 재직자 중 인센티브이 아닌 사람 [{name, slack_id}] (이름순)."""
     return _tech_sales(on)[0]
 
 
 def incentive_members(on: Optional[date] = None) -> List[dict]:
-    """기술영업 중 인센(on 기준) — 스케줄 근무 대상이 아님. 화면에 '인센' 으로 따로 보여 준다."""
+    """기술영업 중 인센티브(on 기준) — 스케줄 근무 대상이 아님. 화면에 '인센티브' 으로 따로 보여 준다."""
     return _tech_sales(on)[1]
 
 
@@ -335,7 +335,7 @@ def view(month: str, sid: str, name: str, today: Optional[date] = None) -> dict:
     today = today or date.today()
     row = month_row(month)
     st = row['status']
-    on = max(today, _first(month))           # 앞달이면 그달 1일 기준(인센 시작 반영)
+    on = max(today, _first(month))           # 앞달이면 그달 1일 기준(인센티브 시작 반영)
     r = role(sid, name, on)
     p = picks(month)
     c = counts(month)
@@ -361,7 +361,7 @@ def view(month: str, sid: str, name: str, today: Optional[date] = None) -> dict:
         'note': row.get('note') or '',
         'saturdays': sats,
         'members': [{'name': m['name'], 'count': c.get(m['name'], 0), 'worked': wc.get(m['name'], 0)} for m in members(on)],
-        'incentive': [m['name'] for m in incentive_members(on)],      # 기술영업 인센 — 스케줄 대상 아님(11-25)
+        'incentive': [m['name'] for m in incentive_members(on)],      # 기술영업 인센티브 — 스케줄 대상 아님(11-25)
         'me': {'name': name, **r},
         # 휴무 출근(11-24) — 결재 올린 뒤(대기·확정)부터. 작성 중엔 달력에서 이름을 빼면 됨
         'can_mark_worked': st in (WAIT, CONFIRMED) and (r['member'] or r['manager'] or r['approver']),
