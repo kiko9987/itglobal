@@ -84,6 +84,7 @@
           : '<small>아직 없어요</small>') +
       '</div></div>';
     renderMissing(j.missing_drivers || []);
+    renderAssignError(j.assign_error);
     if (j.resolving || j.pending_dongs) {
       msg('방문 주소의 동을 찾는 중이에요(1~2분). 끝나면 저절로 다시 불러와요.', 'info');
       refreshLater();
@@ -120,6 +121,26 @@
       }).join('') + '</ul>';
     box.open = open;
   }
+  // 배정·운전자 기록을 못 읽은 달(11-24 조용한 실패 점검 23번) — 운전자 칸이 '추정'·'배정'만으로 보여도 정상처럼 믿지 않게 한 줄.
+  //   'assign' = 차량 배정을 못 읽음(방문 지역 추정만) · 'driver' = 저녁 슬랙 운전자 답만 못 읽음(배정 기준). 상자는 JS 가 만든다
+  function assignErrorText(kind) {
+    if (kind === 'driver') return '저녁 슬랙 운전자 답을 못 읽어 운전자를 배정 기준으로 보여요. 잠시 뒤 새로 고쳐 보세요.';
+    return kind ? '배정·운전자 기록을 못 읽어 운전자를 방문 지역으로 추정했어요. 잠시 뒤 새로 고쳐 보세요.' : '';
+  }
+  function renderAssignError(kind) {
+    var el = $('vhAssignErr');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'vhAssignErr';
+      el.className = 'gw-vh-msg err';
+      el.setAttribute('role', 'alert');
+      var after = $('vhStats');
+      after.parentNode.insertBefore(el, after.nextSibling);
+    }
+    var t = assignErrorText(kind);
+    el.textContent = t;
+    el.hidden = !t;
+  }
   // 동 찾기가 끝나면 저절로 다시 불러온다(직접 새로 고치라던 것, 11-21 점검) — 30초마다, 최대 6번
   var refreshTimer = null, refreshLeft = 6;
   function refreshLater() {
@@ -140,6 +161,7 @@
     }).catch(function (e) {
       if (my !== state.seq) return;
       $('vhStats').innerHTML = '';          // 앞 달 숫자가 남아 있지 않게
+      renderAssignError('');
       $('vhRows').innerHTML = '<tr><td colspan="5" class="gw-empty">' + esc(e.message) + '</td></tr>';
     });
   }
@@ -220,7 +242,8 @@
     api('/api/vehicles/car?month=' + encodeURIComponent(state.month) + '&plate=' + encodeURIComponent(plate)).then(function (j) {
       $('vhCarTitle').textContent = (j.label ? j.label + ' · ' + j.plate : j.plate) + (j.model ? ' · ' + j.model : '');
       var days = j.days || [];
-      $('vhCarBody').innerHTML = '<p class="gw-vh-sub">' + esc(monthLabel(j.month)) + ' · 최근 날짜부터. 동일 지역 방문은 그날 이 차가 도착한 지역의 방문 일정이에요.' +
+      var aerr = assignErrorText(j.assign_error);
+      $('vhCarBody').innerHTML = (aerr ? '<p class="gw-vh-msg err" role="alert">' + esc(aerr) + '</p>' : '') + '<p class="gw-vh-sub">' + esc(monthLabel(j.month)) + ' · 최근 날짜부터. 동일 지역 방문은 그날 이 차가 도착한 지역의 방문 일정이에요.' +
           ' <a href="/api/vehicles/logbook.xlsx?month=' + encodeURIComponent(j.month) + '&plate=' + encodeURIComponent(j.plate) + '" download>이 차 운행기록부 엑셀</a></p>' +
         '<section class="gw-vh-route" id="vhRoute" hidden><div class="gw-vh-routehead"><b id="vhRouteHead">경로</b>' +
           '<button type="button" class="btn-close" id="vhRouteClose" aria-label="경로 닫기"></button></div><div class="gw-vh-routemap" id="vhRouteMap"></div></section>' +

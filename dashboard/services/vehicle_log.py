@@ -18,6 +18,10 @@ from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from typing import Dict, Iterable, List, Optional, Tuple
 
+from dashboard.utils.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 HOME_AREA = ('김포', '', '걸포동')     # 회사 — 경기도 김포시 걸포로 134-84(걸포동)
 MAX_FILES = 60
 MAX_FILE_BYTES = 5 * 1024 * 1024
@@ -466,64 +470,82 @@ def _guess(matched: List[Dict]) -> List[str]:
     return [n for n, _ in c.most_common(3)]
 
 
-def _assignments(start: str, end: str):
+class _Assign:
+    """차량 배정·실제 운전자를 읽은 결과 — 요청마다 따로 만들어 인자로 넘긴다.
+    예전엔 오전·오후 운전자·운전자 답이 모듈 전역이라 두 사람이 다른 달·차를 동시에 열면
+    서로 덮어썼다(11-24 조용한 실패 점검 23번).
+    rows = (날짜, 번호판) → 탄 사람 이름 · fixed = 번호판 → 고정 사용자 이름
+    shifts = (날짜, 번호판) → (오전 운전, 오후 운전, 나누는 시각) · confirmed = 저녁 DM 으로 실제 운전자를 받은 (날짜, 번호판)
+    error = '' 정상 · 'assign' 배정을 못 읽음(운전자는 방문 지역 추정만) · 'driver' 운전자 답만 못 읽음(배정 기준)"""
+    __slots__ = ('rows', 'fixed', 'shifts', 'confirmed', 'error')
+
+    def __init__(self):
+        self.rows: Dict[Tuple[str, str], List[str]] = {}
+        self.fixed: Dict[str, str] = {}
+        self.shifts: Dict[Tuple[str, str], Tuple[str, str, str]] = {}
+        self.confirmed: set = set()
+        self.error = ''
+
+
+def _assignments(start: str, end: str) -> _Assign:
     """차량 배정(services/vehicle_assign) — (날짜, 번호판) → 탄 사람 이름. 고정 차는 배정 없으면 고정 사용자.
-    배정이 있으면 방문 일정 추정보다 우선한다(11-20)."""
+    배정이 있으면 방문 일정 추정보다 우선한다(11-20).
+    못 읽으면 ERROR 를 남기고 error 에 표시 — 예전엔 말없이 빈 값이라 '방문 지역으로 추정한 운전자'가 정상처럼 보였다
+    (11-24 조용한 실패 점검 23번)."""
+    a = _Assign()
     try:
         from dashboard.services import vehicle_assign as va
         who = va._who_map()
         rows = {k: [va.display(c, who) for c in v] for k, v in va.assigned_people(start, end).items()}
         fixed = {p: va.display(u, who) for p, u in va.fixed_users().items()}
         # 오전·오후 나눈 차 — 13:00 이후 운행은 오후 운전자(11-22)
-        global _SHIFTS
-        _SHIFTS = {}
+        shifts = {}
         for k, h in va.assigned_halves(start, end).items():
             am, pm = h['people'], va.pm_of(h)
-            _SHIFTS[k] = (va.display(am[0], who) if am else '', va.display(pm[0], who) if pm else '', va.HALF_AT)
-        # 그날 저녁 슬랙으로 받은 실제 운전자(services/vehicle_driver) — 있으면 배정보다 먼저(11-22)
-        global _CONFIRMED
-        _CONFIRMED = set()
-        try:
-            from dashboard.services import vehicle_driver as vd
-            for k, a in vd.actual_drivers(start, end).items():
-                base = _SHIFTS.get(k, ('', '', va.HALF_AT))
-                am_n = va.display(a['am'], who) if a['am'] else base[0]
-                pm_n = va.display(a['pm'], who) if a['pm'] else base[1]
-                _SHIFTS[k] = (am_n, pm_n, va.HALF_AT)
-                _CONFIRMED.add(k)
-                if k not in rows:
-                    rows[k] = [x for x in dict.fromkeys((am_n, pm_n)) if x]
-        except Exception:
-            pass
-        return rows, fixed
-    except Exception:
-        _SHIFTS = {}
-        return {}, {}
+            shifts[k] = (va.display(am[0], who) if am else '', va.display(pm[0], who) if pm else '', va.HALF_AT)
+    except Exception as e:
+        logger.error(f'[차량운행] {start}~{end} 차량 배정을 못 읽어 운전자를 방문 지역으로만 추정함: {e}', exc_info=True)
+        a.error = 'assign'
+        return a
+    a.rows, a.fixed, a.shifts = rows, fixed, shifts
+    # 그날 저녁 슬랙으로 받은 실제 운전자(services/vehicle_driver) — 있으면 배정보다 먼저(11-22)
+    try:
+        from dashboard.services import vehicle_driver as vd
+        actual = vd.actual_drivers(start, end)
+    except Exception as e:
+        logger.error(f'[차량운행] {start}~{end} 운전자 답(저녁 슬랙)을 못 읽어 배정 기준으로만 보임: {e}', exc_info=True)
+        a.error = 'driver'
+        return a
+    for k, d in actual.items():
+        base = shifts.get(k, ('', '', va.HALF_AT))
+        am_n = va.display(d['am'], who) if d['am'] else base[0]
+        pm_n = va.display(d['pm'], who) if d['pm'] else base[1]
+        shifts[k] = (am_n, pm_n, va.HALF_AT)
+        a.confirmed.add(k)
+        if k not in rows:
+            rows[k] = [x for x in dict.fromkeys((am_n, pm_n)) if x]
+    return a
 
 
-_SHIFTS: Dict[Tuple[str, str], Tuple[str, str, str]] = {}   # (날짜, 번호판) → (오전 운전, 오후 운전, 나누는 시각)
-_CONFIRMED: set = set()                                      # 저녁 DM 으로 실제 운전자를 받은 (날짜, 번호판)
-
-
-def trip_driver(day: str, plate: str, start_time: str, assigned) -> str:
+def trip_driver(day: str, plate: str, start_time: str, a: _Assign) -> str:
     """운행 한 건의 운전자 — 오전 운전자, 13:00 이후 운행은 오후 운전자(오전·오후 같으면 같은 사람)."""
-    sh = _SHIFTS.get((day, plate))
+    sh = a.shifts.get((day, plate))
     if not sh:
         return ''
     am, pm, at = sh
     return (pm if (start_time or '')[:5] >= at else am) or ''
 
 
-def _drivers_for(day: str, plate: str, assigned, fixed, matched: List[Dict]) -> Tuple[List[str], str]:
-    if (day, plate) in assigned:
-        ppl = assigned[(day, plate)]
-        sh = _SHIFTS.get((day, plate))
+def _drivers_for(day: str, plate: str, a: _Assign, matched: List[Dict]) -> Tuple[List[str], str]:
+    if (day, plate) in a.rows:
+        ppl = a.rows[(day, plate)]
+        sh = a.shifts.get((day, plate))
         if sh:                       # 오전 운전 → 오후 운전 → 나머지
             first = [x for x in dict.fromkeys(sh[:2]) if x]
             ppl = first + [p for p in ppl if p not in first]
-        return ppl, ('confirmed' if (day, plate) in _CONFIRMED else 'assigned')
-    if plate in fixed:
-        return [fixed[plate]], 'fixed'
+        return ppl, ('confirmed' if (day, plate) in a.confirmed else 'assigned')
+    if plate in a.fixed:
+        return [a.fixed[plate]], 'fixed'
     return _guess(matched), 'guess'
 
 
@@ -532,7 +554,7 @@ def month_summary(ym: str, leads: Iterable[dict]) -> Dict:
     start, end = month_range(ym)
     leads = list(leads)
     visits = visits_by_day(leads, start, end)
-    assigned, fixed = _assignments(start, end)
+    asg = _assignments(start, end)
     models = _models()
     cars: Dict[str, Dict] = {}
     for t in _trips(start, end):
@@ -546,10 +568,10 @@ def month_summary(ym: str, leads: Iterable[dict]) -> Dict:
         m = _match(t, visits.get(t['day'], []))
         c['matched'] += m
         if t['day'] not in c['known_days']:
-            names, src = _drivers_for(t['day'], t['plate'], assigned, fixed, [])
+            names, src = _drivers_for(t['day'], t['plate'], asg, [])
             if src != 'guess':
                 c['known_days'].add(t['day'])
-                sh = _SHIFTS.get((t['day'], t['plate']))
+                sh = asg.shifts.get((t['day'], t['plate']))
                 c['known'].update([x for x in dict.fromkeys(sh[:2]) if x] if sh else names[:1])
     rows = []
     labels = _labels()
@@ -566,7 +588,8 @@ def month_summary(ym: str, leads: Iterable[dict]) -> Dict:
     rows.sort(key=lambda r: -r['km'])
     return {'month': ym, 'start': start, 'end': end, 'vehicles': rows,
             'total_km': round(sum(r['km'] for r in rows), 1),
-            'pending_dongs': len(unresolved(leads, start, end)) if rows else 0}
+            'pending_dongs': len(unresolved(leads, start, end)) if rows else 0,
+            'assign_error': asg.error}      # 화면 경고 한 줄(11-24 조용한 실패 점검 23번)
 
 
 def vehicle_days(ym: str, plate: str, leads: Iterable[dict]) -> Dict:
@@ -584,7 +607,7 @@ def vehicle_days(ym: str, plate: str, leads: Iterable[dict]) -> Dict:
                            'visits': [{'lead_no': v['lead_no'], 'who': v['who'], 'addr': v['addr']} for v in m]})
         for v in m:
             d['matched'][v['lead_no']] = v
-    assigned, fixed = _assignments(start, end)
+    asg = _assignments(start, end)
     try:        # U+ API 로 받은 운행의 지표(급가속 등·최고 속도·출퇴근) — 경로 지도 단추도 이것이 있을 때만(11-24)
         from dashboard.services import vehicle_api_sync as vas
         mets = vas.metrics(start, end, plate)
@@ -592,7 +615,7 @@ def vehicle_days(ym: str, plate: str, leads: Iterable[dict]) -> Dict:
         mets = {}
     for d in days.values():          # 운행마다 운전자(배정한 날만 — 오후 교대 반영)
         for t in d['trips']:
-            t['driver'] = trip_driver(d['day'], plate, t['start'], assigned)
+            t['driver'] = trip_driver(d['day'], plate, t['start'], asg)
             m = mets.get((plate, d['day'], t['start']))
             if m:
                 t['route'] = True
@@ -603,9 +626,10 @@ def vehicle_days(ym: str, plate: str, leads: Iterable[dict]) -> Dict:
                                                       'rapid_u_turn', 'rapid_lane', 'rapid_pass')}
     out = []
     for d in sorted(days.values(), key=lambda x: x['day'], reverse=True):
-        drivers, src = _drivers_for(d['day'], plate, assigned, fixed, list(d['matched'].values()))
+        drivers, src = _drivers_for(d['day'], plate, asg, list(d['matched'].values()))
         out.append({'day': d['day'], 'km': round(d['km'], 1), 'trips': d['trips'], 'drivers': drivers, 'source': src})
-    return {'month': ym, 'plate': plate, 'model': _models().get(plate, ''), 'label': _labels().get(plate, ''), 'days': out}
+    return {'month': ym, 'plate': plate, 'model': _models().get(plate, ''), 'label': _labels().get(plate, ''), 'days': out,
+            'assign_error': asg.error}
 
 
 # ── 국세청 운행기록부 엑셀(11-24 부장님 — U+ '운행일지(국세청)' 내려받기를 그룹웨어에서) ─────────────
@@ -616,14 +640,14 @@ def logbook_rows(plate: str, start: str, end: str) -> List[Dict]:
     """운행기록부 줄 — 사용일자·부서·성명·주행 전/후 km·주행거리·출퇴근용·일반업무용·비고.
     성명 = 운전자 답 > 배정(13시 뒤 오후) > 고정 사용자. 모르면 빈칸(만들어 넣지 않는다)."""
     from dashboard.services import hr
-    assigned, fixed = _assignments(start, end)
+    asg = _assignments(start, end)     # 못 읽으면 ERROR 알림이 가고 성명은 빈칸(지어 넣지 않음)
     depts = {r['name']: r.get('department') or '' for r in hr._rows("SELECT name, department FROM hr_people")}
     with _conn() as conn:
         rows = conn.execute('SELECT * FROM vehicle_trips WHERE plate = ? AND day BETWEEN ? AND ? ORDER BY day, start_time',
                             (plate, start, end)).fetchall()
     out = []
     for r in rows:
-        name = trip_driver(r['day'], plate, r['start_time'], assigned) or fixed.get(plate, '')
+        name = trip_driver(r['day'], plate, r['start_time'], asg) or asg.fixed.get(plate, '')
         d = date.fromisoformat(r['day'])
         out.append({
             'day': f"{r['day']}({WD_KO[d.weekday()]})", 'dept': depts.get(name, ''), 'name': name,

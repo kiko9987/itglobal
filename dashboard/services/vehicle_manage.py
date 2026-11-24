@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 import time
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -274,27 +275,49 @@ def _cost_rows_from_approval(row: Dict, fleet: List[Dict]) -> List[Dict]:
              'vendor': row['partner'] or '', 'plates': plates, 'key': f"appr:{row['id']}", 'kind': kind}]
 
 
+def _collect(conn, label: str, sql: str, key: str, conv, fleet: List[Dict], out: List[Dict]) -> None:
+    """결재 한 곳에서 차량 비용 줄 모으기(11-24 조용한 실패 점검 24번).
+    - 표가 없는 환경(시험 등 — sqlite 'no such table')만 DEBUG 로 건너뛴다. DB 잠김·컬럼 변경 등은 ERROR.
+    - 한 줄 읽기가 실패해도 나머지 줄은 계속 — 실패한 줄 수·결재 번호는 ERROR 한 번에 모아서."""
+    try:
+        rows = conn.execute(sql).fetchall()
+    except sqlite3.OperationalError as e:
+        if 'no such table' in str(e).lower():
+            logger.debug(f'[차량관리] {label} 표가 없어 건너뜀: {e}')
+        else:
+            logger.error(f'[차량관리] {label} 읽기 실패 — 이번엔 차량 비용을 못 모음: {e}', exc_info=True)
+        return
+    except Exception as e:
+        logger.error(f'[차량관리] {label} 읽기 실패 — 이번엔 차량 비용을 못 모음: {e}', exc_info=True)
+        return
+    bad: List[str] = []
+    first = None
+    for r in rows:
+        d = dict(r)
+        try:
+            out += conv(d, fleet)
+        except Exception as e:      # 한 줄 모양이 달라도 나머지 결재는 계속
+            bad.append(str(d.get(key)))
+            first = first or e
+    if bad:
+        logger.error(f"[차량관리] {label} {len(bad)}줄을 읽지 못해 차량 비용에서 빠짐: {', '.join(bad[:10])}"
+                     f"{' 외' if len(bad) > 10 else ''} — 첫 오류: {first!r}")
+
+
 def collect_from_approvals() -> List[Dict]:
     """결재 두 곳(플렉스 보관함·슬랙 전자결재)에서 차량 비용 줄을 모은다. 완료·승인된 결재만."""
     fleet = _fleet()
     out: List[Dict] = []
     with _db()._get_connection() as conn:
-        try:
-            for r in conn.execute("SELECT doc_no, form, status, created_at, memo, fields, amount FROM flex_approval_archive "
-                                  "WHERE status = '완료'").fetchall():
-                out += _cost_rows_from_flex(dict(r), fleet)
-        except Exception as e:      # 표가 없는 환경(시험 등)
-            logger.debug(f'[차량관리] 플렉스 보관함 읽기 건너뜀: {e}')
-        try:
-            for r in conn.execute("SELECT id, form, status, content, amount, partner, created_at FROM approvals "
-                                  "WHERE status IN ('done', 'approved')").fetchall():
-                out += _cost_rows_from_approval(dict(r), fleet)
-        except Exception as e:
-            logger.debug(f'[차량관리] 전자결재 읽기 건너뜀: {e}')
+        _collect(conn, '플렉스 보관함', "SELECT doc_no, form, status, created_at, memo, fields, amount FROM flex_approval_archive "
+                 "WHERE status = '완료'", 'doc_no', _cost_rows_from_flex, fleet, out)
+        _collect(conn, '전자결재', "SELECT id, form, status, content, amount, partner, created_at FROM approvals "
+                 "WHERE status IN ('done', 'approved')", 'id', _cost_rows_from_approval, fleet, out)
     return out
 
 
 _last_sync = 0.0
+_zero_warned: set = set()      # 금액 0원으로 건너뛰어 이미 WARNING 한 결재 줄(source_key 앞부분)
 
 
 def sync_costs(force: bool = False, min_gap: int = 600) -> int:
@@ -305,8 +328,14 @@ def sync_costs(force: bool = False, min_gap: int = 600) -> int:
     _last_sync = time.time()
     added = 0
     now = _now()
+    zero: List[str] = []
     with _conn() as conn:
         for r in collect_from_approvals():
+            # 금액을 못 읽은(0원 이하) 줄은 넣지 않는다 — source_key 로 INSERT OR IGNORE 라 0원으로 한 번 들어가면
+            #   나중에 결재 금액을 고쳐도 다시 안 들어갔다. 넣지 않고 두면 고친 뒤 다음 모으기 때 들어간다(11-24 조용한 실패 점검 24번)
+            if (r.get('amount') or 0) <= 0:
+                zero.append(r['key'])
+                continue
             n = len(r['plates'])
             for p in r['plates']:
                 amount = round(r['amount'] / n) if n > 1 else r['amount']
@@ -316,6 +345,11 @@ def sync_costs(force: bool = False, min_gap: int = 600) -> int:
                     (p, r['day'], r.get('kind') or kind_of(r['item'], r['vendor']), r['item'][:120], amount, n, r['vendor'][:40],
                      'approval', f"{r['key']}:{p}", 'sync', now))
                 added += cur.rowcount
+    new_zero = [k for k in zero if k not in _zero_warned]
+    if new_zero:      # 같은 줄은 한 번만 알린다(10분마다 모으므로)
+        _zero_warned.update(new_zero)
+        logger.warning(f"[차량관리] 금액을 못 읽어 차량 비용에 안 넣은 결재 {len(new_zero)}줄: {', '.join(new_zero[:10])}"
+                       f"{' 외' if len(new_zero) > 10 else ''} — 결재 금액이 고쳐지면 다음 모으기 때 들어가요")
     if added:
         logger.info(f'[차량관리] 결재에서 차량 비용 {added}줄 새로 넣음')
     return added

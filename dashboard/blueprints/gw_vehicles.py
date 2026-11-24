@@ -233,37 +233,65 @@ def page_assign():
 @gw_vehicles_bp.route('/api/vehicles/assign', methods=['GET'])
 @gw_page
 def api_assign_get():
+    """배정 화면 한 날짜. 곁들이는 정보(리드 시트·방문 일정 칸·휴가·온라인 당번·방문 일정 확정)는 못 읽어도
+    배정은 할 수 있게 열되, 못 읽은 칸 이름을 partial 로 싣는다 — 빈 목록으로 바꿔 success 만 보내면 화면이
+    '이날 방문 일정이 없어요'·휴무 표시 없음으로 보여 휴가자를 차에 넣고 확정할 수 있었다(11-24 조용한 실패 점검 18번).
+    partial: 'leads'(리드 시트) · 'visits'(방문 사람·코스) · 'teams'(확정한 방문 일정 팀) · 'schedule'(방문 일정 칸)
+             · 'off'(휴가·토요 휴무) · 'online'(온라인 당번) · 'plan'(방문 일정 확정 정보)"""
     day = _day()
+    partial: list = []
     leads: list = []
-    try:        # 일정확정 결과(리드 시트 방문 예정일·영업 담당자) — 못 읽어도 배정은 할 수 있게
-        leads = _day_leads(_leads(), day)      # 그날 리드만 한 번 골라 아래 모두에 넘긴다(모두 그날만 봄)
-        visitors, teams = va.visitors(day, leads), va.teams(day, leads)
+    visitors, teams, resolving = [], [], False
+    # 일정확정 결과(리드 시트 방문 예정일·영업 담당자). 리드 시트는 수천 줄이라 빈 결과 = 못 읽음
+    #   (load_leads_data 가 시트 오류·빈 시트를 None 으로 돌려주고 _leads 가 그걸 [] 로 바꾼다)
+    try:
+        all_leads = _leads()
+    except Exception as e:
+        logger.error(f'[차량배정] {day} 리드 시트 읽기 실패 — 방문·코스 표시 없이 엶: {e}', exc_info=True)
+        all_leads = None
+    else:
+        if not all_leads:
+            logger.error(f'[차량배정] {day} 리드 시트를 읽지 못함(빈 결과) — 방문·코스 표시 없이 엶')
+    if not all_leads:
+        partial.append('leads')
+    else:
+        try:
+            leads = _day_leads(all_leads, day)      # 그날 리드만 한 번 골라 아래 모두에 넘긴다(모두 그날만 봄)
+            visitors, teams = va.visitors(day, leads), va.teams(day, leads)
+        except Exception as e:
+            logger.error(f'[차량배정] {day} 방문 일정 읽기 실패: {e}', exc_info=True)
+            visitors, teams = [], []
+            partial.append('visits')
         try:    # 그룹웨어에서 확정한 날은 그 팀 그대로(시트 캐시가 늦게 바뀌어도, 11-22)
             teams = vp.confirmed_teams(day, leads) or teams     # 슬랙으로 정한 오늘·지난 날은 시트 코스(11-23)
         except Exception as e:
-            logger.warning(f'[차량배정] 방문 일정 팀 읽기 실패: {e}')
-        # 갈 곳을 동까지 보이게 — 아직 못 찾은 방문 주소는 뒤에서 찾고(행안부), 화면이 잠시 뒤 다시 받아 간다
-        resolving = bool(vl.unresolved(leads, day, day))
-        if resolving and not _resolving.locked():
-            _resolve_later(day, day)
-    except Exception as e:
-        logger.warning(f'[차량배정] 방문 일정 읽기 실패: {e}')
-        visitors, teams, resolving = [], [], False
+            logger.error(f'[차량배정] {day} 방문 일정 팀 읽기 실패: {e}', exc_info=True)
+            partial.append('teams')
+        try:    # 갈 곳을 동까지 보이게 — 아직 못 찾은 방문 주소는 뒤에서 찾고(행안부), 화면이 잠시 뒤 다시 받아 간다
+            resolving = bool(vl.unresolved(leads, day, day))
+            if resolving and not _resolving.locked():
+                _resolve_later(day, day)
+        except Exception as e:      # 동 찾기는 곁가지(못 찾으면 시·구까지만 보임)
+            logger.warning(f'[차량배정] {day} 방문 주소 동 찾기 준비 실패: {e}')
+            resolving = False
     try:        # 그날 방문 일정 칸(캔버스1과 같은 묶음, 시트에서 바로)
         schedule = va.day_schedule(day, leads)
     except Exception as e:
-        logger.warning(f'[차량배정] 방문 일정 칸 실패: {e}', exc_info=True)
+        logger.error(f'[차량배정] {day} 방문 일정 칸 실패: {e}', exc_info=True)
         schedule = []
-    try:        # 그날 쉬는 사람(그룹웨어 휴가·토요일 휴무표)
+        partial.append('schedule')
+    try:        # 그날 쉬는 사람(그룹웨어 휴가·토요일 휴무표) — 못 읽으면 휴가자를 차에 넣고 확정할 수 있어 ERROR
         off = va.day_off(day)
     except Exception as e:
-        logger.warning(f'[차량배정] 휴가 읽기 실패: {e}')
+        logger.error(f'[차량배정] {day} 휴가 읽기 실패 — 휴무 표시 없이 엶: {e}', exc_info=True)
         off = {'off': [], 'half': []}
+        partial.append('off')
     try:        # 그날 온라인 문의 당번(/일정확정 때 캔버스2 '온라인' 섹션에서 저장)
         online = va.online_duty(day)
     except Exception as e:
-        logger.warning(f'[차량배정] 온라인 당번 읽기 실패: {e}')
+        logger.error(f'[차량배정] {day} 온라인 당번 읽기 실패: {e}', exc_info=True)
         online = []
+        partial.append('online')
     try:
         view = va.day_view(day, teams)
         people = va.staff()
@@ -282,11 +310,12 @@ def api_assign_get():
         view['work'] = vp.confirmed_work(day)      # 사내 업무(차 필요 없음, 11-23)
         view['courses'] = vp.confirmed_courses(day, leads)     # 위 칸을 코스로(11-23) — 확정한 날 + 슬랙으로 정한 오늘·지난 날
     except Exception as e:
-        logger.warning(f'[차량배정] 방문 일정 확정 정보 실패: {e}')
+        logger.error(f'[차량배정] {day} 방문 일정 확정 정보 실패: {e}', exc_info=True)
         view['plan'] = None
         view['work'] = []
         view['courses'] = None
-    return jsonify({'success': True, **view, 'day_label': va.day_label(day),
+        partial.append('plan')
+    return jsonify({'success': True, **view, 'day_label': va.day_label(day), 'partial': partial,
                     'staff': [{'code': p['code'], 'name': p['name']} for p in people], 'visitors': visitors, 'teams': teams,
                     'resolving': resolving, 'schedule': schedule, 'off': off['off'], 'half': off['half'], 'online': online,
                     'can_edit': _can_assign(), 'can_see_log': _hr_admin(), 'dm_off': not va.CAR_DM_ON})
@@ -299,9 +328,13 @@ def api_assign_save():
         return jsonify({'success': False, 'message': '차량 배정은 배정 담당자만 고칠 수 있어요.'}), 403
     body = request.get_json(silent=True) or {}
     day = (body.get('day') or '').strip()
+    # base = 화면이 불러올 때 받은 그날 판. 안 보낸 옛 화면(재시작 직후 열려 있던 것)은 예전처럼 저장(11-24 조용한 실패 점검 17번)
+    base = body.get('base')
     try:
         res = va.save_day(day, body.get('rows') or [], _me(), confirm=bool(body.get('confirm')),
-                          notify=body.get('notify', True) is not False)
+                          notify=body.get('notify', True) is not False, base=None if base is None else str(base))
+    except va.StaleSave as e:
+        return jsonify({'success': False, 'conflict': True, 'message': str(e)}), 409
     except ValueError as e:
         return jsonify({'success': False, 'message': str(e)}), 400
     except Exception as e:

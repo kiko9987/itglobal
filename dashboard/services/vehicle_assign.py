@@ -304,8 +304,29 @@ def day_view(day: str, teams: Optional[List[Dict]] = None) -> Dict:
         out.append({**{k: c[k] for k in ('plate', 'label', 'model', 'fuel', 'corp', 'usage', 'fixed_user',
                                          'needs_log', 'uplus')},
                     'people': r['people'], 'pm': r.get('pm'), 'note': r['note']})
-    return {'day': day, 'cars': out, 'draft_from': None, 'draft_kind': None,
+    return {'day': day, 'cars': out, 'draft_from': None, 'draft_kind': None, 'base': day_version(day),
             'confirmed_at': (info or {}).get('confirmed_at'), 'confirmed_by': (info or {}).get('confirmed_by')}
+
+
+class StaleSave(Exception):
+    """화면을 연 뒤 다른 사람이 그날 배정을 먼저 저장·확정함 — 그대로 저장하면 앞 사람 변경을 말없이 덮어쓴다."""
+
+
+STALE_MSG = '다른 분이 먼저 고쳤어요. 새로 불러온 뒤 다시 해 주세요.'
+
+
+def _version(conn, day: str) -> str:
+    """그날 배정의 판(版) — 바뀔 때마다 늘어나는 로그 마지막 id + 확정 시각.
+    updated_at(초 단위·지운 줄은 안 남음)은 같은 초에 두 번 저장하거나 차를 비우면 그대로라 쓰지 않는다."""
+    r = conn.execute('SELECT MAX(id) FROM vehicle_assign_log WHERE day = ?', (day,)).fetchone()
+    d = conn.execute('SELECT confirmed_at FROM vehicle_assign_day WHERE day = ?', (day,)).fetchone()
+    return f"{(r[0] if r and r[0] else 0)}|{(d[0] if d and d[0] else '')}"
+
+
+def day_version(day: str) -> str:
+    """불러오기 응답의 base — 저장할 때 그대로 돌려받아 그 사이 남이 고쳤는지 본다(11-24 조용한 실패 점검 17번)."""
+    with _conn() as conn:
+        return _version(conn, day)
 
 
 def _clean_rows(rows: Iterable[Dict], plates: set, codes: set) -> Dict[str, Dict]:
@@ -347,10 +368,15 @@ def _clean_rows(rows: Iterable[Dict], plates: set, codes: set) -> Dict[str, Dict
     return out
 
 
-def save_day(day: str, rows: Iterable[Dict], by: str, confirm: bool = False, notify: bool = True) -> Dict:
+def save_day(day: str, rows: Iterable[Dict], by: str, confirm: bool = False, notify: bool = True,
+             base: Optional[str] = None) -> Dict:
     """배정 저장. confirm=True 면 확정(DM 보냄). 확정된 날을 고치면 바뀐 사람에게만 DM.
     notify=False 면 확정된 날을 고쳐도 DM 을 보내지 않는다(메모 오타 등 — 화면 [알리지 않고 저장], 11-21).
-    돌려주는 값: {'changed': [...], 'notified': n, 'confirmed': bool}"""
+    base = 화면이 불러올 때 받은 판(day_version). 그 사이 다른 사람이 저장·확정했으면 StaleSave —
+      배정 담당 두 명(SJ·JW)이 같은 날을 같이 고치면 화면이 모든 차 줄을 통째로 보내 나중 저장이 앞 사람 변경을
+      말없이 덮어쓰고, 확정 뒤라면 '빠졌어요' DM 까지 나가던 것(11-24 조용한 실패 점검 17번).
+      None(base 를 안 보내는 옛 화면 — 재시작 직후 열려 있던 것)은 예전처럼 그대로 저장.
+    돌려주는 값: {'changed': [...], 'notified': n, 'confirmed': bool, 'base': 저장 뒤 새 판}"""
     if not valid_day(day):
         raise ValueError('날짜가 올바르지 않아요.')
     cars = {c['plate']: c for c in fleet()}
@@ -366,7 +392,10 @@ def save_day(day: str, rows: Iterable[Dict], by: str, confirm: bool = False, not
             raise ValueError(f"휴무인 {', '.join(bad)} 님이 차에 있어요. 빼야 확정·알림이 돼요.")
     now = _now()
     changed = []
-    with _conn() as conn:
+    with _conn() as conn:     # 연결이 프로세스 안에서 잠금(RLock)을 쥐므로 판 비교 → 쓰기가 한 덩어리
+        if base is not None and _version(conn, day) != str(base):
+            logger.info(f'[차량배정] {day} 저장 거절 — 화면을 연 뒤 다른 분이 먼저 고침(by {by})')
+            raise StaleSave(STALE_MSG)
         for plate in set(old) | set(new):
             o = old.get(plate, _empty())
             n = new.get(plate, _empty())
@@ -386,6 +415,7 @@ def save_day(day: str, rows: Iterable[Dict], by: str, confirm: bool = False, not
             conn.execute('INSERT INTO vehicle_assign_day (day, confirmed_by, confirmed_at) VALUES (?,?,?) '
                          'ON CONFLICT(day) DO UPDATE SET confirmed_by = excluded.confirmed_by, '
                          'confirmed_at = excluded.confirmed_at', (day, by, now))
+        new_base = _version(conn, day)     # 같은 사람이 연달아 저장해도 막히지 않게 새 판을 돌려준다
     notified, failed, retry = 0, [], []
     if confirm and not was_confirmed:
         notified = notify_people(day, cars, new, who, everyone=True, failed=failed, retry=retry)
@@ -397,7 +427,7 @@ def save_day(day: str, rows: Iterable[Dict], by: str, confirm: bool = False, not
         log(f"[차량배정] {day} DM 못 받은 사람 {len(failed)}명: {', '.join(failed)} (받은 사람 {notified}명)",
             **({'extra': {'force_alert': True}} if not notified else {}))
     return {'changed': changed, 'notified': notified, 'failed': failed, 'retry': retry,
-            'confirmed': confirm or was_confirmed, 'dm_off': not CAR_DM_ON}
+            'confirmed': confirm or was_confirmed, 'dm_off': not CAR_DM_ON, 'base': new_base}
 
 
 def resend(day: str, codes: Iterable[str]) -> Dict:

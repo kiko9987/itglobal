@@ -21,9 +21,11 @@
       if (r.status === 401 || r.redirected || (r.ok && !isJson)) throw new Error(SESSION_ENDED);
       return (isJson ? r.json() : Promise.reject()).catch(function () { return null; }).then(function (j) {
         if (!j || !r.ok || j.success === false) {
-          throw new Error((j && j.message) || (method === 'GET'
+          var err = new Error((j && j.message) || (method === 'GET'
             ? '불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요. (오류 ' + r.status + ')'
             : '저장하지 못했어요. 잠시 뒤 다시 해 주세요. (오류 ' + r.status + ')'));
+          err.status = r.status;       // 409 = 다른 분이 먼저 고침(11-24 조용한 실패 점검 17번)
+          throw err;
         }
         return j;
       });
@@ -48,7 +50,10 @@
   var S = { day: '', cars: [], staff: [], names: {}, canEdit: false, confirmed: false, dirty: false,
             visits: {}, places: {}, teams: [], seq: 0, focus: null, placeTries: 0, placeTimer: null,
             off: {}, half: {}, online: {}, work: {}, schedule: [], courses: null, plan: null, dayLabel: '',
-            splitOpen: {}, splitCourse: {}, memoOpen: {}, pick: '', pickHalf: '', duty: {}, ownPick: {}, extra: [], carWhen: '', draftNote: '' };
+            splitOpen: {}, splitCourse: {}, memoOpen: {}, pick: '', pickHalf: '', duty: {}, ownPick: {}, extra: [], carWhen: '', draftNote: '',
+            base: null, partial: [] };
+  // base = 불러올 때 받은 그날 배정 판 — 저장할 때 돌려보내 그 사이 다른 분이 고쳤으면 서버가 409(11-24 조용한 실패 점검 17번)
+  // partial = 서버가 못 읽은 칸('leads'·'off' 등) — 화면 위 경고 줄(11-24 조용한 실패 점검 18번)
   // ownPick = 여러 명 코스에서 [본인 차량으로 이동]을 켜 '누가 자차로 가는지' 고르는 중인 코스
   // pickHalf = 이미 코스에 든 차를 체크했을 때 새 코스가 쓸 반나절('am'|'pm') · duty = 온라인 당번 {이니셜: '오전'|'오후'}
   // pick = 체크한 차(방문 일정처럼 줄을 눌러 체크 → 코스를 누르거나 위 줄에서 코스 고르기, 11-24 부장님) · splitCourse = [갈라 타기]를 연 코스
@@ -622,7 +627,7 @@
     var inG = groupOf();
     var gs = groups();
     $('vcCourses').innerHTML = gs.map(function (g) { return courseCard(g, inG); }).join('') + otherCard(inG) + leftCard() ||
-      '<p class="gw-va-none gw-va-noused">이날 방문 일정이 없어요.</p>';
+      '<p class="gw-va-none gw-va-noused">' + (visitsMissing() ? '방문 일정을 불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요.' : '이날 방문 일정이 없어요.') + '</p>';
     $('vcStrip').innerHTML = nocarStrip(inG);
     var sales = S.cars.filter(function (c) { return !isOwn(c) && !isCrew(c); });     // 영업 차만 센다(시공팀 차 빼고)
     var used = sales.filter(function (c) { return ridersOf(c).length; }).length;
@@ -754,6 +759,23 @@
     S.carWhen = j.confirmed_at ? j.confirmed_at.slice(5, 16).replace('-', '/') + (j.confirmed_name ? ' · ' + j.confirmed_name : '') : '';
     S.draftNote = '';      // 초안 없앰(11-23 부장님 — 타는 차·인원이 매일 달라서). 빈 날은 비어서 열린다
   }
+  // 서버가 못 읽은 칸(11-24 조용한 실패 점검 18번) — 빈 목록을 '없음'으로 믿지 않게 화면 위에 한 줄. 배정은 막지 않는다
+  var PARTIAL_NAMES = { leads: '리드 시트', visits: '방문 일정', teams: '방문 일정 코스', schedule: '방문 일정 목록',
+                        off: '휴가', online: '온라인 당번', plan: '방문 일정 확정' };
+  function visitsMissing() {
+    return S.partial.some(function (k) { return k === 'leads' || k === 'visits' || k === 'teams' || k === 'plan'; });
+  }
+  function partialText() {
+    var keys = S.partial.filter(function (k) { return PARTIAL_NAMES[k]; });
+    if (!keys.length) return '';
+    var what = [];
+    if (keys.some(function (k) { return k !== 'off' && k !== 'online'; })) what.push('방문');
+    if (keys.indexOf('off') !== -1) what.push('휴무');
+    if (keys.indexOf('online') !== -1) what.push('당번');
+    return keys.map(function (k) { return PARTIAL_NAMES[k]; }).join('·') + ' 정보를 못 불러왔어요 — ' + what.join('·') +
+      ' 표시가 빠졌을 수 있어요.' + (keys.indexOf('off') !== -1 ? ' 쉬는 사람이 차에 들어가지 않았는지 확인해 주세요.' : '') +
+      ' 잠시 뒤 새로 고쳐 보세요.';
+  }
   function statusLine() {        // 날짜 · 확정 상태 · 방문 일정 · 초안 안내 · (경고) — 한 줄
     var el = $('vaStatus');
     if (!el) return;
@@ -773,7 +795,9 @@
     }
     if (S.draftNote && S.canEdit && !S.confirmed) bits.push(esc(S.draftNote));
     var warn = staleText();
+    var part = partialText();
     el.innerHTML = head + (bits.length ? '<span class="gw-va-sinfo">' + bits.join('<span class="gw-va-dot">·</span>') + '</span>' : '') +
+      (part ? '<span class="gw-va-stale gw-va-partial" role="alert"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i> ' + esc(part) + '</span>' : '') +
       (warn ? '<span class="gw-va-stale" role="status">' + esc(warn) + '</span>' : '');
   }
 
@@ -785,6 +809,8 @@
       if (my !== S.seq) return;
       board();
       S.day = j.day; S.cars = j.cars; S.staff = j.staff; S.canEdit = !!j.can_edit; S.dmOff = !!j.dm_off;
+      S.base = j.base == null ? null : j.base;          // 재시작 전 옛 서버면 없음 → 예전처럼 비교 없이 저장
+      S.partial = Array.isArray(j.partial) ? j.partial : [];
       S.cars.forEach(function (c) {
         c.pm = Array.isArray(c.pm) ? c.pm : null;
         if (isOwn(c)) c.label = '본인 차량';     // 화면에서 부르는 이름(11-24 부장님 — 꼬리표는 '본인 차량'만)
@@ -861,9 +887,11 @@
     var btns = [$('vaSave'), $('vaConfirm')];
     btns.forEach(function (b) { b.disabled = true; });
     msg(notify ? '저장하고 알리는 중…' : '저장하는 중…', 'info', true);
-    post('/api/vehicles/assign', { day: S.day, rows: rowsForSave(), confirm: !!notify && !S.confirmed, notify: !!notify })
+    post('/api/vehicles/assign', { day: S.day, rows: rowsForSave(), confirm: !!notify && !S.confirmed, notify: !!notify,
+                                   base: S.base })
       .then(function (j) {
         S.dirty = false;
+        if (j.base != null) S.base = j.base;     // 같은 사람이 연달아 저장해도 막히지 않게(다시 불러오기가 실패해도)
         var t = j.changed.length ? '저장했어요.' : '바뀐 내용이 없어요.';
         var missed = j.failed || [];
         if (j.notified) t += ' ' + j.notified + '명에게 슬랙으로 알렸어요.';
@@ -875,8 +903,19 @@
           msg(t, missed.length ? 'err' : 'ok', true);
           if ((j.retry || []).length) askResend(j.retry);   // 보내다 실패한 사람은 다시 보내 볼 수 있게(11-24 추가분)
         });
-      }).catch(function (e) { msg(e.message, 'err', true); })
+      }).catch(function (e) {
+        if (e.status === 409) { staleReload(e.message); return; }
+        msg(e.message, 'err', true);
+      })
       .then(function () { btns.forEach(function (b) { b.disabled = false; }); setDirty(S.dirty); });
+  }
+  // 다른 분이 먼저 고친 날(409, 11-24 조용한 실패 점검 17번) — 새로 불러오면 내가 고친 것은 사라지니 묻고 불러온다.
+  //   취소하면 화면은 그대로(고친 내용을 보고 옮겨 적을 수 있게). 저장은 새로 불러와야 된다.
+  function staleReload(text) {
+    msg(text, 'err', true);
+    if (!window.confirm(text + '\n\n새로 불러오면 지금 고친 내용은 사라져요. 새로 불러올까요?')) return;
+    S.dirty = false;
+    load(S.day).then(function () { msg('새로 불러왔어요. 다른 분이 고친 내용을 보고 다시 해 주세요.', 'info', true); });
   }
   // 슬랙 계정은 있는데 보내다 실패한 사람(retry) — 한 번 묻고 그 사람에게만 다시 보낸다
   // (슬랙 계정이 없는 사람은 다시 보내도 안 가므로 빼고, 그 사람들은 위 안내대로 직접)
