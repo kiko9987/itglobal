@@ -364,8 +364,13 @@ def custom_grant(user: dict, name: str, data: dict) -> Tuple[Optional[dict], str
     if (vf_raw and not vf) or (vt_raw and not vt):
         return None, '쓸 수 있는 기간을 다시 골라 주세요.'
     actor = _actor(user, sid)
+    # 배우자 출산 법 규칙(켜졌을 때만 쓰임, 11-25) — 출산일·출산예정일
+    bd_raw, due_raw = str(data.get('birth_date') or '').strip(), str(data.get('due_date') or '').strip()
+    bd, due = lv._d(bd_raw) if bd_raw else None, lv._d(due_raw) if due_raw else None
+    if (bd_raw and not bd) or (due_raw and not due):
+        return None, '출산일을 다시 골라 주세요.'
     g, err = lv.custom_grant(name, str(data.get('type') or ''), data.get('days'), vf, vt,
-                             str(data.get('note') or ''), sid, actor)
+                             str(data.get('note') or ''), sid, actor, birth=bd, due=due)
     if err:
         return None, err
 
@@ -427,6 +432,8 @@ def admin_info(user: dict, person: dict) -> Dict:
         'can': True, 'name': name,
         'types': [{'value': k, 'label': v} for k, v in lv.type_options() + lv.admin_type_options()],
         'admin_types': [{'value': k, 'label': v} for k, v in lv.admin_type_options()],
+        # 배우자 출산 법 규칙(11-25, 꺼 둠) — 켜지면 부여 창에서 출산일을 받고 기간은 자동
+        'spouse_rules': lv.SPOUSE_RULES_ON, 'spouse_type': lv.SPOUSE_BIRTH,
         'balance': lv.balance(name),
         'event': lv.EVENT, 'half_types': list(lv.HALF_TYPES),
         'event_subs': [{'value': k, 'label': f'{v[0]} ({v[1]}일)'} for k, v in lv.EVENT_SUBS.items()],

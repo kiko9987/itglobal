@@ -1165,8 +1165,14 @@
       h += '<p class="gw-lv-left mb-2">보건·난임 치료 같은 휴가를 일수로 먼저 줘요. 직원은 휴가 신청 창에서 그 종류를 골라 신청하고, 보통 승인 절차를 거쳐요.</p>' +
         admField('lvAdmType', '휴가 종류', '<select class="form-select" id="lvAdmType" name="type">' + optList(adm.admin_types, '') + '</select>') +
         admField('lvAdmDays', '일수', '<input type="number" step="0.5" min="0.5" max="120" class="form-control" id="lvAdmDays" name="days" required>', '0.5일 단위예요.') +
+        // 배우자 출산 법 규칙이 켜졌을 때만(11-25, 지금은 꺼 둠) — 출산일로 기간 자동, 3번까지 나눠 씀
+        '<div id="lvAdmBirthWrap" hidden>' +
+          admField('lvAdmBirth', '출산일', '<input type="date" class="form-control" id="lvAdmBirth" name="birth_date">', '아직 출산 전이면 비우고 출산예정일을 넣어 주세요.') +
+          admField('lvAdmDue', '출산예정일', '<input type="date" class="form-control" id="lvAdmDue" name="due_date">',
+            '출산예정일 50일 전부터, 출산한 날부터 120일까지 쓸 수 있어요. 3번까지 나눠 쓸 수 있어요.') + '</div>' +
+        '<div id="lvAdmSpanWrap">' +
         admField('lvAdmFrom', '쓸 수 있는 첫날', '<input type="date" class="form-control" id="lvAdmFrom" name="valid_from" value="' + todayIso() + '">') +
-        admField('lvAdmTo', '쓸 수 있는 마지막 날', '<input type="date" class="form-control" id="lvAdmTo" name="valid_to">', '비우면 기간 제한 없이 써요.') +
+        admField('lvAdmTo', '쓸 수 있는 마지막 날', '<input type="date" class="form-control" id="lvAdmTo" name="valid_to">', '비우면 기간 제한 없이 써요.') + '</div>' +
         admField('lvAdmReason', '메모', '<input type="text" class="form-control" id="lvAdmReason" name="reason" maxlength="200" placeholder="예: 진단서 받음">', '본인에게 가는 알림에 같이 보여요.');
     } else {
       var v = id ? (adm.rows || {})[String(id)] || {} : {};
@@ -1192,6 +1198,13 @@
       if (sw) sw.hidden = t !== adm.event;
       var ew = document.getElementById('lvAdmEndWrap');
       if (ew) ew.hidden = (adm.half_types || []).indexOf(t) !== -1;
+      var bw = document.getElementById('lvAdmBirthWrap');     // 배우자 출산 법 규칙(켜졌을 때만)
+      if (bw) {
+        var spouse = !!adm.spouse_rules && t === adm.spouse_type;
+        bw.hidden = !spouse;
+        document.getElementById('lvAdmSpanWrap').hidden = spouse;
+        if (spouse && f.days && !f.days.value) f.days.value = '20';
+      }
     }
     if (f.type) f.type.addEventListener('change', sync);
     sync();
@@ -1220,6 +1233,10 @@
     } else if (kind === 'custom') {
       body = { type: f.type.value, days: f.days.value, valid_from: f.valid_from.value, valid_to: f.valid_to.value, note: f.reason.value.trim() };
       if (!body.days) { msg.textContent = '일수를 적어 주세요.'; return; }
+      if (adm.spouse_rules && body.type === adm.spouse_type) {
+        body.birth_date = f.birth_date.value; body.due_date = f.due_date.value;
+        if (!body.birth_date && !body.due_date) { msg.textContent = '출산일이나 출산예정일을 넣어 주세요.'; return; }
+      }
       url = '/api/leave/person/' + admPid + '/custom-grant';
     } else {
       var t = f.type.value, half = (adm.half_types || []).indexOf(t) !== -1;

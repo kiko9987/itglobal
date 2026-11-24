@@ -393,6 +393,10 @@ def _conn():
             cols = {r[1] for r in conn.execute('PRAGMA table_info(leave_requests)')}
             if 'replaces' not in cols:
                 conn.execute('ALTER TABLE leave_requests ADD COLUMN replaces INTEGER')
+            # 배우자 출산휴가 출산일(11-25) — 법 규칙(기한·3회 분할)을 켤 때 부여에 남긴다
+            gcols = {r[1] for r in conn.execute('PRAGMA table_info(leave_custom_grants)')}
+            if 'birth_date' not in gcols:
+                conn.execute('ALTER TABLE leave_custom_grants ADD COLUMN birth_date TEXT')
             from dashboard.services.sat_off import DDL as _SAT_OFF_DDL   # 토요일 휴무표(11-20) — 같은 DB
             for ddl in _SAT_OFF_DDL:
                 conn.execute(ddl)
@@ -760,6 +764,42 @@ def manager_only(row: dict) -> bool:
 ANYTIME = '9999-12-31'   # 쓸 수 있는 기간 '언제든'
 CUSTOM_MAX_DAYS = 120    # 산전후 90일(다태아 120일)
 
+# ── 배우자 출산휴가 법 규칙(11-25 부장님: 만들어 두고 아직 켜지 않음 — 박민재 님까지는 회사 재량) ──────
+#   남녀고용평등법 제18조의2(2025-02-23~): 20일 유급, 출산예정일 50일 전부터, 출산한 날부터 120일이 지나면 못 씀,
+#   3회까지 나누어 씀. 켜면: 부여 때 출산일(또는 출산예정일)을 받아 쓸 수 있는 기간을 자동으로 잡고,
+#   신청은 그 부여 안에서 3번까지. 출산일 없이 준 예전 부여('언제든')는 제한하지 않는다.
+SPOUSE_BIRTH = 'spouse_birth'
+SPOUSE_RULES_ON: bool = False
+SPOUSE_DAYS = 20
+SPOUSE_BEFORE_DAYS = 50
+SPOUSE_AFTER_DAYS = 120   # 출산일을 1일째로 세어 120일째까지(출산일 포함 여부는 노무 확인 필요 — 이 값 하나만 고치면 됨)
+SPOUSE_SPLITS = 3
+
+
+def spouse_window(birth: Optional[date] = None, due: Optional[date] = None) -> Tuple[date, date]:
+    """배우자 출산휴가를 쓸 수 있는 기간 — (출산예정일(없으면 출산일) − 50일, 출산일(없으면 예정일) + 119일)."""
+    base = birth or due
+    if not base:
+        raise ValueError('출산일이나 출산예정일이 필요해요.')
+    return (due or birth) - timedelta(days=SPOUSE_BEFORE_DAYS), base + timedelta(days=SPOUSE_AFTER_DAYS - 1)
+
+
+def _spouse_split_error(name: str, start: date, exclude_id: int = 0) -> str:
+    """켜져 있고 그날 쓰는 부여가 출산일로 준 것이면, 그 부여 기간 안 신청이 이미 3번인지."""
+    if not SPOUSE_RULES_ON:
+        return ''
+    grants = [g for g in _custom_alive(name, SPOUSE_BIRTH, start) if g.get('birth_date')]
+    if not grants:
+        return ''                                   # 예전 방식 부여(출산일 없음) — 제한 없음
+    g = grants[0]
+    with _conn() as conn:
+        n = conn.execute(f'SELECT COUNT(*) FROM leave_requests WHERE name=? AND ltype=? AND id<>? AND start BETWEEN ? AND ? '
+                         f'AND status IN ({",".join("?" * len(HOLDING))})',
+                         (name, SPOUSE_BIRTH, exclude_id, g['valid_from'], g['valid_to'], *HOLDING)).fetchone()[0]
+    if n >= SPOUSE_SPLITS:
+        return f'배우자 출산휴가는 {SPOUSE_SPLITS}번까지 나눠 쓸 수 있어요. 이미 {n}번 신청했어요.'
+    return ''
+
 
 def _custom_alive(name: str, ltype: str, on: date) -> List[dict]:
     with _conn() as conn:
@@ -850,8 +890,10 @@ def type_options_for(name: str, today: Optional[date] = None) -> List[Tuple[str,
 
 
 def custom_grant(name: str, ltype: str, days, valid_from: Optional[date], valid_to: Optional[date], note: str,
-                 uid: str, actor_name: str, today: Optional[date] = None) -> Tuple[Optional[dict], str]:
-    """맞춤 휴가 부여 → (줄, '') 또는 (None, 오류). valid_to 가 없으면 언제든."""
+                 uid: str, actor_name: str, today: Optional[date] = None,
+                 birth: Optional[date] = None, due: Optional[date] = None) -> Tuple[Optional[dict], str]:
+    """맞춤 휴가 부여 → (줄, '') 또는 (None, 오류). valid_to 가 없으면 언제든.
+    배우자 출산 규칙이 켜져 있으면(SPOUSE_RULES_ON) 출산일·출산예정일로 기간을 잡는다(받은 기간은 무시)."""
     today = today or date.today()
     if uid not in manager_ids():
         return None, '경영지원만 부여할 수 있어요.'
@@ -859,6 +901,14 @@ def custom_grant(name: str, ltype: str, days, valid_from: Optional[date], valid_
         return None, '휴가 명단에 없는 직원이에요.'
     if not is_admin_type(ltype):
         return None, '부여할 휴가 종류를 골라 주세요.'
+    birth_iso = None
+    if SPOUSE_RULES_ON and ltype == SPOUSE_BIRTH:
+        if not (birth or due):
+            return None, '배우자 출산휴가는 출산일(아직이면 출산예정일)을 넣어 주세요.'
+        valid_from, valid_to = spouse_window(birth, due)
+        birth_iso = (birth or due).isoformat()
+        if days in (None, ''):
+            days = SPOUSE_DAYS
     try:
         days = float(days)
     except (TypeError, ValueError):
@@ -876,9 +926,9 @@ def custom_grant(name: str, ltype: str, days, valid_from: Optional[date], valid_
     with _conn() as conn:
         cur = conn.execute(
             'INSERT INTO leave_custom_grants (name, ltype, days, valid_from, valid_to, note, created_by, created_by_name, '
-            'created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+            'created_at, birth_date) VALUES (?,?,?,?,?,?,?,?,?,?)',
             (name, ltype, days, valid_from.isoformat(), (valid_to.isoformat() if valid_to else ANYTIME),
-             note or None, uid, actor_name, _now()))
+             note or None, uid, actor_name, _now(), birth_iso))
         g = dict(conn.execute('SELECT * FROM leave_custom_grants WHERE id=?', (cur.lastrowid,)).fetchone())
     g['label'] = type_label(ltype)
     return g, ''
@@ -963,6 +1013,8 @@ def validate(name: str, ltype: str, sub: str, start: Optional[date], end: Option
                              '더 필요하면 경영지원에 문의해 주세요.')
         elif not _custom_covers(name, ltype, start, end):
             errs['end'] = f'{type_label(ltype)}를 쓸 수 있는 기간을 넘어요. 기간 안 날짜로 골라 주세요.'
+        elif ltype == SPOUSE_BIRTH and _spouse_split_error(name, start, exclude_id):
+            errs['start'] = _spouse_split_error(name, start, exclude_id)       # 3회 분할(켜졌을 때만, 11-25)
     elif ltype in (EVENT, SICK):
         # 한도는 신청 건마다가 아니라 그 해 누적(11-05 KiKO) — 나눠 신청해도, 해를 넘겨도 해마다 합으로
         if ltype == EVENT and sub not in EVENT_SUBS:
