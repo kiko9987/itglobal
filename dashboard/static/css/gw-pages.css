@@ -2990,6 +2990,7 @@ html:has(#bdPage) {
 .gw-so-dtag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.82rem; font-weight: 600; }
 .gw-so-dtag.gone { background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; }
 .gw-so-dtag.add { background: #ecfdf5; color: #065f46; border: 1px dashed #059669; }
+.gw-so-plus.minus { color: #991b1b; }   /* '− 휴무 빼기' — 빼기 칩과 같은 빨강(11-25) */
 .gw-so-plus { font-size: 0.78rem; color: #475569; }
 .gw-so-sat.can:hover .gw-so-plus { color: #1a1c20; }
 /* 다른 달 불러오는 동안 앞 달 달력을 흐리게(제목만 먼저 바뀌어 헷갈리던 것) */

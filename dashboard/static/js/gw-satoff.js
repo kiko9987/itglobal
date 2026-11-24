@@ -146,8 +146,8 @@
     } else {
       h += '<p class="gw-so-how">' + esc(d.decided_by) + ' 님이 승인해 확정됐어요(' + esc((d.decided_at || '').slice(5, 16)) + ').' +
         (me.approver ? (narrow() ? ' [휴무자 선택]으로 바로 고칠 수 있어요. 기록이 남아요.' : ' 토요일 칸을 눌러 바로 고칠 수 있어요. 기록이 남아요.')
-          : d.can_request_change ? (narrow() ? ' 바꾸려면 토요일의 [이 날 쉬기]·[이 날 빼기]로 고른 뒤 [변경 신청]을 눌러 주세요.'
-            : ' 바꾸려면 토요일 칸을 눌러 고른 뒤 [변경 신청]을 눌러 주세요.') : '') + '</p>';
+          : d.can_request_change ? (narrow() ? ' 쉬는 날을 바꾸려면 빼고 싶은 내 휴무는 [이 날 빼기], 새로 쉴 토요일은 [이 날 쉬기]로 고른 뒤 [변경 신청]을 눌러 주세요.'
+            : ' 쉬는 날을 바꾸려면 빼고 싶은 내 휴무 칸과 새로 쉴 토요일 칸을 눌러 고른 뒤 [변경 신청]을 눌러 주세요.') : '') + '</p>';
       if (draft.add.length || draft.remove.length) {
         // 바꿀 내용 — 달력 칩과 같은 색 꼬리표(빼기 빨강·넣기 초록, 11-25 부장님 '잘 인식이 안돼')
         var parts = draft.remove.map(function (x) { return '<span class="gw-so-dtag gone">' + esc(md(x)) + '(토) 빼기</span>'; })
@@ -329,6 +329,7 @@
         : '<div class="gw-so-plus" aria-hidden="true">+ 내 이름</div>';
       // '+ 고르기'는 뺐다 — 점선 테두리·위 안내 줄과 겹침(11-25 부장님). 직원용 '+ 내 이름'·'+ 휴무 변경하기'는 눌렀을 때 일을 알려 줘 남김
       if (mode === 'draft' && !s.mine && !inDraft(draft.add, di)) g += '<div class="gw-so-plus" aria-hidden="true">+ 휴무 변경하기</div>';
+      if (mode === 'draft' && s.mine && !inDraft(draft.remove, di)) g += '<div class="gw-so-plus minus" aria-hidden="true">− 휴무 빼기</div>';   // 내 휴무는 눌러서 뺄 수 있다는 표시(11-25 부장님 '빼기 안내가 없어')
       g += '</div>';
     }
     var tail = (7 - ((lead + lastDay) % 7)) % 7;
