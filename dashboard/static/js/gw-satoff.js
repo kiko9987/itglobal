@@ -129,9 +129,9 @@
         h += '<p class="gw-so-how">' + (me.member && !d.pick_others
           ? (nw ? '쉬고 싶은 토요일의 [내 이름 넣기]를 누르세요. 다시 누르면 빠져요.'
             : '쉬고 싶은 토요일 칸을 누르면 내 이름이 들어가고, 한 번 더 누르면 빠져요.')
-          : (nw ? '토요일마다 [쉬는 사람 고르기]로 고르세요.' : '토요일 칸을 눌러 쉬는 사람을 고르세요.') +
-            ' 다 모이면 [결재 올리기]를 눌러 주세요.') +
-          (d.max_off != null ? ' 한 토요일에 ' + d.max_off + '명(절반)까지 쉴 수 있어요.' : '') + '</p>';
+          : (nw ? '토요일마다 [휴무자 선택]으로 휴무자를 체크하세요.' : '토요일을 선택해 휴무자를 체크하세요.') +
+            ' 전체 인원이 다 선택 후 [결재 올리기]를 눌러 주세요.') +
+          (d.max_off != null ? ' 한 토요일에 ' + d.max_off + '명(영업인원의 절반)까지 쉴 수 있어요.' : '') + '</p>';
       } else {
         h += '<p class="gw-so-how">아직 고를 수 없는 달이에요.</p>';
       }
@@ -145,7 +145,7 @@
       }
     } else {
       h += '<p class="gw-so-how">' + esc(d.decided_by) + ' 님이 승인해 확정됐어요(' + esc((d.decided_at || '').slice(5, 16)) + ').' +
-        (me.approver ? (narrow() ? ' [쉬는 사람 고르기]로 바로 고칠 수 있어요. 기록이 남아요.' : ' 토요일 칸을 눌러 바로 고칠 수 있어요. 기록이 남아요.')
+        (me.approver ? (narrow() ? ' [휴무자 선택]으로 바로 고칠 수 있어요. 기록이 남아요.' : ' 토요일 칸을 눌러 바로 고칠 수 있어요. 기록이 남아요.')
           : d.can_request_change ? (narrow() ? ' 바꾸려면 토요일의 [이 날 쉬기]·[이 날 빼기]로 고른 뒤 [변경 신청]을 눌러 주세요.'
             : ' 바꾸려면 토요일 칸을 눌러 고른 뒤 [변경 신청]을 눌러 주세요.') : '') + '</p>';
       if (draft.add.length || draft.remove.length) {
@@ -256,7 +256,7 @@
   // 휴대폰 — 그달 토요일만 한 줄씩. 누를 일은 줄마다 단추 하나(44px)
   function actLabel(mode, s, di) {
     if (mode === 'self') return s.mine ? '내 이름 빼기' : '내 이름 넣기';
-    if (mode === 'pick') return '쉬는 사람 고르기';
+    if (mode === 'pick') return '휴무자 선택';
     if (mode === 'draft') {
       if (s.mine) return inDraft(draft.remove, di) ? '빼기 취소' : '이 날 빼기';
       return inDraft(draft.add, di) ? '넣기 취소' : '이 날 쉬기';
