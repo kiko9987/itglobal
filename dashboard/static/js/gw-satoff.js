@@ -500,10 +500,10 @@
   var pickModal = null;
   function openPick(s) {
     pickDay = s.day;
-    document.getElementById('soPickTitle').textContent = md(s.day) + ' 토요일 쉬는 사람';
+    document.getElementById('soPickTitle').textContent = md(s.day) + ' 토요일 휴무자 선택';
     document.getElementById('soPickHint').textContent = data.status === 'confirmed' || data.status === 'wait'
       ? (data.status === 'confirmed' ? '확정된 달이에요. 저장하면 바로 바뀌고 기록이 남아요.' : '결재 대기 중인 달이에요. 승인권자만 고칠 수 있어요.')
-      : '쉬는 사람을 고르세요. 이름 옆 숫자는 이번 달 고른 횟수예요.';
+      : '휴무자를 고르세요. 이름 옆 숫자는 이번 달 휴무 횟수예요.';
     var counts = {};
     (data.members || []).forEach(function (m) { counts[m.name] = m.count; });
     document.getElementById('soPickList').innerHTML = (data.members || []).map(function (m, i) {

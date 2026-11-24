@@ -193,6 +193,10 @@
   document.addEventListener('shown.bs.modal', function (e) {
     var m = e.target;
     if (!gwModal(m)) return;
+    // 화면 코드가 이미 창 안 어딘가(제목 등)에 초점을 줬으면 그대로 둔다 — 덮어쓰면 스케줄 근무 '쉬는 사람' 창에서
+    // 첫 체크박스에 초점 테두리가 생겨 첫 사람이 고른 것처럼 보였다(11-25 부장님)
+    var cur = document.activeElement;
+    if (cur && cur !== m && m.contains(cur)) return;
     var first = m.querySelector('.modal-body select:not([disabled]), .modal-body input:not([disabled]):not([type=hidden]), .modal-body textarea:not([disabled])');
     if (first && first.offsetParent === null) first = null;
     if (!first) first = m.querySelector('.modal-footer button:not([disabled])');
