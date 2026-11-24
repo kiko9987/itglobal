@@ -89,8 +89,10 @@
   }
 
   // ── 내 휴가 ──────────────────────────────────────
-  function renderLeave(L) {
+  function renderLeave(L, loadError) {
     var box = el('homeLeave');
+    // 불러오기 실패를 '인사카드 없음'으로 안내하던 것(11-24 조용한 실패 점검)
+    if (loadError) { fail('homeLeave', '휴가 정보를 불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요.'); return; }
     if (!L) { box.innerHTML = '<div class="gw-empty">내 계정에 연결된 인사카드가 없어 휴가를 볼 수 없어요. 경영지원에 연결을 요청해 주세요.</div>'; return; }
     var h = '<div class="gw-home-big"><span class="k">남은 연차</span><span class="v">' + (L.balance == null ? '-' : days(L.balance)) + '</span></div>';
     if (L.grants && L.grants.length) {
@@ -359,7 +361,7 @@
 
   api('/api/home').then(function (j) {
     renderTodos(j.todos);
-    renderLeave(j.leave);
+    renderLeave(j.leave, j.leave_error);
     if (!j.field) {
       renderApprovals(j.approvals);
       renderOff(j.off);

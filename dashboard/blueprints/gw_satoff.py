@@ -6,7 +6,7 @@ from datetime import date
 
 from flask import Blueprint, jsonify, redirect, render_template, request, session
 
-from dashboard.blueprints.hr import _hr_admin, _me, dev_preview_gate, gw_page
+from dashboard.blueprints.hr import BUG_ERRORS, _hr_admin, _me, dev_preview_gate, gw_page
 from dashboard.services import hr
 from dashboard.services import sat_off as so
 from dashboard.utils.logging_config import get_logger
@@ -42,6 +42,9 @@ def _allowed(name: str, sid: str) -> bool:
 
 
 def _err(e: Exception):
+    if isinstance(e, BUG_ERRORS):   # KeyError·IndexError·UnicodeError·JSONDecodeError = 코드 버그(11-24 조용한 실패 점검)
+        logger.error(f'[토요휴무] 처리 실패(코드 오류): {type(e).__name__}: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': '처리하지 못했어요. 잠시 뒤 다시 해 주세요.'}), 500
     if isinstance(e, PermissionError):
         return jsonify({'success': False, 'message': str(e)}), 403
     if isinstance(e, LookupError):

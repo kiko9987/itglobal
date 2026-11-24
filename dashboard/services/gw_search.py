@@ -99,11 +99,15 @@ def _rank(rows, limit):
     return [r[2] for r in rows[:limit]], len(rows)
 
 
+class SourceUnavailable(RuntimeError):
+    """공사현황·리드 시트를 못 읽음 — '결과 없음'이 아니라 '찾기가 안 됐어요'로 보여야 함(11-24 조용한 실패 점검)."""
+
+
 def search_projects(query: _Query, limit: int = LIMIT) -> tuple[list[dict], int]:
     from dashboard.services.project_service import load_data
     df = load_data()
-    if df is None or len(df) == 0:
-        return [], 0
+    if df is None or len(df) == 0:   # load_data 는 실패·빈 시트 모두 None
+        raise SourceUnavailable('공사현황을 읽지 못했어요')
     cols = [c for c in {'프로젝트 코드', '공사 시작', '수금 관련 특이사항',
                         *(c for c, _ in _PROJECT_TEXT), *_PROJECT_PHONE} if c in df.columns]
     hits = []
@@ -130,8 +134,12 @@ def search_projects(query: _Query, limit: int = LIMIT) -> tuple[list[dict], int]
 
 def search_leads(query: _Query, limit: int = LIMIT) -> tuple[list[dict], int]:
     from dashboard.services.lead_service import get_lead_records
+    # get_lead_records 는 실패(load_leads_data None·예외)도 [] — 리드 시트가 통째로 빈 일은 없어 [] = 못 읽음
+    records = get_lead_records()
+    if not records:
+        raise SourceUnavailable('리드 시트를 읽지 못했어요')
     hits = []
-    for rec in get_lead_records() or []:
+    for rec in records:
         if _s(rec.get('플랫폼')) == '기타':
             continue
         no = _s(rec.get('리드 No'))
@@ -154,7 +162,7 @@ def search_leads(query: _Query, limit: int = LIMIT) -> tuple[list[dict], int]:
 
 def search(q: str, limit: int = LIMIT) -> dict:
     query = _Query(q)
-    out = {'q': query.raw, 'projects': [], 'leads': [], 'project_total': 0, 'lead_total': 0}
+    out = {'q': query.raw, 'projects': [], 'leads': [], 'project_total': 0, 'lead_total': 0, 'failed': []}
     if not query.usable:
         return out
     for key, fn in (('projects', search_projects), ('leads', search_leads)):
@@ -163,5 +171,7 @@ def search(q: str, limit: int = LIMIT) -> dict:
             out[key] = items
             out[key[:-1] + '_total'] = total
         except Exception as e:  # 한쪽이 실패해도 다른 쪽은 보여 줌
-            logger.warning(f'[GW검색] {key} 찾기 실패: {type(e).__name__}')
+            # 실패를 '결과 없음'으로 보이던 것 → failed 로 알리고 ERROR(11-24 조용한 실패 점검). 검색어는 남기지 않음
+            out['failed'].append(key)
+            logger.error(f'[GW검색] {key} 찾기 실패: {type(e).__name__}: {e}')
     return out

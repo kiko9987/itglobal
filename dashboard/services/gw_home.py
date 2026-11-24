@@ -241,6 +241,10 @@ def _amount(v) -> int:
         return 0
 
 
+class SalesSourceError(RuntimeError):
+    """리드 시트·공사현황을 못 읽음 — 0건으로 집계하지 않고 /api/home/sales 의 '불러오지 못했어요'로 보낸다."""
+
+
 def _sales_counts(start: date, end: date) -> Dict[date, dict]:
     from dashboard.services.lead_service import get_lead_records
     from dashboard.services.project_service import load_data
@@ -249,7 +253,20 @@ def _sales_counts(start: date, end: date) -> Dict[date, dict]:
     def slot(d):
         return days.setdefault(d, {'inquiry': 0, 'visit': 0, 'contract': 0, 'amount': 0})
 
-    for r in get_lead_records() or []:
+    # 원천을 못 읽으면 '문의 0·계약 0원'이 정상처럼 5분 캐시됐다(11-24 조용한 실패 점검).
+    #   get_lead_records 는 실패도 빈 시트도 [] 로 돌려주는데, 그 밑 load_leads_data 가 빈 시트를 실패(None)로
+    #   보므로 [] = 못 읽음. 기간 안 0건은 여기서 걸리지 않는다(시트 전체가 빈 경우만).
+    #   load_data 도 실패·빈 시트 모두 None.
+    leads = get_lead_records()
+    if not leads:
+        raise SalesSourceError('리드 시트를 읽지 못했어요')
+    df = load_data()
+    if df is None or not len(df):
+        raise SalesSourceError('공사현황을 읽지 못했어요')
+    if '공사 확정' not in df.columns:
+        raise SalesSourceError("공사현황에 '공사 확정' 열이 없어요")
+
+    for r in leads:
         d = _ymd(r.get('상담 시간'))
         if not d or not (start <= d <= end):
             continue
@@ -257,18 +274,16 @@ def _sales_counts(start: date, end: date) -> Dict[date, dict]:
         s['inquiry'] += 1
         if str(r.get('상태') or '').strip() in VISIT_STATUSES:
             s['visit'] += 1
-    df = load_data()
-    if df is not None and len(df) and '공사 확정' in df.columns:
-        cols = [c for c in ('공사 확정', '총액 2', '수금 관련 특이사항') if c in df.columns]
-        for r in df[cols].to_dict('records'):
-            d = _ymd(r.get('공사 확정'))
-            if not d or not (start <= d <= end):
-                continue
-            if _spec_cancelled(str(r.get('수금 관련 특이사항') or '')):
-                continue
-            s = slot(d)
-            s['contract'] += 1
-            s['amount'] += _amount(r.get('총액 2'))
+    cols = [c for c in ('공사 확정', '총액 2', '수금 관련 특이사항') if c in df.columns]
+    for r in df[cols].to_dict('records'):
+        d = _ymd(r.get('공사 확정'))
+        if not d or not (start <= d <= end):
+            continue
+        if _spec_cancelled(str(r.get('수금 관련 특이사항') or '')):
+            continue
+        s = slot(d)
+        s['contract'] += 1
+        s['amount'] += _amount(r.get('총액 2'))
     return days
 
 

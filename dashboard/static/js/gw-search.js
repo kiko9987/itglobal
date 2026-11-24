@@ -150,6 +150,12 @@
         addNote('프로젝트·리드를 찾지 못했어요. 잠시 후 다시 해 주세요.');
       } else if (data) {
         var enc = encodeURIComponent(q.trim());
+        // 한쪽 찾기가 실패하면 '결과 없음'으로 보이던 것 → 빠졌을 수 있다고 알림(11-24 조용한 실패 점검)
+        var failed = data.failed || [];
+        if (failed.length) {
+          var names = failed.map(function (k) { return k === 'leads' ? '리드' : '프로젝트'; }).join('·');
+          addNote(names + ' 찾기가 잠시 안 됐어요. 결과가 빠졌을 수 있어요.');
+        }
         if (data.projects.length) {
           addGroup('프로젝트', data.project_total > data.projects.length
             ? moreLink(data.project_total.toLocaleString('ko-KR') + '건 모두 보기', '/projects?search=' + enc + '&fresh=1') : null);
@@ -167,7 +173,7 @@
           });
           shown += data.leads.length;
         }
-        if (!shown) addNote('‘' + q.trim() + '’에 맞는 결과가 없어요.');
+        if (!shown && !failed.length) addNote('‘' + q.trim() + '’에 맞는 결과가 없어요.');
       }
     } else if (q && !shown) {
       addNote(scopeAll ? '두 글자 이상 입력해 주세요. 전화번호는 숫자 4자리부터 찾아요.' : '맞는 메뉴가 없어요.');
@@ -175,7 +181,9 @@
     if (items.length) setActive(0);
     // 찾은 수를 낭독기에 — 목록이 바뀐 걸 알 수 없었음
     var sr = document.getElementById('gwFindSr');
-    if (sr) sr.textContent = state === 'loading' || !q ? '' : (items.length ? items.length + '개 찾았어요' : '찾은 결과가 없어요');
+    var partly = data && data.failed && data.failed.length;   // 한쪽 찾기 실패도 낭독기에
+    if (sr) sr.textContent = state === 'loading' || !q ? '' : (items.length ? items.length + '개 찾았어요' : '찾은 결과가 없어요')
+      + (partly ? '. 일부 찾기가 안 돼 결과가 빠졌을 수 있어요' : '');
   }
 
   function search() {

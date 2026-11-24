@@ -69,7 +69,17 @@ def dev_preview_gate():
     return render_template('gw/dev_preview.html')
 
 
+# 코드 버그로 보는 예외 — KeyError·IndexError 는 LookupError, UnicodeError·JSONDecodeError 는 ValueError 의
+#   하위라 '없음'(404)·'입력 오류'(400)로 문구('days' 같은 키 이름)만 나가고 로그도 없었다(11-24 조용한 실패 점검).
+#   서비스가 '없음'을 알릴 때는 LookupError·ValueError(또는 그 하위 SatOffError)를 직접 올리고,
+#   KeyError·IndexError 를 일부러 올리는 곳은 없다(11-24 grep 확인). gw_satoff._err 도 같이 쓴다.
+BUG_ERRORS = (KeyError, IndexError, UnicodeError, json.JSONDecodeError)
+
+
 def _fail(e: Exception):
+    if isinstance(e, BUG_ERRORS):
+        logger.error(f'[HR] 처리 실패(코드 오류): {type(e).__name__}: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': '처리하지 못했습니다. 잠시 후 다시 해 주세요.'}), 500
     if isinstance(e, PermissionError):
         return jsonify({'success': False, 'message': str(e)}), 403
     if isinstance(e, LookupError):
@@ -961,8 +971,10 @@ def api_home():
         if out['leave']:
             out['leave'] = {k: out['leave'][k] for k in ('linked', 'balance', 'grants', 'pending', 'upcoming', 'annual_used')}
     except Exception as e:
-        logger.warning(f'[GW-HOME] 휴가 요약 실패: {e}')
+        # 실패도 '인사카드 없음'(leave=None)과 같아 '경영지원에 연결 요청'이 떴다 → 따로 표시(11-24 조용한 실패 점검)
+        logger.error(f'[GW-HOME] 휴가 요약 실패: {type(e).__name__}: {e}', exc_info=True)
         out['leave'] = None
+        out['leave_error'] = True
     # 결재·승인 목록은 슬랙이 확인한 본인 ID 로만 (인사카드 slack_id 바꿔치기 방지, 2026-11-13)
     from dashboard.services.gw_approval import slack_id_status
     _sid, _sid_state = ('', 'unlinked') if _is_field() else slack_id_status(_me(), (p or {}).get('slack_id') or '')
@@ -1013,7 +1025,9 @@ def api_home_sales():
     try:
         return jsonify({'success': True, 'sales': gw_home.sales()})
     except Exception as e:
-        logger.warning(f'[GW-HOME] 영업 숫자 실패: {type(e).__name__}: {e}')
+        # 원천(리드 시트·공사현황)을 못 읽어도 여기로 온다 — 0건으로 보이던 것(11-24 조용한 실패 점검)이라 ERROR
+        logger.error(f'[GW-HOME] 영업 숫자 실패: {type(e).__name__}: {e}',
+                     exc_info=not isinstance(e, gw_home.SalesSourceError))
         return jsonify({'success': False, 'message': '영업 숫자를 불러오지 못했습니다.'}), 500
 
 

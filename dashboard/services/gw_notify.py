@@ -197,13 +197,17 @@ def feed(email: str, person: Optional[dict], field: bool, hr_admin: bool, days: 
     since = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
     sid = ((person or {}).get('slack_id') or '').strip()
     items: List[dict] = []
+    partial: List[str] = []
     for name, fn in (('approval', lambda: [] if field else _approval_events(sid, since)),
                      ('leave', lambda: _leave_events(sid, since)),
                      ('yearend', lambda: _yearend_events(person, hr_admin and not field, since))):
         try:
             items += fn()
         except Exception as e:   # 한 갈래가 실패해도 나머지는 보여 줌
-            logger.warning(f'[GW알림] {name} 실패: {type(e).__name__}: {e}')
+            # 실패 표시 없이 20초 캐시되고, 창을 열면 읽음 시각이 올라가 복구 뒤 그 갈래의 옛 알림이 읽은 것으로
+            #   보였다 → partial 로 알리고 캐시하지 않음. 화면은 그때 읽음 처리를 하지 않는다(11-24 조용한 실패 점검)
+            partial.append(name)
+            logger.error(f'[GW알림] {name} 실패: {type(e).__name__}: {e}', exc_info=True)
     items = [i for i in items if not (sid and i.get('actor_id') == sid)]
     items.sort(key=lambda i: i['at'], reverse=True)
     items = items[:LIMIT]
@@ -212,5 +216,8 @@ def feed(email: str, person: Optional[dict], field: bool, hr_admin: bool, days: 
         i['unread'] = bool(i['at'] > seen) if seen else True
         i.pop('actor_id', None)
     out = {'items': items, 'unread': sum(1 for i in items if i['unread']), 'seen_at': seen}
-    _cache[who] = (time.time(), out)
+    if partial:
+        out['partial'] = partial
+    else:
+        _cache[who] = (time.time(), out)
     return out

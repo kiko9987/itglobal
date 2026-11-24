@@ -24,6 +24,9 @@
   var sr = document.getElementById('gwNotifySr');
   var data = null;
   var failed = false;   // 마지막 불러오기 실패 — 실패도 '알림 없음'으로 보이던 것
+  // 결재·휴가·연말정산 중 일부만 못 불러옴(서버 partial) — 그때 읽음 처리하면 복구 뒤 돌아온 그 갈래의
+  //   옛 알림이 읽은 것으로 보여서, 이 열람에서는 읽음 처리를 하지 않는다(11-24 조용한 실패 점검)
+  var partial = false;
   var cat = '';
   var POLL = 60000;
 
@@ -72,10 +75,14 @@
       var stale = el('div', 'gw-notify-stale', '새 알림을 받아 오지 못했어요.');
       stale.setAttribute('role', 'status');
       list.appendChild(stale);
+    } else if (partial) {
+      var part = el('div', 'gw-notify-stale', '일부 알림을 불러오지 못했어요.');
+      part.setAttribute('role', 'status');
+      list.appendChild(part);
     }
     var items = (data.items || []).filter(function (i) { return !cat || i.cat === cat; });
     if (!items.length) {
-      list.appendChild(el('div', 'gw-notify-empty', '최근 30일 동안 알림이 없어요.'));
+      if (!partial) list.appendChild(el('div', 'gw-notify-empty', '최근 30일 동안 알림이 없어요.'));
       return;
     }
     items.forEach(function (i) {
@@ -106,6 +113,7 @@
     return api('/api/gw/notify').then(function (j) {
       data = j;
       failed = false;
+      partial = !!(j.partial && j.partial.length);
       if (panel.hidden) setDot(j.unread);   // 창이 열려 있는 동안엔 읽음 처리 중이라 점을 다시 켜지 않음
     }).catch(function () { failed = true; /* 화면은 그대로, 창을 열면 '불러오지 못했어요' */ });
   }
@@ -124,14 +132,14 @@
     load().then(function () {
       if (panel.hidden) return;
       render();
-      if (!failed) markSeen();
+      if (!failed && !partial) markSeen();
     });
   }
 
   function close() {
     panel.hidden = true;
     btn.setAttribute('aria-expanded', 'false');
-    if (data && !failed) data.items.forEach(function (i) { i.unread = false; });   // 받기 실패로 읽음 처리 안 했으면 그대로
+    if (data && !failed && !partial) data.items.forEach(function (i) { i.unread = false; });   // 받기 실패·일부 실패로 읽음 처리 안 했으면 그대로
   }
 
   btn.addEventListener('click', function (e) {
