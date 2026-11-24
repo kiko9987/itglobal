@@ -92,8 +92,8 @@
       return '<tr tabindex="0" role="button" data-plate="' + esc(c.plate) + '" aria-label="' + esc(carName(c) + ' 운행 보기') + '">' +
         '<td><strong>' + esc(carName(c)) + '</strong>' + (c.label ? '<span class="gw-vh-plate">' + esc(c.plate) + '</span>' : '') + '</td>' +
         '<td class="num gw-vh-opt">' + c.days + '일</td><td class="num gw-vh-opt">' + c.trips + '번</td><td class="num">' + esc(km(c.km)) + '</td>' +
-        '<td>' + who(c.drivers, c.source) + '</td><td class="num gw-vh-opt">' + (c.visits ? c.visits + '건' : '-') + '</td></tr>';
-    }).join('') : '<tr><td colspan="6" class="gw-empty">' + esc(monthLabel(j.month)) + ' 운행 기록이 없어요. 위 [운행일지 올리기]로 U+커넥트 운행일지를 올려 주세요.</td></tr>';
+        '<td>' + who(c.drivers, c.source) + '</td></tr>';
+    }).join('') : '<tr><td colspan="5" class="gw-empty">' + esc(monthLabel(j.month)) + ' 운행 기록이 없어요. 위 [운행일지 올리기]로 U+커넥트 운행일지를 올려 주세요.</td></tr>';
   }
   // 운전자 미확인(11-24) — 확정한 날인데 운전자 답이 없는 차. 운행 종료 DM·다음 날 아침 다시 묻기 뒤에도 남은 것.
   //   상자는 JS 가 만든다(템플릿 재시작 없이). 없으면 숨김.
@@ -140,7 +140,7 @@
     }).catch(function (e) {
       if (my !== state.seq) return;
       $('vhStats').innerHTML = '';          // 앞 달 숫자가 남아 있지 않게
-      $('vhRows').innerHTML = '<tr><td colspan="6" class="gw-empty">' + esc(e.message) + '</td></tr>';
+      $('vhRows').innerHTML = '<tr><td colspan="5" class="gw-empty">' + esc(e.message) + '</td></tr>';
     });
   }
 
@@ -148,7 +148,7 @@
   var head = document.querySelector('.gw-vh-table thead tr');
   if (head) {
     head.innerHTML = '<th>차량</th><th class="num gw-vh-opt">운행일</th><th class="num gw-vh-opt">운행</th>' +
-      '<th class="num">주행거리</th><th>운전자</th><th class="num gw-vh-opt">동일 지역 방문</th>';
+      '<th class="num">주행거리</th><th>운전자</th>';   // 동일 지역 방문 칸은 뺌 — 차량 펼침창에만(11-24 부장님)
   }
 
   // ── 차량 한 대 ──
