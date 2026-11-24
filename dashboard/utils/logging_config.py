@@ -265,6 +265,18 @@ class LoggingConfig:
         log_method(message, extra=context)
 
 
+def _flat_extra(kw: Dict[str, Any]) -> Dict[str, Any]:
+    """logger.error(..., extra={'force_alert': True}) 처럼 표준 logging 방식으로 넘긴 extra 를 풀어 넣는다.
+    예전엔 kw 그대로 record 에 넣어 record.extra = {...} 가 되고 record.force_alert 는 안 생겨,
+    에러 슬랙 알림의 '꼭 알림'(force_alert)이 이 로거를 쓰는 모듈 전부에서 듣지 않았다(11-24 조용한 실패 점검)."""
+    nested = kw.pop('extra', None)
+    if isinstance(nested, dict):
+        merged = dict(nested)
+        merged.update(kw)
+        return merged
+    return kw
+
+
 class RequestContextLogger:
     """Flask 요청 컨텍스트를 포함한 로거"""
 
@@ -310,7 +322,7 @@ class RequestContextLogger:
         exc_info = extra.pop('exc_info', None)
         stack_info = extra.pop('stack_info', None)
         stacklevel = extra.pop('stacklevel', 1)
-        context.update(extra)
+        context.update(_flat_extra(extra))
         self.logger.debug(message, exc_info=exc_info, stack_info=stack_info,
                          stacklevel=stacklevel, extra=context)
 
@@ -319,7 +331,7 @@ class RequestContextLogger:
         exc_info = extra.pop('exc_info', None)
         stack_info = extra.pop('stack_info', None)
         stacklevel = extra.pop('stacklevel', 1)
-        context.update(extra)
+        context.update(_flat_extra(extra))
         self.logger.info(message, exc_info=exc_info, stack_info=stack_info,
                         stacklevel=stacklevel, extra=context)
 
@@ -328,7 +340,7 @@ class RequestContextLogger:
         exc_info = extra.pop('exc_info', None)
         stack_info = extra.pop('stack_info', None)
         stacklevel = extra.pop('stacklevel', 1)
-        context.update(extra)
+        context.update(_flat_extra(extra))
         self.logger.warning(message, exc_info=exc_info, stack_info=stack_info,
                            stacklevel=stacklevel, extra=context)
 
@@ -337,7 +349,7 @@ class RequestContextLogger:
         exc_info = extra.pop('exc_info', None)
         stack_info = extra.pop('stack_info', None)
         stacklevel = extra.pop('stacklevel', 1)
-        context.update(extra)
+        context.update(_flat_extra(extra))
         self.logger.error(message, exc_info=exc_info, stack_info=stack_info,
                          stacklevel=stacklevel, extra=context)
 
@@ -346,7 +358,7 @@ class RequestContextLogger:
         exc_info = extra.pop('exc_info', None)
         stack_info = extra.pop('stack_info', None)
         stacklevel = extra.pop('stacklevel', 1)
-        context.update(extra)
+        context.update(_flat_extra(extra))
         self.logger.critical(message, exc_info=exc_info, stack_info=stack_info,
                             stacklevel=stacklevel, extra=context)
 
