@@ -871,9 +871,24 @@
         else if (notify && j.changed.length && !missed.length) t += ' 슬랙으로 알릴 사람이 없었어요.';
         // 못 받은 사람은 이름으로(11-24) — 이미 확정이라 다시 눌러도 안 가니 직접 알려야 한다
         if (missed.length) t += ' ' + missed.join(', ') + ' 님은 슬랙 알림을 받지 못했어요. 직접 알려 주세요.';
-        return load(S.day).then(function () { msg(t, missed.length ? 'err' : 'ok', true); });
+        return load(S.day).then(function () {
+          msg(t, missed.length ? 'err' : 'ok', true);
+          if ((j.retry || []).length) askResend(j.retry);   // 보내다 실패한 사람은 다시 보내 볼 수 있게(11-24 추가분)
+        });
       }).catch(function (e) { msg(e.message, 'err', true); })
       .then(function () { btns.forEach(function (b) { b.disabled = false; }); setDirty(S.dirty); });
+  }
+  // 슬랙 계정은 있는데 보내다 실패한 사람(retry) — 한 번 묻고 그 사람에게만 다시 보낸다
+  // (슬랙 계정이 없는 사람은 다시 보내도 안 가므로 빼고, 그 사람들은 위 안내대로 직접)
+  function askResend(codes) {
+    if (!window.confirm('슬랙을 못 받은 ' + codes.length + '명에게 차량 배정을 지금 다시 보내 볼까요?\n\n취소하면 직접 알려 주세요.')) return;
+    msg('다시 보내는 중…', 'info', true);
+    post('/api/vehicles/assign/resend', { day: S.day, codes: codes })
+      .then(function (j) {
+        var again = j.failed || [];
+        if (again.length) msg(again.join(', ') + ' 님에게는 또 못 보냈어요. 직접 알려 주세요.', 'err', true);
+        else msg(j.notified + '명에게 다시 보냈어요.', 'ok', true);
+      }).catch(function (e) { msg(e.message, 'err', true); });
   }
 
   // ── 고르기 ──

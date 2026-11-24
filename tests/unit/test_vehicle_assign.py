@@ -513,3 +513,19 @@ def test_confirm_reports_people_who_missed_dm(db, monkeypatch):
     monkeypatch.setattr(va, '_dm', lambda sid, text: False)
     res = va.save_day('2026-11-22', rows, ASSIGNER, confirm=True)
     assert res['notified'] == 0 and len(res['failed']) == 4
+
+
+def test_resend_to_people_who_missed_dm(db, monkeypatch):
+    """보내다 실패한 사람(retry)만 [다시 보내기]로 다시 — 슬랙 계정이 없는 사람은 failed 에만(11-24 추가분)."""
+    sent = db
+    down = {'UTH'}
+    monkeypatch.setattr(va, '_dm', lambda sid, text: bool(sid) and sid not in down and (sent.append((sid, text)) or True))
+    rows = [{'plate': '237허5358', 'people': ['TH', 'JSH']}, {'plate': '03모8021', 'people': ['김영숙']}]
+    with pytest.raises(ValueError):
+        va.resend('2026-11-21', ['TH'])                                   # 확정 전엔 없음
+    res = va.save_day('2026-11-21', rows, ASSIGNER, confirm=True)
+    assert res['retry'] == ['TH'] and set(res['failed']) == {'서준', '김영숙'}
+    sent.clear()
+    down.clear()
+    again = va.resend('2026-11-21', res['retry'])
+    assert again == {'notified': 1, 'failed': [], 'retry': []} and [s for s, _ in sent] == ['UTH']

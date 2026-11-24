@@ -300,6 +300,26 @@ def api_assign_save():
     return jsonify({'success': True, **res})
 
 
+@gw_vehicles_bp.route('/api/vehicles/assign/resend', methods=['POST'])
+@gw_page
+def api_assign_resend():
+    """못 받은 사람에게 배정 DM 다시 보내기(11-24 조용한 실패 점검 추가분)."""
+    if not _can_assign():
+        return jsonify({'success': False, 'message': '차량 배정은 배정 담당자만 고칠 수 있어요.'}), 403
+    body = request.get_json(silent=True) or {}
+    day = (body.get('day') or '').strip()
+    codes = [str(c)[:20] for c in (body.get('codes') or []) if c][:50]
+    try:
+        res = va.resend(day, codes)
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        logger.error(f'[차량배정] 다시 보내기 실패: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': '보내지 못했어요. 잠시 뒤 다시 해 주세요.'}), 500
+    logger.info(f"[차량배정] {day} DM 다시 보냄 by {_me()}: {res['notified']}명")
+    return jsonify({'success': True, **res})
+
+
 # ── 방문 일정(11-22 부장님, 영업 > 방문 일정 /visits/plan) — 슬랙 캔버스2 + /일정확정 대신 그룹웨어에서 짜고 확정.
 #    규칙은 services/visit_plan.py. 화면·고치기·확정은 일정 담당(JW·대표님·부장님), 현장 세션은 문지기가 막음
 def _can_plan() -> bool:
