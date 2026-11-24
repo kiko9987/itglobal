@@ -537,7 +537,7 @@
   function carBar(gs) {
     if (!S.canEdit) return '누가 어느 차를 타는지 보기만 해요.';
     var c = S.pick ? carOf(S.pick) : null;
-    if (!c) return '<span class="gw-vp-how">차를 체크한 뒤 코스를 누르세요.' + (TOUCH ? '' : ' 끌어 놓아도 돼요.') + '</span>';
+    if (!c) return '<span class="gw-vp-how">차를 체크한 뒤 코스를 ' + (TOUCH ? '고르세요.' : '고르거나 드래그하세요.') + '</span>'   // 11-24 부장님 문구;
     if (ridersOf(c).length) {         // 나눠 쓰기 — '쏘렌토 8021 [오후 ▾] → [코스에 넣기 ▾]'
       var free = splitFree(c), h = S.pickHalf || halfGuess(c);
       var using = gs.filter(function (g) { return g.members.some(function (m) { return ridersOf(c).indexOf(m) !== -1; }); });
