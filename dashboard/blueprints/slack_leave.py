@@ -268,6 +268,12 @@ def _notify(client, uid: str, text: str) -> None:
     _eap()._notify(client, uid, text)
 
 
+def _notify_important(client, uid: str, text: str) -> None:
+    """반려·남이 한 취소처럼 이 DM 말고는 알 길이 없는 알림 — 실패하면 ERROR 알림
+    (전자결재 _notify_important 와 같은 기준, 11-24 조용한 실패 점검)."""
+    _eap()._notify_important(client, uid, text)
+
+
 def _announce(client, row: dict) -> None:
     ch = lv.announce_channel()
     try:
@@ -421,7 +427,10 @@ def apply_action(action: str, rid: int, uid: str, reason: str = '') -> Optional[
                                    text=f"{lv.announce_text(new)} (남은 날 취소)")
                 client.chat_postMessage(channel=new['announce_ch'], text=lv.cut_notice_text(new))
             except Exception as exc:
-                logger.warning(f'{_LOG} #휴가_일정 기간 줄임 표시 실패 (#{rid}): {exc}')
+                # 처음 게시(_announce)처럼 ERROR — 채널엔 원래 기간이 그대로 남는다(11-24 조용한 실패 점검)
+                logger.error(f'{_LOG} #휴가_일정 기간 줄임 표시 실패 (#{rid} {new.get("name")}): {exc} '
+                             f'— 채널 글을 직접 고쳐 주세요 (남은 기간: {lv.period_text(new)})',
+                             exc_info=True, extra={'force_alert': True})
         for u in lv.approver_ids():
             if u != uid:
                 _notify(client, u, f"⚪ {new['name']} 님이 휴가를 오늘부터 취소했어요. 남은 기간: {lv.period_text(new)}")
@@ -436,7 +445,7 @@ def apply_action(action: str, rid: int, uid: str, reason: str = '') -> Optional[
         _finish_replace(client, new)
     elif action == 'reject':
         for u in _requester_ids(new):
-            _notify(client, u, f"❌ {new['name']} 님 휴가 신청이 반려됐어요: {lv.period_text(new)}\n사유: {reason}")
+            _notify_important(client, u, f"❌ {new['name']} 님 휴가 신청이 반려됐어요: {lv.period_text(new)}\n사유: {reason}")
     elif action == 'cancel':
         if new.get('announce_ts'):
             try:
@@ -445,11 +454,14 @@ def apply_action(action: str, rid: int, uid: str, reason: str = '') -> Optional[
                 # 고치기만 하면 채널에 알림이 안 가서 아무도 모른다 → 플렉스처럼 취소 글도 새로(11-18)
                 client.chat_postMessage(channel=new['announce_ch'], text=lv.cancel_notice_text(new))
             except Exception as exc:
-                logger.warning(f'{_LOG} #휴가_일정 취소 표시 실패 (#{rid}): {exc}')
+                # 처음 게시(_announce)처럼 ERROR — 채널엔 취소된 휴가가 그대로 남는다(11-24 조용한 실패 점검)
+                logger.error(f'{_LOG} #휴가_일정 취소 표시 실패 (#{rid} {new.get("name")} {lv.period_text(new)}): {exc} '
+                             '— 채널 글을 직접 고쳐 주세요', exc_info=True, extra={'force_alert': True})
         for u in _requester_ids(new):
-            if u != uid:
-                _notify(client, u, f"⚪ {new['name']} 님 휴가가 취소됐어요 ({actor}): {lv.period_text(new)}")
+            if u != uid:   # 남(경영지원)이 취소 — 본인은 이 DM 말고는 모른다
+                _notify_important(client, u, f"⚪ {new['name']} 님 휴가가 취소됐어요 ({actor}): {lv.period_text(new)}")
         if was == lv.APPROVED:   # 확정된 휴가가 취소되면 승인한 사람들도 알게(대기 중이면 카드가 회색으로 바뀌는 것으로 충분)
+            # 승인자 알림은 보통 알림 그대로 — 위 _refresh 로 승인자 카드도 '취소'로 바뀌어 이 DM 말고도 보인다
             for u in lv.approver_ids():
                 if u != uid and u not in _requester_ids(new):
                     _notify(client, u, f"⚪ {new['name']} 님 휴가가 취소됐어요 ({actor}): {lv.period_text(new)}")

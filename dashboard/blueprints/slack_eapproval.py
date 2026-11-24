@@ -140,21 +140,47 @@ def _send_dm(client, aid: int, uid: str, role: str) -> None:
         ea.add_dm_ref(aid, ch, r['ts'], role, uid)
     except Exception as exc:
         # 승인·이체 담당 DM 이 안 가면 아무도 모른 채 결재가 멈춘다(퇴사 계정 등) — 관리자 알림(11-06 검수)
-        must = role in ('approver', 'final', 'executor')
+        # 'requester' DM 은 보완 요청 때만 보낸다 — 안 가면 요청자가 [✏️ 수정하기]를 못 받아 결재가 멈춘다
+        #   (11-24 조용한 실패 점검)
+        must = role in ('approver', 'final', 'executor', 'requester')
         log = logger.error if must else logger.warning
         log(f'{_LOG} DM 실패 ({ea.title(row)} → {uid}, {role}): {exc}',
             extra={'force_alert': True} if must else None)
 
 
-def _notify(client, uid: str, text: str) -> None:
-    """알림용 짧은 DM (기록 안 함)."""
+def _notify(client, uid: str, text: str) -> bool:
+    """알림용 짧은 DM (기록 안 함). 못 보냈으면 False(받을 사람이 없으면 True)."""
     if not uid:
-        return
+        return True
     try:
         ch = client.conversations_open(users=uid)['channel']['id']
         client.chat_postMessage(channel=ch, text=text)
+        return True
     except Exception as exc:
         logger.warning(f'{_LOG} 알림 DM 실패 ({uid}): {exc}')
+        return False
+
+
+def _notify_important(client, uid: str, text: str) -> None:
+    """반려·보완 요청·남이 한 취소처럼 본인이 이 DM 말고는 알 길이 없는 알림. 신청자는 시작 DM 도
+    안 받아서(11-01) 못 보내면 모른 채 기다린다 → 실패하면 ERROR 알림(11-24 조용한 실패 점검).
+    보내기는 _notify 그대로 — 실패(False)일 때만 ERROR 를 더 남긴다."""
+    if _notify(client, uid, text) is False:
+        logger.error(f'{_LOG} 알림 DM 실패 ({uid}) — 본인에게 직접 알려 주세요: {text[:200]}',
+                     extra={'force_alert': True})
+
+
+def _after_commit(aid: int, step: str, fn) -> bool:
+    """상태를 저장한 뒤 단계 하나. 실패해도 결재는 이미 처리됐으니 ERROR 알림만 남기고 다음 단계로 간다.
+    예전엔 중간 예외가 그대로 올라가 웹은 '다시 눌러 주세요' 500 을 띄우고(다시 누르면 '이미 처리된 결재'),
+    감사 로그·카드 갱신 같은 뒤 단계가 빠졌다(11-24 조용한 실패 점검)."""
+    try:
+        fn()
+        return True
+    except Exception as exc:
+        logger.error(f'{_LOG} #{aid} 처리는 저장됐는데 「{step}」 단계가 실패했어요 — 빠진 부분을 직접 확인해 주세요: {exc}',
+                     exc_info=True, extra={'force_alert': True})
+        return False
 
 
 def _targets(row: dict) -> list:
@@ -320,7 +346,11 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '',
     who = ex if (uid in ea.approver_ids() or uid in ea.executor_ids()) else ini
     if row.get('status') in (ea.PENDING, ea.FINAL) and uid in ea.final_approver_ids():   # 승인자(JW·YG)로 누른 건 이니셜만
         who = ini
-    if action in ('approve', 'final'):
+    # 여기부터는 상태가 이미 저장된 뒤 — 단계마다 따로 감싸 하나가 실패해도 나머지(카드 갱신·감사 로그)는 돌고
+    #   화면엔 성공으로 돌려준다(11-24 조용한 실패 점검). 실패한 단계는 ERROR 알림으로 남는다.
+    req = new.get('requester_id')
+
+    def _approve_log():
         if action == 'final':
             _thread_log(new, f'✅ {ini} 최종 승인')
         elif any(s['step'] == 'final' and s['result'] == 'auto' and s['actor_id'] == uid for s in ea.steps(aid)):
@@ -336,53 +366,76 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '',
                                                 text=f'🔔 {who} 승인 — 이제 최종 승인 차례예요. 위 메시지의 [👉 결재 카드 열기]에서 [최종 승인]이나 [반려]를 눌러 주세요.')
                     except Exception as exc:
                         logger.warning(f'{_LOG} 최종 승인 알림 실패 ({t} → {r["user"]}): {exc}')
-        if any(s['step'] == 'resubmit' for s in ea.steps(aid)):
-            # 수정해서 다시 올린 건 — 예전에 같은 역할 DM 을 받은 사람은 _dm_round 가 건너뛰니 다시 알린다(11-05 점검)
-            have = {(r['user'], r['role']) for r in ea.dm_refs(new)}
-            link = _card_link(new)
-            todo = f'{w}해 주세요.' if new['status'] == ea.APPROVED else '최종 승인해 주세요.'
-            for u, role in _targets(new):
-                if (u, role) in have and role != 'notice' and not (role == 'final' and new['status'] == ea.FINAL):
-                    _notify(client, u, f'🔔 수정해서 다시 올라온 {t}이 승인됐어요. {todo}'
-                            + (f' <{link}|카드 보기>' if link else ''))
-        _dm_round(client, new)
-    elif action == 'transfer' and new.get('form') in ea.TASK_FORMS:
-        _thread_log(new, f'✅ {ex} 처리 완료')
-        _notify(client, new.get('requester_id'), f'✅ {t} 처리가 끝났어요.')
-    elif action == 'transfer' and new.get('form') == ea.forms.FORM_EXPENSE:
-        _thread_log(new, f'💸 {ex} 이체 완료 — 개인경비 {amt}')
-        _notify(client, new.get('requester_id'), f'💸 {t} 이체가 끝났어요. ({amt})')
-    elif action == 'transfer' and new.get('form') == ea.FORM_SUPPLY:
-        _thread_log(new, f'🛒 {ex} 구매 완료 — {new.get("content")} {amt}')
-        _notify(client, new.get('requester_id'), f'🛒 {t} 구매가 끝났어요. ({new.get("content")} {amt})')
-    elif action == 'transfer':
-        _thread_log(new, f'💸 {ex} 이체 완료 — {new.get("partner")} {amt}')
-        # 실제로 보낸 계좌만 다음 요청에 채운다(11-11 점검)
-        ea.remember_payee(new.get('partner') or '', new.get('payee_name'), new.get('bank'), new.get('account'))
-        _notify(client, new.get('requester_id'), f'💸 {t} 이체가 끝났어요. ({new.get("partner")} {amt})')
-        _origin_log(new, f'💸 {t} 이체 완료 ({ex})')
-        if (new.get('evidence') or '') == hw.EVIDENCE:
-            threading.Thread(target=save_handwritten, args=(new,), daemon=True).start()
-    elif action == 'reject':
+
+    def _resubmit_ping():
+        if not any(s['step'] == 'resubmit' for s in ea.steps(aid)):
+            return
+        # 수정해서 다시 올린 건 — 예전에 같은 역할 DM 을 받은 사람은 _dm_round 가 건너뛰니 다시 알린다(11-05 점검)
+        have = {(r['user'], r['role']) for r in ea.dm_refs(new)}
+        link = _card_link(new)
+        todo = f'{w}해 주세요.' if new['status'] == ea.APPROVED else '최종 승인해 주세요.'
+        for u, role in _targets(new):
+            if (u, role) in have and role != 'notice' and not (role == 'final' and new['status'] == ea.FINAL):
+                _notify(client, u, f'🔔 수정해서 다시 올라온 {t}이 승인됐어요. {todo}'
+                        + (f' <{link}|카드 보기>' if link else ''))
+
+    def _transfer_done():
+        if new.get('form') in ea.TASK_FORMS:
+            _thread_log(new, f'✅ {ex} 처리 완료')
+            _notify(client, req, f'✅ {t} 처리가 끝났어요.')
+        elif new.get('form') == ea.forms.FORM_EXPENSE:
+            _thread_log(new, f'💸 {ex} 이체 완료 — 개인경비 {amt}')
+            _notify(client, req, f'💸 {t} 이체가 끝났어요. ({amt})')
+        elif new.get('form') == ea.FORM_SUPPLY:
+            _thread_log(new, f'🛒 {ex} 구매 완료 — {new.get("content")} {amt}')
+            _notify(client, req, f'🛒 {t} 구매가 끝났어요. ({new.get("content")} {amt})')
+        else:
+            _thread_log(new, f'💸 {ex} 이체 완료 — {new.get("partner")} {amt}')
+            _notify(client, req, f'💸 {t} 이체가 끝났어요. ({new.get("partner")} {amt})')
+            _origin_log(new, f'💸 {t} 이체 완료 ({ex})')
+
+    def _reject():
         _thread_log(new, f'❌ {who} 반려 — {reason}')
-        _notify(client, new.get('requester_id'), f'❌ {t} 반려됐어요. 사유: {reason}')
+        _notify_important(client, req, f'❌ {t} 반려됐어요. 사유: {reason}')
         _origin_log(new, f'❌ {t} 반려 ({who}) — {reason}')
-    elif action == 'cancel':
-        by = ini if uid == new.get('requester_id') else who
+
+    def _cancel():
+        by = ini if uid == req else who
         _thread_log(new, f'⚪ {by} 요청 취소')
         _origin_log(new, f'⚪ {t} 요청 취소 ({by})')   # 계산서 글만 보는 사람도 알게(11-15)
-        if uid != new.get('requester_id'):
-            _notify(client, new.get('requester_id'), f'⚪ {t} 요청이 취소됐어요 ({ini}).')
-    elif action == 'revise':
+        if uid != req:
+            _notify_important(client, req, f'⚪ {t} 요청이 취소됐어요 ({ini}).')
+
+    def _revise():
         _thread_log(new, f'🔁 {who} 보완 요청 — {reason}')
         _origin_log(new, f'🔁 {t} 보완 요청 ({who}) — {reason}')
         # 요청자 DM 에 [✏️ 수정하기] — 두 번째 수정 요청이면 예전 DM 은 refresh 가 다시 버튼을 띄운다
-        if (new.get('requester_id'), 'requester') not in {(r['user'], r['role']) for r in ea.dm_refs(new)}:
-            _send_dm(client, aid, new.get('requester_id'), 'requester')
+        if (req, 'requester') not in {(r['user'], r['role']) for r in ea.dm_refs(new)}:
+            _send_dm(client, aid, req, 'requester')
         else:
-            _notify(client, new.get('requester_id'), f'🔁 {t} 보완 요청이 왔어요: {reason}')
-    refresh(ea.get(aid))
-    _audit(new, action, name, reason)
+            _notify_important(client, req, f'🔁 {t} 보완 요청이 왔어요: {reason}')
+
+    if action in ('approve', 'final'):
+        _after_commit(aid, '승인 스레드 기록', _approve_log)
+        _after_commit(aid, '수정본 승인 다시 알림', _resubmit_ping)
+        _after_commit(aid, '다음 처리자 DM', lambda: _dm_round(client, new))
+    elif action == 'transfer':
+        _after_commit(aid, '완료 스레드 기록·요청자 알림', _transfer_done)
+        if new.get('form') not in ea.TASK_FORMS and new.get('form') not in (ea.forms.FORM_EXPENSE, ea.FORM_SUPPLY):
+            # 실제로 보낸 계좌만 다음 요청에 채운다(11-11 점검)
+            _after_commit(aid, '거래처 계좌 기억', lambda: ea.remember_payee(
+                new.get('partner') or '', new.get('payee_name'), new.get('bank'), new.get('account')))
+            if (new.get('evidence') or '') == hw.EVIDENCE:
+                _after_commit(aid, '수기계산서 저장 시작', lambda: threading.Thread(
+                    target=save_handwritten, args=(new,), daemon=True).start())
+    elif action == 'reject':
+        _after_commit(aid, '반려 기록·요청자 알림', _reject)
+    elif action == 'cancel':
+        _after_commit(aid, '취소 기록·요청자 알림', _cancel)
+    elif action == 'revise':
+        _after_commit(aid, '보완 요청 기록·요청자 알림', _revise)
+    _after_commit(aid, '카드·DM 새로 그리기', lambda: refresh(ea.get(aid)))
+    _after_commit(aid, '감사 로그', lambda: _audit(new, action, name, reason))
     logger.info(f'{_LOG} {t} {action} ({name})')
     return None
 
@@ -740,31 +793,41 @@ def process_edit(uid: str, aid: int, fields: dict, files: list, docs: Optional[l
         return None
     row, changed = res
     client = eap_client()
+    # 여기부터는 고친 내용이 이미 저장된 뒤 — 단계마다 따로 감싸 하나가 실패해도 나머지는 돌고 저장된 row 를
+    #   돌려준다(11-24 조용한 실패 점검). 예전엔 중간 예외로 승인자 알림·감사 로그·첨부가 빠졌다.
     if not changed and prev != ea.REVISE:   # 바뀐 칸 없음 — 승인 단계 그대로(첨부만 붙인다)
-        _post_docs_and_files_bg(row, docs or [], files, name)
+        _after_commit(aid, '첨부 붙이기 시작', lambda: _post_docs_and_files_bg(row, docs or [], files, name))
         if not files and not docs:
             _notify(client, uid, f'{ea.title(row)} — 바뀐 내용이 없어 그대로 두었어요.')
         return row
-    # 장부 칸만 고쳤거나 금액이 줄었으면 받은 승인 그대로(11-20 KiKO) — 'edit' 줄로 남는다
-    _st = ea.steps(aid)
-    kept = bool(_st) and _st[-1]['step'] == 'edit'
-    note = ' — 받은 승인 그대로예요 (받는 곳이 같고 금액이 늘지 않았어요)' if kept else ''
-    if prev == ea.REVISE:
-        _thread_log(row, _changes_block(f'✏️ {ea.initial(name)} 수정해서 다시 올림{note}', row['form'], changed))
-    else:   # 승인 전에 요청자가 직접 고침 — 받은 승인이 있었으면 처음부터 다시(11-11)
-        again = ' (승인은 처음부터 다시 받아요)' if prev == ea.FINAL and row['status'] == ea.PENDING else ''
-        _thread_log(row, _changes_block(f'✏️ {ea.initial(name)} 직접 고침{again}{note}', row['form'], changed))
-    refresh(row)
-    who = [x for x in _targets(row) if x[1] != 'notice']
-    have = {(r['user'], r['role']) for r in ea.dm_refs(row)}
-    link = _card_link(row)
-    for u, role in who:
-        if (u, role) in have:   # 이미 받은 DM 은 refresh 로 고쳐졌다 — 다시 왔다는 알림만
-            _notify(client, u, f'✏️ {ea.title(row)} 수정돼서 다시 올라왔어요.' + (f' <{link}|카드 보기>' if link else ''))
-        else:
-            _send_dm(client, aid, u, role)
-    _audit(row, 'resubmit', name, _changes_text(row['form'], changed))
-    _post_docs_and_files_bg(row, docs or [], files, name)   # 수정 창에서 고른 공사 폴더 서류도(11-05 점검)
+
+    def _edit_log():
+        # 장부 칸만 고쳤거나 금액이 줄었으면 받은 승인 그대로(11-20 KiKO) — 'edit' 줄로 남는다
+        _st = ea.steps(aid)
+        kept = bool(_st) and _st[-1]['step'] == 'edit'
+        note = ' — 받은 승인 그대로예요 (받는 곳이 같고 금액이 늘지 않았어요)' if kept else ''
+        if prev == ea.REVISE:
+            _thread_log(row, _changes_block(f'✏️ {ea.initial(name)} 수정해서 다시 올림{note}', row['form'], changed))
+        else:   # 승인 전에 요청자가 직접 고침 — 받은 승인이 있었으면 처음부터 다시(11-11)
+            again = ' (승인은 처음부터 다시 받아요)' if prev == ea.FINAL and row['status'] == ea.PENDING else ''
+            _thread_log(row, _changes_block(f'✏️ {ea.initial(name)} 직접 고침{again}{note}', row['form'], changed))
+
+    def _tell_approvers():
+        who = [x for x in _targets(row) if x[1] != 'notice']
+        have = {(r['user'], r['role']) for r in ea.dm_refs(row)}
+        link = _card_link(row)
+        for u, role in who:
+            if (u, role) in have:   # 이미 받은 DM 은 refresh 로 고쳐졌다 — 다시 왔다는 알림만
+                _notify(client, u, f'✏️ {ea.title(row)} 수정돼서 다시 올라왔어요.' + (f' <{link}|카드 보기>' if link else ''))
+            else:
+                _send_dm(client, aid, u, role)
+
+    _after_commit(aid, '수정 스레드 기록', _edit_log)
+    _after_commit(aid, '카드·DM 새로 그리기', lambda: refresh(row))
+    _after_commit(aid, '승인자·경영지원 다시 알림', _tell_approvers)
+    _after_commit(aid, '감사 로그', lambda: _audit(row, 'resubmit', name, _changes_text(row['form'], changed)))
+    # 수정 창에서 고른 공사 폴더 서류도(11-05 점검)
+    _after_commit(aid, '첨부 붙이기 시작', lambda: _post_docs_and_files_bg(row, docs or [], files, name))
     logger.info(f'{_LOG} {ea.title(row)} 수정 후 다시 올림 ({name}): {changed}')
     return row
 
