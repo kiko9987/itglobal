@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import threading
 import time
 import urllib.parse
 from contextlib import contextmanager
@@ -26,6 +27,8 @@ from dashboard.utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 COMPANY_ADDR = '경기도 김포시 걸포로 134-84'
+# 회사 좌표 — 홈페이지 구조화 데이터(blueprints/public_info.py geo)와 같은 값. 카카오 없이도 출퇴근 구분이 되게(11-24)
+COMPANY_PT: Optional[Tuple[float, float]] = (37.6410894, 126.705937)
 NEAR_M = 300                 # 회사·집 '근처' 반경
 SPEED_LIMIT = 120            # 과속으로 볼 최고 속도(km/h) — 설정 vehicle_speed_limit 로 바꿀 수 있음
 LOW_VOLT = 11.8              # 12V 차 배터리 낮음
@@ -100,10 +103,29 @@ def meters(lat1, lon1, lat2, lon2) -> float:
 
 
 # ── 카카오(주소 ↔ 좌표) ─────────────────────────────────────────────────────
+# '결과 없음'('')은 GEO_MISS_TTL_DAYS 동안만 믿는다 — 카카오에 새 주소가 늦게 올라오거나, 예전에 오류를 '없음'으로
+# 잘못 저장한 줄도 기한이 지나면 다시 찾게(11-24 조용한 실패 점검). 오류(키 없음·인증 실패·일시 오류)는 아예 저장 안 함.
+GEO_MISS_TTL_DAYS = 7
+_geo_state = threading.local()      # .err — 이 스레드에서 마지막 geocode 가 카카오 오류였으면 그 문구
+
+
+class GeoError(Exception):
+    """카카오 주소 검색 오류(키 없음·401/403·일시 오류·응답 이상) — '결과 없음'과 다르다. 저장하지 않고 다음에 다시."""
+
+
 def _cache_get(k: str) -> Optional[str]:
     with _conn() as conn:
-        r = conn.execute('SELECT v FROM vehicle_geo_cache WHERE k = ?', (k,)).fetchone()
-    return r['v'] if r else None
+        r = conn.execute('SELECT v, at FROM vehicle_geo_cache WHERE k = ?', (k,)).fetchone()
+    if not r:
+        return None
+    if r['v'] == '':
+        try:
+            old = (datetime.now() - datetime.strptime(r['at'] or '', '%Y-%m-%d %H:%M:%S')).days >= GEO_MISS_TTL_DAYS
+        except ValueError:
+            old = True
+        if old:
+            return None
+    return r['v']
 
 
 def _cache_put(k: str, v: str) -> None:
@@ -111,29 +133,61 @@ def _cache_put(k: str, v: str) -> None:
         conn.execute('INSERT OR REPLACE INTO vehicle_geo_cache (k, v, at) VALUES (?,?,?)', (k, v, _now()))
 
 
-def geocode(addr: str) -> Optional[Tuple[float, float]]:
-    """주소 → (위도, 경도). 상세(동·호수)가 붙어 못 찾으면 끝 낱말을 하나씩 떼고 다시. 결과는 저장해 둔다."""
+def _kakao_addr_doc(query: str) -> Optional[Dict]:
+    """카카오 주소 검색 첫 결과. 결과가 없으면 None, 오류면 GeoError(11-24 조용한 실패 점검).
+
+    address_resolver._kakao_search 는 결과 없음·키 없음·401/403·일시 오류를 모두 None 으로 돌려줘 구별이 안 돼서,
+    그 아래의 _kakao_get_json(일시 오류는 _KakaoTransientError, 키 없음·인증 실패·응답 이상은 None)을 직접 부른다."""
+    from dashboard.services import address_resolver as ar
+    if not ar._kakao_key():
+        raise GeoError('카카오 키 없음')
+    url = ar.KAKAO_ENDPOINT + '?' + urllib.parse.urlencode({'query': query})
+    try:
+        data = ar._kakao_get_json(url)
+    except ar._KakaoTransientError:
+        raise GeoError('카카오 일시 오류(재시도 소진)')
+    if not isinstance(data, dict):
+        raise GeoError('카카오 인증 실패 또는 응답 이상')
+    docs = data.get('documents') or []
+    return docs[0] if docs else None
+
+
+def _geocode(addr: str) -> Tuple[Optional[Tuple[float, float]], str]:
+    """주소 → ((위도, 경도) 또는 None, 오류 문구). 오류면 저장도 낱말 떼기도 안 한다 — 일시 오류에 끝 낱말을 떼다
+    '경기도 김포시' 같은 시 중심 좌표가 저장되던 것(11-24 조용한 실패 점검)."""
     addr = ' '.join(str(addr or '').split())
     if not addr:
-        return None
+        return None, ''
     k = 'g:' + addr
     hit = _cache_get(k)
     if hit is not None:
-        return tuple(json.loads(hit)) if hit else None
-    from dashboard.services.address_resolver import _kakao_search
+        return (tuple(json.loads(hit)) if hit else None), ''
     words = addr.replace(',', ' ').split()
     found = None
-    for n in range(len(words), 1, -1):
-        doc = _kakao_search(' '.join(words[:n]))
-        if doc and doc.get('x') and doc.get('y'):
-            found = (float(doc['y']), float(doc['x']))
-            break
+    try:
+        for n in range(len(words), 1, -1):
+            doc = _kakao_addr_doc(' '.join(words[:n]))
+            if doc and doc.get('x') and doc.get('y'):
+                found = (float(doc['y']), float(doc['x']))
+                break
+    except GeoError as e:
+        logger.warning(f'[차량] 주소 좌표 찾기 실패(저장 안 함 — 다음에 다시): {e}')
+        return None, str(e)
     _cache_put(k, json.dumps(found) if found else '')
-    return found
+    return found, ''
+
+
+def geocode(addr: str) -> Optional[Tuple[float, float]]:
+    """주소 → (위도, 경도). 상세(동·호수)가 붙어 못 찾으면 끝 낱말을 하나씩 떼고 다시. 결과는 저장해 둔다.
+    카카오 오류면 None(저장 안 함). 방금 부른 것이 오류였는지는 _geo_state.err(요청 스레드별)로 본다."""
+    pt, err = _geocode(addr)
+    _geo_state.err = err
+    return pt
 
 
 def reverse(lat: float, lon: float) -> str:
-    """좌표 → 지번 주소('경기 김포시 걸포동 123-4'). 4째 자리(약 10m)로 묶어 저장."""
+    """좌표 → 지번 주소('경기 김포시 걸포동 123-4'). 4째 자리(약 10m)로 묶어 저장.
+    카카오 키 없음·인증 실패(None)·일시 오류는 '' 를 돌려주되 저장하지 않는다(11-24 조용한 실패 점검)."""
     if lat is None or lon is None:
         return ''
     k = f'r:{lat:.4f},{lon:.4f}'
@@ -143,9 +197,12 @@ def reverse(lat: float, lon: float) -> str:
     from dashboard.services.address_resolver import _kakao_get_json
     url = 'https://dapi.kakao.com/v2/local/geo/coord2address.json?' + urllib.parse.urlencode({'x': lon, 'y': lat})
     try:
-        data = _kakao_get_json(url) or {}
-    except Exception:
+        data = _kakao_get_json(url)
+    except Exception as e:
+        logger.warning(f'[차량] 좌표→주소 일시 실패(저장 안 함): {type(e).__name__}')
         return ''
+    if not isinstance(data, dict):
+        return ''          # 키 없음·401/403·응답 이상 — 저장하면 그 자리는 영영 빈 주소가 됨
     docs = data.get('documents') or []
     out = ''
     if docs:
@@ -160,7 +217,14 @@ def reverse(lat: float, lon: float) -> str:
 
 
 def company() -> Optional[Tuple[float, float]]:
-    return geocode(COMPANY_ADDR)
+    """회사 좌표 — 정해 둔 좌표(COMPANY_PT)를 먼저 쓴다. 카카오가 한 번 실패해 회사 좌표가 비면 그날 출퇴근이
+    모두 '일반 업무'로 들어가던 것(11-24 조용한 실패 점검). 정해 둔 값이 없을 때만 주소로 찾고, 못 찾으면 ERROR."""
+    if COMPANY_PT:
+        return COMPANY_PT
+    pt, err = _geocode(COMPANY_ADDR)
+    if not pt:
+        logger.error(f'[차량] 회사 좌표를 못 구함 — 출퇴근 구분이 모두 일반 업무로 들어가요: {err or "결과 없음"}')
+    return pt
 
 
 def home_of(code: str) -> Optional[Tuple[float, float]]:
@@ -175,10 +239,19 @@ def home_of(code: str) -> Optional[Tuple[float, float]]:
     if not addr:
         return None
     with _conn() as conn:
-        r = conn.execute('SELECT addr, lat, lon FROM vehicle_home_geo WHERE code = ?', (code,)).fetchone()
+        r = conn.execute('SELECT addr, lat, lon, at FROM vehicle_home_geo WHERE code = ?', (code,)).fetchone()
     if r and r['addr'] == addr:
-        return (r['lat'], r['lon']) if r['lat'] is not None else None
-    pt = geocode(addr)
+        if r['lat'] is not None:
+            return (r['lat'], r['lon'])
+        try:        # 못 찾은 집도 GEO_MISS_TTL_DAYS 지나면 다시 찾아 본다(11-24 조용한 실패 점검)
+            fresh = (datetime.now() - datetime.strptime(r['at'] or '', '%Y-%m-%d %H:%M:%S')).days < GEO_MISS_TTL_DAYS
+        except ValueError:
+            fresh = False
+        if fresh:
+            return None
+    pt, err = _geocode(addr)
+    if err:         # 카카오 오류 — '집 좌표 없음'으로 굳히지 않고 다음 운행 때 다시
+        return None
     with _conn() as conn:
         conn.execute('INSERT OR REPLACE INTO vehicle_home_geo (code, addr, lat, lon, at) VALUES (?,?,?,?,?)',
                      (code, addr, pt[0] if pt else None, pt[1] if pt else None, _now()))
@@ -238,7 +311,7 @@ def sync_day(day: str, plates: Optional[Iterable[str]] = None) -> Dict:
     if plates:
         want = set(plates)
         cars = [c for c in cars if c['plate'] in want]
-    added = seen = 0
+    added = seen = fixed = no_addr = 0
     errors = []
     for c in cars:
         plate = c['plate']
@@ -258,15 +331,35 @@ def sync_day(day: str, plates: Optional[Iterable[str]] = None) -> Dict:
             commute = is_commute(a, b, riders)
             st = t['start'].strftime('%H:%M')
             minutes = round((t['end'] - t['start']).total_seconds() / 60, 1) if t['end'] else None
+            from_addr = reverse(*a)[:80] if a else ''
+            to_addr = reverse(*b)[:80] if b else ''
+            if (a and not from_addr) or (b and not to_addr):
+                no_addr += 1          # 좌표는 있는데 주소를 못 구함(카카오 오류) — 다음에 다시 받을 때 채움
+            end_hm = t['end'].strftime('%H:%M') if t['end'] else ''
+            commute_km, business_km = (t['km'], 0) if commute else (0, t['km'])
             with vl._conn() as conn:
                 cur = conn.execute(
                     'INSERT OR IGNORE INTO vehicle_trips (plate, day, start_time, end_time, odo_start, odo_end, km, '
                     'from_addr, to_addr, commute_km, business_km, note, upload_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL)',
-                    (plate, day, st, t['end'].strftime('%H:%M') if t['end'] else '', t['odo_start'], t['odo_end'], t['km'],
-                     reverse(*a)[:80] if a else '', reverse(*b)[:80] if b else '',
-                     t['km'] if commute else 0, 0 if commute else t['km'], 'U+ API'))
+                    (plate, day, st, end_hm, t['odo_start'], t['odo_end'], t['km'],
+                     from_addr, to_addr, commute_km, business_km, 'U+ API'))
                 added += cur.rowcount
                 seen += 1
+                if not cur.rowcount:
+                    # 이미 있는 줄 — U+ 로 넣은 줄(upload_id 없음)만 다시 맞춘다. 처음 받을 때 주소를 못 구했거나
+                    # 배정·집 주소를 몰라 출퇴근이 0 으로 들어간 것이 그대로 굳어 운행기록부에 남던 것(11-24 조용한
+                    # 실패 점검). 주소는 새로 구한 것이 있을 때만, 출퇴근은 양 끝 좌표가 있을 때만(경로를 이번에
+                    # 못 받았다고 맞는 값을 0 으로 덮지 않게). 엑셀로 올린 줄(upload_id 있음)은 건드리지 않는다.
+                    cur = conn.execute(
+                        "UPDATE vehicle_trips SET end_time = ?, odo_start = ?, odo_end = ?, km = ?, "
+                        "from_addr = CASE WHEN ? != '' THEN ? ELSE from_addr END, "
+                        "to_addr = CASE WHEN ? != '' THEN ? ELSE to_addr END, "
+                        "commute_km = CASE WHEN ? THEN ? ELSE commute_km END, "
+                        "business_km = CASE WHEN ? THEN ? ELSE business_km END "
+                        "WHERE plate = ? AND day = ? AND start_time = ? AND note = 'U+ API' AND upload_id IS NULL",
+                        (end_hm, t['odo_start'], t['odo_end'], t['km'], from_addr, from_addr, to_addr, to_addr,
+                         int(bool(a and b)), commute_km, int(bool(a and b)), business_km, plate, day, st))
+                    fixed += cur.rowcount
             with _conn() as conn:
                 conn.execute(
                     'INSERT OR REPLACE INTO vehicle_trip_metrics (plate, day, start_time, end_at, minutes, from_lat, from_lon, '
@@ -282,11 +375,17 @@ def sync_day(day: str, plates: Optional[Iterable[str]] = None) -> Dict:
                      (day, _now(), seen, '; '.join(errors)[:500]))
     if errors:
         logger.warning(f'[U+운행] {day} 일부 실패: {errors}')
-    return {'day': day, 'trips': seen, 'added': added, 'errors': errors}
+    notes = [f'주소를 못 구한 운행 {no_addr}건(카카오) — 다시 받을 때 채워요'] if no_addr else []
+    return {'day': day, 'trips': seen, 'added': added, 'fixed': fixed, 'no_addr': no_addr,
+            'errors': errors, 'notes': notes}
 
 
 def sync_recent(today: Optional[date] = None) -> Dict:
-    """새벽 — 어제부터 거슬러 SYNC_BACK_DAYS 일(늦게 올라온 운행까지)."""
+    """새벽 — 어제부터 거슬러 SYNC_BACK_DAYS 일(늦게 올라온 운행까지).
+
+    결과의 errors 에 날짜별 실패를 모아 올리고(스케줄러가 ERROR 로 남김), vehicle_api_days 에 오류가 남은 날 수를
+    error_days 로 싣는다. 창의 맨 끝 날(내일부터는 다시 안 받는 날)이 실패했거나 주소를 못 구한 운행이 남았으면
+    urgent — 첫 실패라도 알림이 가게(11-24 조용한 실패 점검)."""
     from dashboard.services import uplus_api as up
     if not up.enabled('eco'):
         return {'skipped': 'no_api'}
@@ -294,7 +393,30 @@ def sync_recent(today: Optional[date] = None) -> Dict:
     out = []
     for back in range(1, SYNC_BACK_DAYS + 1):
         out.append(sync_day((today - timedelta(days=back)).isoformat()))
-    return {'days': out}
+    errors: List[str] = []
+    notes: List[str] = []
+    for d in out:
+        errors += [f"{d.get('day')} {e}" for e in (d.get('errors') or [])]
+        notes += [f"{d.get('day')} {n}" for n in (d.get('notes') or [])]
+    first = (today - timedelta(days=SYNC_BACK_DAYS)).isoformat()
+    with _conn() as conn:
+        bad = [r['day'] for r in conn.execute(
+            "SELECT day FROM vehicle_api_days WHERE day BETWEEN ? AND ? AND COALESCE(error, '') != '' ORDER BY day",
+            (first, (today - timedelta(days=1)).isoformat())).fetchall()]
+    last = next((d for d in out if d.get('day') == first), {})
+    urgent = first in bad or bool(last.get('no_addr'))
+    if urgent:
+        errors.append(f'{first} 은 오늘이 마지막 자동 재시도예요 — 내일부터는 다시 안 받아요'
+                      + (f" (주소 못 구한 운행 {last['no_addr']}건)" if last.get('no_addr') else '')
+                      + f" · 손으로 다시: vehicle_api_sync.sync_day('{first}')")
+    res = {'days': out, 'error_days': len(bad)}
+    if errors:
+        res['errors'] = errors
+    if notes:
+        res['notes'] = notes
+    if urgent:
+        res['urgent'] = True
+    return res
 
 
 def metrics(start: str, end: str, plate: str = '') -> Dict[Tuple[str, str, str], Dict]:
@@ -327,8 +449,17 @@ def save_state(statuses: List[Dict], now: Optional[datetime] = None) -> int:
     return n
 
 
+# 차량 상태 조회 실패 기억(프로세스 안) — 실패하면 seen_at 이 안 바뀌어 60초 캐시가 안 걸리고, 화면을 보는 사람마다
+# 30초마다 U+ 를 다시 부르던 것(11-24 조용한 실패 점검). 실패 뒤 STATE_RETRY_SEC 동안은 화면 요청에 다시 안 부른다.
+STATE_RETRY_SEC = 90
+STATE_FAIL_ERROR_AT = 3              # 이만큼 연속 실패하면 ERROR(그 뒤로는 10번마다 한 번 더)
+_state_fail: Dict = {'at': 0.0, 'count': 0, 'msg': ''}
+_state_lock = threading.Lock()
+
+
 def refresh_state(max_age_sec: int = 0) -> Dict:
-    """U+ 차량 상태를 받아 저장. max_age_sec 안에 받은 적 있으면 그대로(화면이 자주 불러도 API 를 아끼게)."""
+    """U+ 차량 상태를 받아 저장. max_age_sec 안에 받은 적 있으면 그대로(화면이 자주 불러도 API 를 아끼게).
+    화면 요청(max_age_sec 있음)은 방금 실패했으면 STATE_RETRY_SEC 동안 다시 부르지 않고 그 실패를 그대로 돌려준다."""
     from dashboard.services import uplus_api as up
     if not up.enabled('status'):
         return {'skipped': 'no_api'}
@@ -337,12 +468,35 @@ def refresh_state(max_age_sec: int = 0) -> Dict:
             r = conn.execute('SELECT MAX(seen_at) AS s FROM vehicle_state').fetchone()
         if r and r['s'] and (datetime.now() - datetime.strptime(r['s'], '%Y-%m-%d %H:%M:%S')).total_seconds() < max_age_sec:
             return {'cached': True}
+        with _state_lock:
+            if _state_fail['count'] and time.time() - _state_fail['at'] < STATE_RETRY_SEC:
+                return {'error': _state_fail['msg'], 'fails': _state_fail['count'], 'backoff': True}
     try:
         st = up.car_status()
     except Exception as e:
-        logger.warning(f'[U+상태] 조회 실패: {e}')
-        return {'error': str(e)}
+        with _state_lock:
+            _state_fail['count'] += 1
+            _state_fail['at'] = time.time()
+            _state_fail['msg'] = str(e)[:200]
+            n = _state_fail['count']
+        if n >= STATE_FAIL_ERROR_AT and (n - STATE_FAIL_ERROR_AT) % 10 == 0:
+            logger.error(f'[U+상태] 차량 상태 조회 {n}회 연속 실패 — 실시간 위치가 옛 위치로 보여요: {e}',
+                         force_alert=True)    # get_logger 는 extra= 가 아니라 키워드로 넘겨야 기록에 붙음
+        else:
+            logger.warning(f'[U+상태] 조회 실패({n}회 연속): {e}')
+        return {'error': str(e), 'fails': n}
+    with _state_lock:
+        if _state_fail['count']:
+            logger.info(f"[U+상태] 조회 다시 됨({_state_fail['count']}회 실패 뒤)")
+        _state_fail.update(at=0.0, count=0, msg='')
     return {'saved': save_state(st)}
+
+
+def last_seen() -> str:
+    """마지막으로 U+ 상태를 받아 저장한 시각 'YYYY-MM-DD HH:MM:SS'(없으면 '')."""
+    with _conn() as conn:
+        r = conn.execute('SELECT MAX(seen_at) AS s FROM vehicle_state').fetchone()
+    return (r['s'] if r else '') or ''
 
 
 def states() -> Dict[str, Dict]:
@@ -366,7 +520,8 @@ def check_devices(day: Optional[str] = None) -> Dict:
     day = day or (date.today() - timedelta(days=1)).isoformat()
     try:
         rows = up.device_status(day)
-    except Exception as e:
+    except Exception as e:      # 로그 없이 돌려주기만 하던 것(11-24 조용한 실패 점검)
+        logger.error(f'[U+단말] {day} 단말 상태 조회 실패 — 단말 장애 알림이 빠져요: {e}', exc_info=True)
         return {'error': str(e)}
     with _conn() as conn:
         for d in rows:
@@ -595,7 +750,7 @@ def now_view() -> Dict:
     from dashboard.services import uplus_api as up
     from dashboard.services import vehicle_assign as va
     from dashboard.services import vehicle_driver as vd
-    refresh_state(max_age_sec=60)
+    rs = refresh_state(max_age_sec=60)
     st = states()
     today = date.today().isoformat()
     rows = va.car_rows(today)
@@ -620,13 +775,24 @@ def now_view() -> Dict:
                     'speed': s.get('speed'), 'fuel': s.get('fuel'),
                     'riders': [va.display(x, who) for x in (va.riders(r) if r else [])],
                     'ended': bool(a.get('ended_at'))})
+    # U+ 조회가 실패했으면 화면이 옛 위치를 '지금 기준'으로 보이지 않게 — error 와 마지막으로 받은 시각을 같이(11-24
+    # 조용한 실패 점검). 'checked_at' 은 물어본 시각, 'last_ok' 는 실제 위치를 받은 시각(오늘이면 HH:MM, 아니면 MM/DD HH:MM).
+    seen = last_seen()
+    last_ok = ''
+    if seen:
+        last_ok = seen[11:16] if seen[:10] == today else f'{seen[5:7]}/{seen[8:10]} {seen[11:16]}'
+    err = 'U+ 에서 차 위치를 받지 못했어요.' if isinstance(rs, dict) and rs.get('error') else ''
     return {'enabled': up.enabled('status'), 'cars': out, 'company': company(),
-            'checked_at': datetime.now().strftime('%H:%M')}
+            'checked_at': datetime.now().strftime('%H:%M'), 'error': err, 'last_ok': last_ok}
 
 
 def nearest(addr: str) -> Dict:
     """주소 → 가까운 차 순서(직선 거리 km)."""
+    _geo_state.err = ''
     pt = geocode(addr)
+    err = getattr(_geo_state, 'err', '')
+    if err:         # 카카오 오류를 '주소를 못 찾음'으로 돌려주지 않게(11-24 조용한 실패 점검) — 화면은 '잠시 뒤 다시'
+        raise RuntimeError(f'카카오 주소 검색 실패: {err}')
     if not pt:
         raise ValueError('주소를 찾지 못했어요. 시·구부터 다시 적어 주세요.')
     v = now_view()

@@ -1296,14 +1296,46 @@ def _safe_vehicle_trip_poll():
         logger.error(f'[SCHED] 차량 운행 종료 감지 실패: {exc}', exc_info=True)
 
 
+# 같은 작업이 연속으로 실패한 횟수 — 일시 오류 한 번으로 매번 울리지 않게, 2번 연속이면 force_alert(11-24 조용한 실패 점검)
+_vehicle_api_fails: dict = {}
+VEHICLE_API_ALERT_STREAK = 2
+
+
+def _vehicle_api_problem(result) -> str:
+    """작업 결과의 error/errors 를 한 줄로(없으면 '')."""
+    if not isinstance(result, dict):
+        return ''
+    parts = []
+    if result.get('error'):
+        parts.append(str(result['error']))
+    if result.get('errors'):
+        parts.append('; '.join(str(e) for e in result['errors']))
+    return ' / '.join(parts)[:400]
+
+
 def _safe_vehicle_api_run(name: str, fn_name: str):
+    """U+ 작업 실행 — 결과에 error/errors 가 있어도 INFO 로만 남던 것을 ERROR 로(11-24 조용한 실패 점검)."""
     try:
         from dashboard.services import vehicle_api_sync as vas
         result = getattr(vas, fn_name)()
-        if not (isinstance(result, dict) and (result.get('skipped') or result.get('cached'))):
-            logger.info(f'[SCHED] {name}: {result}')
     except Exception as exc:
-        logger.error(f'[SCHED] {name} 실패: {exc}', exc_info=True)
+        n = _vehicle_api_fails[fn_name] = _vehicle_api_fails.get(fn_name, 0) + 1
+        logger.error(f'[SCHED] {name} 실패({n}회 연속): {exc}', exc_info=True,
+                     force_alert=n >= VEHICLE_API_ALERT_STREAK)
+        return
+    problem = _vehicle_api_problem(result)
+    if problem:
+        n = _vehicle_api_fails[fn_name] = _vehicle_api_fails.get(fn_name, 0) + 1
+        force = n >= VEHICLE_API_ALERT_STREAK or bool(isinstance(result, dict) and result.get('urgent'))
+        days = f" · 오류 남은 날 {result['error_days']}일" if isinstance(result, dict) and result.get('error_days') else ''
+        # get_logger(RequestContextLogger) 는 extra={'force_alert': True} 를 기록 속성으로 못 붙여서 키워드로 넘김
+        logger.error(f'[SCHED] {name} 실패({n}회 연속){days}: {problem}', force_alert=force)
+        return
+    _vehicle_api_fails.pop(fn_name, None)
+    if isinstance(result, dict) and result.get('notes'):
+        logger.warning(f"[SCHED] {name}: {'; '.join(map(str, result['notes']))[:400]}")
+    if not (isinstance(result, dict) and (result.get('skipped') or result.get('cached'))):
+        logger.info(f'[SCHED] {name}: {result}')
 
 
 def _safe_vehicle_api_trips():

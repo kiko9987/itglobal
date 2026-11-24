@@ -24,6 +24,13 @@
     var el = $('vnMsg');
     el.className = 'gw-vh-msg' + (text ? ' ' + (kind || 'info') : '');
     el.textContent = text || '';
+    if (typeof S !== 'undefined') S.loadMsg = false;
+  }
+  // 불러오기 실패 문구 — 다음에 잘 불러오면 지운다(전엔 한 번 뜬 실패 문구가 계속 남았음, 11-24 조용한 실패 점검).
+  // 가까운 차 찾기 문구처럼 다른 데서 띄운 문구는 건드리지 않는다.
+  function loadMsg(text) {
+    if (text) { msg(text, 'err'); S.loadMsg = true; }
+    else if (S.loadMsg) msg('');
   }
   function ago(m) {
     if (m == null) return '';
@@ -39,7 +46,7 @@
   }
 
   var page = $('vnPage');
-  var S = { cars: [], filter: 'all', near: null, map: null, kakao: null, overlays: {}, target: null, timer: null, key: page.getAttribute('data-kakao') || '' };
+  var S = { cars: [], filter: 'all', near: null, loadMsg: false, map: null, kakao: null, overlays: {}, target: null, timer: null, key: page.getAttribute('data-kakao') || '' };
 
   function isStop(c) { return c.lat != null && !c.moving; }     // 위치를 모르는 차는 정지로 세지 않는다(11-24)
   function counts() {
@@ -122,11 +129,18 @@
           .map(function (c) { return Object.assign({}, c, { km: km[c.plate] }); })
           .sort(function (a, b) { return a.km - b.km; });
       }
-      $('vnWhen').textContent = j.enabled ? j.checked_at + ' 기준 · 30초마다' : 'U+ 연동 승인 전';
+      // U+ 조회가 실패하면 옛 위치를 '지금 기준'으로 보이지 않게 — 마지막으로 받은 시각을 머리에(11-24 조용한 실패 점검)
+      var when = $('vnWhen');
+      var failed = j.enabled && j.error;
+      when.textContent = !j.enabled ? 'U+ 연동 승인 전'
+        : failed ? 'U+ 연결 실패 — ' + (j.last_ok ? j.last_ok + ' 위치예요' : '받은 위치가 없어요')
+        : j.checked_at + ' 기준 · 30초마다';
+      when.classList.toggle('warn', !!failed);
+      loadMsg(failed ? j.error + ' 목록과 지도는 마지막으로 받은 위치예요. 잠시 뒤 저절로 다시 받아요.' : '');
       renderList();
       drawMarkers(first);
       first = false;
-    }).catch(function (e) { $('vnWhen').textContent = ''; msg(e.message, 'err'); });
+    }).catch(function (e) { $('vnWhen').textContent = ''; $('vnWhen').classList.remove('warn'); loadMsg(e.message); });
   }
   function schedule() {
     clearInterval(S.timer);
