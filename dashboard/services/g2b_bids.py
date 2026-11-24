@@ -416,14 +416,47 @@ def _safe_err(e) -> str:
     return re.sub(r'(serviceKey=)[^&\s\'")]+', r'\1***', s)[:300]
 
 
+# 공공데이터포털이 잠깐 놓치는 응답(연결 끊김·429·5xx)은 몇 번 다시 — 조회 기간이 이틀이라 한 번 실패가
+#   그대로 공고 누락이 되던 것(11-24 조용한 실패 점검). 기다림(초)은 시험에서 0 으로 바꿀 수 있게 상수로
+RETRY_STATUS = (429, 500, 502, 503, 504)
+RETRY_WAITS = (2.0, 5.0)
+
+
+def _wait(sec: float) -> None:
+    if sec > 0:
+        import time
+        time.sleep(sec)
+
+
+def _portal_error(op: str, text: str) -> str:
+    """JSON 이 아닌 응답 — 공공데이터포털은 인증키 오류·사용량 초과를 XML 로 준다(returnAuthMsg·returnReasonCode)."""
+    msg = re.search(r'<returnAuthMsg>([^<]*)</returnAuthMsg>', text or '')
+    code = re.search(r'<returnReasonCode>([^<]*)</returnReasonCode>', text or '')
+    if msg or code:
+        return f"{op} 인증키·사용량 오류: {(msg.group(1) if msg else '').strip()}({(code.group(1) if code else '').strip()})"
+    return f'{op} 응답이 JSON 이 아님: {(text or "").strip()[:120]}'
+
+
 def _get(op: str, params: dict, base: str = BASE) -> dict:
     p = {'serviceKey': _key(), 'type': 'json', **params}
-    try:
-        r = requests.get(base + op, params=p, timeout=(10, 30))
-    except (requests.ConnectionError, requests.Timeout):   # 공공데이터포털이 가끔 연결을 놓침 — 한 번만 다시
-        r = requests.get(base + op, params=p, timeout=(10, 30))
+    for i in range(len(RETRY_WAITS) + 1):
+        last = i == len(RETRY_WAITS)
+        try:
+            r = requests.get(base + op, params=p, timeout=(10, 30))
+        except (requests.ConnectionError, requests.Timeout):   # 공공데이터포털이 가끔 연결을 놓침
+            if last:
+                raise
+            _wait(RETRY_WAITS[i])
+            continue
+        if r.status_code in RETRY_STATUS and not last:
+            _wait(RETRY_WAITS[i])
+            continue
+        break
     r.raise_for_status()
-    data = r.json()
+    try:
+        data = r.json()
+    except ValueError:
+        raise RuntimeError(_portal_error(op, r.text))
     if 'response' not in data:   # 나라장터 오류 형식 {"nkoneps.com.response.ResponseError": {...}}
         raise RuntimeError(f'{op} 오류: {json.dumps(data, ensure_ascii=False)[:200]}')
     head = data['response'].get('header') or {}
@@ -579,7 +612,15 @@ def collect(days: int = 2, now: Optional[datetime] = None) -> dict:
         # 조회기간은 7일을 넘으면 07(입력범위값 초과) — days=7 이면 6일 전 00:00부터 지금까지
         start = datetime.combine(now.date() - timedelta(days=min(max(days, 1), 7) - 1), datetime.min.time())
         found: Dict[str, dict] = {}
-        errors = 0
+        failed: List[str] = []      # 못 모은 곳(검색어·누리장터·공동주택) — 화면·알림에 몇 곳인지
+        first_err = ''
+
+        def _fail(label: str, e: Exception) -> None:
+            nonlocal first_err
+            failed.append(label)
+            first_err = first_err or _safe_err(e)
+            logger.warning(f'[G2B] {label} 목록 실패: {_safe_err(e)}')
+
         for kind, op in KINDS:
             for kw in KEYWORDS:
                 try:
@@ -595,8 +636,7 @@ def collect(days: int = 2, now: Optional[datetime] = None) -> dict:
                             it['_kind'] = kind
                             found[no] = it
                 except Exception as e:
-                    errors += 1
-                    logger.warning(f'[G2B] 검색 실패 ({kind} {kw}): {_safe_err(e)}')
+                    _fail(f'나라장터 {kind} \'{kw}\'', e)
         try:   # 공동주택(K-apt) — 공고일 범위로 통째로(물품도 '설치' 없어도 받음: 아파트 물품은 대개 납품·설치 한 묶음)
             for raw_it in apt_list(start, now):
                 it = apt_normalize(raw_it)
@@ -605,8 +645,7 @@ def collect(days: int = 2, now: Optional[datetime] = None) -> dict:
                     it['_kw'] = '공동주택'
                     found[no] = it
         except Exception as e:
-            errors += 1
-            logger.warning(f'[G2B] 공동주택 목록 실패: {_safe_err(e)}')
+            _fail('공동주택', e)
         for kind, op in NURI_KINDS:   # 누리장터 — 목록 통째로 받아 제목으로
             try:
                 for raw_it in nuri_list(op, start, now):
@@ -620,8 +659,13 @@ def collect(days: int = 2, now: Optional[datetime] = None) -> dict:
                         it['_kind'] = kind
                         found[no] = it
             except Exception as e:
-                errors += 1
-                logger.warning(f'[G2B] 누리장터 목록 실패 ({kind}): {_safe_err(e)}')
+                _fail(f'누리장터 {kind}', e)
+        # 지난번에 지역·면허를 못 본 공고 — 이번 목록에 더 새 차수가 없으면 그대로 다시 본다
+        pending = _load_pending()
+        for no, it in pending.items():
+            cur = found.get(no)
+            if cur is None or (it.get('bidNtceOrd') or '') > (cur.get('bidNtceOrd') or ''):
+                found[no] = it
         with _conn() as conn:
             known, no_raw = {}, set()
             for r in conn.execute('SELECT bid_no, bid_ord, raw FROM g2b_bids'):
@@ -629,7 +673,9 @@ def collect(days: int = 2, now: Optional[datetime] = None) -> dict:
                 if not r[2]:
                     no_raw.add(r[0])
         held, planned = held_licenses(), planned_licenses()
-        new = changed = 0
+        new = changed = limit_errors = streak = 0
+        still: Dict[str, dict] = {}   # 이번에도 지역·면허를 못 본 공고 → 다음 모으기 때 다시
+        now_s = _now()
         for no, it in found.items():
             ord_ = it.get('bidNtceOrd') or '000'
             if no in known and known[no] >= ord_:
@@ -637,25 +683,111 @@ def collect(days: int = 2, now: Optional[datetime] = None) -> dict:
                     with _conn() as conn:
                         conn.execute('UPDATE g2b_bids SET raw=? WHERE bid_no=?', (_raw(it), no))
                 continue
+            if streak >= LIMIT_FAIL_STOP:   # 조회가 계속 안 되면 이번엔 그만 부르고 남은 건 다음에(API 장애 때 한없이 기다리지 않게)
+                still[no] = it
+                continue
             try:
                 regions, groups = (([], []) if it.get('_source') == '공동주택'   # K-apt 는 제한 조회 없음
                                    else fetch_limits(no, ord_, it.get('_source') or '나라장터'))
             except Exception as e:
-                errors += 1
-                logger.warning(f'[G2B] 지역·면허 조회 실패 {no}: {_safe_err(e)}')
+                # 지역·면허를 모르는 채로 저장하면 '전국·면허 제한 없음'으로 보여 들어갈 수 있다고 잘못 나온다
+                #   → 저장하지 않고 '다시 볼 공고'로 남겨 다음 모으기 때 다시 조회(11-24 조용한 실패 점검)
+                limit_errors += 1
+                streak += 1
+                still[no] = it
+                logger.warning(f'[G2B] 지역·면허 조회 실패 {no} — 다음 모으기 때 다시: {_safe_err(e)}')
                 continue
+            streak = 0
             _save(it, regions, groups, held, planned, is_new=no not in known)
             if no in known:
                 changed += 1
             else:
                 new += 1
-        if errors < len(KEYWORDS) * len(KINDS):   # 검색이 하나라도 됐으면 '마지막으로 모은 때' 갱신
+        for no, it in still.items():
+            it['_pending_since'] = (pending.get(no) or {}).get('_pending_since') or now_s
+        still = _save_pending(still, now_s)
+        sources = len(KEYWORDS) * len(KINDS) + 1 + len(NURI_KINDS)   # 나라장터 검색어 × 종류 + 공동주택 + 누리장터 종류
+        if len(failed) < sources:   # 한 곳이라도 모았으면 '마지막으로 모은 때' 갱신(못 모은 곳 수는 따로 남김)
             mark_collected()
-        result = {'found': len(found), 'new': new, 'changed': changed, 'errors': errors}
+        stale = sum(1 for it in still.values() if (it.get('_pending_since') or now_s) < _ago(hours=24))
+        _save_status({'at': now_s[:16], 'errors': len(failed), 'sources': sources, 'failed': failed[:30],
+                      'pending': len(still), 'stale': stale})
+        result = {'found': len(found), 'new': new, 'changed': changed, 'errors': len(failed),
+                  'limit_errors': limit_errors, 'pending': len(still)}
+        if failed:
+            # 인증키 만료·사용량 초과·포털 장애가 'WARNING 만 남고 화면엔 공고 없음'으로 묻히던 것(11-24 조용한 실패 점검)
+            #   전부 실패 = 이번 모으기가 통째로 안 됨 → 일시 오류 문구여도 알림
+            whole = len(failed) >= sources
+            logger.error(f"[G2B] 공고 모으기 {'전부' if whole else '일부'} 실패 {len(failed)}/{sources}곳 "
+                         f"({', '.join(failed[:5])}{' 등' if len(failed) > 5 else ''}) — 첫 오류: {first_err}",
+                         extra={'force_alert': True} if whole else None)
+        if stale:   # 하루 넘게 지역·면허를 못 본 공고 — 조회 기간(이틀)을 넘기기 전에 사람이 알아야
+            logger.error(f'[G2B] 지역·면허를 하루 넘게 못 본 공고 {stale}건 — 입찰 화면에 안 나오고 있어요',
+                         extra={'force_alert': True})
         logger.info(f'[G2B] 공고 모으기 — {result}')
         return result
     finally:
         _collect_lock.release()
+
+
+# ── 모으기 상태·다시 볼 공고(11-24 조용한 실패 점검) ──────────────────
+LIMIT_FAIL_STOP = 5       # 지역·면허 조회가 연달아 이만큼 실패하면 이번 모으기에선 그만 부름
+PENDING_MAX = 300         # '다시 볼 공고' 최대 수(넘치면 마감 가까운 것부터 남김)
+PENDING_DAYS = 14         # 마감 일시를 모르는 공고는 이만큼 지나면 버림
+
+
+def _ago(**kw) -> str:
+    return (datetime.now() - timedelta(**kw)).strftime('%Y-%m-%d %H:%M:%S')
+
+
+def _kv_get(key: str):
+    with _conn() as conn:
+        row = conn.execute('SELECT value FROM g2b_kv WHERE key=?', (key,)).fetchone()
+    if not row or not row[0]:
+        return None
+    try:
+        return json.loads(row[0])
+    except ValueError:
+        return None
+
+
+def _kv_set(key: str, val) -> None:
+    with _conn() as conn:
+        conn.execute('INSERT OR REPLACE INTO g2b_kv (key, value) VALUES (?, ?)', (key, json.dumps(val, ensure_ascii=False)))
+
+
+def _load_pending() -> Dict[str, dict]:
+    """지역·면허 조회에 실패해 아직 저장 못 한 공고(나라장터가 준 항목 그대로) — 공고번호 → 항목."""
+    val = _kv_get('pending_limits')
+    return {k: v for k, v in val.items() if isinstance(v, dict)} if isinstance(val, dict) else {}
+
+
+def _save_pending(items: Dict[str, dict], now_s: str) -> Dict[str, dict]:
+    """마감 지난 것·너무 오래된 것은 빼고 저장. 남긴 것을 돌려준다."""
+    now16, old = now_s[:16], _ago(days=PENDING_DAYS)
+    keep = {}
+    for no, it in items.items():
+        close = (it.get('bidClseDt') or it.get('opengDt') or '')[:16]
+        if close and close < now16:
+            continue
+        if not close and (it.get('_pending_since') or now_s) < old:
+            continue
+        keep[no] = it
+    if len(keep) > PENDING_MAX:
+        nos = sorted(keep, key=lambda n: (keep[n].get('bidClseDt') or keep[n].get('opengDt') or '9999'))[:PENDING_MAX]
+        keep = {n: keep[n] for n in nos}
+    _kv_set('pending_limits', keep)
+    return keep
+
+
+def _save_status(st: dict) -> None:
+    _kv_set('collect_status', st)
+
+
+def collect_status() -> dict:
+    """지난번 모으기 결과 — 화면 아래 '일부 못 모았어요(n곳)'·'지난번 모으기 실패' 표시용."""
+    st = _kv_get('collect_status')
+    return st if isinstance(st, dict) else {}
 
 
 def _raw(it: dict) -> str:
@@ -914,7 +1046,23 @@ def list_bids(tab: str = ELIGIBLE, include_closed: bool = False, q: str = '', li
         items.append(v)
     return {'items': items, 'counts': counts,
             'held': held_licenses(), 'planned': planned_licenses(),
-            'last_collect': last[0] if last else '', 'enabled': enabled()}
+            'last_collect': last[0] if last else '', 'enabled': enabled(),
+            'collect_status': _status_view()}
+
+
+def _status_view() -> dict:
+    """화면용 지난번 모으기 결과 — 못 모은 곳 이름은 보여 주지 않고 수만(오류 글은 서버 로그·알림에)."""
+    try:
+        st = collect_status()
+    except Exception as e:   # 상태를 못 읽어도 목록은 보여 준다
+        logger.warning(f'[G2B] 모으기 상태 읽기 실패: {e}')
+        return {}
+    if not st:
+        return {}
+    errors, sources = int(st.get('errors') or 0), int(st.get('sources') or 0)
+    return {'at': st.get('at') or '', 'errors': errors, 'sources': sources,
+            'all_failed': bool(sources) and errors >= sources,
+            'pending': int(st.get('pending') or 0), 'stale': int(st.get('stale') or 0)}
 
 
 def set_mark(bid_no: str, mark: str, who: str) -> dict:

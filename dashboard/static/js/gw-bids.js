@@ -88,6 +88,7 @@
     if (!rows.length) {
       $('bdRows').innerHTML = '<tr><td colspan="6" class="gw-empty">' + (!state.enabled ? '나라장터 연결 키가 서버에 없어요.'
         : all.length ? '고른 조건에 맞는 공고가 없어요.'
+        : (state.status || {}).all_failed ? '지난번 모으기가 실패해서 공고를 못 받았어요. 다음 모으기 때 다시 받아요.'   // 11-24 — '공고 없음'과 구분
         : state.tab === 'eligible' ? '지금 들어갈 수 있는 마감 전 공고가 없어요.' : '입찰 불가능한 마감 전 공고가 없어요.') + '</td></tr>';
       return;
     }
@@ -353,6 +354,43 @@
     tr.insertAdjacentHTML('afterend', detail(it));
   }
 
+  // ── 지난번 모으기 결과(11-24 조용한 실패 점검) — 일부·전부 못 모았거나 지역·면허를 못 본 공고가 있으면
+  //   목록이 비어도 '공고가 없어요'로만 보이지 않게 표 위에 한 줄. 템플릿을 안 바꿔도 되게 여기서 만든다
+  function warnBox() {
+    var el = $('bdWarn');
+    if (el) return el;
+    var wrap = document.querySelector('#bdPage .gw-ap-tablewrap');
+    if (!wrap) return null;
+    el = document.createElement('p');
+    el.id = 'bdWarn';
+    el.className = 'gw-bd-miss';
+    el.setAttribute('role', 'status');
+    el.style.margin = '0 2px 8px';
+    el.hidden = true;
+    wrap.insertAdjacentElement('beforebegin', el);
+    return el;
+  }
+  function warnText(st) {
+    st = st || {};
+    var out = [];
+    if (st.all_failed) {
+      out.push('지난번 모으기 실패(' + st.at + ') — 나라장터·누리장터·공동주택 어디서도 공고를 받지 못했어요. 목록이 예전 그대로일 수 있어요.');
+    } else if (st.errors > 0) {
+      out.push('지난번 모으기(' + st.at + ')에서 일부 못 모았어요(' + st.errors + '곳) — 빠진 공고가 있을 수 있어요. 다음 모으기 때 다시 받아요.');
+    }
+    if (st.pending > 0) {
+      out.push('참가 지역·면허를 아직 확인 못 한 공고 ' + st.pending + '건은 목록에 넣지 않았어요 — 다음 모으기 때 다시 확인해요.');
+    }
+    return out.join(' ');
+  }
+  function showWarn(st) {
+    var el = warnBox();
+    if (!el) return;
+    var t = warnText(st);
+    el.textContent = t;
+    el.hidden = !t;
+  }
+
   function load() {
     var my = ++state.seq;
     var qs = '?tab=' + encodeURIComponent(state.tab) + (state.closed ? '&closed=1' : '') +
@@ -370,8 +408,10 @@
       state.items = {};
       state.rows.forEach(function (it) { state.items[it.bid_no] = it; });
       if (state.open && !state.items[state.open]) state.open = '';
+      state.status = j.collect_status || {};
       render();
       $('bdFoot').textContent = j.last_collect ? '마지막으로 모은 때: ' + j.last_collect + ' (하루 세 번 07:20·12:20·16:20)' : '';
+      showWarn(state.status);
     }).catch(function (e) {
       if (my !== state.seq) return;
       $('bdRows').innerHTML = '<tr><td colspan="6" class="gw-empty">' + esc(e.message) + '</td></tr>';
