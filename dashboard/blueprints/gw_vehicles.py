@@ -6,7 +6,7 @@
 """
 import re
 import threading
-from datetime import date
+from datetime import date, timedelta
 
 from flask import Blueprint, jsonify, redirect, render_template, request
 
@@ -134,8 +134,17 @@ def api_summary():
     except Exception as e:
         logger.error(f'[차량운행] 요약 실패: {e}', exc_info=True)
         return jsonify({'success': False, 'message': '불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요.'}), 500
+    missing: list = []
+    try:        # 확정한 날인데 운전자 답이 없는 차(운행 종료 감지·아침 다시 묻기 뒤에도 남은 것, 11-24)
+        from dashboard.services import vehicle_trip_watch as tw
+        m = data.get('month') or _month()
+        y, mo = int(m[:4]), int(m[5:7])
+        last = (date(y + (mo == 12), mo % 12 + 1, 1) - timedelta(days=1)).isoformat()
+        missing = tw.missing(f'{m}-01', last)
+    except Exception as e:
+        logger.warning(f'[차량운행] 운전자 미확인 읽기 실패: {e}')
     return jsonify({'success': True, **data, 'months': vl.months(), 'last_upload': vl.last_upload(),
-                    'resolving': _resolving.locked()})
+                    'resolving': _resolving.locked(), 'missing_drivers': missing})
 
 
 @gw_vehicles_bp.route('/api/vehicles/car', methods=['GET'])

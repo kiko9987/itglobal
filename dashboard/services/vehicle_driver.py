@@ -122,17 +122,30 @@ def _cars_to_ask(day: str) -> List[Tuple[str, List[str]]]:
 
 
 # ── 묻는 글 ──────────────────────────────────────────────────────────────
-def _blocks(day: str, plate: str, riders: List[str], split_open: bool = False) -> List[Dict]:
+def _blocks(day: str, plate: str, riders: List[str], split_open: bool = False,
+            guess: str = '', lead: str = '') -> List[Dict]:
+    """guess = 짐작한 운전자(운행 종료 감지 때, 11-24) — '○○ 님이 운전했나요? [맞아요]' 한 번 누르기.
+    lead = 맨 앞 줄(운행을 마친 것 같아요 / 어제 운전자를 아직 못 받았어요)."""
     from dashboard.services import vehicle_assign as va
     who = va._who_map()
     cars = {c['plate']: c for c in va.fleet(True)}
     car = va._car_text(plate, cars)
     a = answer(day, plate) or {}
-    blocks = [{'type': 'section', 'text': {'type': 'mrkdwn',
-                                           'text': f":car: {va.day_label(day)} {car} 는 누가 운전했나요?\n"
-                                                   '눌러 주시면 운행일지에 들어가요. 같은 차 한 분만 답하면 돼요.'}}]
+    guess = guess if guess in riders else ''
+    if guess and not split_open:
+        head = (f":car: {lead or (va.day_label(day) + ' ' + car + ' 운행을 마친 것 같아요.')}\n"
+                f"운전은 *{va.display(guess, who)}* 님이 했나요? 같은 차 한 분만 답하면 돼요.")
+    else:
+        head = (f":car: {(lead + chr(10)) if lead else ''}{va.day_label(day)} {car} 는 누가 운전했나요?\n"
+                '눌러 주시면 운행일지에 들어가요. 같은 차 한 분만 답하면 돼요.')
+    blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': head}}]
     if not split_open:
-        btns = [_btn(va.display(c, who), A_ONE, {'day': day, 'plate': plate, 'code': c}) for c in riders]
+        if guess:
+            btns = [_btn(f'맞아요 ({va.display(guess, who)})', A_ONE, {'day': day, 'plate': plate, 'code': guess}, primary=True)]
+            btns += [_btn(f'{va.display(c, who)} 운전', A_ONE, {'day': day, 'plate': plate, 'code': c})
+                     for c in riders if c != guess]
+        else:
+            btns = [_btn(va.display(c, who), A_ONE, {'day': day, 'plate': plate, 'code': c}) for c in riders]
         btns.append(_btn('나눠서 운전(오전·오후)', A_SPLIT, {'day': day, 'plate': plate}))
         blocks.append({'type': 'actions', 'elements': btns[:25]})
         return blocks
@@ -186,36 +199,72 @@ def send_asks(day: Optional[str] = None) -> Dict:
     from dashboard.services import vehicle_assign as va
     if not (va.CAR_DM_ON and DRIVER_ASK_ON):     # 차량 DM 과 따로 — 운행일지가 아직 개발 중(11-24)
         return {'skipped': 'car_dm_off'}
+    from dashboard.services import vehicle_trip_watch as tw
+    if tw.active():                              # 운행 종료 감지가 켜지면 저녁 일괄 묻기 대신 차가 선 때 + 다음 날 아침(11-24)
+        return {'skipped': 'trip_watch'}
     day = day or date.today().isoformat()
-    who = va._who_map()
     sent = auto = 0
     for plate, riders in _cars_to_ask(day):
         if answer(day, plate):
             continue
-        if len(riders) == 1:
-            _save(day, plate, riders[0], riders[0], 'auto', via='auto')
+        n = ask_car(day, plate, riders)
+        if n < 0:
             auto += 1
+        else:
+            sent += n
+    if sent or auto:
+        logger.info(f'[운전자] {day} 운전자 묻기 DM {sent}건, 혼자 탄 차 {auto}대 자동')
+    return {'day': day, 'sent': sent, 'auto': auto}
+
+
+def guess_driver(day: str, plate: str, riders: List[str], back_days: int = 30) -> str:
+    """짐작한 운전자 — 최근 30일 이 차를 이 사람들 중 가장 많이 운전한 사람, 기록이 없으면 배정 맨 앞(11-24)."""
+    if not riders:
+        return ''
+    from datetime import timedelta
+    start = (date.fromisoformat(day) - timedelta(days=back_days)).isoformat()
+    count: Dict[str, int] = {}
+    with _conn() as conn:
+        rows = conn.execute('SELECT am, pm FROM vehicle_driver WHERE plate = ? AND day >= ? AND day < ?',
+                            (plate, start, day)).fetchall()
+    for r in rows:
+        for c in (r['am'], r['pm']):
+            if c in riders:
+                count[c] = count.get(c, 0) + 1
+    if count:
+        return max(riders, key=lambda c: (count.get(c, 0), -riders.index(c)))
+    return riders[0]
+
+
+def ask_car(day: str, plate: str, riders: List[str], guess: str = '', lead: str = '',
+            again: bool = False) -> int:
+    """차 한 대 묻기 — 보낸 DM 수. 혼자 탄 차는 묻지 않고 그 사람으로 적고 -1.
+    again=True 면 이미 보낸 사람에게도 새 DM(다음 날 아침 한 번 더) — 버튼 갱신은 새 DM 을 따른다."""
+    from dashboard.services import vehicle_assign as va
+    if len(riders) == 1:
+        _save(day, plate, riders[0], riders[0], 'auto', via='auto')
+        return -1
+    who = va._who_map()
+    blocks = _blocks(day, plate, riders, guess=guess, lead=lead)
+    text = f"{va.day_label(day)} 차량 운전자 확인"
+    sent = 0
+    for c in riders:
+        p = who.get(c)
+        if not p or not p.get('slack_id'):
             continue
-        blocks = _blocks(day, plate, riders)
-        text = f"{va.day_label(day)} 차량 운전자 확인"
-        for c in riders:
-            p = who.get(c)
-            if not p or not p.get('slack_id'):
-                continue
+        if not again:
             with _conn() as conn:
                 if conn.execute('SELECT 1 FROM vehicle_driver_msg WHERE day = ? AND plate = ? AND code = ?',
                                 (day, plate, c)).fetchone():
                     continue
-            r = _slack('chat.postMessage', {'channel': p['slack_id'], 'text': text, 'blocks': blocks,
-                                            'unfurl_links': False, 'unfurl_media': False})
-            if r.get('ok'):
-                sent += 1
-                with _conn() as conn:
-                    conn.execute('INSERT OR REPLACE INTO vehicle_driver_msg (day, plate, code, channel, ts) VALUES (?,?,?,?,?)',
-                                 (day, plate, c, r.get('channel') or p['slack_id'], r.get('ts') or ''))
-    if sent or auto:
-        logger.info(f'[운전자] {day} 운전자 묻기 DM {sent}건, 혼자 탄 차 {auto}대 자동')
-    return {'day': day, 'sent': sent, 'auto': auto}
+        r = _slack('chat.postMessage', {'channel': p['slack_id'], 'text': text, 'blocks': blocks,
+                                        'unfurl_links': False, 'unfurl_media': False})
+        if r.get('ok'):
+            sent += 1
+            with _conn() as conn:
+                conn.execute('INSERT OR REPLACE INTO vehicle_driver_msg (day, plate, code, channel, ts) VALUES (?,?,?,?,?)',
+                             (day, plate, c, r.get('channel') or p['slack_id'], r.get('ts') or ''))
+    return sent
 
 
 def _save(day: str, plate: str, am: Optional[str], pm: Optional[str], by: str,

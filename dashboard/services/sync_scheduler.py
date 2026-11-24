@@ -461,6 +461,25 @@ def start_scheduler():
         )
         jobs.append('차량 실제 운전자 묻기 월~토 18:30')
 
+    # 2026-11-24 운행 종료 감지(services/vehicle_trip_watch) — U+ 차량 상태를 10분마다 받아 15시 뒤 45분 넘게 선 차의
+    #   탄 사람에게 운전자 확인 DM, 다음 날 아침 09:10 답 없는 차 한 번 더. U+ 키가 없거나 END_ASK_ON=False 면 쉼/기록만.
+    if os.getenv('VEHICLE_TRIP_WATCH_ENABLED', '1').strip().lower() not in ('0', 'false', 'no'):
+        _scheduler.add_job(
+            _safe_vehicle_trip_poll,
+            'cron',
+            day_of_week='mon-sat', hour='14-21', minute='*/10',
+            id='vehicle_trip_poll',
+            replace_existing=True,
+        )
+        _scheduler.add_job(
+            _safe_vehicle_trip_morning,
+            'cron',
+            day_of_week='mon-sat', hour=9, minute=10,
+            id='vehicle_trip_morning',
+            replace_existing=True,
+        )
+        jobs.append('차량 운행 종료 감지 월~토 14~22시 10분마다 + 아침 09:10 다시 묻기')
+
     # 2026-07-23 매일 아침 부재중/미완료 리마인드 (온라인 문의 채널) — 출근 직후.
     #   2026-10-07 출퇴근 08~17시 변경으로 09:00 → 08:10.
     _scheduler.add_job(
@@ -1236,6 +1255,28 @@ def _safe_vehicle_driver_ask():
         logger.info(f'[SCHED] 차량 운전자 묻기: {result}')
     except Exception as exc:
         logger.error(f'[SCHED] 차량 운전자 묻기 실패: {exc}', exc_info=True)
+
+
+def _safe_vehicle_trip_poll():
+    """U+ 차량 상태로 운행 종료 감지(10분마다) — 키가 없으면 바로 쉰다. 일이 있을 때만 로그."""
+    try:
+        from dashboard.services.vehicle_trip_watch import poll
+        result = poll()
+        if result.get('ended') or result.get('error'):
+            logger.info(f'[SCHED] 차량 운행 종료 감지: {result}')
+    except Exception as exc:
+        logger.error(f'[SCHED] 차량 운행 종료 감지 실패: {exc}', exc_info=True)
+
+
+def _safe_vehicle_trip_morning():
+    """어제 운전자 답이 없는 차 — 한 번 더 묻기(월~토 09:10)."""
+    try:
+        from dashboard.services.vehicle_trip_watch import remind_morning
+        result = remind_morning()
+        if not result.get('skipped'):
+            logger.info(f'[SCHED] 어제 운전자 다시 묻기: {result}')
+    except Exception as exc:
+        logger.error(f'[SCHED] 어제 운전자 다시 묻기 실패: {exc}', exc_info=True)
 
 
 def _safe_visit_canvas_audit():

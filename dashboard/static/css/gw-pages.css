@@ -3731,3 +3731,12 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-vc-ownpick { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 6px 0 0; padding: 6px 10px; border-radius: 8px; background: #f8fafc; font-size: 0.84rem; color: #475569; }
 .gw-vc-ownpick > span { font-weight: 600; color: #1a1c20; }
 .gw-vc-ownpick > i { color: #94a3b8; }
+/* 운행일지 — 운전자 미확인(11-24) */
+.gw-vh-missing { margin: 0 0 12px; padding: 10px 14px; }
+.gw-vh-missing > summary { cursor: pointer; font-size: 0.9rem; color: #1a1c20; }
+.gw-vh-missing > summary strong { color: #b45309; }
+.gw-vh-missing > summary span { margin-left: 8px; color: #64748b; font-size: 0.82rem; }
+.gw-vh-missing ul { margin: 8px 0 0; padding: 0; list-style: none; font-size: 0.86rem; }
+.gw-vh-missing li { padding: 4px 0; border-top: 1px solid #f1f5f9; }
+.gw-vh-missing .d { font-variant-numeric: tabular-nums; color: #475569; }
+.gw-vh-missing .p, .gw-vh-missing .a { color: #94a3b8; font-size: 0.8rem; }

@@ -83,6 +83,7 @@
             return Number(mo) + '/' + Number(d); }).replace('~', ' ~ ')) + ' 운행</span>' : '')
           : '<small>아직 없어요</small>') +
       '</div></div>';
+    renderMissing(j.missing_drivers || []);
     if (j.resolving || j.pending_dongs) {
       msg('방문 주소의 동을 찾는 중이에요(1~2분). 끝나면 저절로 다시 불러와요.', 'info');
       refreshLater();
@@ -93,6 +94,31 @@
         '<td class="num gw-vh-opt">' + c.days + '일</td><td class="num gw-vh-opt">' + c.trips + '번</td><td class="num">' + esc(km(c.km)) + '</td>' +
         '<td>' + who(c.drivers, c.source) + '</td><td class="num gw-vh-opt">' + (c.visits ? c.visits + '건' : '-') + '</td></tr>';
     }).join('') : '<tr><td colspan="6" class="gw-empty">' + esc(monthLabel(j.month)) + ' 운행 기록이 없어요. 위 [운행일지 올리기]로 U+커넥트 운행일지를 올려 주세요.</td></tr>';
+  }
+  // 운전자 미확인(11-24) — 확정한 날인데 운전자 답이 없는 차. 운행 종료 DM·다음 날 아침 다시 묻기 뒤에도 남은 것.
+  //   상자는 JS 가 만든다(템플릿 재시작 없이). 없으면 숨김.
+  function renderMissing(list) {
+    var box = $('vhMissing');
+    if (!box) {
+      box = document.createElement('details');
+      box.id = 'vhMissing';
+      box.className = 'gw-panel gw-vh-missing';
+      var after = $('vhStats');
+      after.parentNode.insertBefore(box, after.nextSibling);
+    }
+    box.hidden = !list.length;
+    if (!list.length) { box.innerHTML = ''; return; }
+    var open = box.open;
+    box.innerHTML = '<summary>운전자 미확인 <strong>' + list.length + '건</strong>' +
+      '<span>배정을 확정한 날인데 탄 사람이 아직 운전자를 안 알려 준 차예요.</span></summary><ul>' +
+      list.map(function (m) {
+        var d = new Date(m.day + 'T00:00:00');
+        var asked = m.asked === 'morning' ? '다음 날 아침에 다시 물음' : (m.asked === 'park' ? '운행 종료 때 물음' : '');
+        return '<li><span class="d">' + (d.getMonth() + 1) + '/' + d.getDate() + '(' + WD[d.getDay()] + ')</span> ' +
+          '<strong>' + esc(m.car) + '</strong> <span class="p">' + esc(m.plate) + '</span> · ' + esc((m.riders || []).join(', ')) +
+          (asked ? ' <span class="a">' + asked + '</span>' : '') + '</li>';
+      }).join('') + '</ul>';
+    box.open = open;
   }
   // 동 찾기가 끝나면 저절로 다시 불러온다(직접 새로 고치라던 것, 11-21 점검) — 30초마다, 최대 6번
   var refreshTimer = null, refreshLeft = 6;
