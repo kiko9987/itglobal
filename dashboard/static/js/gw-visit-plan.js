@@ -290,11 +290,17 @@
     }
     // 캔버스2 섹션처럼 한 줄: 코스 N · 차 · 사람 칩 · 메모 · 현장 수 · [지우기] (메모를 제목 줄로, 11-23 부장님)
     var needTask = work && c.members.length && !c.memo;
-    var memo = P.canEdit
-      ? '<label class="gw-vp-memo' + (needTask ? ' w' : '') + '"><span>' + (work ? '할 일' : '메모') + '</span>' +
+    // 방문 코스 메모는 평소 [메모] 단추만, 눌러야 칸이 열리고 ×로 지우고 닫는다(11-24 부장님 — 차량 배정과 같게).
+    //   사내 업무의 '할 일'은 꼭 적어야 해서 칸을 늘 보인다
+    var memoShown = work || c.memo || P.memoOpen[i];
+    var memo = !P.canEdit ? ''
+      : !memoShown ? '<button type="button" class="gw-va-tool gw-vp-memobtn" data-act="memoopen" data-ci="' + i + '" aria-label="' + esc(label(i)) +
+        ' 메모 쓰기"><i class="fas fa-pen" aria-hidden="true"></i> 메모</button>'
+      : '<label class="gw-vp-memo' + (needTask ? ' w' : '') + '"><span>' + (work ? '할 일' : '메모') + '</span>' +
         '<input type="text" class="form-control form-control-sm" maxlength="200" data-act="memo" data-ci="' + i + '" value="' + esc(c.memo) + '" ' +
-        (work ? 'placeholder="할 일을 적어 주세요"' : 'placeholder="특이사항이 있을 때만 적어 주세요" aria-describedby="vpMemoHelp"') + '></label>'
-      : '';
+        (work ? 'placeholder="할 일을 적어 주세요"' : 'placeholder="특이사항이 있을 때만 적어 주세요" aria-describedby="vpMemoHelp"') + '>' +
+        (work ? '' : '<button type="button" class="gw-va-x gw-vp-memox" data-act="memoclose" data-ci="' + i + '" aria-label="' + esc(label(i)) +
+          ' 메모 지우고 닫기" title="메모 지우고 닫기"><i class="fas fa-xmark" aria-hidden="true"></i></button>') + '</label>';
     var nobody = vs.length || (work && c.memo);
     var head = '<div class="gw-vp-chead"><strong>' + esc(label(i)) + '</strong>' + (work ? '' : carTag(c)) +
       '<div class="gw-va-people">' + (chips || '<span class="gw-va-none' + (nobody ? ' w' : '') + '">' +
@@ -529,6 +535,7 @@
   }
   P.checked = {};
   P.pp = {};
+  P.memoOpen = {};     // [메모]를 눌러 연 방문 코스(코스 번호 → 1)
   $('vpAddCourse').addEventListener('click', function () {
     var ci = newCourse();
     changed('.gw-vp-course[data-ci="' + ci + '"]');
@@ -557,6 +564,13 @@
     if (!b || b.disabled || !P.canEdit) return;
     if (b.matches('input')) return;                          // 체크·메모 칸은 change/input 에서
     var act = b.getAttribute('data-act'), no = b.getAttribute('data-lead'), ci = parseInt(b.getAttribute('data-ci'), 10);
+    if (act === 'memoopen') { P.memoOpen[ci] = 1; P.focus = '[data-act="memo"][data-ci="' + ci + '"]'; render(); return; }
+    if (act === 'memoclose') {
+      delete P.memoOpen[ci];
+      if (P.plan.courses[ci].memo) { P.plan.courses[ci].memo = ''; changed('[data-act="memoopen"][data-ci="' + ci + '"]'); }
+      else { P.focus = '[data-act="memoopen"][data-ci="' + ci + '"]'; render(); }
+      return;
+    }
     if (act === 'punchk') { P.pp = {}; P.focus = '#vpPeople [data-act="pcheck"]'; render(); }
     else if (act === 'lift') { moveTo(checkedList(), ci); }
     else if (act === 'liftnew') { var list = checkedList(); if (list.length) moveTo(list, newCourse()); }
@@ -582,6 +596,7 @@
       var dc = P.plan.courses[ci];
       if ((dc.leads.length || dc.members.length) && !window.confirm(label(ci) + '를 지울까요?\n현장 ' + dc.leads.length + '건은 현장 목록으로 돌아가요.')) return;
       P.plan.courses.splice(ci, 1);
+      P.memoOpen = {};                 // 코스 번호가 당겨지니 열어 둔 메모 칸도 닫는다
       changed('#vpAddCourse');
     } else if (act === 'rmduty') {
       P.plan.online.splice(parseInt(b.getAttribute('data-k'), 10), 1);
@@ -624,6 +639,16 @@
     setDirty(true);
   });
   root.addEventListener('keydown', function (e) {
+    var me = e.target;     // 빈 메모 칸에서 Esc = 닫기
+    if (e.key === 'Escape' && me.getAttribute && me.getAttribute('data-act') === 'memo' && !me.value.trim()) {
+      var mci = parseInt(me.getAttribute('data-ci'), 10);
+      if (P.plan.courses[mci] && !isWork(P.plan.courses[mci])) {
+        delete P.memoOpen[mci];
+        P.focus = '[data-act="memoopen"][data-ci="' + mci + '"]';
+        render();
+        return;
+      }
+    }
     if (e.key === 'Escape' && checkedPeople().length) { P.pp = {}; render(); }
   });
 
@@ -693,6 +718,7 @@
   function take(j) {
     P.data = j;
     P.plan = JSON.parse(JSON.stringify(j.plan));
+    P.memoOpen = {};
     P.canEdit = !!j.can_edit;
     P.names = {}; P.byNo = {};
     j.people.forEach(function (p) { P.names[p.code] = p.name; });
