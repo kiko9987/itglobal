@@ -325,7 +325,7 @@
       g += workedChips(s, 'div');
       if (mode === 'self' && !s.mine) g += isFull(s) ? '<div class="gw-so-plus" aria-hidden="true">쉬는 사람이 다 찼어요</div>'
         : '<div class="gw-so-plus" aria-hidden="true">+ 내 이름</div>';
-      if (mode === 'pick') g += '<div class="gw-so-plus" aria-hidden="true">+ 고르기</div>';
+      // '+ 고르기'는 뺐다 — 점선 테두리·위 안내 줄과 겹침(11-25 부장님). 직원용 '+ 내 이름'·'+ 바꿔 쉬기'는 눌렀을 때 일을 알려 줘 남김
       if (mode === 'draft' && !s.mine && !inDraft(draft.add, di)) g += '<div class="gw-so-plus" aria-hidden="true">+ 바꿔 쉬기</div>';
       g += '</div>';
     }
