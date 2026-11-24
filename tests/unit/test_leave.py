@@ -461,3 +461,29 @@ def test_approver_card_retries_then_alerts(db, monkeypatch, caplog):
     with caplog.at_level(logging.WARNING):
         assert sl._send_card(None, row, 'UJW', 'approver') is False
     assert any(r.levelno == logging.ERROR for r in caplog.records)
+
+
+def test_missing_approver_card_resent_later(slack, monkeypatch):
+    """세 번 해 봐도 못 보낸 승인 카드는 10분 점검이 다시 보낸다 — 슬랙이 몇 분 이상 안 되면
+    신청이 승인 대기로 멈췄음(11-24 조용한 실패 점검 추가분)."""
+    from datetime import datetime, timedelta
+    sl, c = slack
+    monkeypatch.setattr(sl, '_CARD_RETRY_WAIT', (0, 0))
+    _seed(left=3)
+    real = c.chat_postMessage
+
+    def flaky(channel, text, blocks=None):
+        if channel == f'D-{JW}':
+            raise RuntimeError('ratelimited')
+        return real(channel, text, blocks)
+    monkeypatch.setattr(c, 'chat_postMessage', flaky)
+    r = lv.create('박민우', MW, MW, '박민우', lv.SICK, '', date(2026, 11, 9), date(2026, 11, 9), '병원 진료')
+    sl.start(r)
+    assert [p[0] for p in c.posts] == [f'D-{MW}']                     # 승인자 카드는 안 감
+    later = datetime.now() + timedelta(minutes=5)
+    assert sl.resend_missing_cards(later) == 0                         # 슬랙이 아직 안 되면 다음 점검에
+    monkeypatch.setattr(c, 'chat_postMessage', real)
+    assert sl.resend_missing_cards(datetime.now()) == 0               # 막 신청한 건(2분 안)은 건너뜀
+    assert sl.resend_missing_cards(later) == 1
+    assert c.posts[-1][0] == f'D-{JW}' and _buttons(c.posts[-1][2]) == [lv.A_APPROVE, lv.A_REJECT]
+    assert sl.resend_missing_cards(later) == 0                         # 한 번만

@@ -645,6 +645,17 @@ def get(rid: int) -> Optional[dict]:
         return _row(conn, rid)
 
 
+def waiting_requests(settled_before: str = '') -> List[dict]:
+    """승인 대기(1차·2차) 신청 — 승인 카드가 빠진 것 다시 보내기 점검용(11-24 조용한 실패 점검).
+    settled_before('YYYY-MM-DD HH:MM:SS')를 주면 그 전에 마지막으로 바뀐 것만(막 신청·승인된 건 보내는 중일 수 있음)."""
+    q, args = 'SELECT * FROM leave_requests WHERE status IN (?,?)', [WAIT_1, WAIT_2]
+    if settled_before:
+        q += ' AND updated_at < ?'
+        args.append(settled_before)
+    with _conn() as conn:
+        return [dict(r) for r in conn.execute(q + ' ORDER BY id', args).fetchall()]
+
+
 def steps(rid: int) -> List[dict]:
     with _conn() as conn:
         return [dict(r) for r in conn.execute(

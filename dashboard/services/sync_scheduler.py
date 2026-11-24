@@ -578,6 +578,10 @@ def start_scheduler():
             replace_existing=True,
         )
         jobs.append('연차 사용 촉진 매일 08:10')
+        # 휴가 승인 카드 빠진 것 다시 보내기(11-24 조용한 실패 점검) — 슬랙이 실패하면 신청이 승인 대기로 멈췄음
+        _scheduler.add_job(_safe_leave_card_check, 'interval', minutes=10, id='leave_card_check',
+                           replace_existing=True)
+        jobs.append('휴가 승인 카드 빠진 것 다시 보내기 10분')
     # 2026-11-20 입사·퇴사 할 일(플렉스 「할 일」 대체) — 인사카드 맞추기 + 평일 기한 다가온 일 경영지원 DM
     if os.getenv('SLACK_EAPPROVAL_BOT_TOKEN', '').strip():
         _scheduler.add_job(_safe_hr_tasks, 'cron', hour=9, minute=0, id='hr_tasks_daily', replace_existing=True)
@@ -1187,6 +1191,17 @@ def _safe_leave_accrual():
             logger.info(f'[SCHED] 연차 자동 발생 {n}줄')
     except Exception as exc:
         logger.error(f'[SCHED] 연차 자동 발생 실패: {exc}', exc_info=True)
+
+
+def _safe_leave_card_check():
+    """휴가 승인 카드 빠진 것 다시 보내기 (10분마다)."""
+    try:
+        from dashboard.blueprints.slack_leave import resend_missing_cards
+        n = resend_missing_cards()
+        if n:
+            logger.info(f'[SCHED] 휴가 승인 카드 다시 보냄 {n}장')
+    except Exception as exc:
+        logger.error(f'[SCHED] 휴가 승인 카드 점검 실패: {exc}', exc_info=True)
 
 
 def _safe_leave_promotion():

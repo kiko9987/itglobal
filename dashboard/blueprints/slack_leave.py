@@ -231,6 +231,25 @@ def _send_card(client, row: dict, uid: str, role: str) -> bool:
     return False
 
 
+def resend_missing_cards(now=None) -> int:
+    """승인 대기인데 지금 차례인 승인자(대결자 포함)에게 승인 카드가 없는 신청 → 다시 보냄(10분마다, 11-24 추가분).
+    _send_card 는 7초 안에 세 번만 해 보므로, 슬랙이 몇 분 이상 안 되면 신청이 승인 대기로 멈췄다.
+    막 신청·승인된 건(2분 안)은 처음 보내는 중일 수 있어 건너뜀. 돌려주는 값: 보낸 카드 수."""
+    from datetime import datetime, timedelta
+    client = _client()
+    if not client:
+        return 0
+    now = now or datetime.now()
+    n = 0
+    for row in lv.waiting_requests((now - timedelta(minutes=2)).strftime('%Y-%m-%d %H:%M:%S')):
+        sent = {(r['user'], r['role']) for r in lv.dm_refs(row)}
+        for uid in dict.fromkeys(u for u in (lv.current_approver(row), lv.acting_delegate(row)) if u):
+            if (uid, 'approver') not in sent and _send_card(client, row, uid, 'approver'):
+                n += 1
+                logger.info(f'{_LOG} 빠졌던 승인 카드 다시 보냄 (#{row["id"]} → {uid})')
+    return n
+
+
 def _refresh(client, row: dict) -> None:
     """보낸 카드 전부 지금 상태로. 승인 카드는 그 사람이 지금 승인할 차례일 때만 버튼."""
     can = set(lv.actors(row))              # 차례인 승인자 + 대결자(휴가 중일 때, 11-20)
