@@ -578,7 +578,7 @@
   }
   // 차 목록 위 한 줄 — 안내 글 ↔ '레이 5358 → [코스에 넣기]' 가 같은 자리(방문 일정 사람 칸과 같게)
   function carBar(gs) {
-    if (!S.canEdit) return '누가 어느 차를 타는지 보기만 해요.';
+    if (!S.canEdit) return '누가 어느 차를 타는지 참고만 해요.';
     var c = S.pick ? carOf(S.pick) : null;
     if (!c) return '<span class="gw-vp-how">차를 체크한 뒤 코스를 ' + (TOUCH ? '고르세요.' : '고르거나 드래그하세요.') + '</span>'   // 11-24 부장님 문구;
     if (ridersOf(c).length) {         // 나눠 쓰기 — '쏘렌토 8021 [오후 ▾] → [코스에 넣기 ▾]'

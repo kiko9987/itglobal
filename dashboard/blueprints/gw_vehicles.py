@@ -315,7 +315,7 @@ def api_assign_get():
 @gw_page
 def api_assign_save():
     if not _can_assign():
-        return jsonify({'success': False, 'message': '차량 배정은 관리자만 고칠 수 있어요.'}), 403
+        return jsonify({'success': False, 'message': '차량 배정은 관리자만 수정할 수 있어요.'}), 403
     body = request.get_json(silent=True) or {}
     day = (body.get('day') or '').strip()
     # base = 화면이 불러올 때 받은 그날 판. 안 보낸 옛 화면(재시작 직후 열려 있던 것)은 예전처럼 저장(11-24 조용한 실패 점검 17번)
@@ -340,7 +340,7 @@ def api_assign_save():
 def api_assign_resend():
     """못 받은 사람에게 배정 DM 다시 보내기(11-24 조용한 실패 점검 추가분)."""
     if not _can_assign():
-        return jsonify({'success': False, 'message': '차량 배정은 관리자만 고칠 수 있어요.'}), 403
+        return jsonify({'success': False, 'message': '차량 배정은 관리자만 수정할 수 있어요.'}), 403
     body = request.get_json(silent=True) or {}
     day = (body.get('day') or '').strip()
     codes = [str(c)[:20] for c in (body.get('codes') or []) if c][:50]
@@ -422,7 +422,7 @@ def _plan_body():
 @gw_page
 def api_plan_save():
     if not _can_plan():
-        return jsonify({'success': False, 'message': '방문 일정은 관리자만 고칠 수 있어요.'}), 403
+        return jsonify({'success': False, 'message': '방문 일정은 관리자만 수정할 수 있어요.'}), 403
     day, plan = _plan_body()
     try:
         leads = _plan_leads()
@@ -511,7 +511,7 @@ def api_trip_end():
 @gw_page
 def api_fleet_update(plate):
     if not _can_assign():
-        return jsonify({'success': False, 'message': '차량 설정은 관리자만 고칠 수 있어요.'}), 403
+        return jsonify({'success': False, 'message': '차량 설정은 관리자만 수정할 수 있어요.'}), 403
     try:
         car = va.update_car(plate, request.get_json(silent=True) or {}, _me())
     except ValueError as e:

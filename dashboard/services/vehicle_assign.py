@@ -100,8 +100,9 @@ _table_ready = False
 #   저녁 운전자 묻기는 따로 vehicle_driver.DRIVER_ASK_ON(운행일지가 아직 개발 중이라 꺼 둠).
 CAR_DM_ON: bool = True
 
-# 빈승정 대리 + JW(11-24 부장님 — 방문 일정을 확정하고 바로 차량 배정 탭에서 차를 넣음). 인사 관리자는 따로 늘 가능
-_DEFAULT_ASSIGNERS = ('sj@itg-aircon.com', 'jw@itg-aircon.com')
+# '차량 배정해 주세요'·'코스가 바뀌었어요' DM 받을 사람 — JW 만(11-25 부장님: 수정은 관리자만, SJ 에게 가던 DM 없앰).
+# 고치기 권한과는 별개(can_assign = 관리자). 명단에 있어도 관리자가 아니면 DM 안 감(_dm_assigners)
+_DEFAULT_ASSIGNERS = ('jw@itg-aircon.com',)
 
 
 def _db():

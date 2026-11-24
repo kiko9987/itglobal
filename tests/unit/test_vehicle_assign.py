@@ -504,7 +504,7 @@ def test_request_skipped_when_confirmer_assigns(db, monkeypatch):
     monkeypatch.setattr(gw, 'DEV_PREVIEW_USERS', ())
     sent = []
     monkeypatch.setattr(va, '_dm', lambda sid, text: sent.append(sid) or True)
-    assert set(va._DEFAULT_ASSIGNERS) == {'jw@itg-aircon.com', 'sj@itg-aircon.com'}     # 기본 배정 담당 = SJ + JW
+    assert set(va._DEFAULT_ASSIGNERS) == {'jw@itg-aircon.com'}     # 배정 DM 받는 사람 = JW 만(11-25 부장님: SJ 에게 가던 DM 없앰)
     monkeypatch.setattr(va, 'assigners', lambda: ['sj@example.com', 'jw@example.com'])
     assert va.request_assignment('2026-11-26', 'JW@example.com') == 0 and sent == []      # JW 가 확정 → 안 보냄
 
