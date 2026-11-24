@@ -288,10 +288,28 @@ def _visit_day(v) -> str:
         return ''
 
 
+_MAX_SPAN_DAYS = 31     # 기간 방문을 날마다 펼치는 한도 — 끝 날짜 오기('2026-01-02~12-30')로 1년치가 생기지 않게
+
+
+def _visit_days(v) -> List[str]:
+    """방문 예정일 → 걸친 날들. '2026-11-24~26' 같은 기간은 날마다(11-24 부장님: 첫날에만 세어
+    25일 코스·차 없음 경고에서 '하루종일 현장관리'가 빠지던 것). 기간 해석은 일정 목록(day_schedule)과 같은 함수.
+    끝이 시작보다 앞이거나 한도를 넘으면 첫날만."""
+    first = _visit_day(v)
+    if not first:
+        return []
+    from dashboard.services.visit_assignment_sync import _parse_visit_date_end
+    st = date.fromisoformat(first)
+    en = _parse_visit_date_end(v)
+    if not en or en <= st or (en - st).days > _MAX_SPAN_DAYS:
+        return [first]
+    return [(st + timedelta(days=i)).isoformat() for i in range((en - st).days + 1)]
+
+
 def _visit_leads(leads: Iterable[dict], start: str, end: str):
     for lead in leads:
-        day = _visit_day(lead.get('방문 예정일'))
-        if not day or not (start <= day <= end):
+        days = [d for d in _visit_days(lead.get('방문 예정일')) if start <= d <= end]
+        if not days:
             continue
         status = str(lead.get('상태') or '').strip()
         if any(w in status for w in _NOT_VISITED):
@@ -301,7 +319,8 @@ def _visit_leads(leads: Iterable[dict], start: str, end: str):
                if _HAS_NAME.search(w)]
         addr = str(lead.get('방문 주소') or '').strip()
         if who and area(addr)[0]:
-            yield day, lead, who, addr
+            for day in days:
+                yield day, lead, who, addr
 
 
 def place_label(ar: Tuple[str, str, str], addr: str = '') -> str:

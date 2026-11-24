@@ -168,6 +168,20 @@ def test_placeholder_manager_is_not_a_driver():
     assert [x['who'] for x in v] == [['김가람'], ['김가람']]     # '-' 만 있는 L-9 는 방문에서 빠짐
 
 
+def test_range_visit_counts_every_day():
+    """'2026-11-24~26' 같은 기간 방문은 걸친 날마다 센다(11-24 — 첫날에만 세어 25일 코스에서 빠지던 것)."""
+    leads = [_lead('ETC-1', '2026-11-24~26', '영등포구 영중로8길 14', '한바람', status='방문 예정'),
+             _lead('ETC-2', '2026-11-29~12-02', '부천 길주로 1', '오가온', status='방문 예정'),   # 달을 넘는 기간
+             _lead('ETC-3', '2026-11-24~20', '부천 길주로 2', '유하늘', status='방문 예정'),     # 끝이 앞 → 첫날만
+             _lead('ETC-4', '2026-01-02~12-30', '부천 길주로 3', '진새봄', status='방문 예정')]  # 너무 긴 기간 → 첫날만
+    v = vl.visits_by_day(leads, '2026-11-01', '2026-11-30')
+    assert [d for d in sorted(v) if any(x['lead_no'] == 'ETC-1' for x in v[d])] == ['2026-11-24', '2026-11-25', '2026-11-26']
+    assert [d for d in sorted(v) if any(x['lead_no'] == 'ETC-2' for x in v[d])] == ['2026-11-29', '2026-11-30']   # 기간 밖은 자름
+    assert [d for d in sorted(v) if any(x['lead_no'] == 'ETC-3' for x in v[d])] == ['2026-11-24']
+    assert vl._visit_days('2026-01-02~12-30') == ['2026-01-02']
+    assert vl._visit_days('2026-11-25') == ['2026-11-25'] and vl._visit_days('') == []
+
+
 def test_lookup_dong_uses_juso_jibun(monkeypatch):
     from dashboard.services import address_resolver as ar
     seen = []
