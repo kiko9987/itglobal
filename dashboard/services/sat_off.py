@@ -273,7 +273,7 @@ def set_full_off(day: Optional[date], on: bool, actor_name: str, note: str = '')
     if not day or day.weekday() != 5:
         raise SatOffError('토요일만 고를 수 있어요.')
     if holiday_name(day):
-        raise SatOffError(f'{kday(day)}은 공휴일({holiday_name(day)})이라 이미 모두 쉬는 날이에요.')
+        raise SatOffError(f'{kday(day)}는 공휴일({holiday_name(day)})이라 이미 모두 쉬는 날이에요.')
     key, month = day.isoformat(), _month_of(day)
     note = (note or '').strip()[:100]
     now = _now()
@@ -292,7 +292,7 @@ def set_full_off(day: Optional[date], on: bool, actor_name: str, note: str = '')
             _log(conn, actor_name, 'full_off', month, f'{kday(day)} 전체 휴무로 지정 — {n}명 넣음' + (f' ({note})' if note else ''))
         else:
             if not conn.execute('SELECT 1 FROM sat_off_full WHERE day=?', (key,)).fetchone():
-                raise SatOffError(f'{kday(day)}은 전체 휴무가 아니에요. 새로 고쳐 주세요.')
+                raise SatOffError(f'{kday(day)}는 전체 휴무가 아니에요. 새로 고쳐 주세요.')
             conn.execute('DELETE FROM sat_off_full WHERE day=?', (key,))
             n = conn.execute('DELETE FROM sat_off_days WHERE day=? AND added_by=?', (key, FULL_TAG)).rowcount
             _log(conn, actor_name, 'full_off_undo', month, f'{kday(day)} 전체 휴무 풂 — {n}명 뺌')
@@ -450,7 +450,7 @@ def write_memo(day: Optional[date], target: str, kind: str, reason: str, sid: st
                 toggle(day, target, True, sid, actor_name, today=today, admin=admin)
                 picked = True
             except SatOffError as e:          # 절반이 찼음 — 메모는 남고, 보고 양보해 주면 넣을 수 있게
-                warn = f'{e} 메모는 남겼어요. 다른 분이 보고 양보하면 그때 이름을 넣어 주세요.'
+                warn = f'{e} 다른 분이 보고 양보하면 그때 이름을 넣어 주세요.'
         elif st == CONFIRMED:
             warn = '확정된 달이라 이름은 넣지 않았어요. 쉬려면 [변경 신청]을 해 주세요.'
         else:
@@ -550,7 +550,7 @@ def _check_day(d: Optional[date], today: date, approver: bool) -> str:
     if d.weekday() != 5:
         raise SatOffError('토요일만 고를 수 있어요.')
     if holiday_name(d):
-        raise SatOffError(f'{kday(d)}은 공휴일({holiday_name(d)})이라 모두 쉬는 날이에요.')
+        raise SatOffError(f'{kday(d)}는 공휴일({holiday_name(d)})이라 모두 쉬는 날이에요.')
     month = _month_of(d)
     if not approver:
         if d < today:
@@ -573,7 +573,7 @@ def _over_cap(conn, month: str, day_iso: str, approver: bool) -> str:
     cap = max_off(month)
     if n <= cap:
         return ''
-    msg = f'{kday(lv._d(day_iso))}은 쉬는 사람이 {n}명이 돼요. 한 토요일에 절반({cap}명)까지만 쉴 수 있어요.'
+    msg = f'{kday(lv._d(day_iso))}는 쉬는 사람이 {n}명이 돼요. 한 토요일에 절반({cap}명)까지만 쉴 수 있어요.'
     if approver:
         return msg[:-len('쉴 수 있어요.')] + '쉬는 게 기준이에요(승인권자·관리자라 그대로 저장했어요).'
     raise SatOffError(msg)
@@ -627,7 +627,7 @@ def mark_worked(day: Optional[date], target: str, verbal_by: str, reason: str, s
     if not day or day.weekday() != 5:
         raise SatOffError('토요일만 고를 수 있어요.')
     if holiday_name(day):
-        raise SatOffError(f'{kday(day)}은 공휴일({holiday_name(day)})이라 모두 쉬는 날이에요.')
+        raise SatOffError(f'{kday(day)}는 공휴일({holiday_name(day)})이라 모두 쉬는 날이에요.')
     if day < today - timedelta(days=WORKED_BACK_DAYS) and not r['approver']:
         raise SatOffError('한 달보다 지난 토요일은 승인권자께 고쳐 달라고 말씀해 주세요.')
     month = _month_of(day)
@@ -651,7 +651,7 @@ def mark_worked(day: Optional[date], target: str, verbal_by: str, reason: str, s
     with lv._conn() as conn:
         cur = conn.execute('DELETE FROM sat_off_days WHERE day=? AND name=?', (key, target))
         if cur.rowcount != 1:
-            raise SatOffError(f'{kday(day)}은 {target} 님이 쉬는 날이 아니에요. 새로 고쳐 주세요.')
+            raise SatOffError(f'{kday(day)}는 {target} 님이 쉬는 날이 아니에요. 새로 고쳐 주세요.')
         conn.execute('INSERT OR REPLACE INTO sat_off_worked (day, name, slack_id, verbal_by, reason, recorded_by, '
                      'recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
                      (key, target, m['slack_id'], verbal_by, reason, actor_name, _now()))
@@ -742,14 +742,14 @@ def _check_change(month: str, name: str, add: List[str], remove: List[str], toda
     for x in add:
         _check_day(lv._d(x), today, approver)
         if name in p.get(x, []):
-            raise SatOffError(f'{kday(lv._d(x))}은 이미 쉬는 날이에요.')
+            raise SatOffError(f'{kday(lv._d(x))}는 이미 쉬는 날이에요.')
         if not approver and len(p.get(x, [])) + 1 > cap:     # 한 토요일 절반 제한(11-25) — 승인권자만 예외
-            raise SatOffError(f'{kday(lv._d(x))}은 이미 {len(p.get(x, []))}명이 쉬어요. '
+            raise SatOffError(f'{kday(lv._d(x))}는 이미 {len(p.get(x, []))}명이 쉬어요. '
                               f'한 토요일에 절반({cap}명)까지만 쉴 수 있어요.')
     for x in remove:
         _check_day(lv._d(x), today, approver)
         if name not in p.get(x, []):
-            raise SatOffError(f'{kday(lv._d(x))}은 쉬는 날이 아니에요.')
+            raise SatOffError(f'{kday(lv._d(x))}는 쉬는 날이 아니에요.')
 
 
 def _apply(conn, month: str, name: str, slack_id: str, add: List[str], remove: List[str], actor: str) -> None:
