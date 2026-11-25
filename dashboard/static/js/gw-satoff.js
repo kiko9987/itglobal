@@ -136,9 +136,24 @@
       } else {
         h += '<p class="gw-so-how">아직 고를 수 없는 달이에요.</p>';
       }
-      if (d.can_submit) acts = '<button type="button" class="btn btn-primary btn-sm" data-act="submit">결재 올리기</button>';
+      // 선택 완료(11-25 부장님) — 각자 다 고른 뒤 누름. 모두 누르면 자동으로 결재가 올라감. 서버가 재시작 전이면 can_done 없음
+      if (d.can_done) {
+        var mon = cur.m + '월';
+        if (d.my_done) {
+          h += '<p class="gw-so-how gw-so-done-note"><i class="fas fa-circle-check" aria-hidden="true"></i> ' + mon +
+            ' 휴무 선택을 완료했어요. 결재가 올라가기 전까지는 고칠 수 있어요.</p>';
+          acts = '<button type="button" class="btn btn-outline-secondary btn-sm" data-act="undone">다시 선택</button>';
+        } else {
+          h += '<p class="gw-so-how">' + mon + ' 휴무를 다 고른 뒤 [선택 완료]를 눌러 주세요. 쉬는 날이 없어도 눌러 주세요. ' +
+            '모두 완료하면 결재가 자동으로 올라가요.</p>';
+          acts = '<button type="button" class="btn btn-primary btn-sm" data-act="done">선택 완료</button>';
+        }
+      }
+      // 취합 담당 — 모두 완료를 기다리지 않고 올릴 때(비상용)
+      if (d.can_submit) acts += '<button type="button" class="btn ' + (d.can_done ? 'btn-outline-secondary' : 'btn-primary') + ' btn-sm" data-act="submit">결재 올리기</button>';
     } else if (d.status === 'wait') {
-      h += '<p class="gw-so-how">' + esc(d.submitted_by) + ' 님이 결재를 올렸어요(' + esc((d.submitted_at || '').slice(5, 16)) +
+      h += '<p class="gw-so-how">' + (d.submitted_by === d.auto_submitter ? '대상자 모두 선택을 완료해 자동으로 결재가 올라갔어요('
+        : esc(d.submitted_by) + ' 님이 결재를 올렸어요(') + esc((d.submitted_at || '').slice(5, 16)) +
         '). 승인권자 중 한 분이 승인하면 확정돼요.</p>';
       if (d.can_decide) {
         acts = '<button type="button" class="btn btn-outline-secondary btn-sm" data-act="return">돌려보내기</button>' +
@@ -509,16 +524,20 @@
       var mem = d.members || [], pc = pickCounts(d), miss = notPicked(d);
       var done = mem.filter(function (m) { return pc[m.name]; });
       var open = d.status === 'open';
+      if (open && d.done) {                // 선택 완료(11-25) — 누른 사람이 '선택 완료', 안 누른 사람이 '미선택'
+        done = mem.filter(function (m) { return d.done.indexOf(m.name) !== -1; });
+        miss = mem.filter(function (m) { return d.done.indexOf(m.name) === -1; }).map(function (m) { return m.name; });
+      }
       var chip = function (n, extra, cls) {
         return '<li class="' + cls + (n === me.name ? ' mine' : '') + '">' + esc(n) + (extra ? ' <b>' + extra + '</b>' : '') + '</li>';
       };
       pickBox.hidden = !mem.length;
-      pickBox.innerHTML = '<h3 class="gw-so-h">휴무 선택 현황 <small>' + done.length + '/' + mem.length + '명 선택</small></h3>' +
+      pickBox.innerHTML = '<h3 class="gw-so-h">휴무 선택 현황 <small>' + done.length + '/' + mem.length + '명 선택' + (open && d.done ? ' 완료' : '') + '</small></h3>' +
         '<div class="gw-so-pslabel">' + (open ? '미선택' : '휴무 없음') + ' ' + miss.length + '명</div>' +
         (miss.length ? '<ul class="gw-so-pslist">' + miss.map(function (n) { return chip(n, '', 'miss'); }).join('') + '</ul>'
           : '<p class="gw-so-none">' + (open ? '모두 선택했어요.' : '모두 휴무가 있어요.') + '</p>') +
         (done.length ? '<div class="gw-so-pslabel">선택 완료 ' + done.length + '명</div><ul class="gw-so-pslist">' +
-          done.map(function (m) { return chip(m.name, pc[m.name] + '번', 'ok'); }).join('') + '</ul>' : '');
+          done.map(function (m) { return chip(m.name, pc[m.name] ? pc[m.name] + '번' : '휴무 없음', 'ok'); }).join('') + '</ul>' : '');
     }
 
     // 휴무 메모 — 서버가 재시작 전이면(memos 없음) 숨김
@@ -869,11 +888,22 @@
     var act = b.getAttribute('data-act');
     var k = data.month;
     var title = cur.y + '년 ' + cur.m + '월';
+    if (act === 'done' || act === 'undone') {
+      b.disabled = true;
+      api('/api/satoff/done', { method: 'POST', body: { month: k, on: act === 'done' } }).then(function (j) {
+        if (act === 'undone') flash(cur.m + '월 휴무를 다시 선택할 수 있어요. 다 고른 뒤 [선택 완료]를 눌러 주세요.', 'ok');
+        else if (j.submitted) { flash('대상자 모두 선택을 완료해 결재를 올렸어요. 승인권자께 슬랙 알림이 가요.', 'ok'); watchNotify(k); }
+        else flash(cur.m + '월 휴무 선택을 완료했어요.' + ((j.left || []).length ? ' 아직 ' + j.left.length + '명이 남았어요.' : ''), 'ok');
+        return load();
+      }).catch(function (e) { flash(e.message, 'err'); b.disabled = false; });
+      return;
+    }
     if (act === 'submit') {
-      // 아직 안 고른 사람이 있으면 이름을 함께 묻는다(11-25 부장님 — 빠진 채 올라가지 않게)
-      var miss = notPicked(data);
+      // 아직 선택 완료하지 않은 사람이 있으면 이름을 함께 묻는다(11-25 부장님 — 빠진 채 올라가지 않게)
+      var miss = data.done ? (data.members || []).map(function (m) { return m.name; }).filter(function (n) { return data.done.indexOf(n) === -1; })
+        : notPicked(data);
       if (!window.confirm(title + ' 스케줄 근무표를 결재에 올릴까요? 올린 뒤에는 승인권자만 고칠 수 있어요.' +
-        (miss.length ? '\n\n아직 휴무를 선택하지 않은 사람 ' + miss.length + '명: ' + miss.join(', ') : ''))) return;
+        (miss.length ? '\n\n아직 선택 완료하지 않은 사람 ' + miss.length + '명: ' + miss.join(', ') : ''))) return;
       b.disabled = true;
       // 슬랙 알림은 뒤에서 따로 나가 결과를 여기서 알 수 없다 → '보냈어요'라고 단정하지 않는다(11-21 점검).
       // 못 보냈으면 서버가 기록에 남기고, watchNotify 가 잠시 뒤 다시 읽어 알려 준다(11-24 조용한 실패 점검)

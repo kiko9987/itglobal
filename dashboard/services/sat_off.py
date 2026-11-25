@@ -105,6 +105,13 @@ DDL = [
         written_at TEXT,
         PRIMARY KEY (month, day, name)
     )''',
+    # 선택 완료(11-25 부장님) — 대상자가 그달 휴무를 다 고른 뒤 [선택 완료]. 모두 누르면 자동으로 결재가 올라감
+    '''CREATE TABLE IF NOT EXISTS sat_off_done (
+        month TEXT NOT NULL,
+        name TEXT NOT NULL,
+        done_at TEXT,
+        PRIMARY KEY (month, name)
+    )''',
     '''CREATE TABLE IF NOT EXISTS sat_off_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         at TEXT NOT NULL,
@@ -500,6 +507,7 @@ def view(month: str, sid: str, name: str, today: Optional[date] = None, admin: b
     show_all = edit or r['manager']
     my_wait = any(c['status'] == CH_WAIT and c['name'] == name for c in changes)   # 대기 중이면 새 신청은 그 뒤에
     mm = memos(month)
+    dn = done_names(month)
     return {
         'month': month, 'status': st, 'status_label': STATUS_LABELS[st],
         'submitted_by': row.get('submitted_by') or '', 'submitted_at': row.get('submitted_at') or '',
@@ -525,6 +533,9 @@ def view(month: str, sid: str, name: str, today: Optional[date] = None, admin: b
         'notify_fail': notify_fail(month),       # 마지막 처리의 슬랙 알림을 못 보냈으면 그 문구(11-24)
         # 휴무 메모(11-25) — 모두 봄. 쓰기·지우기 = 로그인한 본인(대상자)만. 공통 메모는 없앰(부장님)
         'memos': mm['items'],
+        # 선택 완료(11-25) — 모두 누르면 자동 결재. 취합 담당의 [결재 올리기]는 비상용
+        'done': dn, 'my_done': name in dn, 'can_done': st == OPEN and in_range and r['member'],
+        'auto_submitter': AUTO_SUBMITTER,
         'can_memo': in_range and r['member'],          # 본인만(11-25 부장님 — 대신 적기 없음)
         'can_memo_others': False,
     }
@@ -679,17 +690,59 @@ def undo_worked(day: Optional[date], target: str, sid: str, actor_name: str) -> 
     return {'day': key, 'name': target, 'warn': warn}
 
 
+AUTO_SUBMITTER = '모두 선택 완료'      # 자동으로 올라간 결재의 '올린 사람'(11-25)
+
+
+def done_names(month: str) -> List[str]:
+    """그달 [선택 완료]를 누른 대상자 이름(이름순)."""
+    with lv._conn() as conn:
+        return [r[0] for r in conn.execute('SELECT name FROM sat_off_done WHERE month=? ORDER BY name', (month,))]
+
+
+def mark_done(month: str, sid: str, actor_name: str, on: bool = True, today: Optional[date] = None) -> dict:
+    """본인 [선택 완료](on)·[다시 선택](off) — 작성 중인 달만. 대상자가 모두 완료하면 자동으로 결재를 올린다.
+    반환 {done, submitted, left: [아직인 이름]}."""
+    today = today or date.today()
+    r = role(sid, actor_name, _first(month))
+    if not r['member']:
+        raise PermissionError('스케줄 근무 대상(기술영업)만 선택 완료를 누를 수 있어요.')
+    if not (_month_of(today) <= month <= editable_until(today)):
+        raise SatOffError('지금은 선택할 수 없는 달이에요.')
+    if month_row(month)['status'] != OPEN:
+        raise SatOffError('이미 결재가 올라간 달이에요. 바꾸려면 [변경 신청]을 해 주세요.')
+    with lv._conn() as conn:
+        if on:
+            conn.execute('INSERT OR IGNORE INTO sat_off_done (month, name, done_at) VALUES (?, ?, ?)', (month, actor_name, _now()))
+        else:
+            conn.execute('DELETE FROM sat_off_done WHERE month=? AND name=?', (month, actor_name))
+        _log(conn, actor_name, 'done', month, '선택 완료' if on else '선택 완료 취소(다시 선택)')
+    done = set(done_names(month))
+    left = [m['name'] for m in members(_first(month)) if m['name'] not in done]
+    submitted = False
+    if on and not left:
+        try:
+            _do_submit(month, AUTO_SUBMITTER, today, allow_empty=True)
+            submitted = True
+        except SatOffError as e:              # 그사이 누가 올렸으면 그대로
+            logger.info(f'{_LOG} {month} 자동 결재 건너뜀: {e}')
+    return {'done': on, 'submitted': submitted, 'left': left}
+
+
 def submit(month: str, sid: str, actor_name: str, today: Optional[date] = None) -> dict:
-    """작성 중 → 결재 대기."""
+    """작성 중 → 결재 대기(취합 담당이 직접 — 모두 완료를 기다리지 않을 때)."""
     today = today or date.today()
     if not role(sid, actor_name)['manager']:
         raise PermissionError('결재는 취합 담당(빈승정 대리)이 올려요.')
+    return _do_submit(month, actor_name, today)
+
+
+def _do_submit(month: str, actor_name: str, today: date, allow_empty: bool = False) -> dict:
     row = month_row(month)
     if row['status'] != OPEN:
         raise SatOffError(f"이미 {STATUS_LABELS[row['status']]}인 달이에요.")
     if month < _month_of(today):
         raise SatOffError('지난 달은 결재를 올릴 수 없어요.')
-    if not any(picks(month).values()):
+    if not allow_empty and not any(picks(month).values()):
         raise SatOffError('아직 아무도 고르지 않았어요.')
     now = _now()
     with lv._conn() as conn:
@@ -697,7 +750,7 @@ def submit(month: str, sid: str, actor_name: str, today: Optional[date] = None) 
                      'ON CONFLICT(month) DO UPDATE SET status=excluded.status, submitted_by=excluded.submitted_by, '
                      'submitted_at=excluded.submitted_at, decided_by=NULL, decided_at=NULL, note=NULL',
                      (month, WAIT, actor_name, now))
-        _log(conn, actor_name, 'submit', month, '결재 올림')
+        _log(conn, actor_name, 'submit', month, '대상자 모두 선택 완료 — 자동으로 결재 올림' if actor_name == AUTO_SUBMITTER else '결재 올림')
     return month_row(month)
 
 
@@ -718,6 +771,8 @@ def decide(month: str, approve: bool, sid: str, actor_name: str, note: str = '')
         if cur.rowcount != 1:
             raise SatOffError('이미 다른 분이 처리했어요. 새로 고쳐 주세요.')
         _log(conn, actor_name, 'approve' if approve else 'return', month, note or ('승인' if approve else ''))
+        if not approve:                       # 돌려보냈으면 고친 뒤 다시 [선택 완료]를 받는다(11-25)
+            conn.execute('DELETE FROM sat_off_done WHERE month=?', (month,))
     return month_row(month)
 
 
@@ -996,7 +1051,8 @@ def notify(kind: str, month: str, actor: str, change: Optional[dict] = None, not
         t = _month_title(month)
         row = month_row(month)
         if kind == 'submit':
-            text = (f'📅 *{t} 스케줄 근무표* 결재 요청이 왔어요. ({actor} 님이 올림)\n'
+            who = '대상자 모두 선택을 완료해 자동으로 올라감' if actor == AUTO_SUBMITTER else f'{actor} 님이 올림'
+            text = (f'📅 *{t} 스케줄 근무표* 결재 요청이 왔어요. ({who})\n'
                     f'토요일에 쉬는 사람\n{schedule_text(month)}\n두 분 중 한 분이 승인하면 확정돼요.')
             _dm_some(client, approver_ids(), text, month, f'{t} 스케줄 근무표 결재 요청')
         elif kind in ('approve', 'return'):
@@ -1014,8 +1070,9 @@ def notify(kind: str, month: str, actor: str, change: Optional[dict] = None, not
                                                        f'휴가 관리에서 일수를 고쳐 주세요.\n{lines}', month,
                              f'{t} 휴가 일수 고칠 신청 {len(bad)}건')
             else:
+                to = list(dict.fromkeys(to + [m['slack_id'] for m in members(_first(month)) if m['slack_id']]))
                 _dm_some(client, to, f'↩️ {t} 스케줄 근무표를 {actor} 님이 돌려보냈어요.\n사유: {note}\n'
-                                     '고쳐서 다시 올려 주세요.', month, f'{t} 스케줄 근무표 돌려보냄')
+                                     '휴무를 고친 뒤 다시 [선택 완료]를 눌러 주세요.', month, f'{t} 스케줄 근무표 돌려보냄')
         elif kind == 'change_request' and change:
             text = (f"🔁 *{change['name']} 님 스케줄 근무 변경 신청* ({t})\n쉬는 토요일: {change['what']}\n"
                     f"사유: {change.get('reason') or ''}\n두 분 중 한 분이 승인하면 바뀌어요.")
@@ -1059,3 +1116,36 @@ def _safe(fn, kind: str, month: str) -> None:
         items, _fails.items = _fails.items, None
     if items:
         _record_fail(month, items)
+
+
+# ── 선택 완료 안 한 사람 알림(11-25) — 매달 SAT_OFF_REMIND_DAY 일(비면 끔)에 다음 달 기준 ───────────────
+def remind_day() -> int:
+    try:
+        d = int((os.getenv('SAT_OFF_REMIND_DAY') or '').strip())
+    except ValueError:
+        return 0
+    return d if 1 <= d <= 28 else 0
+
+
+def remind_not_done(today: Optional[date] = None, force_month: str = '') -> dict:
+    """오늘이 알림 날이면 다음 달 작성 중인 근무표에서 [선택 완료]를 안 누른 대상자에게 DM."""
+    today = today or date.today()
+    if not force_month and (not remind_day() or today.day != remind_day()):
+        return {'skipped': 'not_today'}
+    month = force_month or _add_months(_month_of(today), 1)
+    if month_row(month)['status'] != OPEN:
+        return {'skipped': 'not_open', 'month': month}
+    done = set(done_names(month))
+    left = [m for m in members(_first(month)) if m['name'] not in done]
+    if not left:
+        return {'month': month, 'sent': 0}
+    client = _client()
+    t = _month_title(month)
+    text = (f'📅 {t} 스케줄 근무 휴무 선택이 아직 완료되지 않았어요. '
+            f'그룹웨어 스케줄 근무에서 휴무를 고른 뒤 [선택 완료]를 눌러 주세요. 쉬는 날이 없어도 눌러 주세요.')
+    sent = sum(1 for m in left if _dm(client, m['slack_id'], text, month))
+    logger.info(f'{_LOG} {month} 선택 완료 알림 {sent}/{len(left)}명')
+    if left and not sent:
+        logger.error(f'{_LOG} {month} 선택 완료 알림을 아무에게도 못 보냄 — 직접 알려 주세요', extra={'force_alert': True})
+    return {'month': month, 'sent': sent, 'left': [m['name'] for m in left]}
+

@@ -71,3 +71,36 @@ def test_confirmed_month_and_validation(slack):
         so.write_memo(S12, '영업가', 'month', '여행', A, '영업가', TODAY)
     r = so.write_memo(S12, '영업나', so.MEMO_CANT, '현장', B, '영업나', TODAY)       # 확정된 달에도 메모는 적힘
     assert not r['picked'] and not r['warn']
+
+
+# ── 선택 완료 → 모두 완료하면 자동 결재(11-25 부장님) ─────────────────────────
+def test_done_by_everyone_auto_submits(slack):
+    so.toggle(S5, '영업가', True, A, '영업가', TODAY)
+    for sid, nm in ((A, '영업가'), (B, '영업나'), (C, '영업다')):
+        r = so.mark_done(DEC, sid, nm, True, TODAY)
+        assert not r['submitted'] and r['left']
+    v = so.view(DEC, B, '영업나', TODAY)
+    assert v['my_done'] and v['can_done'] and sorted(v['done']) == ['영업가', '영업나', '영업다']
+    r = so.mark_done(DEC, CO, '빈대리', True, TODAY)          # 마지막 한 명(쉬는 날 없어도)
+    assert r['submitted'] and r['left'] == []
+    row = so.month_row(DEC)
+    assert row['status'] == so.WAIT and row['submitted_by'] == so.AUTO_SUBMITTER
+    with pytest.raises(so.SatOffError, match='결재'):
+        so.mark_done(DEC, A, '영업가', False, TODAY)                          # 올라간 뒤엔 다시 선택 못 함
+    so.decide(DEC, False, JW, '박정우', '다시 조율')                           # 돌려보내면 선택 완료를 다시 받음
+    assert so.done_names(DEC) == [] and so.month_row(DEC)['status'] == so.OPEN
+
+
+def test_done_rules_and_reminder(slack, monkeypatch):
+    with pytest.raises(PermissionError):
+        so.mark_done(DEC, JW, '박정우', True, TODAY)                          # 대상자만
+    so.mark_done(DEC, A, '영업가', True, TODAY)
+    so.mark_done(DEC, A, '영업가', False, TODAY)                              # 다시 선택
+    assert so.done_names(DEC) == []
+    so.mark_done(DEC, A, '영업가', True, TODAY)
+    monkeypatch.delenv('SAT_OFF_REMIND_DAY', raising=False)
+    assert so.remind_not_done(date(2026, 11, 20)) == {'skipped': 'not_today'}   # 날짜를 안 정하면 꺼짐
+    monkeypatch.setenv('SAT_OFF_REMIND_DAY', '20')
+    r = so.remind_not_done(date(2026, 11, 20))
+    assert r['month'] == DEC and sorted(r['left']) == ['빈대리', '영업나', '영업다'] and r['sent'] == 3
+    assert any('선택 완료' in t for t in slack.to(B)) and not slack.to(A)

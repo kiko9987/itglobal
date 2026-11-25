@@ -134,6 +134,24 @@ def api_submit():
     return jsonify({'success': True})
 
 
+@gw_satoff_bp.route('/api/satoff/done', methods=['POST'])
+@gw_page
+def api_done():
+    """본인 [선택 완료](on)·[다시 선택](off, 11-25 부장님). 대상자 모두 완료면 자동 결재 + 승인권자 알림."""
+    body = request.get_json(silent=True) or {}
+    on = body.get('on', True) is not False
+    try:
+        name, sid = _actor()
+        m = _month(body.get('month'))
+        res = so.mark_done(m, sid, name, on)
+    except Exception as e:
+        return _err(e)
+    logger.info(f'[토요휴무] {m} {name} 선택 완료 {"누름" if on else "취소"}' + (' → 자동 결재' if res['submitted'] else ''))
+    if res['submitted']:
+        so.notify('submit', m, so.AUTO_SUBMITTER)
+    return jsonify({'success': True, **res})
+
+
 @gw_satoff_bp.route('/api/satoff/decide', methods=['POST'])
 @gw_page
 def api_decide():

@@ -268,6 +268,10 @@ def start_scheduler():
     )
     jobs.append('워크플로 전화 lead 10초')
 
+    # 스케줄 근무 선택 완료 알림(11-25) — 매일 09:20 확인, .env SAT_OFF_REMIND_DAY 일에만 다음 달 미완료자에게 DM(비면 끔)
+    _scheduler.add_job(_safe_satoff_remind, 'cron', hour=9, minute=20, id='satoff_done_remind', replace_existing=True)
+    jobs.append('스케줄 근무 선택 완료 알림 09:20')
+
     # 리드 캐시 미리 채우기(11-25) — 위 보정이 10초마다 시트 전체를 읽어 캐시가 늘 새것이었는데, 이제 번호 매길 행이
     #   있을 때만 읽으므로 캐시(1분)가 비면 화면 요청이 시트를 직접 읽게 된다. 만료가 가까우면 뒤에서 새로 채운다
     _scheduler.add_job(_safe_leads_cache_warm, 'interval', seconds=20, id='leads_cache_warm', replace_existing=True)
@@ -764,6 +768,14 @@ def _safe_karrot_sync():
         if not _is_transient_error(exc):
             _notify_admin('karrot_sync_fail',
                           f':warning: 당근 sync 실패 — `{exc}`. 로그 확인 필요.')
+
+
+def _safe_satoff_remind():
+    try:
+        from dashboard.services import sat_off
+        sat_off.remind_not_done()
+    except Exception as exc:
+        logger.error(f'[SCHED] 스케줄 근무 선택 완료 알림 실패: {exc}', exc_info=True)
 
 
 def _safe_leads_cache_warm():
