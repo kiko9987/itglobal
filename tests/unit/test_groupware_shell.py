@@ -70,7 +70,7 @@ def test_build_nav_active_and_admin_only():
     assert [i['label'] for i in nav['items'] if i['active']] == ['고객 리드']
 
     nav = gw.build_nav('/settlement/collected', 'super_admin')
-    assert nav['areas'][4]['active'] and [i['label'] for i in nav['items']] == ['월별 수금']
+    assert nav['areas'][4]['active'] and [i['label'] for i in nav['items']] == ['수금 정산']
     ap = gw.build_nav('/approval/archive', 'editor')
     assert ap['areas'][2]['active'] and [i['label'] for i in ap['items'] if i['active']] == ['플렉스 보관함']
     assert '시공 사례' in [i['label'] for i in gw.build_nav('/projects', 'admin')['items']]

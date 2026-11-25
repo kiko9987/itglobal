@@ -155,9 +155,9 @@
                         </a>
 
                         {% if session.user and session.user.permission_level in ['admin', 'super_admin'] %}
-                        <a href="/settlement/collected" class="btn btn-stats" title="정산용 월별 수금 완료 (전월 26일~당월 25일) · 엑셀 내려받기">
+                        <a href="/settlement/collected" class="btn btn-stats" title="수금 정산 — 정산 월(전월 26일~당월 25일) 수금 완료 · 엑셀 내려받기">
                             <i class="fas fa-file-invoice-dollar me-1" aria-hidden="true"></i>
-                            <span class="d-none d-sm-inline">월별 수금</span>
+                            <span class="d-none d-sm-inline">수금 정산</span>
                         </a>
                         {% endif %}
 
