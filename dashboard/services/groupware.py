@@ -196,7 +196,8 @@ AREAS = [
         # 재무(11-25 부장님 — '경영지원'에서 이름 바꿈, 앞으로 ERP 기능도 여기). 관리자만(화면·API 도 collected_report 가 막음)
         'key': 'support', 'label': '재무', 'icon': 'fas fa-coins',   # 동전(11-25 부장님 — 계산기·달러·원화 다 보고 동전이 제일 낫다)
         'items': [
-            {'href': '/settlement/collected', 'label': '수금 정산', 'icon': 'fas fa-file-invoice-dollar', 'admin': True}   # 11-25 '월별 수금'에서 바꿈,
+            {'href': '/settlement/collected', 'label': '수금 정산', 'icon': 'fas fa-file-invoice-dollar', 'admin': True},   # 11-25 '월별 수금'에서 바꿈,
+            {'href': '/finance/bank', 'label': '입출금', 'icon': 'fas fa-money-bill-transfer', 'admin': True},   # 은행 문자 장부·잔액(11-26)
         ],
     },
     {

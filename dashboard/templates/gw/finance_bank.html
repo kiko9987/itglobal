@@ -1,0 +1,66 @@
+{% extends "modern_base.html" %}
+
+{% block title %}입출금 - 아이티글로벌그룹{% endblock %}
+
+{% block additional_css %}
+<link rel="stylesheet" href="{{ gw_asset('css/gw-pages.css') }}">
+{% endblock %}
+
+{% block content %}
+{# 재무 > 입출금(11-26) — 은행 문자로 쌓이는 입출금 장부(잔액 포함, 관리자 전용). 규칙은 services/bank_ledger.py #}
+<div class="gw-page gw-fb" id="fbPage">
+  <div class="gw-page-head">
+    <h1 class="gw-page-title">입출금</h1>
+    <div class="gw-fb-head-acts">
+      <button type="button" class="btn btn-outline-secondary" id="fbBal" aria-controls="fbForm">잔액 맞추기</button>
+      <button type="button" class="btn btn-primary" id="fbAdd" aria-controls="fbForm"><i class="fas fa-plus" aria-hidden="true"></i> 직접 입력</button>
+    </div>
+  </div>
+  <p class="gw-note gw-fb-lead">기업 1011·하나 9012 등 문자가 오는 계좌는 자동으로 쌓여요. 문자가 안 오는 계좌는 [직접 입력]으로 넣고, 처음 한 번은 [잔액 맞추기]로 지금 잔액을 넣어 주세요.</p>
+
+  <div class="gw-lv-flash" id="fbFlash" role="status" aria-live="polite" tabindex="-1" hidden></div>
+
+  <section class="gw-panel gw-fb-accts" aria-labelledby="fbAcctH">
+    <h2 class="gw-panel-title" id="fbAcctH">계좌별 잔액 <span class="gw-panel-sub" id="fbAcctDay"></span></h2>
+    <div class="gw-fb-table-wrap"><table class="gw-fb-table gw-fb-acct-table" id="fbAccts"><tbody><tr><td class="gw-empty">불러오는 중…</td></tr></tbody></table></div>
+  </section>
+
+  <form class="gw-panel gw-fb-form" id="fbForm" novalidate hidden aria-labelledby="fbFormH"></form>
+
+  <div class="gw-fb-filters" role="search">
+    <div class="gw-fb-range" role="group" aria-label="기간">
+      <button type="button" class="gw-nt-chip" data-range="0">오늘</button>
+      <button type="button" class="gw-nt-chip" data-range="1">어제</button>
+      <button type="button" class="gw-nt-chip" data-range="7" aria-pressed="true">최근 7일</button>
+      <button type="button" class="gw-nt-chip" data-range="month">이번 달</button>
+      <label class="gw-fb-date"><span class="visually-hidden">시작 날짜</span><input type="date" class="form-control form-control-sm" id="fbStart"></label>
+      <span aria-hidden="true">–</span>
+      <label class="gw-fb-date"><span class="visually-hidden">끝 날짜</span><input type="date" class="form-control form-control-sm" id="fbEnd"></label>
+    </div>
+    <div class="gw-fb-more">
+      <label><span class="visually-hidden">계좌</span><select class="form-select form-select-sm" id="fbAcct"><option value="">모든 계좌</option></select></label>
+      <label><span class="visually-hidden">구분</span><select class="form-select form-select-sm" id="fbDir">
+        <option value="">입금·출금</option><option value="in">입금만</option><option value="out">출금만</option><option value="bal">잔액 맞추기</option></select></label>
+      <label class="form-check gw-fb-un"><input class="form-check-input" type="checkbox" id="fbUn"><span class="form-check-label">적요 없는 것만</span></label>
+      <label class="gw-nt-search"><span class="visually-hidden">찾기</span><i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+        <input type="search" class="form-control form-control-sm" id="fbQ" placeholder="상대방·적요·공사 코드" maxlength="40" autocomplete="off"></label>
+    </div>
+  </div>
+
+  <p class="gw-fb-sum" id="fbSum" aria-live="polite"></p>
+  <div class="gw-fb-table-wrap gw-panel gw-fb-list-wrap">
+    <table class="gw-fb-table gw-fb-list" id="fbList">
+      <thead><tr>
+        <th scope="col">일시</th><th scope="col">계좌</th><th scope="col">상대방</th>
+        <th scope="col" class="num">입금</th><th scope="col" class="num">출금</th><th scope="col" class="num">잔액</th>
+        <th scope="col">계정</th><th scope="col">적요</th><th scope="col"><span class="visually-hidden">고치기</span></th>
+      </tr></thead>
+      <tbody><tr><td colspan="9" class="gw-empty">불러오는 중…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block additional_js %}
+<script src="{{ gw_asset('js/gw-finance-bank.js') }}" defer></script>
+{% endblock %}

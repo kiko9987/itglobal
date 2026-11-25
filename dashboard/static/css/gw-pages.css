@@ -4272,3 +4272,55 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 }
 .gw-nt-body .gw-nt-slack { color: #4a154b; font-size: 1.05em; }   /* 슬랙 로고(:slack:) — 슬랙 보라 */
 .gw-nt-body svg.gw-nt-slack { width: 1em; height: 1em; vertical-align: -0.12em; }   /* 4색 슬랙 로고(11-25) */
+
+/* ── 재무 > 입출금(11-26) ───────────────────────────────────────────── */
+.gw-fb .gw-page-head { flex-wrap: wrap; gap: 10px; }
+.gw-fb-head-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.gw-fb-head-acts .btn { min-height: 38px; display: inline-flex; align-items: center; gap: 6px; }
+.gw-fb-lead { margin: -4px 0 14px; }
+.gw-fb-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.gw-fb-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.gw-fb-table th, .gw-fb-table td { padding: 8px 10px; border-bottom: 1px solid #eef1f4; text-align: left; white-space: nowrap; vertical-align: middle; }
+.gw-fb-table thead th { font-size: 0.78rem; font-weight: 600; color: #64748b; background: #f8fafc; }
+.gw-fb-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.gw-fb-table tbody tr:last-child th, .gw-fb-table tbody tr:last-child td { border-bottom: 0; }
+.gw-fb-table tfoot th, .gw-fb-table tfoot td { border-top: 1px solid #e2e8f0; border-bottom: 0; font-weight: 700; }
+.gw-fb-acct-table tbody th { font-weight: 600; }
+.gw-fb-bank { font-weight: 400; color: #64748b; margin-left: 4px; }
+.gw-fb-side { color: #64748b; }
+.gw-fb-unknown, .gw-fb-at, .gw-fb-src { color: #64748b; }
+.gw-fb-at { font-variant-numeric: tabular-nums; }
+.gw-fb-filters { display: flex; justify-content: space-between; align-items: center; gap: 10px 16px; flex-wrap: wrap; margin: 4px 0 8px; }
+.gw-fb-range, .gw-fb-more { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.gw-fb-more > label { margin: 0; }
+.gw-fb-date .form-control { width: 140px; }
+.gw-fb-un { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding-left: 0; }
+.gw-fb-un .form-check-input { margin: 0; float: none; }
+.gw-fb-sum { margin: 0 0 6px; font-size: 0.85rem; color: #475569; font-variant-numeric: tabular-nums; min-height: 1.3em; }
+.gw-fb-list-wrap { padding: 0; overflow-x: auto; }
+.gw-fb-list td.in { color: #1d4ed8; }
+.gw-fb-list td.out { color: #b91c1c; }
+.gw-fb-who, .gw-fb-memo { white-space: normal !important; min-width: 120px; max-width: 280px; }
+.gw-fb-need { font-size: 0.75rem; color: #9a3412; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 999px; padding: 1px 8px; }
+.gw-fb-tag { font-size: 0.7rem; color: #475569; background: #f1f5f9; border-radius: 4px; padding: 1px 5px; margin-left: 2px; }
+.gw-fb-balrow { background: #fafbfc; }
+.gw-fb-act { text-align: right !important; }
+.gw-fb-act .btn { min-height: 32px; }
+.gw-fb-form .gw-note { margin: 2px 0 12px; }
+.gw-fb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px 14px; }
+.gw-fb-grid > label, .gw-fb-dir { display: flex; flex-direction: column; gap: 4px; font-size: 0.82rem; font-weight: 600; color: #334155; margin: 0; }
+.gw-fb-grid .gw-fb-wide { grid-column: span 2; }
+.gw-fb-dir { border: 0; padding: 0; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 4px 14px; }
+.gw-fb-dir legend { font-size: 0.82rem; font-weight: 600; width: 100%; margin: 0 0 2px; float: none; }
+.gw-fb-dir .form-check-label { font-weight: 400; }
+.gw-fb-grid input.num { text-align: right; font-variant-numeric: tabular-nums; }
+.gw-fb-form-acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.gw-fb-form-acts .btn { min-height: 38px; }
+@media (max-width: 640px) {
+  .gw-fb-grid { grid-template-columns: 1fr; }
+  .gw-fb-grid .gw-fb-wide { grid-column: auto; }
+  .gw-fb-grid .form-control, .gw-fb-grid .form-select { font-size: 16px; }
+  .gw-fb-date .form-control { width: 128px; font-size: 16px; }
+  .gw-fb-more, .gw-fb-more .gw-nt-search { width: 100%; flex: 1 1 100%; }
+  .gw-fb-act .btn, .gw-fb-head-acts .btn, .gw-fb-form-acts .btn { min-height: 44px; }
+}
