@@ -3997,14 +3997,7 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 }
 
 /* ── 스케줄 근무 휴무 메모(11-25 부장님) — 근무표 오른쪽 빈자리. 엑셀 메모란처럼 먼저 적고 서로 보고 양보 ─────────── */
-.gw-so-tlayout { display: block; }
-@media (min-width: 992px) {
-  .gw-so-tlayout.has-memo { display: grid; grid-template-columns: max-content minmax(300px, 400px); gap: 0 28px; align-items: start; }   /* 메모 칸은 400px 까지(11-25 부장님 '너무 넓다') */
-  .gw-so-tlayout.has-memo .gw-so-tmain { min-width: 0; max-width: 100%; }
-  .gw-so-tlayout.has-memo .gw-so-matrix { width: auto; }
-  .gw-so-tlayout.has-memo .gw-so-memo { border-left: 1px solid #eef0f3; padding-left: 24px; margin-top: 0; }
-}
-.gw-so-memo { margin-top: 16px; font-size: 0.88rem; color: #334155; }
+.gw-so-memo { font-size: 0.85rem; color: #334155; }
 .gw-so-memo-how { margin: 0 0 10px; color: #64748b; font-size: 0.82rem; }
 .gw-so-mnote { margin: 0 0 12px; }
 .gw-so-mnote-text { margin: 0 0 6px; padding: 8px 10px; border-radius: 8px; background: #f8fafc; border: 1px solid #e2e8f0; line-height: 1.6; }
@@ -4117,4 +4110,9 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 }
 .gw-so-mme { align-self: center; font-weight: 600; color: #0f172a; font-size: 0.88rem; }   /* 휴무 메모 — 로그인한 본인 이름(11-25) */
 .gw-so-mkind { align-self: start; }   /* 종류 단추는 글자 폭만(칸 전체로 늘지 않게) */
-@media (min-width: 992px) { .gw-so-table:has(.gw-so-tlayout.has-memo) { width: fit-content; max-width: 100%; } }   /* 근무표+메모 폭만큼만 — 오른쪽 빈 패널 없앰 */
+/* 휴무 메모 = 오른쪽 칸 상자(11-25 부장님 — 휴무 선택 현황 밑). 폭 300px 에 맞춰 줄을 나눔 */
+.gw-so-memobox .gw-so-mrow { flex-wrap: wrap; }
+.gw-so-memobox .gw-so-mrow .form-control { flex-basis: 100%; }
+.gw-so-memobox .gw-so-mrow .btn { margin-left: auto; }
+.gw-so-memobox .gw-so-mkind { display: flex; }
+.gw-so-memobox .gw-so-mkind .btn { flex: 1 1 0; font-size: 0.8rem; padding-left: 6px; padding-right: 6px; }
