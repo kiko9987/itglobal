@@ -98,6 +98,12 @@ def _now() -> str:
     return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
 
+def on() -> bool:
+    """매일 촉진 점검을 돌리나 — 끄면 촉구·계획 알림·경영지원 요약 모두 안 함(그룹웨어 화면에서 손으로는 가능).
+    11-25 부장님 '연차 자동 촉진은 내년에 회계연도로 개편할 거니까 빼줘' → .env LEAVE_PROMOTION_ON=false."""
+    return os.getenv('LEAVE_PROMOTION_ON', 'true').strip().lower() not in ('0', 'false', 'no', 'off')
+
+
 def auto() -> bool:
     """촉구를 자동으로 보내나 — 플렉스도 '스마트 촉진 시점'에 자동으로 보냈다. 끄려면 LEAVE_PROMOTION_AUTO=false."""
     return os.getenv('LEAVE_PROMOTION_AUTO', 'true').strip().lower() not in ('0', 'false', 'no', 'off')
@@ -518,7 +524,7 @@ def daily(today: Optional[date] = None, notify=None) -> dict:
     notify(kind, payload): 슬랙 알림 함수(slack_leave.promo_notify). 휴가 기능을 켜기(LEAVE_ENABLED) 전엔 안 돈다."""
     today = today or date.today()
     out = {'sent': [], 'due': [], 'remind_plan': [], 'need_designate': [], 'late': []}
-    if not lv.enabled():
+    if not lv.enabled() or not on():
         return out
     for c in candidates(today):
         if auto():
