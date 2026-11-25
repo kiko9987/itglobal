@@ -108,15 +108,20 @@ def test_day_rules(slack):
         so.toggle(date(2027, 6, 5), '영업가', True, A, '영업가', TODAY)
 
 
-def test_coordinator_picks_for_others_without_monthly_limit(slack):
-    """한 달 몇 번 기준은 없다(11-24 부장님 — 급한 주말 공사로 자주 바뀜). 3번째도 경고 없이."""
+def test_no_monthly_limit_and_only_admin_picks_others(slack):
+    """한 달 몇 번 기준은 없다(11-24 부장님 — 급한 주말 공사로 자주 바뀜). 3번째도 경고 없이.
+    남의 이름은 관리자(승인권자 포함)만 — 취합 담당도 본인 것만(11-25 부장님 '달력은 본인 신청만')."""
     for d in (S5, S12):
-        so.toggle(d, '영업나', True, CO, '빈대리', TODAY)
-    r = so.toggle(S19, '영업나', True, CO, '빈대리', TODAY)
+        so.toggle(d, '영업나', True, B, '영업나', TODAY)
+    r = so.toggle(S19, '영업나', True, B, '영업나', TODAY)
     assert r['count'] == 3 and r['warn'] == ''
+    with pytest.raises(PermissionError, match='관리자'):
+        so.toggle(S26, '영업나', True, CO, '빈대리', TODAY)
+    so.toggle(S26, '영업나', True, 'UMW', '박민우', TODAY, admin=True)          # 관리자는 남의 이름도
     v = so.view(DEC, CO, '빈대리', TODAY)
-    assert v['pick_others'] and v['can_submit'] and not v['can_decide'] and 'limit' not in v
-    assert {m['name']: m['count'] for m in v['members']}['영업나'] == 3
+    assert not v['pick_others'] and v['can_submit'] and not v['can_decide'] and 'limit' not in v
+    assert so.view(DEC, JW, '박정우', TODAY)['pick_others']
+    assert {m['name']: m['count'] for m in v['members']}['영업나'] == 4
 
 
 # ── 휴무 출근(11-24 부장님) ─────────────────────────────────────────────
@@ -461,8 +466,8 @@ def test_half_cap_per_saturday(slack):
     so.toggle(S5, '영업나', True, B, '영업나', TODAY)
     with pytest.raises(so.SatOffError, match='절반\(2명\)'):
         so.toggle(S5, '영업다', True, C, '영업다', TODAY)                 # 본인
-    with pytest.raises(so.SatOffError, match='절반'):
-        so.toggle(S5, '영업다', True, CO, '빈대리', TODAY)                # 취합 담당도
+    with pytest.raises(PermissionError):
+        so.toggle(S5, '영업다', True, CO, '빈대리', TODAY)                # 취합 담당은 남의 이름 못 넣음(11-25)
     assert so.picks(DEC)['2026-12-05'] == ['영업가', '영업나']             # 막히면 저장 안 됨
     r = so.toggle(S5, '영업다', True, JW, '박정우', TODAY)                # 승인권자는 예외(전체 휴무 등) — 경고만
     assert '절반(2명)' in r['warn'] and len(r['names']) == 3

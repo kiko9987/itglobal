@@ -4112,3 +4112,23 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-so-memobox .gw-so-mrow .btn { margin-left: auto; }
 .gw-so-memobox .gw-so-mkind { display: flex; }
 .gw-so-memobox .gw-so-mkind .btn { flex: 1 1 0; font-size: 0.8rem; padding-left: 6px; padding-right: 6px; }
+/* 본인 휴무 신청 창(11-25) — 휴무 신청 / 꼭 쉬어야 해요 / 못 쉬어요(+사유) */
+.gw-so-opts { display: grid; gap: 8px; margin: 8px 0 12px; }
+.gw-so-opt { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 10px; cursor: pointer; background: #fff; }
+.gw-so-opt:hover { background: #f8fafc; }
+.gw-so-opt:has(input:checked) { border-color: #2563eb; box-shadow: 0 0 0 1px #2563eb inset; background: #f8fbff; }
+.gw-so-opt.is-off { cursor: not-allowed; opacity: 0.55; }
+.gw-so-opt .form-check-input { margin-top: 3px; flex: 0 0 auto; }
+.gw-so-opt-body { display: grid; gap: 1px; }
+.gw-so-opt-t { font-weight: 600; color: #0f172a; }
+.gw-so-opt small { color: #64748b; font-size: 0.8rem; }
+.gw-so-opt.k-must .fa-star { color: #d97706; }
+.gw-so-opt.k-cant .fa-ban, .gw-so-opt.k-none .fa-xmark { color: #64748b; }
+.gw-so-opt.k-off .fa-umbrella-beach { color: #0369a1; }
+.gw-so-yield { margin: 0 0 8px; padding: 8px 12px; border-radius: 8px; background: #fffbeb; border: 1px solid #fde68a; color: #92400e; font-size: 0.85rem; line-height: 1.6; }
+.gw-so-yield .fa-star { color: #d97706; }
+.gw-so-why { margin-bottom: 4px; }
+.gw-so-chip.waiting { background: #fff; color: #92400e; border: 1px dashed #f59e0b; }
+.gw-so-chip .gw-so-mi { font-size: 0.65rem; margin-left: 2px; }
+@media (max-width: 767.98px) { .gw-so-opt { min-height: 52px; } #soSelfWhy { font-size: 16px; min-height: 44px; } #soSelfModal .modal-footer .btn { min-height: 44px; } }
+

@@ -516,7 +516,7 @@ def view(month: str, sid: str, name: str, today: Optional[date] = None, admin: b
         'worked': [dict(w, can_undo=w['name'] == name or r['manager'] or r['approver']) for w in wk],
         'full_days': full_days(month),           # 전체 휴무 토요일 {날짜: 메모}(11-25). 지정·풀기 권한은 화면 API(can_full_off)
         'can_toggle': can_edit_open or edit,
-        'pick_others': r['manager'] or edit,               # 남의 이름도 넣고 뺄 수 있음(작성 중일 때)
+        'pick_others': edit,               # 남의 이름도 넣고 뺄 수 있음 — 관리자만(11-25 부장님. 취합 담당도 본인만)
         'can_submit': st == OPEN and r['manager'] and in_range,
         'can_decide': st == WAIT and r['approver'],
         'can_request_change': st == CONFIRMED and (r['member'] or r['manager']) and not r['approver'] and not my_wait,
@@ -591,8 +591,8 @@ def toggle(day: Optional[date], target: str, on: bool, sid: str, actor_name: str
     m = _member(target, day.replace(day=1) if day else None)
     if not m:
         raise SatOffError(f'{target} 님은 스케줄 근무 대상(기술영업)이 아니에요.')
-    if target != actor_name and not (r['manager'] or edit):
-        raise PermissionError('다른 사람 이름은 넣거나 뺄 수 없어요.')
+    if target != actor_name and not edit:      # 남의 이름 = 관리자(승인권자 포함)만(11-25 부장님 — 달력은 본인 신청만)
+        raise PermissionError('다른 사람 이름은 관리자만 넣거나 뺄 수 있어요.')
     if target == actor_name and not (r['member'] or r['manager']):
         raise PermissionError('스케줄 근무 대상이 아니에요.')
     st = month_row(month)['status']
