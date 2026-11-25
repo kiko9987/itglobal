@@ -416,6 +416,10 @@ def _unglue_admin_prefix(s: str) -> str:
         if not seg or ' ' in seg:
             return seg
         prov, city, gu, dong = m.groups()
+        # 실제 시 이름일 때만 시로 본다 (2026-11-25 L-04692 '201호 한라시그마밸리' 가
+        #   '한라시'+'그마밸리'(…리)로 잘려 '한라시 그마밸리'가 됨). 건물명 속 '…시' 는 그대로.
+        if city and city[:-1] not in _CITY_SHORT and city[:-1] not in ('제주', '광주', '세종'):
+            return seg
         if not prov and not city and gu and gu.endswith('구') and gu[:-1] in _CITY_SHORT:
             return f'{gu[:-1]} 구{dong}'      # 김포구래동 → 김포 구래동
         parts = [g for g in m.groups() if g]

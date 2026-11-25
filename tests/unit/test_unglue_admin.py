@@ -36,6 +36,8 @@ def test_glued_admin_split(glued, expected):
     '서울숲it밸리',                      # 상호
     '서울특별시 강남구 역삼동 823 서울숲빌딩',
     '역삼동825번지 스타',
+    '201호 한라시그마밸리',              # L-04692: 건물명 속 '…시'+'…리'
+    '가산동 345-90 201호 한라시그마밸리',
 ])
 def test_not_touched(unchanged):
     assert U(unchanged) == unchanged
