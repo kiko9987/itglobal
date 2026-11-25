@@ -157,7 +157,7 @@ def test_sat_off_only_after_confirmed(env):
     assert _titles(env) == []                              # 결재 대기도 안 올림
     so.decide('2026-12', True, JW, '박정우')
     lc.sync(TODAY, svc=env)
-    assert _titles(env) == [('2026-12-05', '📅 [영업가] 스케줄휴가'), ('2026-12-12', '📅 [영업나] 스케줄휴가')]
+    assert _titles(env) == [('2026-12-05', '📅 [영업가] 스케줄 휴가'), ('2026-12-12', '📅 [영업나] 스케줄 휴가')]
 
 
 def test_full_off_day_is_one_event(env):
@@ -165,7 +165,7 @@ def test_full_off_day_is_one_event(env):
     so.submit('2026-12', CO, '빈대리', TODAY)
     so.decide('2026-12', True, JW, '박정우')
     lc.sync(TODAY, svc=env)
-    assert _titles(env) == [('2026-12-26', '📅 [전체] 스케줄휴가 (연말)')]
+    assert _titles(env) == [('2026-12-26', '📅 [전체] 스케줄 휴가 (연말)')]
 
 
 def test_leaves_hand_made_events_alone(env):
@@ -206,10 +206,10 @@ def test_sat_off_one_event_per_saturday(env):
     so.submit('2026-12', CO, '빈대리', TODAY)
     so.decide('2026-12', True, JW, '박정우')
     lc.sync(TODAY, svc=env)
-    assert _titles(env) == [('2026-12-05', '📅 [영업가, 영업나] 스케줄휴가')]
+    assert _titles(env) == [('2026-12-05', '📅 [영업가, 영업나] 스케줄 휴가')]
     so.toggle(date(2026, 12, 5), '영업나', False, JW, '박정우', TODAY)       # 승인권자가 바로 뺌
     r = lc.sync(TODAY, svc=env)
-    assert r['changed'] == 1 and _titles(env) == [('2026-12-05', '📅 [영업가] 스케줄휴가')]
+    assert r['changed'] == 1 and _titles(env) == [('2026-12-05', '📅 [영업가] 스케줄 휴가')]
 
 
 def test_adopts_hand_made_same_events_without_duplicates(env):
@@ -234,7 +234,7 @@ def test_adopts_hand_made_same_events_without_duplicates(env):
     r = lc.sync(TODAY, svc=env)
     assert (r['added'], r['adopted'], r['removed']) == (0, 2, 1) and not r['errors']
     assert env.ev.items['h1']['summary'] == '🌴 [영업가] 연차'
-    assert env.ev.items['h2']['summary'] == '📅 [영업가, 영업나] 스케줄휴가'
+    assert env.ev.items['h2']['summary'] == '📅 [영업가, 영업나] 스케줄 휴가'
     assert env.ev.items['h3']['status'] == 'cancelled'
     for i in ('h4', 'h5', 'h6'):
         assert env.ev.items[i].get('status') != 'cancelled' and env.ev.items[i]['summary'] == hand[i][1]
@@ -244,7 +244,7 @@ def test_adopts_hand_made_same_events_without_duplicates(env):
 def test_hand_name_parsing():
     assert lc._hand_names('스케줄휴가)박민재,빈승정,강정권') == {'박민재', '빈승정', '강정권'}
     assert lc._hand_names('스케줄휴가) 김태현') == {'김태현'}
-    assert lc._hand_names('📅 [박민재, 빈승정] 스케줄휴가') == {'박민재', '빈승정'}
+    assert lc._hand_names('📅 [박민재, 빈승정] 스케줄 휴가') == {'박민재', '빈승정'}
     assert lc._hand_names('🌴 [김태현] 휴가') is None
 
 
@@ -259,7 +259,7 @@ def test_hand_event_removed_once_groupware_catches_up(env):
     so.toggle(date(2026, 12, 5), '영업나', True, JW, '박정우', TODAY)              # 그룹웨어를 맞춤
     r = lc.sync(TODAY, svc=env)
     assert (r['changed'], r['removed']) == (1, 1)
-    assert _titles(env) == [('2026-12-05', '📅 [영업가, 영업나] 스케줄휴가')]
+    assert _titles(env) == [('2026-12-05', '📅 [영업가, 영업나] 스케줄 휴가')]
 
 
 def test_leave_kind_shown_but_health_kept_private(env):
