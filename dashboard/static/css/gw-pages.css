@@ -4043,3 +4043,75 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
   .gw-so-mrow .btn { flex-basis: 100%; }
   .gw-so-mdel { min-height: 32px; }
 }
+
+/* ── 쉬는 날 다듬기(11-25 부장님 '디자인 스킬') — 왼쪽 한 해 달력, 오른쪽 넣기 칸·목록. 법정은 기본(점만), 예외만 배지 ── */
+.gw-page.gw-hd-wide { max-width: 1240px; margin-left: auto; margin-right: auto; }
+.gw-hd-body { display: grid; gap: 20px; align-items: start; }
+.gw-hd-main { min-width: 0; }
+/* 한 해 달력은 위쪽 전체 폭(넓은 화면 6달씩 두 줄), 목록은 그 아래 — 옆에 두면 달력이 길고 목록 칸이 비었다 */
+.gw-hd-main { max-width: 900px; }
+.gw-hd-yearcal { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px 12px; }
+.gw-hd-months { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 18px; }
+@media (min-width: 768px) and (max-width: 1099.98px) { .gw-hd-months { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 575.98px) { .gw-hd-months { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 14px; } }
+.gw-hd-mcal-h { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; font-size: 0.82rem; font-weight: 600; color: #0f172a; }
+.gw-hd-mcal.past .gw-hd-mcal-h { color: #64748b; }
+.gw-hd-mcal-n { font-size: 0.7rem; font-weight: 500; color: #b91c1c; font-variant-numeric: tabular-nums; }
+.gw-hd-mcal.past .gw-hd-mcal-n { color: #94a3b8; }
+.gw-hd-mgrid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; font-variant-numeric: tabular-nums; }
+.gw-hd-wd { font-size: 0.62rem; color: #94a3b8; text-align: center; line-height: 1.6; }
+.gw-hd-wd.we { color: #cbd5e1; }
+.gw-hd-c { display: flex; align-items: center; justify-content: center; aspect-ratio: 1; font-size: 0.68rem; color: #334155; border-radius: 6px; border: 0; background: none; padding: 0; line-height: 1; }
+.gw-hd-c.we { color: #94a3b8; }
+.gw-hd-c.past { color: #a3aebb; }
+.gw-hd-c.today { box-shadow: inset 0 0 0 1.5px #fb923c; color: #c2410c; font-weight: 700; }
+.gw-hd-c.hol { font-weight: 700; cursor: pointer; transition: transform .12s ease-out; }
+.gw-hd-c.hol.legal { background: #fee2e2; color: #b91c1c; }
+.gw-hd-c.hol.temp { background: #fef3c7; color: #92400e; }
+.gw-hd-c.hol.company { background: #dbeafe; color: #1d4ed8; }
+.gw-hd-c.hol.past { opacity: 0.55; }
+.gw-hd-c.hol:hover { transform: scale(1.12); }
+.gw-hd-c.hol:focus-visible { outline: 2px solid #2a3038; outline-offset: 1px; }
+.gw-hd-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 12px 0 0; padding: 10px 0 0; border-top: 1px solid #f1f5f9; font-size: 0.75rem; color: #64748b; }
+.gw-hd-legend li { display: inline-flex; align-items: center; gap: 5px; }
+.gw-hd-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.gw-hd-dot.legal { background: #ef4444; }
+.gw-hd-dot.temp { background: #f59e0b; }
+.gw-hd-dot.company { background: #3b82f6; }
+.gw-hd-todaymark { display: inline-block; width: 10px; height: 10px; border-radius: 3px; box-shadow: inset 0 0 0 1.5px #fb923c; }
+.gw-hd-what .gw-hd-dot { margin-right: 2px; align-self: center; }
+.gw-hd-kind-company { background: #dbeafe; color: #1d4ed8; }
+.gw-hd-row { scroll-margin: 80px; }
+.gw-hd-row:focus { outline: none; }
+.gw-hd-row.is-hit { animation: gw-hd-hit 1.4s ease-out; }
+@keyframes gw-hd-hit { 0% { background: #fde68a; } 100% { background: transparent; } }
+.gw-hd-pastbox { margin-bottom: 14px; }
+.gw-hd-pastbox > summary { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 4px 12px; border: 1px solid #e2e8f0; border-radius: 999px; background: #fff; color: #475569; font-size: 0.85rem; cursor: pointer; list-style: none; }
+.gw-hd-pastbox > summary::-webkit-details-marker { display: none; }
+.gw-hd-pastbox > summary:hover { background: #f8fafc; }
+.gw-hd-pastbox > summary:focus-visible { outline: 2px solid #2a3038; outline-offset: 2px; }
+.gw-hd-pastbox > summary .fa-chevron-right { font-size: 0.7rem; transition: transform .15s ease-out; }
+.gw-hd-pastbox[open] > summary { margin-bottom: 12px; }
+.gw-hd-pastbox[open] > summary .fa-chevron-right { transform: rotate(90deg); }
+.gw-hd-main .gw-hd-row { grid-template-columns: minmax(10.5rem, 13rem) minmax(0, 1fr) auto; }
+@media (max-width: 767.98px) {
+  .gw-hd-main .gw-hd-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .gw-hd-c { font-size: 0.72rem; }
+  .gw-hd-pastbox > summary { min-height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gw-hd-c.hol, .gw-hd-pastbox > summary .fa-chevron-right { transition: none; }
+  .gw-hd-c.hol:hover { transform: none; }
+  .gw-hd-row.is-hit { animation: none; background: #fef9c3; }
+}
+@media (min-width: 1100px) { .gw-hd-months { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px 22px; } }   /* 넓은 화면 6달씩 두 줄(아래 기본값보다 뒤에 둬야 먹음) */
+.gw-hd-calfold > summary { display: none; }
+@media (max-width: 767.98px) {
+  .gw-hd-yearcal { padding: 0; }
+  .gw-hd-calfold > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 14px; cursor: pointer; list-style: none; font-weight: 600; color: #334155; }
+  .gw-hd-calfold > summary::-webkit-details-marker { display: none; }
+  .gw-hd-calfold > summary .fa-calendar-days { color: #64748b; }
+  .gw-hd-calfold[open] > summary { border-bottom: 1px solid #f1f5f9; margin-bottom: 10px; }
+  .gw-hd-calfold > .gw-hd-months, .gw-hd-calfold > .gw-hd-legend { margin-left: 14px; margin-right: 14px; }
+  .gw-hd-calfold > .gw-hd-legend { margin-bottom: 12px; }
+}

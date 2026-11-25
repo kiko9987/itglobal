@@ -64,6 +64,29 @@
   var nextEl = document.getElementById('hdNextOff');
   var flashEl = document.getElementById('hdFlash');
 
+  // 한 해 달력(11-25 다듬기) — 왼쪽에 12달, 오른쪽에 넣기 칸·목록. 자리는 JS 가 만든다(재시작 전 템플릿에서도 바로)
+  page.classList.remove('gw-page-narrow');
+  page.classList.add('gw-hd-wide');
+  var bodyEl = document.getElementById('hdBody');
+  var yearCalEl = document.getElementById('hdYearCal');
+  if (!bodyEl) {
+    bodyEl = document.createElement('div');
+    bodyEl.className = 'gw-hd-body';
+    bodyEl.id = 'hdBody';
+    listEl.parentNode.insertBefore(bodyEl, listEl);
+    yearCalEl = document.createElement('section');
+    yearCalEl.className = 'gw-hd-yearcal';
+    yearCalEl.id = 'hdYearCal';
+    yearCalEl.setAttribute('aria-label', '한 해 달력');
+    var mainEl = document.createElement('div');
+    mainEl.className = 'gw-hd-main';
+    var formBox = document.getElementById('hdForm');
+    if (formBox) mainEl.appendChild(formBox);
+    mainEl.appendChild(listEl);
+    bodyEl.appendChild(yearCalEl);
+    bodyEl.appendChild(mainEl);
+  }
+
   var now = new Date();
   var todayIso = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
   var year = now.getFullYear();
@@ -82,12 +105,14 @@
   function rowHtml(e) {
     var past = e.end < todayIso;
     var cls = 'gw-hd-row' + (past ? ' past' : '') + (e.id === nextId ? ' next' : '');
-    var h = '<li class="' + cls + '">';
+    var h = '<li class="' + cls + '" id="hd-r-' + e.start + '" tabindex="-1">';
     h += '<div class="gw-hd-when">' + esc(span(e.start, e.end)) +
       (e.days > 1 ? ' <span class="gw-hd-days">' + e.days + '일</span>' : '') +
       (weekendOnly(e.start, e.end) ? ' <span class="gw-hd-wkend">주말</span>' : '') + '</div>';
-    h += '<div class="gw-hd-what"><span class="gw-hd-name">' + esc(e.name) + '</span>' +
-      '<span class="gw-badge gw-hd-kind-' + (KIND_CLASS[e.kind] || 'legal') + '">' + esc(e.kind_label) + '</span>' +
+    h += '<div class="gw-hd-what"><span class="gw-hd-dot ' + (KIND_CLASS[e.kind] || 'legal') + '" aria-hidden="true"></span>' +
+      '<span class="gw-hd-name">' + esc(e.name) + '</span>' +
+      (e.kind !== 'legal' ? '<span class="gw-badge gw-hd-kind-' + (KIND_CLASS[e.kind] || 'legal') + '">' + esc(e.kind_label) + '</span>'
+        : '<span class="visually-hidden">(법정 공휴일)</span>') +
       (e.yearly && e.kind !== 'legal' ? '<span class="gw-hd-tag">매년</span>' : '') +
       (e.id === nextId ? '<span class="gw-hd-tag next">다음 쉬는 날</span>' : '') +
       (e.note ? '<span class="gw-hd-memo">' + esc(e.note) + '</span>' : '') + '</div>';
@@ -131,10 +156,25 @@
 
     if (!ents.length) {
       listEl.innerHTML = '<div class="gw-empty gw-empty-box">' + j.year + '년 쉬는 날이 없어요.</div>';
+      renderYearCal(j);
       return;
     }
+    var thisYear = String(j.year) === todayIso.slice(0, 4);
+    var past = thisYear ? ents.filter(function (e) { return e.end < todayIso; }) : [];
+    var rest = thisYear ? ents.filter(function (e) { return e.end >= todayIso; }) : ents;
+    var h = '';
+    if (past.length) {
+      h += '<details class="gw-hd-pastbox" id="hdPastBox"><summary><i class="fas fa-chevron-right" aria-hidden="true"></i> 지난 쉬는 날 ' +
+        past.length + '개</summary>' + monthsHtml(past) + '</details>';
+    }
+    h += rest.length ? monthsHtml(rest) : '<div class="gw-empty gw-empty-box">올해 남은 쉬는 날이 없어요.</div>';
+    listEl.innerHTML = h;
+    renderYearCal(j);
+  }
+
+  function monthsHtml(list) {
     var h = '', month = 0;
-    ents.forEach(function (e) {
+    list.forEach(function (e) {
       var m = Number(e.start.slice(5, 7));
       if (m !== month) {
         if (month) h += '</ul></section>';
@@ -143,8 +183,72 @@
       }
       h += rowHtml(e);
     });
-    h += '</ul></section>';
-    listEl.innerHTML = h;
+    return h + '</ul></section>';
+  }
+
+  // ── 한 해 달력 — 12달, 쉬는 날은 구분 색, 누르면 목록의 그 줄로 ──────────────
+  var KIND_ORDER = { legal: 0, temp: 1, company: 2 };
+  function renderYearCal(j) {
+    if (!yearCalEl) return;
+    var map = {};
+    (j.entries || []).forEach(function (e) {
+      for (var d = toDate(e.start); d <= toDate(e.end); d.setDate(d.getDate() + 1)) {
+        var k = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+        if (!map[k] || KIND_ORDER[e.kind] < KIND_ORDER[map[k].kind]) map[k] = { kind: e.kind, name: e.name, start: e.start };
+      }
+    });
+    // 휴대폰은 접어 둠 — 칸이 20px 라 누르기 어렵고 목록까지 스크롤이 길다. 펼친 상태는 기억(다시 그릴 때)
+    var wide = !(window.matchMedia && window.matchMedia('(max-width: 767.98px)').matches);
+    var wasOpen = yearCalEl.querySelector('details') ? yearCalEl.querySelector('details').open : wide;
+    var y = j.year, h = '<details class="gw-hd-calfold"' + (wide || wasOpen ? ' open' : '') + '><summary>' +
+      '<i class="fas fa-calendar-days" aria-hidden="true"></i> ' + y + '년 한눈에 보기</summary><div class="gw-hd-months">';
+    for (var m = 1; m <= 12; m++) {
+      var first = new Date(y, m - 1, 1), last = new Date(y, m, 0).getDate();
+      var lead = (first.getDay() + 6) % 7;
+      var n = 0;
+      var cells = '';
+      for (var i = 0; i < lead; i++) cells += '<span class="gw-hd-c out"></span>';
+      for (var dd = 1; dd <= last; dd++) {
+        var iso = y + '-' + pad(m) + '-' + pad(dd);
+        var wd = (lead + dd - 1) % 7;
+        var hol = map[iso];
+        var cls = 'gw-hd-c' + (wd >= 5 ? ' we' : '') + (iso < todayIso ? ' past' : '') + (iso === todayIso ? ' today' : '');
+        if (hol) {
+          n++;
+          cells += '<button type="button" class="' + cls + ' hol ' + hol.kind + '" data-goto="' + hol.start + '" title="' + esc(hol.name) +
+            '" aria-label="' + m + '월 ' + dd + '일 ' + esc(hol.name) + '">' + dd + '</button>';
+        } else {
+          cells += '<span class="' + cls + '"' + (iso === todayIso ? ' aria-label="오늘 ' + m + '월 ' + dd + '일"' : '') + '>' + dd + '</span>';
+        }
+      }
+      var monthPast = thisMonthKey(y, m) < todayIso.slice(0, 7);
+      h += '<div class="gw-hd-mcal' + (monthPast ? ' past' : '') + '"><div class="gw-hd-mcal-h"><span>' + m + '월</span>' +
+        (n ? '<span class="gw-hd-mcal-n">' + n + '일</span>' : '') + '</div>' +
+        '<div class="gw-hd-mgrid">' +
+        '<span class="gw-hd-wd">월</span><span class="gw-hd-wd">화</span><span class="gw-hd-wd">수</span><span class="gw-hd-wd">목</span>' +
+        '<span class="gw-hd-wd">금</span><span class="gw-hd-wd we">토</span><span class="gw-hd-wd we">일</span>' + cells + '</div></div>';
+    }
+    h += '</div><ul class="gw-hd-legend" aria-label="색 설명"><li><span class="gw-hd-dot legal"></span>법정 공휴일</li>' +
+      '<li><span class="gw-hd-dot temp"></span>임시공휴일</li><li><span class="gw-hd-dot company"></span>회사 지정</li>' +
+      '<li><span class="gw-hd-todaymark"></span>오늘</li></ul></details>';
+    yearCalEl.innerHTML = h;
+  }
+  function thisMonthKey(y, m) { return y + '-' + pad(m); }
+
+  if (yearCalEl) {
+    yearCalEl.addEventListener('click', function (ev) {
+      var b = ev.target.closest('[data-goto]');
+      if (!b) return;
+      var row = document.getElementById('hd-r-' + b.getAttribute('data-goto'));
+      if (!row) return;
+      var box = row.closest('details');
+      if (box && !box.open) box.open = true;
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      row.classList.remove('is-hit');
+      void row.offsetWidth;
+      row.classList.add('is-hit');
+      try { row.focus({ preventScroll: true }); } catch (e) { row.focus(); }
+    });
   }
 
   function load(focusTitle) {
