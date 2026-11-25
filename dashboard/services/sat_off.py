@@ -388,28 +388,26 @@ def recent_log(month: str, limit: int = 20) -> List[dict]:
 
 
 # ── 휴무 메모(11-25) ────────────────────────────────────────────────────
-MEMO_MUST, MEMO_CANT, MEMO_MONTH = 'must', 'cant', 'month'
-MEMO_LABELS = {MEMO_MUST: '꼭 쉬어야 해요', MEMO_CANT: '못 쉬어요', MEMO_MONTH: '공통 메모'}   # 화면은 화살표로 달을 넘기므로 '그달' 대신(11-25 부장님)
+MEMO_MUST, MEMO_CANT = 'must', 'cant'
+MEMO_MONTH = 'month'   # 예전 공통 메모 — 11-25 부장님 결정으로 없앰(본인 메모로 충분). 읽을 때 건너뜀
+MEMO_LABELS = {MEMO_MUST: '꼭 쉬어야 해요', MEMO_CANT: '못 쉬어요'}
 MEMO_MAX = 60
-MONTH_NOTE_MAX = 300
 
 
 def memos(month: str) -> dict:
-    """{'items': [{day, label, name, kind, kind_label, reason, written_by, written_at}] (토요일·이름순),
-    'month_note': {reason, written_by, written_at} | None}."""
+    """{'items': [{day, label, name, kind, kind_label, reason, written_by, written_at}]} (토요일·이름순)."""
     with lv._conn() as conn:
         rows = [dict(r) for r in conn.execute(
             'SELECT * FROM sat_off_memos WHERE month=? ORDER BY day, kind, name', (month,)).fetchall()]
-    items, note = [], None
+    items = []
     for r in rows:
-        if r['kind'] == MEMO_MONTH:
-            note = {'reason': r['reason'], 'written_by': r.get('written_by') or '', 'written_at': r.get('written_at') or ''}
+        if r['kind'] not in MEMO_LABELS:     # 예전 공통 메모 등
             continue
         d = lv._d(r['day'])
         items.append({'day': r['day'], 'label': kday(d) if d else r['day'], 'name': r['name'], 'kind': r['kind'],
                       'kind_label': MEMO_LABELS.get(r['kind'], r['kind']), 'reason': r['reason'],
                       'written_by': r.get('written_by') or '', 'written_at': r.get('written_at') or ''})
-    return {'items': items, 'month_note': note}
+    return {'items': items}
 
 
 def _memo_reason(reason: str, limit: int) -> str:
@@ -476,24 +474,6 @@ def delete_memo(day: Optional[date], target: str, sid: str, actor_name: str, adm
     return {'day': day.isoformat(), 'name': target}
 
 
-def set_month_note(month: str, text: str, sid: str, actor_name: str, admin: bool = False) -> dict:
-    """그달 전체 메모(예: 26일 전체휴무 대표님 소통 예정, 앞당겨 사용 컨펌) — 취합 담당·승인권자·관리자. 빈 글이면 지움."""
-    r = role(sid, actor_name, _first(month))
-    if not (r['manager'] or r['approver'] or admin):
-        raise PermissionError('공통 메모는 취합 담당·승인권자만 적을 수 있어요.')
-    body = ' '.join(str(text or '').split())
-    if len(body) > MONTH_NOTE_MAX:
-        raise SatOffError(f'공통 메모는 {MONTH_NOTE_MAX}자까지 적을 수 있어요.')
-    with lv._conn() as conn:
-        if body:
-            conn.execute('INSERT OR REPLACE INTO sat_off_memos (month, day, name, kind, reason, written_by, written_at) '
-                         "VALUES (?, '', '', ?, ?, ?, ?)", (month, MEMO_MONTH, body, actor_name, _now()))
-        else:
-            conn.execute("DELETE FROM sat_off_memos WHERE month=? AND day='' AND name='' AND kind=?", (month, MEMO_MONTH))
-        _log(conn, actor_name, 'memo', month, '공통 메모 ' + ('적음: ' + body if body else '지움'))
-    return {'month': month, 'reason': body}
-
-
 def view(month: str, sid: str, name: str, today: Optional[date] = None, admin: bool = False) -> dict:
     """달력 화면 한 달치 — 토요일마다 쉬는 사람, 사람별 횟수, 내 역할로 할 수 있는 것."""
     today = today or date.today()
@@ -543,11 +523,10 @@ def view(month: str, sid: str, name: str, today: Optional[date] = None, admin: b
         'changes': [x for x in changes if show_all or x['name'] == name],
         'log': recent_log(month) if show_all else [],
         'notify_fail': notify_fail(month),       # 마지막 처리의 슬랙 알림을 못 보냈으면 그 문구(11-24)
-        # 휴무 메모(11-25) — 모두 봄. 쓰기·지우기 = 로그인한 본인(대상자)만, 그달 메모 = 취합 담당·승인권자·관리자
-        'memos': mm['items'], 'month_note': mm['month_note'],
+        # 휴무 메모(11-25) — 모두 봄. 쓰기·지우기 = 로그인한 본인(대상자)만. 공통 메모는 없앰(부장님)
+        'memos': mm['items'],
         'can_memo': in_range and r['member'],          # 본인만(11-25 부장님 — 대신 적기 없음)
         'can_memo_others': False,
-        'can_month_note': r['manager'] or edit,
     }
 
 

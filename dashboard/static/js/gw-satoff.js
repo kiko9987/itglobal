@@ -243,15 +243,6 @@
     if (!d.memos) return '';
     var h = '<h3 class="gw-so-h" id="soMemoTitle">휴무 메모</h3><div class="gw-so-memo">' +
       '<p class="gw-so-memo-how">꼭 쉬어야 하는 토요일이 있으면 먼저 적어 두세요. 다른 분들이 보고 양보하고 피해서 잡아요.</p>';
-    // 그달 메모 — 취합 담당·승인권자
-    var mn = d.month_note;
-    if (mn || d.can_month_note) {
-      h += '<div class="gw-so-mnote" id="soMonthNote">' +
-        (mn ? '<p class="gw-so-mnote-text"><i class="fas fa-thumbtack" aria-hidden="true"></i> ' + esc(mn.reason) +
-          ' <span class="gw-so-sub">' + esc(mn.written_by) + '</span></p>' : '') +
-        (d.can_month_note ? '<button type="button" class="btn btn-light btn-sm" data-mnote="edit">' + (mn ? '공통 메모 고치기' : '공통 메모 적기') + '</button>' : '') +
-        '</div>';
-    }
     // 토요일별 메모
     var by = {};
     (d.memos || []).forEach(function (x) { (by[x.day] = by[x.day] || []).push(x); });
@@ -302,17 +293,6 @@
     }
     return h + '</div>';
   }
-  function memoNoteForm(cur) {
-    return '<form class="gw-so-mnoteform" id="soMonthNoteForm" novalidate>' +
-      '<label class="visually-hidden" for="soMonthNoteText">공통 메모</label>' +
-      '<textarea class="form-control form-control-sm" id="soMonthNoteText" rows="3" maxlength="300" ' +
-      'placeholder="26일 전체휴무 대표님 소통 예정">' + esc(cur || '') + '</textarea>' +
-      '<div class="gw-so-btns"><button type="submit" class="btn btn-primary btn-sm">저장</button> ' +
-      '<button type="button" class="btn btn-light btn-sm" data-mnote="cancel">취소</button>' +
-      (cur ? ' <button type="button" class="btn btn-link btn-sm gw-so-mdel" data-mnote="clear">지우기</button>' : '') + '</div>' +
-      '<div class="gw-lv-err" id="soMonthNoteErr" role="alert"></div></form>';
-  }
-
   // ── 토요일 근무표(11-24 부장님) — 사람 × 토요일 표. 칸마다 근무·휴무·휴무 출근, 끝에 휴무 횟수·휴무 출근 횟수 ──
   // 표 자리는 JS 가 만든다(서버가 옛 템플릿이어도 보이게 — 11-24 템플릿 캐시 사고)
   var tableEl = document.getElementById('soTable');
@@ -670,7 +650,7 @@
     if (cell) { e.preventDefault(); onDay(cell); }
   });
 
-  // 휴무 메모 적기·지우기·그달 메모(11-25)
+  // 휴무 메모 적기·지우기(11-25)
   var memoHost = memoBox || tableEl;
   memoHost.addEventListener('submit', function (ev) {
     var f = ev.target;
@@ -691,19 +671,8 @@
         return load(true);
       }).catch(function (e) { err.textContent = e.message; })
         .then(function () { btn.disabled = false; });
-    } else if (f.id === 'soMonthNoteForm') {
-      ev.preventDefault();
-      saveMonthNote(document.getElementById('soMonthNoteText').value);
     }
   });
-  function saveMonthNote(text) {
-    var err = document.getElementById('soMonthNoteErr');
-    if (err) err.textContent = '';
-    api('/api/satoff/month-note', { method: 'POST', body: { month: data.month, text: text } }).then(function (j) {
-      flash(j.reason ? '공통 메모를 저장했어요.' : '공통 메모를 지웠어요.', 'ok');
-      return load(true);
-    }).catch(function (e) { if (err) err.textContent = e.message; else flash(e.message, 'err'); });
-  }
   memoHost.addEventListener('click', function (ev) {
     var del = ev.target.closest('[data-mdel]');
     if (del) {
@@ -714,18 +683,6 @@
         return load(true);
       }).catch(function (e) { flash(e.message, 'err'); });
       return;
-    }
-    var mn = ev.target.closest('[data-mnote]');
-    if (!mn) return;
-    var box = document.getElementById('soMonthNote');
-    var act = mn.getAttribute('data-mnote');
-    if (act === 'edit' && box) {
-      box.innerHTML = memoNoteForm((data.month_note || {}).reason || '');
-      document.getElementById('soMonthNoteText').focus();
-    } else if (act === 'cancel') {
-      render();
-    } else if (act === 'clear') {
-      if (window.confirm('공통 메모를 지울까요?')) saveMonthNote('');
     }
   });
 

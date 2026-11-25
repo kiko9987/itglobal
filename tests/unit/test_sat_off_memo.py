@@ -18,7 +18,7 @@ def test_must_memo_picks_and_everyone_sees(slack):
     assert '영업가' in so.picks(DEC)['2026-12-12']
     v = so.view(DEC, B, '영업나', TODAY)                      # 다른 매니저도 봄
     assert [(m['name'], m['kind'], m['reason']) for m in v['memos']] == [('영업가', 'must', '가족 여행')]
-    assert v['can_memo'] and not v['can_memo_others'] and not v['can_month_note']
+    assert v['can_memo'] and not v['can_memo_others'] and 'can_month_note' not in v      # 공통 메모 없음(11-25)
     assert not so.view(DEC, CO, '빈대리', TODAY)['can_memo_others']                  # 취합 담당도 대신 적기 없음
     assert not so.view(DEC, JW, '박정우', TODAY)['can_memo']                          # 대상자가 아니면 못 적음
     # 같은 사람·같은 토요일은 고쳐 씀
@@ -55,16 +55,6 @@ def test_cant_memo_and_permissions(slack):
     assert '영업다' in so.picks(DEC)['2026-12-05']                                  # 메모를 지워도 휴무 이름은 그대로
     with pytest.raises(LookupError):
         so.delete_memo(S5, '영업나', B, '영업나')
-
-
-def test_month_note(slack):
-    with pytest.raises(PermissionError):
-        so.set_month_note(DEC, '전체휴무 소통', A, '영업가')
-    so.set_month_note(DEC, '26일 전체휴무 대표님 소통 예정', CO, '빈대리')
-    assert so.memos(DEC)['month_note']['reason'] == '26일 전체휴무 대표님 소통 예정'
-    assert so.view(DEC, CO, '빈대리', TODAY)['can_month_note']
-    so.set_month_note(DEC, '  ', YG, '박용구')                                     # 빈 글 = 지움
-    assert so.memos(DEC)['month_note'] is None
 
 
 def test_confirmed_month_and_validation(slack):

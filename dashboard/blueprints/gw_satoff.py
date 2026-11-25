@@ -233,19 +233,6 @@ def api_memo():
     return jsonify({'success': True, **res})
 
 
-@gw_satoff_bp.route('/api/satoff/month-note', methods=['POST'])
-@gw_page
-def api_month_note():
-    body = request.get_json(silent=True) or {}
-    try:
-        name, sid = _actor()
-        res = so.set_month_note(_month(body.get('month')), body.get('text') or '', sid, name,
-                                admin=_is_admin() and not _is_field())
-    except Exception as e:
-        return _err(e)
-    return jsonify({'success': True, **res})
-
-
 @gw_satoff_bp.route('/api/satoff/full', methods=['POST'])
 @gw_page
 def api_full_off():
