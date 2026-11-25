@@ -15,6 +15,8 @@
 설정(.env)
 - GW_LEAVE_CALENDAR_ID   공유 캘린더 ID(비면 끔). 캘린더 설정 > '캘린더 통합'의 캘린더 ID.
   그 캘린더를 서비스 계정(credentials.json 의 client_email)에 '일정 변경' 권한으로 공유해야 쓸 수 있다.
+- GW_LEAVE_CALENDAR_AS   회사 계정 메일(선택). 조직 정책상 바깥(서비스 계정)에 '일정 변경'을 못 줄 때 — 서비스 계정이
+  도메인 전체 위임으로 이 사람 이름으로 쓴다. 관리 콘솔 위임 범위에 calendar.events 추가 + 이 사람이 캘린더 '일정 변경' 권한 필요.
 """
 from __future__ import annotations
 
@@ -58,6 +60,9 @@ def _service():
                   or 'credentials.json')
     creds = service_account.Credentials.from_service_account_file(
         creds_file, scopes=['https://www.googleapis.com/auth/calendar.events'])
+    who = (os.getenv('GW_LEAVE_CALENDAR_AS') or '').strip()
+    if who:      # 회사 계정 이름으로(도메인 전체 위임) — 조직 밖(서비스 계정)엔 '일정 변경' 공유가 막혀 있어서(11-25)
+        creds = creds.with_subject(who)
     return build('calendar', 'v3', credentials=creds, cache_discovery=False)
 
 
