@@ -586,7 +586,7 @@ def page_leave_team():
 
 
 # ── 쉬는 날(11-25 부장님 — 플렉스 「쉬는 날」 대체) ─────────────────────────
-# 보기 = 사무실 직원 모두(현장 세션은 문지기가 막음). 넣기·고치기·지우기 = 인사카드 관리자(경영지원·대표).
+# 보기·넣기·고치기·지우기 = 관리자(admin·super_admin)만(11-25 부장님 '어드민만 보이게'). 다른 직원은 휴가 달력의 빨간 날로만 봄.
 def _holiday_body() -> dict:
     b = request.get_json(silent=True) or {}
     return {k: b.get(k) for k in ('name', 'kind', 'start', 'end', 'yearly', 'note')}
@@ -605,7 +605,13 @@ def _holiday_actor() -> str:
 @hr_bp.route('/leave/holidays')
 @gw_page
 def page_leave_holidays():
-    return render_template('gw/leave_holidays.html', can_edit=_hr_admin())
+    if not _holiday_admin():
+        return redirect('/leave')
+    return render_template('gw/leave_holidays.html', can_edit=True)
+
+
+def _holiday_admin() -> bool:
+    return _is_admin() and not _is_field()
 
 
 @hr_bp.route('/api/leave/holidays', methods=['GET'])
@@ -613,6 +619,8 @@ def page_leave_holidays():
 def api_holidays():
     from datetime import date as _date
     from dashboard.services import company_holidays as ch
+    if not _holiday_admin():
+        return jsonify({'success': False, 'message': '쉬는 날은 관리자만 볼 수 있어요.'}), 403
     try:
         year = int(request.args.get('year') or _date.today().year)
     except ValueError:
@@ -623,13 +631,13 @@ def api_holidays():
         data = ch.year_list(year)
     except Exception as e:
         return _fail(e)
-    return jsonify(dict(data, success=True, can_edit=_hr_admin(), today=_date.today().isoformat()))
+    return jsonify(dict(data, success=True, can_edit=True, today=_date.today().isoformat()))
 
 
 def _holiday_write(action: str, hid: int = 0):
     from dashboard.services import company_holidays as ch
-    if not _hr_admin():
-        return jsonify({'success': False, 'message': '쉬는 날은 경영지원만 넣고 고칠 수 있어요.'}), 403
+    if not _holiday_admin():
+        return jsonify({'success': False, 'message': '쉬는 날은 관리자만 넣고 고칠 수 있어요.'}), 403
     body = request.get_json(silent=True) or {}
     try:
         if body.get('preview'):
