@@ -29,49 +29,54 @@
   </section>
   {% endif %}
 
-  <div class="gw-home-grid">
-    {# 공지(11-25) — 고정 공지 먼저, 최근 4건. 현장·미화도 본다(대상 카테고리만) #}
-    <section class="gw-panel gw-home-card" aria-labelledby="homeNoticeTitle">
-      <div class="gw-home-card-head">
-        <h2 class="gw-panel-title" id="homeNoticeTitle"><i class="fas fa-bullhorn me-1" aria-hidden="true"></i>공지 <span class="gw-nt-unread" id="homeNoticeN" hidden></span></h2>
-        <a class="gw-home-more" href="/notices">전체 보기</a>
-      </div>
-      <div id="homeNotice" aria-live="polite"><div class="gw-empty">불러오는 중…</div></div>
-    </section>
+  {# 두 칸을 따로 쌓아 높이를 맞춤(11-25 부장님 — 왼쪽만 길었음): 왼쪽 공지·내 휴가·휴가자, 오른쪽 결재·메일.
+     좁은 화면은 한 줄로 공지 → 결재 → 내 휴가 → 휴가자 → 메일(gw-home-o*) #}
+  <div class="gw-home-cols">
+    <div class="gw-home-col">
+      {# 공지(11-25) — 고정 공지 먼저, 최근 4건. 현장·미화도 본다(대상 카테고리만) #}
+      <section class="gw-panel gw-home-card gw-home-o1" aria-labelledby="homeNoticeTitle">
+        <div class="gw-home-card-head">
+          <h2 class="gw-panel-title" id="homeNoticeTitle"><i class="fas fa-bullhorn me-1" aria-hidden="true"></i>공지 <span class="gw-nt-unread" id="homeNoticeN" hidden></span></h2>
+          <a class="gw-home-more" href="/notices">전체 보기</a>
+        </div>
+        <div id="homeNotice" aria-live="polite"><div class="gw-empty">불러오는 중…</div></div>
+      </section>
 
+      <section class="gw-panel gw-home-card gw-home-o3" aria-labelledby="homeLeaveTitle">
+        <div class="gw-home-card-head">
+          <h2 class="gw-panel-title" id="homeLeaveTitle"><i class="fas fa-umbrella-beach me-1" aria-hidden="true"></i>내 휴가</h2>
+          <a class="gw-home-more" href="/leave">자세히</a>
+        </div>
+        <div id="homeLeave" aria-live="polite"><div class="gw-empty">불러오는 중…</div></div>
+      </section>
+
+      {% if not is_field %}
+      <section class="gw-panel gw-home-card gw-home-o4" aria-labelledby="homeOffTitle">
+        <div class="gw-home-card-head">
+          <h2 class="gw-panel-title" id="homeOffTitle"><i class="fas fa-user-clock me-1" aria-hidden="true"></i>휴가자</h2>
+        </div>
+        <div id="homeOff" aria-live="polite"><div class="gw-empty">불러오는 중…</div></div>
+      </section>
+      {% endif %}
+    </div>
     {% if not is_field %}
-    <section class="gw-panel gw-home-card" aria-labelledby="homeApprovalTitle">
-      <div class="gw-home-card-head">
-        <h2 class="gw-panel-title" id="homeApprovalTitle"><i class="fas fa-file-signature me-1" aria-hidden="true"></i>결재</h2>
-        <a class="gw-home-more" href="/approval">결재함</a>
-      </div>
-      <div id="homeApprovals" aria-live="polite"><div class="gw-empty">불러오는 중…</div></div>
-    </section>
-    {% endif %}
+    <div class="gw-home-col">
+      <section class="gw-panel gw-home-card gw-home-o2" aria-labelledby="homeApprovalTitle">
+        <div class="gw-home-card-head">
+          <h2 class="gw-panel-title" id="homeApprovalTitle"><i class="fas fa-file-signature me-1" aria-hidden="true"></i>결재</h2>
+          <a class="gw-home-more" href="/approval">결재함</a>
+        </div>
+        <div id="homeApprovals" aria-live="polite"><div class="gw-empty">불러오는 중…</div></div>
+      </section>
 
-    <section class="gw-panel gw-home-card" aria-labelledby="homeLeaveTitle">
-      <div class="gw-home-card-head">
-        <h2 class="gw-panel-title" id="homeLeaveTitle"><i class="fas fa-umbrella-beach me-1" aria-hidden="true"></i>내 휴가</h2>
-        <a class="gw-home-more" href="/leave">자세히</a>
-      </div>
-      <div id="homeLeave" aria-live="polite"><div class="gw-empty">불러오는 중…</div></div>
-    </section>
-
-    {% if not is_field %}
-    <section class="gw-panel gw-home-card" aria-labelledby="homeOffTitle">
-      <div class="gw-home-card-head">
-        <h2 class="gw-panel-title" id="homeOffTitle"><i class="fas fa-user-clock me-1" aria-hidden="true"></i>휴가자</h2>
-      </div>
-      <div id="homeOff" aria-live="polite"><div class="gw-empty">불러오는 중…</div></div>
-    </section>
-
-    <section class="gw-panel gw-home-card" aria-labelledby="homeMailTitle">
-      <div class="gw-home-card-head">
-        <h2 class="gw-panel-title" id="homeMailTitle"><i class="fas fa-envelope me-1" aria-hidden="true"></i>메일</h2>
-        <a class="gw-home-more" id="homeMailInbox" href="https://mail.google.com" target="_blank" rel="noopener">Gmail 열기</a>
-      </div>
-      <div id="homeMail" aria-live="polite"><div class="gw-empty">불러오는 중…</div></div>
-    </section>
+      <section class="gw-panel gw-home-card gw-home-o5" aria-labelledby="homeMailTitle">
+        <div class="gw-home-card-head">
+          <h2 class="gw-panel-title" id="homeMailTitle"><i class="fas fa-envelope me-1" aria-hidden="true"></i>메일</h2>
+          <a class="gw-home-more" id="homeMailInbox" href="https://mail.google.com" target="_blank" rel="noopener">Gmail 열기</a>
+        </div>
+        <div id="homeMail" aria-live="polite"><div class="gw-empty">불러오는 중…</div></div>
+      </section>
+    </div>
     {% endif %}
   </div>
 </div>

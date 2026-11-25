@@ -4262,3 +4262,11 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 }
 .gw-nt-f-files > legend, .gw-nt-depts > legend { font-size: 0.875rem; font-weight: 500; float: none; width: auto; margin-bottom: 0.5rem; line-height: 1.5; }   /* 부트스트랩 legend 기본(1.5rem) 덮기 */
 .gw-nt-flist li .btn { flex: none; white-space: nowrap; }
+/* 홈 카드 두 칸(11-25) — 칸마다 따로 쌓아 한쪽만 길어지지 않게. 좁은 화면은 한 줄 + 순서 지정 */
+.gw-home-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.gw-home-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+@media (max-width: 991.98px) {
+  .gw-home-cols { display: flex; flex-direction: column; }
+  .gw-home-col { display: contents; }
+  .gw-home-o1 { order: 1; } .gw-home-o2 { order: 2; } .gw-home-o3 { order: 3; } .gw-home-o4 { order: 4; } .gw-home-o5 { order: 5; }
+}
