@@ -160,10 +160,17 @@ def outflow_row(tx: dict, approval: Optional[dict], hints, initial_of) -> dict:
             'check': not title}
 
 
+# 자금일보 '구분' → 사업자(전자결재 grn = 이체할 통장 G·R·N 과 맞추기)
+CODE_ENTITY = {'1011': 'G', '1012': 'G', '1013': 'G', '1014': 'G', '9011': 'R', '9012': 'R', '4011': 'P', '5011': 'N',
+               '농협': 'N', '하도급': 'R'}
+
+
 def match_approvals(outs: List[dict], approvals: List[dict]) -> Dict[int, dict]:
-    """출금 ↔ 전자결재 이체 완료 — 같은 금액, 이체 시각이 문자 시각 ±1일. 한 결재는 한 번만. {출금 index: 결재}."""
+    """출금 ↔ 전자결재 이체 완료 — 같은 금액, 이체 시각이 문자 시각 ±1일, 이체 통장(grn)이 있으면 같은 사업자.
+    한 결재는 한 번만. {출금 index: 결재}."""
     used, out = set(), {}
     for i, tx in enumerate(outs):
+        ent = CODE_ENTITY.get(str(tx.get('code') or ''), '')
         try:
             t = datetime.strptime(tx['at'][:16], '%Y-%m-%d %H:%M')
         except (KeyError, ValueError):
@@ -171,6 +178,9 @@ def match_approvals(outs: List[dict], approvals: List[dict]) -> Dict[int, dict]:
         best = None
         for a in approvals:
             if a['id'] in used or int(a.get('amount') or 0) != int(tx['amount']):
+                continue
+            grn = str(a.get('grn') or '')[:1].upper()
+            if grn and ent and grn != ent:
                 continue
             try:
                 at = datetime.strptime(str(a['done_at'])[:16], '%Y-%m-%d %H:%M')
@@ -191,7 +201,7 @@ def transfers_done(start: str, end: str) -> List[dict]:
     with get_user_database()._get_connection() as c:
         return [dict(r) for r in c.execute(
             "SELECT a.id, a.form, a.amount, a.project_code, a.cost_category, a.content, a.partner, a.payee_name, "
-            "a.requester_name, s.at AS done_at FROM approvals a JOIN approval_steps s ON s.approval_id=a.id "
+            "a.requester_name, a.grn, s.at AS done_at FROM approvals a JOIN approval_steps s ON s.approval_id=a.id "
             "WHERE s.step='transfer' AND s.result='done' AND s.at >= ? AND s.at < ?", (start, end))]
 
 
@@ -204,18 +214,21 @@ def build_rows(txs: List[dict], hints=None, projects: Optional[Dict[str, dict]] 
     ins = [t for t in sorted(txs, key=lambda x: x.get('at') or '') if t['direction'] == 'in']
     outs = [t for t in sorted(txs, key=lambda x: x.get('at') or '') if t['direction'] == 'out']
     pairs = match_approvals(outs, approvals or [])
-    in_rows = [deposit_row(t, projects.get((t.get('project_code') or '').split(',')[0]), hints['in']) for t in ins]
+    # 농협(N통장) 입금은 공사 입금으로 지정된 것만 — N통장은 대표님 개인 용도도 섞여 있음(11-26 부장님)
+    in_rows = [deposit_row(t, projects.get((t.get('project_code') or '').split(',')[0]), hints['in']) for t in ins
+               if not (t.get('code') == '농협' and not t.get('project_code'))]
     out_rows = [outflow_row(t, pairs.get(i), hints['out'], initial_of) for i, t in enumerate(outs)
                 if not _skip_outflow(t, pairs.get(i))]
     return in_rows, out_rows
 
 
 def _skip_outflow(tx: dict, approval: Optional[dict]) -> bool:
-    """자금일보에 안 넣는 출금 — 농협(N통장)에서 받는 사람 없이 나간 돈(문자에 '농협 출금'만, 전자결재 짝도 없음).
-    11-26 부장님 '빼는 게 맞아'(11/25 1,000,000원 ×5 — SB 자금일보에도 없음). 장부·입출금 화면에는 그대로 남는다."""
-    if approval or tx.get('code') != '농협':
+    """자금일보에 안 넣는 출금 — 농협(N통장) 출금은 전자결재 N 출금(grn N)과 짝지어질 때만 넣는다.
+    11-26 부장님 '농협은 전자결재에 N출금이 있을 때만' — 나머지는 대표님(YG) 개인 용도(11/25 1,000,000원 ×5).
+    장부·입출금 화면에는 그대로 남는다."""
+    if tx.get('code') != '농협':
         return False
-    return norm(tx.get('counterparty') or '') in ('', norm('농협 출금'), norm('농협'))
+    return not (approval and str(approval.get('grn') or '')[:1].upper() == 'N')
 
 
 # ── 시트 쓰기 ─────────────────────────────────────────────────────────

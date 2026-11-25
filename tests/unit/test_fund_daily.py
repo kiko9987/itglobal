@@ -33,6 +33,10 @@ def test_deposit_rows_from_project():
     assert (ins[2]['C'], ins[2]['check']) == ('이자수익', False)
     assert (ins[3]['C'], ins[3]['check']) == ('', True)                       # 못 찾으면 비우고 확인 필요
     assert outs == []
+    nh = [{'code': '농협', 'direction': 'in', 'amount': 1, 'counterparty': '누구', 'project_code': '', 'at': '2026-11-25 09:00'},
+          {'code': '농협', 'direction': 'in', 'amount': 2, 'counterparty': '고객', 'project_code': 'R4259-MJ', 'at': '2026-11-25 09:01'}]
+    ins, _ = fd.build_rows(nh, HINTS, projects)
+    assert [r['H'] for r in ins] == [2]                  # 농협 입금은 공사 입금으로 지정된 것만
 
 
 def test_outflows_match_approval_then_hints():
@@ -41,14 +45,16 @@ def test_outflows_match_approval_then_hints():
            {'code': '농협', 'direction': 'out', 'amount': 300_000, 'counterparty': '최만호', 'project_code': '', 'at': '2026-11-25 17:00'},
            {'code': '농협', 'direction': 'out', 'amount': 1_000_000, 'counterparty': '농협 출금', 'project_code': '', 'at': '2026-11-25 18:00'}]
     approvals = [{'id': 82, 'amount': 2_492_665, 'project_code': '프로젝트0', 'cost_category': '자재비', 'content': '전기 자재구매',
-                  'partner': '세광전기', 'payee_name': '오세영', 'requester_name': '조성헌', 'done_at': '2026-11-25 14:59:49'},
+                  'partner': '세광전기', 'payee_name': '오세영', 'requester_name': '조성헌', 'grn': 'G', 'done_at': '2026-11-25 14:59:49'},
+                 {'id': 84, 'amount': 300_000, 'project_code': 'R4294-JW', 'cost_category': '도급비', 'content': '앵글',
+                  'partner': '최만호', 'requester_name': '조성헌', 'grn': 'N', 'done_at': '2026-11-25 15:16:00'},
                  {'id': 99, 'amount': 2_492_665, 'project_code': 'R1-X', 'cost_category': '자재비', 'content': '사흘 뒤',
                   'partner': '딴곳', 'requester_name': '', 'done_at': '2026-11-28 10:00:00'}]
     _, outs = fd.build_rows(txs, HINTS, {}, approvals, lambda n: 'JSH' if n == '조성헌' else '')
     assert {k: outs[0][k] for k in ('I', 'J', 'K', 'N')} == {'I': '1011', 'J': '외상매입', 'K': '0 JSH 전기 자재구매', 'N': '세광전기'}
     assert (outs[1]['J'], outs[1]['K']) == ('지급수수료', '기장료')
-    assert (outs[2]['J'], outs[2]['K']) == ('지급수수료', '')                 # 공사마다 다른 적요는 계정만 제안
-    assert len(outs) == 3                       # 농협에서 받는 사람 없이 나간 돈은 자금일보에서 뺌(11-26 부장님)
+    assert (outs[2]['N'], outs[2]['K']) == ('최만호', 'R4294-JW 앵글')       # 농협은 전자결재 N 출금과 짝일 때만
+    assert len(outs) == 3                       # 짝 없는 농협 출금은 자금일보에서 뺌(11-26 부장님)
 
 
 def _template(path):
