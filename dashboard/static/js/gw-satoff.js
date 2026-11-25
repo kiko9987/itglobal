@@ -208,6 +208,117 @@
     }).join('');
   }
 
+
+  // ── 휴무 메모(11-25 부장님) — 엑셀 메모란 대신. 근무표 오른쪽 빈자리에 ──
+  // 꼭 쉬어야 하는 토요일·못 쉬는 토요일과 사유를 먼저 적어 두면 다른 매니저가 보고 양보하고 피해서 잡는다.
+  // 서버가 재시작 전이면(memos 없음) 메모 칸을 그리지 않는다.
+  function memoMap(d) {
+    var m = {};
+    (d.memos || []).forEach(function (x) { m[x.day + '|' + x.name] = x; });
+    return m;
+  }
+  function memoIcon(x) {
+    if (!x) return '';
+    var t = x.kind_label + ': ' + x.reason;
+    return ' <i class="fas ' + (x.kind === 'must' ? 'fa-star gw-so-mi must' : 'fa-ban gw-so-mi cant') + '" title="' + esc(t) +
+      '" aria-hidden="true"></i><span class="visually-hidden"> (' + esc(t) + ')</span>';
+  }
+  // 그날 남이 '꼭 쉬어야 해요'라고 적었는데 아직 못 넣은 사람 — 내가 넣으면 그 사람 자리가 모자라는지
+  function yieldNeeded(s, me) {
+    var cap = data && data.max_off;
+    if (cap == null) return [];
+    var waiting = (data.memos || []).filter(function (x) {
+      return x.day === s.day && x.kind === 'must' && x.name !== me && s.names.indexOf(x.name) === -1;
+    });
+    return (cap - s.names.length - 1 < waiting.length) ? waiting : [];
+  }
+  var memoDraft = null;       // 다시 그릴 때 쓰던 칸을 지키려고(불러오기·알림 확인으로 다시 그려짐)
+  function keepMemoDraft() {
+    var f = document.getElementById('soMemoForm');
+    if (!f) return;
+    memoDraft = { day: f.day.value, name: f.who ? f.who.value : '', kind: (f.querySelector('input[name="mkind"]:checked') || {}).value,
+      reason: f.reason.value, month: data && data.month };
+  }
+  function memoHtml(d, me) {
+    if (!d.memos) return '';
+    var h = '<aside class="gw-so-memo" aria-labelledby="soMemoTitle"><h3 class="gw-so-h" id="soMemoTitle">휴무 메모</h3>' +
+      '<p class="gw-so-memo-how">꼭 쉬어야 하는 토요일이 있으면 먼저 적어 두세요. 다른 분들이 보고 양보하고 피해서 잡아요.</p>';
+    // 그달 메모 — 취합 담당·승인권자
+    var mn = d.month_note;
+    if (mn || d.can_month_note) {
+      h += '<div class="gw-so-mnote" id="soMonthNote">' +
+        (mn ? '<p class="gw-so-mnote-text"><i class="fas fa-thumbtack" aria-hidden="true"></i> ' + esc(mn.reason) +
+          ' <span class="gw-so-sub">' + esc(mn.written_by) + '</span></p>' : '') +
+        (d.can_month_note ? '<button type="button" class="btn btn-light btn-sm" data-mnote="edit">' + (mn ? '그달 메모 고치기' : '그달 메모 적기') + '</button>' : '') +
+        '</div>';
+    }
+    // 토요일별 메모
+    var by = {};
+    (d.memos || []).forEach(function (x) { (by[x.day] = by[x.day] || []).push(x); });
+    var days = Object.keys(by).sort();
+    if (days.length) {
+      h += '<ul class="gw-so-memos">';
+      days.forEach(function (day) {
+        var s = satOf(day);
+        h += '<li><div class="gw-so-mday">' + md(day) + '(토)' + (s ? ' <span class="gw-so-sub">' + (s.names.length) + '명 휴무</span>' : '') + '</div><ul>';
+        by[day].forEach(function (x) {
+          var mine = x.name === me.name;
+          var canDel = mine || d.can_memo_others;
+          var picked = s && s.names.indexOf(x.name) !== -1;
+          h += '<li class="' + x.kind + (mine ? ' mine' : '') + '">' + memoIcon(x).replace(/^ /, '') +
+            '<span class="gw-so-mwho">' + esc(x.name) + '</span><span class="gw-so-mwhy">' + esc(x.reason) + '</span>' +
+            (x.kind === 'must' && !picked ? '<span class="gw-so-mtag">아직 못 넣음</span>' : '') +
+            (canDel ? '<button type="button" class="btn btn-link btn-sm gw-so-mdel" data-mdel="' + esc(x.day) + '" data-name="' + esc(x.name) +
+              '" aria-label="' + esc(x.name + ' ' + md(x.day) + ' 메모 지우기') + '">지우기</button>' : '') + '</li>';
+        });
+        h += '</ul></li>';
+      });
+      h += '</ul>';
+    } else {
+      h += '<p class="gw-so-none">아직 적힌 메모가 없어요.</p>';
+    }
+    // 적기
+    if (d.can_memo) {
+      var ed = me.approver || me.editor;
+      var opts = (d.saturdays || []).filter(function (s) { return !s.holiday && !fullOff(s) && (!s.past || ed); });
+      if (opts.length) {
+        var keep = memoDraft && memoDraft.month === d.month ? memoDraft : {};
+        h += '<form class="gw-so-memoform" id="soMemoForm" novalidate><div class="gw-so-mrow">' +
+          '<label class="visually-hidden" for="soMemoDay">토요일</label><select class="form-select form-select-sm" id="soMemoDay" name="day">' +
+          opts.map(function (s) { return '<option value="' + s.day + '"' + (keep.day === s.day ? ' selected' : '') + '>' + md(s.day) + '(토)</option>'; }).join('') + '</select>';
+        if (d.can_memo_others) {
+          h += '<label class="visually-hidden" for="soMemoWho">누구</label><select class="form-select form-select-sm" id="soMemoWho" name="who">' +
+            (d.members || []).map(function (m) {
+              var sel = keep.name ? keep.name === m.name : m.name === me.name;
+              return '<option' + (sel ? ' selected' : '') + '>' + esc(m.name) + '</option>';
+            }).join('') + '</select>';
+        }
+        var kind = keep.kind || 'must';
+        h += '</div><div class="btn-group gw-so-mkind" role="radiogroup" aria-label="메모 종류">' +
+          '<input type="radio" class="btn-check" name="mkind" id="soMkMust" value="must"' + (kind === 'must' ? ' checked' : '') + '>' +
+          '<label class="btn btn-outline-secondary btn-sm" for="soMkMust"><i class="fas fa-star" aria-hidden="true"></i> 꼭 쉬어야 해요</label>' +
+          '<input type="radio" class="btn-check" name="mkind" id="soMkCant" value="cant"' + (kind === 'cant' ? ' checked' : '') + '>' +
+          '<label class="btn btn-outline-secondary btn-sm" for="soMkCant"><i class="fas fa-ban" aria-hidden="true"></i> 못 쉬어요</label></div>' +
+          '<div class="gw-so-mrow"><label class="visually-hidden" for="soMemoWhy">사유</label>' +
+          '<input type="text" class="form-control form-control-sm" id="soMemoWhy" name="reason" maxlength="60" autocomplete="off" ' +
+          'placeholder="가족여행, 결혼식, 현장 일정" value="' + esc(keep.reason || '') + '">' +
+          '<button type="submit" class="btn btn-primary btn-sm">메모 남기기</button></div>' +
+          '<div class="gw-lv-err" id="soMemoErr" role="alert"></div></form>';
+      }
+    }
+    return h + '</aside>';
+  }
+  function memoNoteForm(cur) {
+    return '<form class="gw-so-mnoteform" id="soMonthNoteForm" novalidate>' +
+      '<label class="visually-hidden" for="soMonthNoteText">그달 메모</label>' +
+      '<textarea class="form-control form-control-sm" id="soMonthNoteText" rows="3" maxlength="300" ' +
+      'placeholder="26일 전체휴무 대표님 소통 예정">' + esc(cur || '') + '</textarea>' +
+      '<div class="gw-so-btns"><button type="submit" class="btn btn-primary btn-sm">저장</button> ' +
+      '<button type="button" class="btn btn-light btn-sm" data-mnote="cancel">취소</button>' +
+      (cur ? ' <button type="button" class="btn btn-link btn-sm gw-so-mdel" data-mnote="clear">지우기</button>' : '') + '</div>' +
+      '<div class="gw-lv-err" id="soMonthNoteErr" role="alert"></div></form>';
+  }
+
   // ── 토요일 근무표(11-24 부장님) — 사람 × 토요일 표. 칸마다 근무·휴무·휴무 출근, 끝에 휴무 횟수·휴무 출근 횟수 ──
   // 표 자리는 JS 가 만든다(서버가 옛 템플릿이어도 보이게 — 11-24 템플릿 캐시 사고)
   var tableEl = document.getElementById('soTable');
@@ -221,12 +332,15 @@
     var sats = d.saturdays || [];
     var mem = d.members || [];
     if (!sats.length || !mem.length) { tableEl.hidden = true; return; }
+    keepMemoDraft();
+    var mm = memoMap(d);
     var off = {}, wk = {};
     sats.forEach(function (s) {
       s.names.forEach(function (n) { off[s.day + '|' + n] = true; });
       (s.worked || []).forEach(function (n) { wk[s.day + '|' + n] = true; });
     });
-    var h = '<h3 class="gw-so-h" id="soTableTitle">토요일 근무표</h3>' +
+    var h = '<div class="gw-so-tlayout' + (d.memos ? ' has-memo' : '') + '"><div class="gw-so-tmain">' +
+      '<h3 class="gw-so-h" id="soTableTitle">토요일 근무표</h3>' +
       // 휴대폰에선 옆으로 밀어 봄 — 키보드로도 밀 수 있게 초점을 받는 영역으로
       '<div class="gw-so-tablewrap" tabindex="0" role="region" aria-labelledby="soTableTitle"><table class="gw-so-matrix">' +
       '<caption class="visually-hidden">' + cur.y + '년 ' + cur.m + '월 토요일마다 근무·휴무·휴무 출근</caption><thead><tr><th scope="col">이름</th>';
@@ -240,9 +354,9 @@
       sats.forEach(function (s) {
         var k = s.day + '|' + m.name;
         if (s.holiday) h += '<td class="hol">공휴일</td>';
-        else if (wk[k]) h += '<td><span class="gw-so-cell worked">휴무 출근</span></td>';
-        else if (off[k]) h += '<td><span class="gw-so-cell off">휴무</span></td>';
-        else h += '<td class="work">근무</td>';
+        else if (wk[k]) h += '<td><span class="gw-so-cell worked">휴무 출근</span>' + memoIcon(mm[k]) + '</td>';
+        else if (off[k]) h += '<td><span class="gw-so-cell off">휴무</span>' + memoIcon(mm[k]) + '</td>';
+        else h += '<td class="work">근무' + memoIcon(mm[k]) + '</td>';
       });
       h += '<td class="n">' + (m.count || 0) + '</td><td class="n">' + (m.worked || 0) + '</td></tr>';
     });
@@ -251,7 +365,7 @@
       var n = mem.filter(function (m) { return !off[s.day + '|' + m.name]; }).length;
       h += '<td>' + (s.holiday ? '-' : n + '명') + '</td>';
     });
-    h += '<td></td><td></td></tr></tfoot></table></div>';
+    h += '<td></td><td></td></tr></tfoot></table></div></div>' + memoHtml(d, me) + '</div>';
     // 기술영업 인센티브는 표에 넣지 않는다(격주휴무 없음). 표 아래 '대상 아님' 줄은 뺐다(11-25 부장님 '없어도 돼')
     tableEl.innerHTML = h;
     tableEl.hidden = false;
@@ -509,6 +623,9 @@
     var s = satOf(day);
     if (!s) return;
     if (mode === 'self') {
+      var need = s.mine ? [] : yieldNeeded(s, data.me.name);
+      if (need.length && !window.confirm(md(day) + ' 토요일은 ' + need.map(function (x) { return x.name + ' 님(' + x.reason + ')'; }).join(', ') +
+          '이 꼭 쉬어야 한다고 적어 두었어요.\n지금 넣으면 그 자리가 모자라요. 다른 토요일을 먼저 생각해 주세요.\n\n그래도 넣을까요?')) return;
       busy = true;
       cell.setAttribute('aria-busy', 'true');
       cell.classList.add('is-busy');
@@ -543,6 +660,64 @@
     if (cell) { e.preventDefault(); onDay(cell); }
   });
 
+  // 휴무 메모 적기·지우기·그달 메모(11-25)
+  tableEl.addEventListener('submit', function (ev) {
+    var f = ev.target;
+    if (f.id === 'soMemoForm') {
+      ev.preventDefault();
+      var err = document.getElementById('soMemoErr');
+      err.textContent = '';
+      var reason = f.reason.value.trim();
+      if (!reason) { err.textContent = '사유를 적어 주세요.'; f.reason.focus(); return; }
+      var kind = (f.querySelector('input[name="mkind"]:checked') || {}).value || 'must';
+      var who = f.who ? f.who.value : data.me.name;
+      var btn = f.querySelector('button[type="submit"]');
+      btn.disabled = true;
+      api('/api/satoff/memo', { method: 'POST', body: { day: f.day.value, name: who, kind: kind, reason: reason } }).then(function (j) {
+        memoDraft = null;
+        var said = md(j.day) + ' 토요일 메모를 남겼어요.' + (j.kind === 'must' && j.picked ? ' 휴무에 이름도 넣었어요.' : '');
+        flash(j.warn ? said + ' ' + j.warn : said, j.warn ? 'warn' : 'ok');
+        return load(true);
+      }).catch(function (e) { err.textContent = e.message; })
+        .then(function () { btn.disabled = false; });
+    } else if (f.id === 'soMonthNoteForm') {
+      ev.preventDefault();
+      saveMonthNote(document.getElementById('soMonthNoteText').value);
+    }
+  });
+  function saveMonthNote(text) {
+    var err = document.getElementById('soMonthNoteErr');
+    if (err) err.textContent = '';
+    api('/api/satoff/month-note', { method: 'POST', body: { month: data.month, text: text } }).then(function (j) {
+      flash(j.reason ? '그달 메모를 저장했어요.' : '그달 메모를 지웠어요.', 'ok');
+      return load(true);
+    }).catch(function (e) { if (err) err.textContent = e.message; else flash(e.message, 'err'); });
+  }
+  tableEl.addEventListener('click', function (ev) {
+    var del = ev.target.closest('[data-mdel]');
+    if (del) {
+      var day = del.getAttribute('data-mdel'), who = del.getAttribute('data-name');
+      if (!window.confirm(who + ' 님 ' + md(day) + ' 토요일 메모를 지울까요? 휴무 이름은 그대로 남아요.')) return;
+      api('/api/satoff/memo', { method: 'POST', body: { day: day, name: who, on: false } }).then(function () {
+        flash(md(day) + ' 토요일 메모를 지웠어요.', 'ok');
+        return load(true);
+      }).catch(function (e) { flash(e.message, 'err'); });
+      return;
+    }
+    var mn = ev.target.closest('[data-mnote]');
+    if (!mn) return;
+    var box = document.getElementById('soMonthNote');
+    var act = mn.getAttribute('data-mnote');
+    if (act === 'edit' && box) {
+      box.innerHTML = memoNoteForm((data.month_note || {}).reason || '');
+      document.getElementById('soMonthNoteText').focus();
+    } else if (act === 'cancel') {
+      render();
+    } else if (act === 'clear') {
+      if (window.confirm('그달 메모를 지울까요?')) saveMonthNote('');
+    }
+  });
+
   // ── 사람 고르기 창(취합 담당·승인권자) ──
   var pickEl = document.getElementById('soPickModal');
   var pickDay = null;
@@ -555,10 +730,15 @@
       : '휴무자를 고르세요. 이름 옆 숫자는 이번 달 휴무 횟수예요.';
     var counts = {};
     (data.members || []).forEach(function (m) { counts[m.name] = m.count; });
+    var mmap = memoMap(data);
     document.getElementById('soPickList').innerHTML = (data.members || []).map(function (m, i) {
       var on = s.names.indexOf(m.name) !== -1;
+      var mx = mmap[s.day + '|' + m.name];
       return '<div class="form-check"><input class="form-check-input" type="checkbox" id="soPk' + i + '" value="' + esc(m.name) + '"' + (on ? ' checked' : '') + '>' +
-        '<label class="form-check-label" for="soPk' + i + '">' + esc(m.name) + ' <small class="text-muted">' + (counts[m.name] || 0) + '번</small></label></div>';
+        '<label class="form-check-label" for="soPk' + i + '">' + esc(m.name) + ' <small class="text-muted">' + (counts[m.name] || 0) + '번</small>' +
+        (mx ? ' <span class="gw-so-pmemo ' + mx.kind + '"><i class="fas ' + (mx.kind === 'must' ? 'fa-star gw-so-mi must' : 'fa-ban gw-so-mi cant') +
+          '" aria-hidden="true"></i>' + esc(mx.kind_label + ' · ' + mx.reason) + '</span>' : '') +
+        '</label></div>';
     }).join('');
     document.getElementById('soPickErr').textContent = '';
     // 열 때 초점을 제목에 — 첫 체크박스로 가면 초점 테두리 때문에 첫 사람이 고른 것처럼 보였다(11-25 부장님)

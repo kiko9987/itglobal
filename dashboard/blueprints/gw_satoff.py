@@ -212,6 +212,40 @@ def api_worked():
     return jsonify({'success': True, **res})
 
 
+@gw_satoff_bp.route('/api/satoff/memo', methods=['POST'])
+@gw_page
+def api_memo():
+    """휴무 메모 쓰기(on 생략·true)·지우기(on=false) — 꼭 쉬어야 해요·못 쉬어요 + 사유(11-25 부장님)."""
+    body = request.get_json(silent=True) or {}
+    on = body.get('on', True) is not False
+    try:
+        name, sid = _actor()
+        target = (body.get('name') or name).strip()
+        admin = _is_admin() and not _is_field()
+        if on:
+            res = so.write_memo(_day(body.get('day')), target, body.get('kind') or '', body.get('reason') or '', sid, name,
+                                admin=admin)
+        else:
+            res = so.delete_memo(_day(body.get('day')), target, sid, name, admin=admin)
+    except Exception as e:
+        return _err(e)
+    logger.info(f'[토요휴무] {res["day"]} {target} 메모 {"적음" if on else "지움"} by {name}')
+    return jsonify({'success': True, **res})
+
+
+@gw_satoff_bp.route('/api/satoff/month-note', methods=['POST'])
+@gw_page
+def api_month_note():
+    body = request.get_json(silent=True) or {}
+    try:
+        name, sid = _actor()
+        res = so.set_month_note(_month(body.get('month')), body.get('text') or '', sid, name,
+                                admin=_is_admin() and not _is_field())
+    except Exception as e:
+        return _err(e)
+    return jsonify({'success': True, **res})
+
+
 @gw_satoff_bp.route('/api/satoff/full', methods=['POST'])
 @gw_page
 def api_full_off():

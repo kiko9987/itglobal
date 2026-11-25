@@ -3066,7 +3066,7 @@ html:has(#bdPage) {
 /* 토요일 근무표(11-24) — 사람 × 토요일 */
 .gw-so-table { margin-top: 14px; padding: 12px 14px; }
 .gw-so-table[hidden] { display: none; }
-.gw-so-tablewrap { overflow-x: auto; }
+.gw-so-tablewrap { overflow-x: auto; overflow-y: hidden; }   /* 1px 넘침으로 세로 스크롤 막대가 생기던 것(11-25) */
 .gw-so-matrix { width: 100%; border-collapse: collapse; font-size: 0.88rem; font-variant-numeric: tabular-nums; }
 .gw-so-matrix th, .gw-so-matrix td { padding: 6px 8px; border-bottom: 1px solid #eef0f3; text-align: center; white-space: nowrap; }
 .gw-so-matrix thead th { font-weight: 600; color: #475569; border-bottom: 1px solid #e2e8f0; }
@@ -3994,4 +3994,52 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
   .gw-hd-impact-list li > span:nth-child(2) { grid-column: 1 / -1; grid-row: 2; color: #475569; }
   .gw-hd-actions { flex-direction: column-reverse; }
   .gw-hd-actions .btn { width: 100%; }
+}
+
+/* ── 스케줄 근무 휴무 메모(11-25 부장님) — 근무표 오른쪽 빈자리. 엑셀 메모란처럼 먼저 적고 서로 보고 양보 ─────────── */
+.gw-so-tlayout { display: block; }
+@media (min-width: 992px) {
+  .gw-so-tlayout.has-memo { display: grid; grid-template-columns: max-content minmax(280px, 1fr); gap: 0 24px; align-items: start; }
+  .gw-so-tlayout.has-memo .gw-so-tmain { min-width: 0; max-width: 100%; }
+  .gw-so-tlayout.has-memo .gw-so-matrix { width: auto; }
+  .gw-so-tlayout.has-memo .gw-so-memo { border-left: 1px solid #eef0f3; padding-left: 24px; margin-top: 0; }
+}
+.gw-so-memo { margin-top: 16px; font-size: 0.88rem; color: #334155; }
+.gw-so-memo-how { margin: 0 0 10px; color: #64748b; font-size: 0.82rem; }
+.gw-so-mnote { margin: 0 0 12px; }
+.gw-so-mnote-text { margin: 0 0 6px; padding: 8px 10px; border-radius: 8px; background: #f8fafc; border: 1px solid #e2e8f0; line-height: 1.6; }
+.gw-so-mnote-text .fa-thumbtack { color: #64748b; margin-right: 2px; }
+.gw-so-mnoteform textarea { font-size: 0.88rem; margin-bottom: 6px; }
+.gw-so-memos { list-style: none; margin: 0 0 12px; padding: 0; }
+.gw-so-memos > li { padding: 8px 0; border-top: 1px solid #f1f5f9; }
+.gw-so-memos > li:first-child { border-top: 0; padding-top: 0; }
+.gw-so-mday { font-weight: 600; color: #0f172a; font-variant-numeric: tabular-nums; margin-bottom: 4px; }
+.gw-so-mday .gw-so-sub { font-weight: 400; margin-left: 4px; }
+.gw-so-memos ul { list-style: none; margin: 0; padding: 0; }
+.gw-so-memos ul li { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; padding: 2px 0; }
+.gw-so-memos ul li.mine .gw-so-mwho { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: #93c5fd; }
+.gw-so-mwho { font-weight: 600; color: #0f172a; }
+.gw-so-mwhy { color: #334155; }
+.gw-so-mtag { font-size: 0.72rem; color: #9a3412; border: 1px dashed #fb923c; border-radius: 999px; padding: 0 6px; }
+.gw-so-mdel { padding: 0 2px; font-size: 0.78rem; color: #64748b; text-underline-offset: 2px; margin-left: auto; }
+.gw-so-mi.must { color: #d97706; }
+.gw-so-mi.cant { color: #64748b; }
+.gw-so-matrix .gw-so-mi { font-size: 0.72rem; margin-left: 3px; cursor: help; }
+.gw-so-memoform { margin-top: 4px; padding-top: 12px; border-top: 1px solid #eef0f3; display: grid; gap: 8px; }
+.gw-so-mrow { display: flex; gap: 6px; }
+.gw-so-mrow .form-select { width: auto; flex: 0 0 auto; }
+.gw-so-mrow .form-control { flex: 1 1 auto; min-width: 0; }
+.gw-so-mrow .btn { flex: 0 0 auto; }
+.gw-so-mkind .btn .fa-star { color: #d97706; }
+.gw-so-mkind .btn-check:checked + .btn .fa-star { color: #fde68a; }
+.gw-so-pmemo { display: block; font-size: 0.78rem; color: #475569; margin-top: 1px; }
+.gw-so-pmemo.must { color: #92400e; }
+.gw-so-pmemo .gw-so-mi { margin-right: 4px; }
+@media (max-width: 767.98px) {
+  .gw-so-mrow { flex-wrap: wrap; }
+  .gw-so-mrow .form-select, .gw-so-mrow .form-control { font-size: 16px; min-height: 44px; }
+  .gw-so-mrow .form-control { flex-basis: 100%; }
+  .gw-so-mrow .btn, .gw-so-mkind .btn, .gw-so-mnote .btn { min-height: 44px; }
+  .gw-so-mrow .btn { flex-basis: 100%; }
+  .gw-so-mdel { min-height: 32px; }
 }

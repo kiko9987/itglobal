@@ -93,6 +93,18 @@ DDL = [
         set_by TEXT,
         set_at TEXT
     )''',
+    # 휴무 메모(11-25 부장님) — 엑셀 「격주휴무 신청서」 메모란 대신. 각자 '꼭 쉬어야 하는 토요일'·'못 쉬는 토요일'과 사유를
+    # 먼저 적어 두면 다른 매니저가 보고 양보하고 피해서 잡는다. day='' + name='' 은 그달 전체 메모(취합 담당·승인권자)
+    '''CREATE TABLE IF NOT EXISTS sat_off_memos (
+        month TEXT NOT NULL,
+        day TEXT NOT NULL DEFAULT '',
+        name TEXT NOT NULL DEFAULT '',
+        kind TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        written_by TEXT,
+        written_at TEXT,
+        PRIMARY KEY (month, day, name)
+    )''',
     '''CREATE TABLE IF NOT EXISTS sat_off_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         at TEXT NOT NULL,
@@ -375,6 +387,114 @@ def recent_log(month: str, limit: int = 20) -> List[dict]:
     return [dict(r) for r in rows]
 
 
+# ── 휴무 메모(11-25) ────────────────────────────────────────────────────
+MEMO_MUST, MEMO_CANT, MEMO_MONTH = 'must', 'cant', 'month'
+MEMO_LABELS = {MEMO_MUST: '꼭 쉬어야 해요', MEMO_CANT: '못 쉬어요', MEMO_MONTH: '그달 메모'}
+MEMO_MAX = 60
+MONTH_NOTE_MAX = 300
+
+
+def memos(month: str) -> dict:
+    """{'items': [{day, label, name, kind, kind_label, reason, written_by, written_at}] (토요일·이름순),
+    'month_note': {reason, written_by, written_at} | None}."""
+    with lv._conn() as conn:
+        rows = [dict(r) for r in conn.execute(
+            'SELECT * FROM sat_off_memos WHERE month=? ORDER BY day, kind, name', (month,)).fetchall()]
+    items, note = [], None
+    for r in rows:
+        if r['kind'] == MEMO_MONTH:
+            note = {'reason': r['reason'], 'written_by': r.get('written_by') or '', 'written_at': r.get('written_at') or ''}
+            continue
+        d = lv._d(r['day'])
+        items.append({'day': r['day'], 'label': kday(d) if d else r['day'], 'name': r['name'], 'kind': r['kind'],
+                      'kind_label': MEMO_LABELS.get(r['kind'], r['kind']), 'reason': r['reason'],
+                      'written_by': r.get('written_by') or '', 'written_at': r.get('written_at') or ''})
+    return {'items': items, 'month_note': note}
+
+
+def _memo_reason(reason: str, limit: int) -> str:
+    text = ' '.join(str(reason or '').split())
+    if not text:
+        raise SatOffError('사유를 적어 주세요. 예: 가족여행, 결혼식, 현장 일정')
+    if len(text) > limit:
+        raise SatOffError(f'사유는 {limit}자까지 적을 수 있어요.')
+    return text
+
+
+def write_memo(day: Optional[date], target: str, kind: str, reason: str, sid: str, actor_name: str,
+               today: Optional[date] = None, admin: bool = False) -> dict:
+    """본인(또는 취합 담당·승인권자가 대신) 토요일 메모 — '꼭 쉬어야 해요'·'못 쉬어요' + 사유. 같은 사람·같은 토요일은 고쳐 씀.
+    '꼭 쉬어야 해요'는 작성 중인 달이면 그 토요일에 이름도 넣는다(절반이 차 있으면 메모만 남기고 알려 줌 — 다른 분 양보 대기)."""
+    today = today or date.today()
+    if kind not in (MEMO_MUST, MEMO_CANT):
+        raise SatOffError('메모 종류를 골라 주세요.')
+    on = day.replace(day=1) if day else None
+    r = role(sid, actor_name, on)
+    edit = r['approver'] or bool(admin)
+    month = _check_day(day, today, edit)
+    if not _member(target, on):
+        raise SatOffError(f'{target} 님은 스케줄 근무 대상(기술영업)이 아니에요.')
+    if target != actor_name and not (r['manager'] or edit):
+        raise PermissionError('다른 사람 메모는 쓸 수 없어요.')
+    if target == actor_name and not (r['member'] or r['manager'] or edit):
+        raise PermissionError('스케줄 근무 대상이 아니에요.')
+    text = _memo_reason(reason, MEMO_MAX)
+    key = day.isoformat()
+    with lv._conn() as conn:
+        conn.execute('INSERT OR REPLACE INTO sat_off_memos (month, day, name, kind, reason, written_by, written_at) '
+                     'VALUES (?, ?, ?, ?, ?, ?, ?)', (month, key, target, kind, text, actor_name, _now()))
+        _log(conn, actor_name, 'memo', month, f'{kday(day)} {target} 메모 — {MEMO_LABELS[kind]}: {text}')
+    picked, warn = target in picks(month).get(key, []), ''
+    st = month_row(month)['status']
+    if kind == MEMO_MUST and not picked:
+        if st == OPEN or edit:
+            try:
+                toggle(day, target, True, sid, actor_name, today=today, admin=admin)
+                picked = True
+            except SatOffError as e:          # 절반이 찼음 — 메모는 남고, 보고 양보해 주면 넣을 수 있게
+                warn = f'{e} 메모는 남겼어요. 다른 분이 보고 양보하면 그때 이름을 넣어 주세요.'
+        elif st == CONFIRMED:
+            warn = '확정된 달이라 이름은 넣지 않았어요. 쉬려면 [변경 신청]을 해 주세요.'
+        else:
+            warn = '결재 대기 중인 달이라 이름은 넣지 않았어요.'
+    return {'day': key, 'name': target, 'kind': kind, 'reason': text, 'picked': picked, 'warn': warn}
+
+
+def delete_memo(day: Optional[date], target: str, sid: str, actor_name: str, admin: bool = False) -> dict:
+    """토요일 메모 지우기 — 본인 것, 또는 취합 담당·승인권자·관리자. 휴무 이름은 그대로 둔다(빼려면 달력에서)."""
+    if not day:
+        raise SatOffError('날짜를 다시 골라 주세요.')
+    r = role(sid, actor_name, day.replace(day=1))
+    if target != actor_name and not (r['manager'] or r['approver'] or admin):
+        raise PermissionError('다른 사람 메모는 지울 수 없어요.')
+    month = _month_of(day)
+    with lv._conn() as conn:
+        n = conn.execute('DELETE FROM sat_off_memos WHERE month=? AND day=? AND name=? AND kind<>?',
+                         (month, day.isoformat(), target, MEMO_MONTH)).rowcount
+        if not n:
+            raise LookupError('이미 지워진 메모예요. 새로 고쳐 주세요.')
+        _log(conn, actor_name, 'memo', month, f'{kday(day)} {target} 메모 지움')
+    return {'day': day.isoformat(), 'name': target}
+
+
+def set_month_note(month: str, text: str, sid: str, actor_name: str, admin: bool = False) -> dict:
+    """그달 전체 메모(예: 26일 전체휴무 대표님 소통 예정, 앞당겨 사용 컨펌) — 취합 담당·승인권자·관리자. 빈 글이면 지움."""
+    r = role(sid, actor_name, _first(month))
+    if not (r['manager'] or r['approver'] or admin):
+        raise PermissionError('그달 메모는 취합 담당·승인권자만 적을 수 있어요.')
+    body = ' '.join(str(text or '').split())
+    if len(body) > MONTH_NOTE_MAX:
+        raise SatOffError(f'그달 메모는 {MONTH_NOTE_MAX}자까지 적을 수 있어요.')
+    with lv._conn() as conn:
+        if body:
+            conn.execute('INSERT OR REPLACE INTO sat_off_memos (month, day, name, kind, reason, written_by, written_at) '
+                         "VALUES (?, '', '', ?, ?, ?, ?)", (month, MEMO_MONTH, body, actor_name, _now()))
+        else:
+            conn.execute("DELETE FROM sat_off_memos WHERE month=? AND day='' AND name='' AND kind=?", (month, MEMO_MONTH))
+        _log(conn, actor_name, 'memo', month, '그달 메모 ' + ('적음: ' + body if body else '지움'))
+    return {'month': month, 'reason': body}
+
+
 def view(month: str, sid: str, name: str, today: Optional[date] = None, admin: bool = False) -> dict:
     """달력 화면 한 달치 — 토요일마다 쉬는 사람, 사람별 횟수, 내 역할로 할 수 있는 것."""
     today = today or date.today()
@@ -400,6 +520,7 @@ def view(month: str, sid: str, name: str, today: Optional[date] = None, admin: b
     edit = r['approver'] or bool(admin)          # 확정된 달도 바로 고치는 사람 — 승인권자·관리자(11-25)
     show_all = edit or r['manager']
     my_wait = any(c['status'] == CH_WAIT and c['name'] == name for c in changes)   # 대기 중이면 새 신청은 그 뒤에
+    mm = memos(month)
     return {
         'month': month, 'status': st, 'status_label': STATUS_LABELS[st],
         'submitted_by': row.get('submitted_by') or '', 'submitted_at': row.get('submitted_at') or '',
@@ -423,6 +544,11 @@ def view(month: str, sid: str, name: str, today: Optional[date] = None, admin: b
         'changes': [x for x in changes if show_all or x['name'] == name],
         'log': recent_log(month) if show_all else [],
         'notify_fail': notify_fail(month),       # 마지막 처리의 슬랙 알림을 못 보냈으면 그 문구(11-24)
+        # 휴무 메모(11-25) — 모두 봄. 쓰기 = 본인(대상자)·취합 담당·승인권자, 그달 메모 = 취합 담당·승인권자·관리자
+        'memos': mm['items'], 'month_note': mm['month_note'],
+        'can_memo': in_range and (r['member'] or r['manager'] or edit),
+        'can_memo_others': r['manager'] or edit,
+        'can_month_note': r['manager'] or edit,
     }
 
 
