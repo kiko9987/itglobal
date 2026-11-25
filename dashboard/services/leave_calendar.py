@@ -74,7 +74,9 @@ def _window(today: date):
 def _event(summary: str, start: date, end: date, names=()) -> dict:
     return {'summary': summary, 'start': {'date': start.isoformat()},
             'end': {'date': (end + timedelta(days=1)).isoformat()},   # 종일 일정 끝은 다음 날(구글 규칙)
-            'transparency': 'transparent', 'description': DESC, '_names': list(names)}
+            'transparency': 'transparent', 'description': DESC,
+            'reminders': {'useDefault': False},          # 알림 없음(11-25 부장님 '알림이 가나') — 참석자도 없어 초대 메일도 없음
+            '_names': list(names)}
 
 
 def _eid(key: str) -> str:
