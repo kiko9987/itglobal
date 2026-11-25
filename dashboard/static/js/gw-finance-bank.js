@@ -10,7 +10,7 @@
   if (!page) return;
   var $ = function (id) { return document.getElementById(id); };
   var flashBox = $('fbFlash'), form = $('fbForm'), listBody = $('fbList').tBodies[0];
-  var acctTable = $('fbAccts'), acctSel = $('fbAcct');
+  var acctTable = $('fbAccts'), acctSel = $('fbAcct'), unBtn = $('fbUn');
   var state = { accounts: [], rows: [], editing: null };
 
   function esc(v) {
@@ -21,11 +21,11 @@
   function iso(d) {
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   }
-  function when(s) {   // '2026-11-26 09:12' → '11/26(목) 09:12'
-    if (!s) return '';
+  function dayLabel(s) {   // '2026-11-26' → '11/26(목)'
     var d = new Date(s.slice(0, 10) + 'T00:00:00');
-    return (d.getMonth() + 1) + '/' + d.getDate() + '(' + WD[d.getDay()] + ') ' + s.slice(11, 16);
+    return (d.getMonth() + 1) + '/' + d.getDate() + '(' + WD[d.getDay()] + ')';
   }
+  function when(s) { return s ? dayLabel(s) + ' ' + s.slice(11, 16) : ''; }
 
   function api(url, opts) {
     opts = opts || {};
@@ -74,8 +74,8 @@
   function load() {
     var my = ++seq;
     var p = new URLSearchParams({
-      start: $('fbStart').value, end: $('fbEnd').value, account: acctSel.value,
-      direction: $('fbDir').value, unassigned: $('fbUn').checked ? '1' : '', q: $('fbQ').value.trim()
+      start: $('fbStart').value, end: $('fbEnd').value, account: acctSel.value, direction: $('fbDir').value,
+      unassigned: unBtn.getAttribute('aria-pressed') === 'true' ? '1' : '', q: $('fbQ').value.trim()
     });
     return api('/api/finance/bank?' + p.toString()).then(function (j) {
       if (my !== seq) return;
@@ -92,102 +92,142 @@
 
   function acctName(a) { return a.code + ' ' + a.bank; }
 
+  function acctRow(a) {
+    var bal = a.balance == null
+      ? '<button type="button" class="btn btn-link btn-sm gw-fb-setbal" data-bal-acct="' + a.id + '" aria-label="' + esc(acctName(a)) + ' 잔액 넣기">잔액 넣기</button>'
+      : won(a.balance);
+    return '<tr' + (a.in_report ? '' : ' class="gw-fb-side"') + '>' +
+      '<th scope="row"><span class="gw-fb-code">' + esc(a.code) + '</span> <span class="gw-fb-bank">' + esc(a.bank) + '</span>' +
+      ' <span class="gw-fb-ent" title="사업자">' + esc(a.entity) + '</span></th>' +
+      '<td class="num gw-fb-bal">' + bal + '</td>' +
+      '<td class="gw-fb-at">' + esc(when(a.balance_at)) + '</td>' +
+      '<td class="num in">' + (a.day_in ? won(a.day_in) : '') + '</td>' +
+      '<td class="num out">' + (a.day_out ? won(a.day_out) : '') + '</td>' +
+      '<td><span class="gw-fb-src' + (a.sms ? ' sms' : '') + '">' + (a.sms ? '문자 자동' : '직접 입력') + '</span></td></tr>';
+  }
+
   function renderAccounts(day) {
     var keep = acctSel.value;
     acctSel.innerHTML = '<option value="">모든 계좌</option>' + state.accounts.map(function (a) {
       return '<option value="' + a.id + '">' + esc(acctName(a)) + '</option>';
     }).join('');
     acctSel.value = keep;
-    $('fbAcctDay').textContent = day ? '(' + when(day + ' 00:00').slice(0, -6) + ' 끝 기준)' : '';
-    var head = '<thead><tr><th scope="col">계좌</th><th scope="col">사업자</th><th scope="col" class="num">잔액</th>' +
-      '<th scope="col">잔액 시각</th><th scope="col" class="num">그날 입금</th><th scope="col" class="num">그날 출금</th>' +
-      '<th scope="col">들어오는 길</th></tr></thead>';
-    var total = 0, known = 0;
-    var body = state.accounts.map(function (a) {
-      if (a.balance != null && a.in_report) { total += Number(a.balance); known++; }
-      return '<tr' + (a.in_report ? '' : ' class="gw-fb-side"') + '>' +
-        '<th scope="row">' + esc(a.code) + ' <span class="gw-fb-bank">' + esc(a.bank) + '</span></th>' +
-        '<td>' + esc(a.entity) + '</td>' +
-        '<td class="num">' + (a.balance == null ? '<span class="gw-fb-unknown">모름</span>' : won(a.balance)) + '</td>' +
-        '<td class="gw-fb-at">' + esc(when(a.balance_at)) + '</td>' +
-        '<td class="num">' + (a.day_in ? won(a.day_in) : '') + '</td>' +
-        '<td class="num">' + (a.day_out ? won(a.day_out) : '') + '</td>' +
-        '<td class="gw-fb-src">' + (a.sms ? '은행 문자' : '직접 입력') + (a.in_report ? '' : ' · 자금일보 표 밖') + '</td></tr>';
-    }).join('');
-    var reportCnt = state.accounts.filter(function (a) { return a.in_report; }).length;
-    var foot = '<tfoot><tr><th scope="row" colspan="2">자금일보 계좌 합계</th><td class="num">' + won(total) + '</td>' +
-      '<td colspan="4" class="gw-fb-at">' + (known < reportCnt ? '잔액을 아는 ' + known + '/' + reportCnt + '개 계좌만 더함' : '') + '</td></tr></tfoot>';
-    acctTable.innerHTML = head + '<tbody>' + body + '</tbody>' + foot;
+    $('fbAcctDay').textContent = day ? dayLabel(day) + ' 기준' : '';
+    var rep = state.accounts.filter(function (a) { return a.in_report; });
+    var side = state.accounts.filter(function (a) { return !a.in_report; });
+    var known = rep.filter(function (a) { return a.balance != null; });
+    var total = known.reduce(function (s, a) { return s + Number(a.balance); }, 0);
+    var head = '<thead><tr><th scope="col">계좌·사업자</th><th scope="col" class="num">잔액</th>' +
+      '<th scope="col">마지막 잔액 시각</th><th scope="col" class="num">그날 입금</th><th scope="col" class="num">그날 출금</th>' +
+      '<th scope="col">기록</th></tr></thead>';
+    var body = '<tbody>' + rep.map(acctRow).join('') +
+      '<tr class="gw-fb-total"><th scope="row">자금일보 계좌 합계</th><td class="num">' + won(total) + '</td>' +
+      '<td colspan="4" class="gw-fb-at">' + (known.length < rep.length ? '잔액 넣은 계좌 ' + known.length + '/' + rep.length + '개만 더함' : '') + '</td></tr>' +
+      '</tbody>';
+    if (side.length) {
+      body += '<tbody class="gw-fb-side-group"><tr class="gw-fb-group"><th scope="rowgroup" colspan="6">자금일보 표에 없는 계좌</th></tr>' +
+        side.map(acctRow).join('') + '</tbody>';
+    }
+    acctTable.innerHTML = head + body;
   }
 
   function renderList(tot) {
-    $('fbSum').textContent = state.rows.length
-      ? state.rows.length + '건 · 입금 ' + won(tot['in'] || 0) + '원 · 출금 ' + won(tot.out || 0) + '원' +
-        (tot.unassigned ? ' · 적요 없는 것 ' + tot.unassigned + '건' : '')
+    var n = tot.unassigned || 0;
+    var unN = $('fbUnN');   // 재시작 전 옛 템플릿엔 없음(JS 는 바로 나감)
+    if (unN) unN.textContent = n ? ' ' + n : '';
+    $('fbSum').innerHTML = state.rows.length
+      ? '<strong>' + state.rows.length + '건</strong><span class="gw-fb-sep" aria-hidden="true">·</span>입금 <strong class="in">' + won(tot['in'] || 0) +
+        '원</strong><span class="gw-fb-sep" aria-hidden="true">·</span>출금 <strong class="out">' + won(tot.out || 0) + '원</strong>'
       : '';
     if (!state.rows.length) {
-      listBody.innerHTML = '<tr><td colspan="9" class="gw-empty">이 기간에 거래가 없어요.</td></tr>';
+      var un = unBtn.getAttribute('aria-pressed') === 'true';
+      var filtered = un || $('fbQ').value.trim() || acctSel.value || $('fbDir').value;
+      listBody.innerHTML = '<tr><td colspan="9" class="gw-empty">' +
+        (un ? '이 기간에 적요 없는 거래가 없어요.' : filtered ? '조건에 맞는 거래가 없어요.' : '이 기간에 거래가 없어요.') + '</td></tr>';
       return;
     }
     listBody.innerHTML = state.rows.map(function (r) {
       var memo = r.memo || '';
       var need = (r.direction === 'in' || r.direction === 'out') && !memo;
+      var memoCell = need ? '<span class="gw-fb-need">적요 없음</span>' : esc(memo);
+      if (r.project_code && memo.indexOf(r.project_code) === -1) memoCell += ' <span class="gw-fb-tag">' + esc(r.project_code) + '</span>';
       return '<tr data-id="' + r.id + '"' + (r.direction === 'bal' ? ' class="gw-fb-balrow"' : '') + '>' +
         '<td class="gw-fb-at">' + esc(when(r.at)) + (r.source === 'manual' ? ' <span class="gw-fb-tag">직접</span>' : '') + '</td>' +
-        '<td>' + esc(r.acct_code || '') + '</td>' +
+        '<td class="gw-fb-code">' + esc(r.acct_code || '') + '</td>' +
         '<td class="gw-fb-who">' + esc(r.counterparty || (r.direction === 'bal' ? '잔액 맞추기' : '')) + '</td>' +
         '<td class="num in">' + (r.direction === 'in' ? won(r.amount) : '') + '</td>' +
         '<td class="num out">' + (r.direction === 'out' ? won(r.amount) : '') + '</td>' +
         '<td class="num">' + won(r.balance) + '</td>' +
         '<td>' + esc(r.title || '') + '</td>' +
-        '<td class="gw-fb-memo">' + (need ? '<span class="gw-fb-need">적요 없음</span>' : esc(memo)) + '</td>' +
+        '<td class="gw-fb-memo">' + memoCell + '</td>' +
         '<td class="gw-fb-act"><button type="button" class="btn btn-sm btn-outline-secondary" data-edit="' + r.id + '"' +
         ' aria-label="' + esc(when(r.at) + ' ' + (r.counterparty || '') + ' 고치기') + '">고치기</button></td></tr>';
     }).join('');
   }
 
-  // ── 입력 창 ───────────────────────────────────────────────────────
-  function nowLocal() { var d = new Date(); return iso(d) + 'T' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
+  // ── 입력 창(쉬는 날 추가 창과 같은 모양) ─────────────────────────
+  function nowLocal() {
+    var d = new Date();
+    return iso(d) + 'T' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+  function field(id, label, input, opt, wide) {
+    return '<div class="gw-fb-field' + (wide ? ' wide' : '') + '"><label class="form-label" for="' + id + '">' + label +
+      (opt ? ' <span class="gw-fb-opt">' + opt + '</span>' : '') + '</label>' + input + '</div>';
+  }
+  function text(id, name, val, attrs) {
+    return '<input type="text" class="form-control" id="' + id + '" name="' + name + '" autocomplete="off" value="' + esc(val) + '"' + (attrs || '') + '>';
+  }
 
-  function openForm(mode, row, opener) {
+  function openForm(mode, row, opener, acctId) {
+    if (state.editing && state.editing.opener) state.editing.opener.setAttribute('aria-expanded', 'false');
     state.editing = { mode: mode, row: row || null, opener: opener || null };
+    if (opener && opener.hasAttribute('aria-expanded')) opener.setAttribute('aria-expanded', 'true');
     var sms = row && row.source !== 'manual';
     var dir = row ? row.direction : (mode === 'bal' ? 'bal' : 'in');
-    var title = row ? (sms ? '계정·적요 고치기' : '직접 넣은 거래 고치기') : (mode === 'bal' ? '잔액 맞추기' : '직접 입력');
-    var opts = state.accounts.map(function (a) {
-      var sel = row ? row.account_id === a.id : (Number(acctSel.value) === a.id);
-      return '<option value="' + a.id + '"' + (sel ? ' selected' : '') + '>' + esc(acctName(a)) + '</option>';
-    }).join('');
+    var isBal = dir === 'bal';
+    var title = row ? (sms ? '계정·적요 고치기' : '직접 넣은 거래 고치기') : (isBal ? '잔액 맞추기' : '직접 입력');
+    var pick = row ? row.account_id : (acctId || Number(acctSel.value) || 0);
     var dis = sms ? ' disabled' : '';
-    var h = '<h2 class="gw-panel-title" id="fbFormH">' + title + '</h2>';
-    if (sms) h += '<p class="gw-note">은행 문자로 들어온 거래라 날짜·금액·잔액은 그대로 두고 계정·적요·공사 코드만 고칠 수 있어요.</p>';
-    else if (mode === 'bal' || dir === 'bal') h += '<p class="gw-note">지금 통장 잔액을 넣으면 그 시각부터 이 금액을 기준으로 잔액을 보여 줘요.</p>';
-    h += '<div class="gw-fb-grid">' +
-      '<label>계좌<select class="form-select" name="account_id" required' + dis + '><option value="">고르기</option>' + opts + '</select></label>' +
-      '<label>날짜·시각<input type="datetime-local" class="form-control" name="at" required value="' +
-        esc(row ? row.at.replace(' ', 'T').slice(0, 16) : nowLocal()) + '"' + dis + '></label>';
-    if (mode !== 'bal' && dir !== 'bal') {
-      h += '<fieldset class="gw-fb-dir"' + dis + '><legend>구분</legend>' +
-        '<label class="form-check form-check-inline"><input class="form-check-input" type="radio" name="direction" value="in"' + (dir === 'in' ? ' checked' : '') + '><span class="form-check-label">입금</span></label>' +
-        '<label class="form-check form-check-inline"><input class="form-check-input" type="radio" name="direction" value="out"' + (dir === 'out' ? ' checked' : '') + '><span class="form-check-label">출금</span></label></fieldset>' +
-        '<label>금액(원)<input type="text" inputmode="numeric" class="form-control num" name="amount" autocomplete="off" value="' + esc(row ? won(row.amount) : '') + '"' + dis + '></label>' +
-        '<label>거래 후 잔액(원, 모르면 비움)<input type="text" inputmode="numeric" class="form-control num" name="balance" autocomplete="off" value="' + esc(row ? won(row.balance) : '') + '"' + dis + '></label>' +
-        '<label>상대방<input type="text" class="form-control" name="counterparty" maxlength="60" autocomplete="off" value="' + esc(row ? row.counterparty : '') + '"' + dis + '></label>';
+    var opts = state.accounts.map(function (a) {
+      return '<option value="' + a.id + '"' + (a.id === pick ? ' selected' : '') + '>' + esc(acctName(a)) + '</option>';
+    }).join('');
+    var h = '<h3 class="gw-fb-form-title" id="fbFormH">' + title + '</h3>';
+    if (sms) h += '<p class="gw-fb-form-desc">은행 문자로 들어온 거래예요. 날짜·금액·잔액은 문자 그대로 두고 계정·적요·공사 코드만 고칠 수 있어요.</p>';
+    else if (isBal) h += '<p class="gw-fb-form-desc">지금 통장에 찍힌 잔액을 넣으면, 이 시각부터 이 금액을 기준으로 잔액을 이어 가요.</p>';
+    h += '<div class="gw-fb-fields">' +
+      field('fbFAcct', '계좌', '<select class="form-select" id="fbFAcct" name="account_id" required' + dis + '><option value="">고르기</option>' + opts + '</select>') +
+      field('fbFAt', '날짜·시각', '<input type="datetime-local" class="form-control" id="fbFAt" name="at" required value="' +
+        esc(row ? row.at.replace(' ', 'T').slice(0, 16) : nowLocal()) + '"' + dis + '>');
+    if (!isBal) {
+      h += '<fieldset class="gw-fb-field gw-fb-dir"' + dis + '><legend class="form-label">구분</legend><div class="btn-group" role="radiogroup">' +
+        '<input type="radio" class="btn-check" name="direction" id="fbFIn" value="in"' + (dir === 'in' ? ' checked' : '') + '>' +
+        '<label class="btn btn-outline-secondary" for="fbFIn">입금</label>' +
+        '<input type="radio" class="btn-check" name="direction" id="fbFOut" value="out"' + (dir === 'out' ? ' checked' : '') + '>' +
+        '<label class="btn btn-outline-secondary" for="fbFOut">출금</label></div></fieldset>' +
+        field('fbFAmt', '금액(원)', text('fbFAmt', 'amount', row ? won(row.amount) : '', ' inputmode="numeric"' + dis)) +
+        field('fbFBal', '거래 후 잔액(원)', text('fbFBal', 'balance', row ? won(row.balance) : '', ' inputmode="numeric"' + dis), '모르면 비워 두세요') +
+        field('fbFWho', '상대방', text('fbFWho', 'counterparty', row ? row.counterparty : '', ' maxlength="60"' + dis));
     } else {
       h += '<input type="hidden" name="direction" value="bal">' +
-        '<label>지금 잔액(원)<input type="text" inputmode="numeric" class="form-control num" name="balance" required autocomplete="off" value="' + esc(row ? won(row.balance) : '') + '"' + dis + '></label>';
+        field('fbFBal', '지금 잔액(원)', text('fbFBal', 'balance', row ? won(row.balance) : '', ' inputmode="numeric" required' + dis));
     }
-    h += '<label>계정<input type="text" class="form-control" name="title" maxlength="30" autocomplete="off" placeholder="예: 매출수금, 외상매입" value="' + esc(row ? row.title : '') + '"></label>' +
-      '<label class="gw-fb-wide">적요<input type="text" class="form-control" name="memo" maxlength="200" autocomplete="off" value="' + esc(row ? row.memo : '') + '"></label>' +
-      '<label>공사 코드<input type="text" class="form-control" name="project_code" maxlength="60" autocomplete="off" value="' + esc(row ? row.project_code : '') + '"></label>' +
-      '</div><div class="gw-fb-form-acts">' +
+    if (!isBal) {   // 잔액 맞추기엔 계정·공사 코드가 없음
+      h += field('fbFTitle', '계정', text('fbFTitle', 'title', row ? row.title : '', ' maxlength="30" placeholder="매출수금, 외상매입"'), '선택') +
+        field('fbFCode', '공사 코드', text('fbFCode', 'project_code', row ? row.project_code : '', ' maxlength="60"'), '선택');
+    }
+    h += field('fbFMemo', isBal ? '메모' : '적요', text('fbFMemo', 'memo', row ? row.memo : '', ' maxlength="200"'), '선택', true) +
+      '</div><div class="gw-lv-err" id="fbErr" role="alert"></div><div class="gw-fb-form-acts">' +
       (row && !sms ? '<button type="button" class="btn btn-outline-danger me-auto" id="fbDel">지우기</button>' : '') +
-      '<button type="button" class="btn btn-outline-secondary" id="fbCancel">닫기</button>' +
-      '<button type="submit" class="btn btn-primary">저장</button></div>';
+      '<button type="button" class="btn btn-light" id="fbCancel">닫기</button>' +
+      '<button type="submit" class="btn btn-primary" id="fbSave">저장</button></div>';
     form.innerHTML = h;
+    // 금액·잔액 칸은 오른쪽 맞춤(text() 의 class 를 덮어씀)
+    form.querySelectorAll('#fbFAmt, #fbFBal').forEach(function (el) { el.classList.add('num'); });
     form.hidden = false;
     form.scrollIntoView({ block: 'nearest' });
-    var first = form.querySelector('select:enabled, input:enabled:not([type=hidden])');
+    var first = form.querySelector('select:enabled, input:enabled:not([type=hidden]):not(.btn-check)');
+    if (sms) first = $('fbFTitle');
+    else if (acctId) first = $('fbFBal');   // 계좌를 골라 연 잔액 넣기는 바로 금액부터
     if (first) first.focus();
   }
 
@@ -196,6 +236,7 @@
     form.hidden = true;
     form.innerHTML = '';
     state.editing = null;
+    if (opener && opener.hasAttribute('aria-expanded')) opener.setAttribute('aria-expanded', 'false');
     if (opener && document.body.contains(opener)) opener.focus();
   }
 
@@ -217,17 +258,20 @@
     if (busy || !state.editing) return;
     var row = state.editing.row;
     var data = formData();
+    var err = $('fbErr'), btn = $('fbSave');
     busy = true;
-    var btn = form.querySelector('[type=submit]');
     btn.disabled = true;
+    err.textContent = '';
     (row ? api('/api/finance/bank/' + row.id, { method: 'POST', body: data })
       : api('/api/finance/bank', { method: 'POST', body: data })).then(function () {
       closeForm();
       flash('저장했어요.', 'ok');
       return load();
-    }).catch(function (e) { flash(e.message, 'err'); }).then(function () {
+    }).catch(function (e) {
+      if (document.body.contains(err)) err.textContent = e.message; else flash(e.message, 'err');
+    }).then(function () {
       busy = false;
-      if (btn) btn.disabled = false;
+      if (document.body.contains(btn)) btn.disabled = false;
     });
   });
 
@@ -239,7 +283,7 @@
         closeForm();
         flash('지웠어요.', 'ok');
         return load();
-      }).catch(function (e) { flash(e.message, 'err'); });
+      }).catch(function (e) { $('fbErr').textContent = e.message; });
     }
   });
   form.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') closeForm(); });
@@ -247,7 +291,7 @@
   // 금액 칸: 쓰는 동안 천 단위 쉼표
   form.addEventListener('input', function (ev) {
     var el = ev.target;
-    if (!el.classList.contains('num') || el.tagName !== 'INPUT') return;
+    if (el.tagName !== 'INPUT' || !el.classList.contains('num')) return;
     var neg = /^-/.test(el.value), digits = el.value.replace(/\D/g, '');
     el.value = (neg ? '-' : '') + (digits ? Number(digits).toLocaleString('ko-KR') : '');
   });
@@ -255,6 +299,10 @@
   // ── 이벤트 ────────────────────────────────────────────────────────
   $('fbAdd').addEventListener('click', function () { openForm('add', null, this); });
   $('fbBal').addEventListener('click', function () { openForm('bal', null, this); });
+  acctTable.addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-bal-acct]');
+    if (b) openForm('bal', null, b, Number(b.getAttribute('data-bal-acct')));
+  });
   listBody.addEventListener('click', function (ev) {
     var b = ev.target.closest('[data-edit]');
     if (!b) return;
@@ -268,7 +316,11 @@
   ['fbStart', 'fbEnd'].forEach(function (id) {
     $(id).addEventListener('change', function () { pressRange(''); load(); });
   });
-  ['fbAcct', 'fbDir', 'fbUn'].forEach(function (id) { $(id).addEventListener('change', load); });
+  ['fbAcct', 'fbDir'].forEach(function (id) { $(id).addEventListener('change', load); });
+  unBtn.addEventListener('click', function () {
+    unBtn.setAttribute('aria-pressed', unBtn.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+    load();
+  });
   var qTimer;
   $('fbQ').addEventListener('input', function () { clearTimeout(qTimer); qTimer = setTimeout(load, 300); });
 
