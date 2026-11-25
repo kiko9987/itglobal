@@ -62,7 +62,8 @@ def test_db_error_falls_back_to_old(monkeypatch):
 
 def test_build_nav_active_and_admin_only():
     nav = gw.build_nav('/leads', 'editor')
-    assert [a['label'] for a in nav['areas']] == ['홈', '공지', '결재', '영업', '경영지원', '휴가', '인사', '차량']   # 관리는 관리자만, 차량 = 실시간 위치(전 직원, 11-24), 공지(11-25)
+    assert [a['label'] for a in nav['areas']] == ['홈', '공지', '결재', '영업', '휴가', '인사', '차량']   # 관리·재무는 관리자만(재무 11-25), 차량 = 실시간 위치(전 직원, 11-24), 공지(11-25)
+    assert '재무' in [a['label'] for a in gw.build_nav('/leads', 'admin')['areas']]
     assert nav['areas'][3]['active'] and not nav['areas'][4]['active']
     labels = [i['label'] for i in nav['items']]
     assert labels == ['프로젝트', '고객 리드', '입찰 공고', '매출 통계']            # 시공사례는 관리자만

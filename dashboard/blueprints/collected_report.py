@@ -11,7 +11,7 @@
 import io
 from datetime import date
 
-from flask import Blueprint, jsonify, render_template, request, send_file, session
+from flask import Blueprint, jsonify, redirect, render_template, request, send_file, session
 
 from ..auth import login_required
 from ..services import collected_report as cr
@@ -61,6 +61,18 @@ def _report():
     year, month = cr.parse_period(request.args.get('period', ''))
     refresh = request.args.get('refresh', 'false').lower() == 'true'
     return cr.collect(_records(refresh), year, month, _saved_ranges())
+
+
+@collected_report_bp.before_request
+def _admin_only():
+    """재무(월별 수금)는 관리자만(admin·super_admin) — 11-25 부장님 '저 카테고리는 어드민한테만'.
+    예전엔 로그인한 누구나 열 수 있었다(담당자별 수금 금액이 보임). 로그인 확인은 각 경로의 login_required 가 한다."""
+    u = session.get('user') or {}
+    if not isinstance(u, dict) or not u or u.get('permission_level') in ('admin', 'super_admin'):
+        return None
+    if request.path.startswith('/api/'):
+        return jsonify({'success': False, 'error': '관리자만 볼 수 있는 화면이에요.'}), 403
+    return redirect('/home')
 
 
 @collected_report_bp.route('/settlement/collected')

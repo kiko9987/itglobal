@@ -207,8 +207,34 @@ def test_range_api_only_office(monkeypatch):
         s['user'] = {'email': 'sales@example.test', 'name': '영업'}
     for body in ({'period': '2026-10', 'start': '2026-09-20', 'end': '2026-10-20'}, {'period': '2026-10', 'reset': True}):
         r = c.post(url, json=body)
-        assert r.status_code == 403 and r.get_json()['error'] == bp.RANGE_EDIT_DENIED
+        assert r.status_code == 403                                  # 관리자 아님 — 재무 화면부터 막힘(11-25)
+    with c.session_transaction() as s:
+        s['user'] = {'email': 'sales@example.test', 'name': '영업', 'permission_level': 'admin'}
+    r = c.post(url, json={'period': '2026-10', 'reset': True})
+    assert r.status_code == 403 and r.get_json()['error'] == bp.RANGE_EDIT_DENIED   # 관리자여도 정산 승인 명단 밖
     assert fake == {'2026-10': '2026-09-24|2026-10-23'}
     with c.session_transaction() as s:
-        s['user'] = {'email': 'office@example.test', 'name': '경영지원'}
+        s['user'] = {'email': 'office@example.test', 'name': '경영지원', 'permission_level': 'admin'}
     assert c.post(url, json={'period': '2026-10', 'reset': True}).get_json()['success'] and fake == {}
+
+
+def test_finance_admin_only(monkeypatch):
+    """재무(월별 수금)는 관리자만(11-25 부장님) — 화면은 홈으로, 자료(API·엑셀)는 403."""
+    from flask import Flask
+    from dashboard import auth
+    from dashboard.blueprints import collected_report as bp
+    monkeypatch.setattr(auth, '_validate_session', lambda *a, **k: None)
+    monkeypatch.setattr(bp, '_records', lambda refresh: [_r('G1-YG', '박용구', '글로벌', '2026-09-01')])
+    app = Flask(__name__)
+    app.secret_key = 'x'
+    app.register_blueprint(bp.collected_report_bp)
+    c = app.test_client()
+    with c.session_transaction() as s:
+        s['user'] = {'email': 'sales@example.test', 'name': '영업', 'permission_level': 'editor'}
+    r = c.get('/settlement/collected')
+    assert r.status_code == 302 and r.headers['Location'].endswith('/home')
+    assert c.get('/api/settlement/collected?period=2026-09').status_code == 403
+    assert c.get('/api/settlement/collected.xlsx?period=2026-09').status_code == 403
+    with c.session_transaction() as s:
+        s['user'] = {'email': 'boss@example.test', 'name': '관리', 'permission_level': 'super_admin'}
+    assert c.get('/api/settlement/collected?period=2026-09').get_json()['success']
