@@ -556,6 +556,7 @@ def _register_payment_handlers(app):
                 state = (view.get("state") or {}).get("values", {})
                 stage_value = (_v(state, "stage") or "").strip()
                 inst_value = (_v(state, "installment") or "").strip()
+                gross_value = (_v(state, "card_gross") or "").strip()
                 d = _load_intake(meta.get("intake_id", ""))
                 from dashboard.services.as_service import get_project_details
                 details = get_project_details(code) or {}
@@ -563,7 +564,7 @@ def _register_payment_handlers(app):
                     meta.get("intake_id", ""), meta.get("channel", ""),
                     meta.get("message_ts", ""), d.get("text") or "",
                     selected_project=sel, project_details=details, stage_value=stage_value,
-                    installment_value=inst_value)
+                    installment_value=inst_value, card_gross_value=gross_value or None)
                 client.views_update(view_id=view.get("id"), hash=view.get("hash"), view=new_view)
             except Exception as exc:
                 logger.error(f"[SLACK/수금봇] payment_intake 프로젝트 선택 상세 실패: {exc}", exc_info=True)
@@ -599,6 +600,15 @@ def _register_payment_handlers(app):
                         errors["installment"] = "차수를 골라 주세요."
                 else:
                     installment = ""
+            card_gross = None
+            if not errors:
+                # 카드 정산 입금 — 중간 결제면 실결제(수수료 빼기 전)를 꼭 받는다 (2026-11-25 G4160-JW)
+                _dg = _load_intake(json.loads(view.get("private_metadata") or "{}").get("intake_id", ""))
+                card_gross, _gerr = _card_gross_check(
+                    project_code, stage, int((_dg.get("preview") or {}).get("amount") or 0),
+                    _v(state, "card_gross"), _dg.get("text") or "")
+                if _gerr:
+                    errors["card_gross" if "card_gross" in state else "stage"] = _gerr
             if errors:
                 ack(response_action="errors", errors=errors)
                 return
@@ -676,6 +686,8 @@ def _register_payment_handlers(app):
                     "warn_notes": [n for n in (_warn_note(w, acked) for w in _wfull) if n],
                     # 나눠 내는 공사의 차수(없으면 '') — 확인 기록 때 '◇ 차수 …' 줄
                     "installment": installment,
+                    # 카드 실결제(수수료 빼기 전, 없으면 0) — 확인 기록 때 칸 값으로
+                    "card_gross": card_gross or 0,
                 })
                 _who = _intake_payer_title(project_code, stage)
                 if channel and message_ts:
@@ -684,7 +696,7 @@ def _register_payment_handlers(app):
                         text=f"확인 대기: {project_code} · {_who or stage}",
                         blocks=_build_intake_pending_blocks(
                             intake_id, project_code, stage, amount, memo, user_id, warns=warn_lines,
-                            who=_who, installment=installment),
+                            who=_who, installment=installment, card_gross=card_gross or 0),
                     )
                 if _wfull:
                     _notify_intake_warns(client, intake_id, channel, message_ts,
@@ -909,10 +921,11 @@ def _register_payment_handlers(app):
                                 f"`{project_code}` · {stage} · {amount:,}원", memo))
                     except Exception:
                         pass
+                _gross = int(des.get("card_gross") or 0)
                 ok, old_num, new_num, err = _commit_intake_to_sheet(
                     project_code, stage, amount, memo, user,
                     note_extra=_compose_warn_notes(_des_notes, des.get("by", ""), user),
-                    installment=_inst)
+                    installment=_inst, card_gross=_gross)
                 if not ok:
                     _intake_release(rc, intake_id, project_code, stage)  # 재시도 허용
                     # 처리 중 카드를 대기(버튼) 카드로 복원 → 재클릭으로 재시도 가능
@@ -925,7 +938,7 @@ def _register_payment_handlers(app):
                                     intake_id, project_code, des.get("stage") or stage, amount, memo,
                                     des.get("by", ""), warns=des.get("warns"),
                                     who=_intake_payer_title(project_code, des.get("stage") or stage),
-                                    installment=des.get("installment") or ""))
+                                    installment=des.get("installment") or "", card_gross=_gross))
                         except Exception:
                             pass
                     _intake_ephemeral(client, channel, user, f":warning: 기록 실패: {err}")
@@ -938,7 +951,7 @@ def _register_payment_handlers(app):
                         text=f"✅ {project_code} · {_who or stage} {amount:,}원 확인 완료",
                         blocks=_build_intake_done_blocks(
                             project_code, stage, amount, memo, des.get("by", ""), user,
-                            warns=_warns_done, payer_who=_who, installment=_inst),
+                            warns=_warns_done, payer_who=_who, installment=_inst, card_gross=_gross),
                     )
                     # 온라인 리드처럼 카드에 ✅ 리액션 = '처리 완료' 신호 (채널 스캔 가시성)
                     try:
@@ -1606,7 +1619,8 @@ def _open_payment_intake_modal(client, body, intake_id, channel, message_ts):
     view = _build_payment_intake_view(
         intake_id, channel, message_ts, text,
         selected_project=selected_project, project_details=project_details,
-        stage_value=stage_value, installment_value=des.get("installment") or None, guessed=guessed)
+        stage_value=stage_value, installment_value=des.get("installment") or None, guessed=guessed,
+        card_gross_value=(f"{int(des['card_gross']):,}" if des.get("card_gross") else None))
     client.views_update(view_id=_view_id, view=view)
 
 
@@ -1638,7 +1652,7 @@ def _guess_intake_prefill(text, stage_value=None):
 
 def _build_payment_intake_view(intake_id, channel, message_ts, text,
                                selected_project=None, project_details=None, stage_value=None,
-                               installment_value=None, guessed=False):
+                               installment_value=None, guessed=False, card_gross_value=None):
     """수금 지정 모달 view 빌더.
 
     프로젝트 선택 시(dispatch_action) 상세(project_details)를 삽입하고, 이미 고른
@@ -1758,6 +1772,21 @@ def _build_payment_intake_view(intake_id, channel, message_ts, text,
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": (
             ":busts_in_silhouette: 나눠 내는 공사입니다. 낸 사람의 칸에 쌓이고, 차수는 입금 메모에 남습니다.\n"
             + "\n".join(f"{s} 칸 = {payer_line(payers[s])}" for s in ASSIGN_ORDER if s in payers))}]})
+    # 카드 정산 입금 — 실결제(수수료 빼기 전) 칸 (2026-11-25 G4160-JW). 남은 돈을 다 내는 결제면 비워도
+    #   기록 때 자동으로 맞추고, 중간 결제면 [지정] 때 꼭 적게 한다(_card_gross_check).
+    if _is_card_settlement_memo(text):
+        gross_el = {"type": "plain_text_input", "action_id": "value",
+                    "placeholder": {"type": "plain_text", "text": "예: 2,060,000"}}
+        if card_gross_value:
+            gross_el["initial_value"] = str(card_gross_value)
+        blocks.append({
+            "type": "input", "block_id": "card_gross", "optional": True,
+            "label": {"type": "plain_text", "text": "💳 카드 실결제 금액"},
+            "element": gross_el,
+            "hint": {"type": "plain_text", "text": (
+                "고객 카드로 결제한 금액(수수료 빼기 전)입니다. 이번 결제로 남은 돈을 다 받았으면 비워도 "
+                "자동으로 맞춥니다.")},
+        })
     blocks.append({"type": "context", "elements": [
         {"type": "mrkdwn", "text": ":lock: 실제 시트 기록은 경영지원 확인 후 반영됩니다."}
     ]})
@@ -3073,6 +3102,56 @@ def _card_settlement_target(manager, sheet_id, sheet_name, row, col, old_num, de
     return None
 
 
+CARD_GROSS_MAX_RATIO = 1.06   # 실결제 ≤ 순입금 × 1.06 (카드 수수료는 3% 안팎 — 오타로 0을 더 붙이는 것 방지)
+
+
+def _card_gross_check(project_code, stage, deposit, gross_raw, memo_text):
+    """수금 지정 창의 '카드 실결제 금액' 확인 (2026-11-25 G4160-JW).
+
+    카드 정산 입금은 통장에 수수료 뗀 순입금만 들어온다. 남은 돈을 다 내는 결제면 기록 때
+    _card_settlement_target 이 실결제로 맞추지만, 나눠 내는 공사 차수·계약금 같은 중간 결제는
+    맞출 기준이 없어 순입금이 그대로 칸에 들어가 미수금이 수수료만큼 남았다. 그래서 그런 결제는
+    지정할 때 실결제를 꼭 받는다. Returns (gross 또는 None, 오류 문구 또는 None).
+    """
+    digits = re.sub(r'[^\d]', '', gross_raw or '')
+    if digits:
+        gross = int(digits)
+        if gross < deposit:
+            return None, f"실결제는 통장에 들어온 {deposit:,}원보다 작을 수 없습니다(수수료를 빼기 전 금액)."
+        if gross > deposit * CARD_GROSS_MAX_RATIO:
+            return None, (f"통장 입금 {deposit:,}원보다 {gross - deposit:,}원 많습니다. "
+                          "카드 수수료보다 큰 차이라 금액을 다시 확인해 주세요.")
+        return gross, None
+    if not deposit or not _is_card_settlement_memo(memo_text):
+        return None, None
+    try:
+        from dashboard.services.project_service import get_project_records
+        rec = next((r for r in (get_project_records() or [])
+                    if str(r.get('프로젝트 코드') or '').strip() == project_code), None)
+        if not rec:
+            return None, None
+
+        def _n(v):
+            try:
+                return int(float(str(v).replace(',', '') or 0))
+            except (TypeError, ValueError):
+                return 0
+        from dashboard.services.payer_split import stage_payers
+        payer = stage_payers(rec).get(stage)
+        if payer:
+            outstanding = int(payer.get('remaining') or 0)            # 이 사람이 아직 낼 돈
+        else:
+            outstanding = _n(rec.get('총액 2')) - sum(_n(rec.get(s)) for s in ('계약금', '중도금', '잔금'))
+        gap = outstanding - int(deposit)
+        if 0 < gap <= round(outstanding * 0.04):
+            return None, None                                          # 기록 때 자동으로 실결제로 맞춤
+    except Exception as exc:
+        logger.warning(f"[SLACK/수금봇] 카드 실결제 확인 실패(무시): {exc}")
+        return None, None
+    return None, ("카드 결제 입금입니다. 이번 결제로 남은 돈이 다 끝나지 않아 수수료를 자동으로 맞출 수 없습니다. "
+                  "카드로 결제한 금액(수수료 빼기 전)을 적어 주세요.")
+
+
 def _collection_settlement_target(memo_text, deposit, old_num):
     """추심(신용정보) 순입금이면 단계값 목표 = old_num + 실추심(gross). 아니면 None.
 
@@ -3093,7 +3172,7 @@ def _collection_settlement_target(memo_text, deposit, old_num):
 
 
 def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_id, note_extra=None,
-                            refund=False, acct_text=None, installment=''):
+                            refund=False, acct_text=None, installment='', card_gross=0):
     """프로젝트 행 조회 → U/V/W 셀에 금액 값(기존값+합산)과 메모(append) 기록.
 
     카드 발송 트리거 조건이 '해당 stage 셀 값 > 0' 이므로 값과 노트를 둘 다 쓴다
@@ -3102,6 +3181,8 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
     installment: 나눠 내는 공사의 차수(계약금·중도금·잔금·일시불) — 입금 블록 안 '◇ 차수 …' 줄(파서 무시).
       stage 는 이미 사람 칸(resolve_deposit_column 결과). 계산서 칸·Y·카드 수수료 보정도 사람 기준(2026-10-20).
     acct_text: 입금 계좌 판정용 원문 — 분할 노트엔 계좌번호가 없어 원 입금 문자를 넘긴다.
+    card_gross: 지정 때 받은 카드 실결제(수수료 빼기 전). 있으면 자동 보정 대신 이 값으로 칸을 채우고
+      노트에 실결제·수수료 두 줄(2026-11-25 G4160-JW — 중간 카드 결제는 자동 보정 기준이 없음).
     refund=True: 반환(출금) 기록 — amount 는 음수, memo_text 는 출금 문자. 같은 단계 메모에 출금
       블록 append + 값 = 순액(과입금 반환 규칙). 카드·추심 보정·계산서 자동채움 생략, 전액 반환
       (순액 0)이면 그 단계 계산서 '-' (발행된 계산서는 건드리지 않음). (2026-10-08 R4163-TH)
@@ -3156,9 +3237,12 @@ def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_i
             logger.warning(f"[SLACK/수금봇] 부담자 판단 실패(일반 공사로 처리): {_pexc}")
         _my_payer = _payers.get(stage)
         # 정산 자동 수수료 보정 — 순입금 대신 실결제(카드)·실추심(추심) 기록. 배타적.
-        _card_target = (None if refund else _card_settlement_target(
-            manager, sheet_id, sheet_name, row, col, old_num, int(amount), memo_text, snap=_snap,
-            payer_amount=(_my_payer or {}).get('amount')))
+        if card_gross and not refund and int(card_gross) > int(amount):
+            _card_target = old_num + int(card_gross)      # 사람이 적은 실결제가 자동 판단보다 정확
+        else:
+            _card_target = (None if refund else _card_settlement_target(
+                manager, sheet_id, sheet_name, row, col, old_num, int(amount), memo_text, snap=_snap,
+                payer_amount=(_my_payer or {}).get('amount')))
         _coll_target = (_collection_settlement_target(memo_text, int(amount), old_num)
                         if (_card_target is None and not refund) else None)
 
@@ -3400,11 +3484,19 @@ def _resolve_manager_initial(uid: str) -> str:
     return initial
 
 
+def _card_gross_line(card_gross, amount) -> str:
+    """지정 때 받은 카드 실결제 → 카드에 보일 한 줄 (없으면 '')."""
+    if not card_gross or not amount:
+        return ''
+    return f"💳 카드 실결제 {int(card_gross):,}원 · 수수료 {int(card_gross) - int(amount):,}원 (칸에는 실결제로 기록)"
+
+
 def _build_intake_pending_blocks(intake_id, project_code, stage, amount, memo, by_user, warns=None,
-                                 who='', installment=''):
+                                 who='', installment='', card_gross=0):
     """지정 완료 → 경영지원 확인 대기 카드. 활성 카드와 동일 구조(한 섹션·전부 '>' 인용·구분선).
     warns: 이상 징후 줄(_intake_warnings 'line') — 계좌·사업자 불일치·과입금.
-    who/installment: 나눠 내는 공사의 사람·차수(_stage_display)."""
+    who/installment: 나눠 내는 공사의 사람·차수(_stage_display).
+    card_gross: 지정 때 받은 카드 실결제(수수료 빼기 전)."""
     from dashboard.services.sms_intake import INTAKE_SEP, quoted_body
     amt = f"{amount:,}원" if amount else '—'
     _by = _resolve_manager_initial(by_user)
@@ -3413,6 +3505,8 @@ def _build_intake_pending_blocks(intake_id, project_code, stage, amount, memo, b
         ">🕓 *확인 대기 — 경영지원 확인 후 기록*",
         f">*{project_code}*  ·  *{_stage_display(stage, who, installment)}*  ·  *{amt}*   ·   지정 {_by}",
     ]
+    if _card_gross_line(card_gross, amount):
+        lines.append(f">{_card_gross_line(card_gross, amount)}")
     if not amount:
         lines.append(">:warning: 금액 자동인식 실패 — 확인 전 스레드로 금액 확인 필요")
     lines += [f">:warning: *{w}*" for w in (warns or [])]
@@ -3429,10 +3523,11 @@ def _build_intake_pending_blocks(intake_id, project_code, stage, amount, memo, b
 
 
 def _build_intake_done_blocks(project_code, stage, amount, memo_text, by_user, confirmed_by, warns=None,
-                              payer_who='', installment=''):
+                              payer_who='', installment='', card_gross=0):
     """확인 완료 카드 — 활성·대기와 동일 구조(한 섹션·전부 '>' 인용·구분선), 버튼 없음.
     warns: 지정 때 이상 징후 — 완료 후에도 이력으로 남김.
-    payer_who/installment: 나눠 내는 공사의 사람·차수(_stage_display)."""
+    payer_who/installment: 나눠 내는 공사의 사람·차수(_stage_display).
+    card_gross: 지정 때 받은 카드 실결제(수수료 빼기 전)."""
     from dashboard.services.sms_intake import INTAKE_SEP, quoted_body
     _conf = _resolve_manager_initial(confirmed_by)
     who = (f"지정 {_resolve_manager_initial(by_user)} · 확인 {_conf}" if by_user
@@ -3441,6 +3536,7 @@ def _build_intake_done_blocks(project_code, stage, amount, memo_text, by_user, c
         "⠀",
         f">✅ *확인 완료 - {_stage_display(stage, payer_who, installment)}*  `{project_code}`",
         f">금액 : {amount:,}원",
+        *([f">{_card_gross_line(card_gross, amount)}"] if _card_gross_line(card_gross, amount) else []),
         f">처리 : {who}",
         *[f">:warning: {w}" for w in (warns or [])],
         f">{INTAKE_SEP}",
