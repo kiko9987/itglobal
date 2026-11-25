@@ -1,12 +1,13 @@
 """그룹웨어 공지사항·개발 노트(2026-11-25 부장님 '그룹웨어인데 공지사항이 없네').
 
-- 공지사항(kind='notice'): 카테고리마다 보는 사람을 정한다(전 직원 / 사무실 / 현장·미화 / 부서 고르기).
-  기본 카테고리 = 전사 공지(전 직원) · 사무실 공지(사무실) · 현장 공지(현장·미화). 관리자가 더하고 고친다.
-- 개발 노트(kind='devnote'): 그룹웨어·관리 사이트·슬랙 봇이 바뀐 내용. 사무실 직원이 본다(슬랙 「관리 시스템 업데이트 안내」 대신).
+- 공지사항(kind='notice'): 카테고리마다 보는 사람을 정한다(전 직원 / 현장·미화 제외 / 현장·미화 / 부서 고르기).
+  기본 카테고리 = 전사 공지(전 직원) · 영업 공지(기술영업) · 시공 공지(기술시공) — 11-25 부장님 '전사 / 영업 / 시공으로
+  나누면'(경영지원만 보는 공지는 없음). 관리자가 더하고 고친다.
+- 개발 노트(kind='devnote'): 그룹웨어·관리 사이트·슬랙 봇이 바뀐 내용. 현장·미화를 뺀 직원이 본다(슬랙 「관리 시스템 업데이트 안내」 대신).
 - 쓰기·고치기·지우기·카테고리 관리 = 그룹웨어 관리자(admin·super_admin)만. 관리자는 모든 글을 본다.
 - 읽음 확인: 글을 열면 읽음으로 남고, 관리자는 대상 중 누가 읽었고 누가 안 읽었는지 본다.
 - 슬랙 알림은 글마다 고른다(카테고리에 채널이 있어야). 기본 꺼짐.
-- 현장·미화 = 인사카드 접근 방식 field(슬랙 1회용 링크로 들어오는 사람). 사무실 = 그 밖의 재직자.
+- 현장·미화 = 인사카드 접근 방식 field(슬랙 1회용 링크로 들어오는 사람). 그 밖의 재직자 = '현장·미화 제외'.
 - 첨부: instance/notice_files/<글 번호>/ (git 제외). 지운 글은 숨김(deleted_at)만 — 파일은 남긴다.
 """
 from __future__ import annotations
@@ -27,8 +28,8 @@ NOTICE, DEVNOTE = 'notice', 'devnote'
 KINDS = (NOTICE, DEVNOTE)
 KIND_LABEL = {NOTICE: '공지사항', DEVNOTE: '개발 노트'}
 AUD_ALL, AUD_OFFICE, AUD_FIELD, AUD_DEPT = 'all', 'office', 'field', 'dept'
-AUDIENCES = {AUD_ALL: '전 직원', AUD_OFFICE: '사무실 직원', AUD_FIELD: '현장·미화', AUD_DEPT: '부서 고르기'}
-DEFAULT_CATEGORIES = (('전사 공지', AUD_ALL), ('사무실 공지', AUD_OFFICE), ('현장 공지', AUD_FIELD))
+AUDIENCES = {AUD_ALL: '전 직원', AUD_OFFICE: '현장·미화 제외', AUD_FIELD: '현장·미화', AUD_DEPT: '부서 고르기'}
+DEFAULT_CATEGORIES = (('전사 공지', AUD_ALL, []), ('영업 공지', AUD_DEPT, ['기술영업']), ('시공 공지', AUD_DEPT, ['기술시공']))
 
 TITLE_MAX, BODY_MAX = 120, 20000
 FILE_EXT = ('.pdf', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.doc', '.docx', '.hwp', '.hwpx',
@@ -106,8 +107,9 @@ def _conn():
                 for q in DDL:
                     conn.execute(q)
                 if not conn.execute('SELECT 1 FROM notice_categories LIMIT 1').fetchone():
-                    for i, (name, aud) in enumerate(DEFAULT_CATEGORIES):
-                        conn.execute('INSERT INTO notice_categories (name, audience, sort) VALUES (?, ?, ?)', (name, aud, i))
+                    for i, (name, aud, depts) in enumerate(DEFAULT_CATEGORIES):
+                        conn.execute('INSERT INTO notice_categories (name, audience, depts, sort) VALUES (?, ?, ?, ?)',
+                                     (name, aud, json.dumps(depts, ensure_ascii=False), i))
                 conn.commit()
                 _table_ready = True
             yield conn
@@ -248,7 +250,7 @@ def _public(row: dict, cat: Optional[dict], files: List[dict], read: bool, with_
     d = {'id': row['id'], 'kind': row['kind'], 'title': row['title'], 'pinned': bool(row['pinned']),
          'author': row['author_name'] or '', 'created_at': row['created_at'], 'updated_at': row['updated_at'],
          'category_id': row['category_id'], 'category': (cat or {}).get('name') or '',
-         'audience': (cat or {}).get('audience_label') or ('사무실 직원' if row['kind'] == DEVNOTE else ''),
+         'audience': (cat or {}).get('audience_label') or ('현장·미화 제외' if row['kind'] == DEVNOTE else ''),
          'files': files, 'read': read, 'slack_sent': bool(row['slack_ts'])}
     if with_body:
         d['body'] = row['body']

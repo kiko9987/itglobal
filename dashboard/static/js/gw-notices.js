@@ -112,7 +112,7 @@
     }
     h += '</div>';
     if (KIND === 'devnote') {
-      h += '<p class="gw-note gw-nt-lead">그룹웨어·관리 사이트·슬랙 봇이 바뀐 내용을 남겨요. 사무실 직원이 볼 수 있어요.</p>';
+      h += '<p class="gw-note gw-nt-lead">그룹웨어·관리 사이트·슬랙 봇이 바뀐 내용을 남겨요.</p>';
     }
     h += '<div class="gw-nt-cats-panel" id="ntCats" hidden></div>';
     h += '<div class="gw-nt-bar">' +
@@ -287,7 +287,6 @@
           '<h1 class="gw-nt-h1" id="ntH1" tabindex="-1">' + esc(n.title) + '</h1>' +
           '<p class="gw-nt-ameta">' + esc(n.author) + ' · <time datetime="' + esc(n.created_at) + '">' + esc(when(n.created_at, true)) + '</time>' +
             (n.updated_at ? ' · 고침 ' + esc(when(n.updated_at, true)) : '') +
-            (CAN_EDIT && n.audience ? ' · <span class="gw-nt-aud"><i class="fas fa-eye" aria-hidden="true"></i> ' + esc(n.audience) + '</span>' : '') +
           '</p>' +
         '</header>' +
         '<div class="gw-nt-body">' + (n.body ? bodyHtml(n.body) : '<span class="gw-nt-dim">본문 없음</span>') + '</div>';

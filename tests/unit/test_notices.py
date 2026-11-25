@@ -50,21 +50,24 @@ def _post(cat, title, kind=ns.NOTICE, **kw):
 
 
 def test_default_categories_and_audience(env):
-    assert [c['name'] for c in ns.categories()] == ['전사 공지', '사무실 공지', '현장 공지']
-    a, f, m = env['사무가'], env['현장가'], env['미화가']
+    # 전사 / 영업 / 시공(11-25 부장님) — 경영지원만 보는 공지는 없음
+    assert [c['name'] for c in ns.categories()] == ['전사 공지', '영업 공지', '시공 공지']
+    a, b, f, m = env['사무가'], env['사무나'], env['현장가'], env['미화가']
     _post('전사 공지', '급여일 변경')
-    _post('사무실 공지', '매출계약서 양식')
-    _post('현장 공지', '현장 안전')
+    _post('영업 공지', '매출계약서 양식')
+    _post('시공 공지', '현장 안전')
     _post(None, '그룹웨어 업데이트', kind=ns.DEVNOTE)
     titles = lambda v, k=ns.NOTICE: sorted(n['title'] for n in ns.list_notices(k, v))
-    assert titles(V(a)) == ['급여일 변경', '매출계약서 양식']
-    assert titles(V(f)) == ['급여일 변경', '현장 안전'] == titles(V(m))
-    assert titles(V(a, admin=True)) == ['급여일 변경', '매출계약서 양식', '현장 안전']
+    assert titles(V(a)) == ['급여일 변경', '매출계약서 양식']          # 기술영업
+    assert titles(V(b)) == ['급여일 변경']                           # 경영지원(관리자가 아니면 전사만)
+    assert titles(V(f)) == ['급여일 변경', '현장 안전']               # 기술시공
+    assert titles(V(m)) == ['급여일 변경']                           # 미화
+    assert titles(V(b, admin=True)) == ['급여일 변경', '매출계약서 양식', '현장 안전']
     assert titles(V(a), ns.DEVNOTE) == ['그룹웨어 업데이트']
-    assert titles(V(f), ns.DEVNOTE) == []                       # 개발 노트는 사무실 직원만
+    assert titles(V(f), ns.DEVNOTE) == []                       # 개발 노트는 현장·미화 제외
     field_only = next(n['id'] for n in ns.list_notices(ns.NOTICE, V(a, True)) if n['title'] == '현장 안전')
     with pytest.raises(PermissionError):
-        ns.get(field_only, V(a))                                   # 사무실 직원은 현장 공지를 못 봄
+        ns.get(field_only, V(a))                                   # 영업은 시공 공지를 못 봄
 
 
 def test_only_admin_writes(env):
@@ -91,10 +94,11 @@ def test_pinned_first_then_newest_and_unread(env):
 
 def test_read_status_counts_only_audience(env):
     a, b, f = env['사무가'], env['사무나'], env['현장가']
-    nid = _post('사무실 공지', '결재 방법')
+    c = ns.save_category({'name': '내근 공지', 'audience': ns.AUD_OFFICE}, True)
+    nid = ns.save(ns.NOTICE, {'title': '결재 방법', 'category_id': c['id']}, AUTHOR, True)['id']
     ns.get(nid, V(a))
     r = ns.read_status(nid)
-    assert r['total'] == 2                                        # 사무실 2명(현장·미화 제외)
+    assert r['total'] == 2                                        # 현장·미화 제외 2명
     assert [p['name'] for p in r['read']] == ['사무가'] and [p['name'] for p in r['unread']] == ['사무나']
     all_id = _post('전사 공지', '차량 보험')
     ns.get(all_id, V(f))
@@ -105,14 +109,14 @@ def test_read_status_counts_only_audience(env):
 
 def test_dept_category(env):
     a, b = env['사무가'], env['사무나']
-    c = ns.save_category({'name': '영업 공지', 'audience': ns.AUD_DEPT, 'depts': ['기술영업']}, True)
+    c = ns.save_category({'name': '영업 회의 공지', 'audience': ns.AUD_DEPT, 'depts': ['기술영업']}, True)
     ns.save(ns.NOTICE, {'title': '영업 회의', 'category_id': c['id']}, AUTHOR, True)
     assert [n['title'] for n in ns.list_notices(ns.NOTICE, V(a))] == ['영업 회의']
     assert ns.list_notices(ns.NOTICE, V(b)) == []
     with pytest.raises(ns.NoticeError):
         ns.save_category({'name': '빈 부서', 'audience': ns.AUD_DEPT, 'depts': []}, True)
     with pytest.raises(ns.NoticeError):
-        ns.save_category({'name': '영업 공지', 'audience': ns.AUD_ALL}, True)      # 같은 이름
+        ns.save_category({'name': '영업 회의 공지', 'audience': ns.AUD_ALL}, True)      # 같은 이름
     with pytest.raises(ns.NoticeError):
         ns.delete_category(c['id'], True)                                           # 글이 있으면 못 지움
     with pytest.raises(PermissionError):
@@ -121,7 +125,7 @@ def test_dept_category(env):
 
 def test_files_follow_notice_audience(env):
     a, f = env['사무가'], env['현장가']
-    nid = _post('사무실 공지', '양식')
+    nid = _post('영업 공지', '양식')
     got = ns.add_file(nid, '계약서.pdf', b'%PDF-1', True)
     assert ns.file_for(got['id'], V(a))['name'] == '계약서.pdf'
     with pytest.raises(PermissionError):
