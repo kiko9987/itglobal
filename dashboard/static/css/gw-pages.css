@@ -4182,7 +4182,7 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-nt-h1:focus { outline: none; }
 .gw-nt-ameta { margin: 0; font-size: 0.82rem; color: #64748b; font-variant-numeric: tabular-nums; }
 .gw-nt-aud { color: #475569; }
-.gw-nt-body { white-space: pre-wrap; word-break: keep-all; overflow-wrap: anywhere; line-height: 1.75; font-size: 0.97rem; color: #1e293b; max-width: 70ch; }
+.gw-nt-body { white-space: pre-wrap; word-break: keep-all; overflow-wrap: anywhere; line-height: 1.75; font-size: 0.97rem; color: #1e293b; }   /* 줄 길이 제한 뺌(11-25 부장님 — 상자 폭 다 쓰기) */
 .gw-nt-body a { color: #c2410c; text-underline-offset: 3px; }
 .gw-nt-files { margin-top: 22px; border-top: 1px solid #eef1f4; padding-top: 14px; }
 .gw-nt-files-h { font-size: 0.82rem; font-weight: 600; color: #475569; margin: 0 0 8px; }
