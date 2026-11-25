@@ -142,6 +142,20 @@
     S.cars.forEach(function (c) { if (c.usage === 'fixed' && c.fixed_user && S.names[c.fixed_user]) own[c.fixed_user] = c; });
     return own;
   }
+  // 본인 차(개인 소유 고정 차 — 스파크 1783 = MW, 인센티브 구간이라 늘 자기 차로 다님, 11-25 부장님)
+  function isPersonal(c) { return !!c && c.usage === 'fixed' && !!c.fixed_user && /^개인/.test(c.corp || ''); }
+  // 방문 일정 코스에 든 본인 차 주인이 아직 차가 없으면 그 차에 종일로 넣는다(저장해야 반영). ['박민우 님 → 스파크 1783', …]
+  function ownToCar() {
+    if (!S.courses) return [];
+    var inG = groupOf(), out = [];
+    S.cars.forEach(function (c) {
+      var m = c.fixed_user;
+      if (!isPersonal(c) || !inG[m] || !S.names[m] || S.off[m] || !noCar(m)) return;
+      setCar(m, c.plate, 'all');
+      out.push(name(m) + ' 님 → ' + c.label);
+    });
+    return out;
+  }
   // 고정 차 주인을 '배정 없어도 자기 차로 간다'고 짐작하던 것 없앰(11-24 부장님 — 빈 데서 차를 넣는 화면).
   //   고정 차도 다른 차처럼 코스에 넣어야 들어간다. (운행일지 운전자 추정의 '고정 사용자'는 그대로)
   function byOwnFixed() { return false; }
@@ -845,9 +859,13 @@
       $('vaDay').value = j.day;
       try { history.replaceState(null, '', '/vehicles/assign?day=' + j.day); } catch (e) { /* 무시 */ }
       status(j);
+      var own = S.canEdit ? ownToCar() : [];
       var moved = S.canEdit ? followCourses() : [];
       render();
-      if (moved.length) msg('방문 일정 코스대로 차에 넣었어요 — ' + moved.join(', ') + '. 저장해 주세요.', 'info', true);
+      var auto = [];
+      if (own.length) auto.push('본인 차로 넣었어요 — ' + own.join(', ') + '.');
+      if (moved.length) auto.push('방문 일정 코스대로 차에 넣었어요 — ' + moved.join(', ') + '.');
+      if (auto.length) msg(auto.join(' ') + ' 저장해 주세요.', 'info', true);
       S.placeTries = 0;
       placesLater(j.resolving);
     }).catch(function (e) { if (my === S.seq) msg(e.message, 'err'); });
@@ -986,7 +1004,8 @@
         return;
       }
       var cars = uniq(ms.map(whereIs).filter(Boolean));
-      if (cars.length !== 1 || isOwn(cars[0])) return;          // 차가 없거나 여러 대·'본인 차량' 코스는 그대로
+      // 차가 없거나 여러 대·'본인 차량'·개인 차(스파크 — 주인만 자동으로 넣음, 11-25)인 코스는 그대로
+      if (cars.length !== 1 || isOwn(cars[0]) || isPersonal(cars[0])) return;
       ms.filter(noCar).forEach(function (m) {
         setCar(m, cars[0].plate, 'all');
         out.push(name(m) + ' 님 → ' + g.label + ' ' + cars[0].label);
