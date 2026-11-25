@@ -4131,4 +4131,5 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-so-chip.waiting { background: #fff; color: #92400e; border: 1px dashed #f59e0b; }
 .gw-so-chip .gw-so-mi { font-size: 0.65rem; margin-left: 2px; }
 @media (max-width: 767.98px) { .gw-so-opt { min-height: 52px; } #soSelfWhy { font-size: 16px; min-height: 44px; } #soSelfModal .modal-footer .btn { min-height: 44px; } }
-
+.gw-so-cw { position: relative; display: inline-block; }   /* 근무표 칸 — 글자만 가운데, 별·금지는 그 오른쪽(11-25) */
+.gw-so-matrix .gw-so-cw .gw-so-mi { position: absolute; left: 100%; top: 50%; transform: translateY(-50%); margin-left: 4px; }

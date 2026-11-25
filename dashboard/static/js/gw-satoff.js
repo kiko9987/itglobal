@@ -282,6 +282,7 @@
     tableEl.id = 'soTable';
     calEl.parentNode.insertBefore(tableEl, calEl.nextSibling);
   }
+  function mIcon(x) { return memoIcon(x).replace(/^ /, ''); }
   function renderTable(d, me) {
     var sats = d.saturdays || [];
     var mem = d.members || [];
@@ -306,9 +307,10 @@
       sats.forEach(function (s) {
         var k = s.day + '|' + m.name;
         if (s.holiday) h += '<td class="hol">공휴일</td>';
-        else if (wk[k]) h += '<td><span class="gw-so-cell worked">휴무 출근</span>' + memoIcon(mm[k]) + '</td>';
-        else if (off[k]) h += '<td><span class="gw-so-cell off">휴무</span>' + memoIcon(mm[k]) + '</td>';
-        else h += '<td class="work">근무' + memoIcon(mm[k]) + '</td>';
+        // 별·금지 표시는 글자 기준 가운데 정렬에 끼지 않게 오른쪽에 붙임(11-25 부장님)
+        else if (wk[k]) h += '<td><span class="gw-so-cw"><span class="gw-so-cell worked">휴무 출근</span>' + mIcon(mm[k]) + '</span></td>';
+        else if (off[k]) h += '<td><span class="gw-so-cw"><span class="gw-so-cell off">휴무</span>' + mIcon(mm[k]) + '</span></td>';
+        else h += '<td class="work"><span class="gw-so-cw">근무' + mIcon(mm[k]) + '</span></td>';
       });
       h += '<td class="n">' + (m.count || 0) + '</td><td class="n">' + (m.worked || 0) + '</td></tr>';
     });
