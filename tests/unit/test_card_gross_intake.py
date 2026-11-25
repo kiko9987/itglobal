@@ -97,6 +97,47 @@ def test_split_cards_show_gross(monkeypatch):
         assert text.count('💳 카드 실결제') == 1 and '41,200원' in text
 
 
+@pytest.fixture
+def cardpay(monkeypatch):
+    reqs = []
+    import dashboard.services.e_approval as ea
+    monkeypatch.setattr(ea, 'find_by_project', lambda form, code: [r for r in reqs if r['code'] == code])
+    return reqs
+
+
+def test_cardpay_prefill_single_amount(cardpay):
+    # G4160: 카드결제 요청 #27·#55 둘 다 2,060,000 → 그 금액으로 미리 채움
+    cardpay += [{'id': 55, 'amount': 2060000, 'code': 'G4160-JW'}, {'id': 27, 'amount': 2060000, 'code': 'G4160-JW'},
+                {'id': 9, 'amount': 5000000, 'code': 'G4160-JW'}]   # 다른 결제(범위 밖)는 무시
+    amt, note = sb._cardpay_gross_hint('G4160-JW', 2018800)
+    assert amt == 2060000 and '#55' in note and '#27' in note and '#9' not in note
+
+
+def test_cardpay_ambiguous_or_none(cardpay):
+    cardpay += [{'id': 1, 'amount': 2060000, 'code': 'X'}, {'id': 2, 'amount': 2080000, 'code': 'X'}]
+    amt, note = sb._cardpay_gross_hint('X', 2018800)
+    assert amt is None and '맞는 금액' in note
+    assert sb._cardpay_gross_hint('Y', 2018800) == (None, '')
+
+
+def test_modal_prefills_from_cardpay(cardpay):
+    cardpay.append({'id': 55, 'amount': 2060000, 'code': 'G4160-JW'})
+    v = sb._build_payment_intake_view('i', 'c', 't', CARD_MEMO,
+                                      selected_project={'value': 'G4160-JW', 'text': {'type': 'plain_text', 'text': 'G4160-JW'}})
+    g = [b for b in v['blocks'] if b.get('block_id') == 'card_gross'][0]
+    assert g['element']['initial_value'] == '2,060,000'
+    assert any('#55' in str(b) for b in v['blocks'] if b.get('type') == 'context')
+
+
+def test_split_row_prefills_from_cardpay(cardpay, monkeypatch):
+    monkeypatch.setattr(sb, '_intake_split_payers', lambda code: {})
+    cardpay.append({'id': 55, 'amount': 2060000, 'code': 'G4160-JW'})
+    v = sb._build_split_modal_view('i', 'c', 't', 4037600, CARD_MEMO, 2,
+                                   [{'project_code': 'G4160-JW', 'amount': 2018800}, {}])
+    g = [b for b in v['blocks'] if b.get('block_id') == 'split_row_0_gross'][0]
+    assert g['element']['initial_value'] == '2,060,000'
+
+
 def test_cards_show_gross_and_fee():
     line = sb._card_gross_line(2060000, 2018800)
     assert '2,060,000원' in line and '41,200원' in line

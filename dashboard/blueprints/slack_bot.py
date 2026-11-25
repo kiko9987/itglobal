@@ -1784,6 +1784,15 @@ def _build_payment_intake_view(intake_id, channel, message_ts, text,
     if _is_card_settlement_memo(text):
         gross_el = {"type": "plain_text_input", "action_id": "value",
                     "placeholder": {"type": "plain_text", "text": "예: 2,060,000"}}
+        _gross_note = ''
+        if not card_gross_value and selected_project:
+            # 전자결재 카드결제 요청 금액으로 미리 채움 (2026-11-25)
+            from dashboard.services.sms_intake import parse_preview as _pp
+            _pre, _gross_note = _cardpay_gross_hint(
+                str((selected_project or {}).get('value') or '').strip(),
+                int((_pp(text or '') or {}).get('amount') or 0))
+            if _pre:
+                card_gross_value = f"{_pre:,}"
         if card_gross_value:
             gross_el["initial_value"] = str(card_gross_value)
         blocks.append({
@@ -1794,6 +1803,8 @@ def _build_payment_intake_view(intake_id, channel, message_ts, text,
                 "고객 카드로 결제한 금액(수수료 빼기 전)입니다. 이번 결제로 남은 돈을 다 받았으면 비워도 "
                 "자동으로 맞춥니다.")},
         })
+        if _gross_note:
+            blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f":credit_card: {_gross_note}"}]})
     blocks.append({"type": "context", "elements": [
         {"type": "mrkdwn", "text": ":lock: 실제 시트 기록은 경영지원 확인 후 반영됩니다."}
     ]})
@@ -1930,10 +1941,15 @@ def _build_split_modal_view(intake_id, channel, message_ts, total, memo, rows, p
             gross_el = {"type": "plain_text_input", "action_id": f"split_gross_{i}",
                         "placeholder": {"type": "plain_text", "text": "수수료 빼기 전 금액"}}
             _g = pf.get("card_gross")
+            _gnote = ''
+            if not _g and pf.get("project_code") and pf.get("amount"):
+                _g, _gnote = _cardpay_gross_hint(pf["project_code"], int(pf["amount"]))   # 카드결제 요청 금액
             if _g:
                 gross_el["initial_value"] = f"{_g:,}" if isinstance(_g, int) else str(_g)
             blocks.append({"type": "input", "block_id": f"split_row_{i}_gross", "optional": True,
                            "label": {"type": "plain_text", "text": f"💳 카드 실결제 {i+1}"}, "element": gross_el})
+            if _gnote:
+                blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f":credit_card: {_gnote}"}]})
         blocks.append({"type": "divider"})
     if rows < MAX_SPLIT_ROWS:
         blocks.append({"type": "actions", "elements": [
@@ -3180,6 +3196,31 @@ def _card_gross_check(project_code, stage, deposit, gross_raw, memo_text):
         return None, None
     return None, ("카드 결제 입금입니다. 이번 결제로 남은 돈이 다 끝나지 않아 수수료를 자동으로 맞출 수 없습니다. "
                   "카드로 결제한 금액(수수료 빼기 전)을 적어 주세요.")
+
+
+def _cardpay_gross_hint(project_code, deposit):
+    """전자결재 '카드결제 요청'(결제 요청 금액 = 원 매출 + 수수료)에서 이 카드 입금의 실결제 후보 (2026-11-25).
+
+    매니저가 실결제를 따로 찾아 적지 않게 수금 지정 창의 '카드 실결제' 칸을 미리 채운다. 순입금 이상·
+    ×1.06 이하인 요청만 후보. 금액이 하나로 정해지면 (그 금액, 안내), 여럿이면 (None, 후보 안내), 없으면 (None, '').
+    """
+    if not project_code or not deposit:
+        return None, ''
+    try:
+        from dashboard.services import e_approval as ea
+        from dashboard.services.e_approval_forms import FORM_CARDPAY
+        reqs = [r for r in ea.find_by_project(FORM_CARDPAY, project_code)
+                if deposit <= int(r.get('amount') or 0) <= deposit * CARD_GROSS_MAX_RATIO]
+    except Exception as exc:
+        logger.warning(f"[SLACK/수금봇] 카드결제 요청 조회 실패(무시): {exc}")
+        return None, ''
+    if not reqs:
+        return None, ''
+    names = ', '.join(f"#{r['id']} {int(r['amount']):,}원" for r in reqs[:4])
+    amounts = {int(r['amount']) for r in reqs}
+    if len(amounts) == 1:
+        return amounts.pop(), f"전자결재 카드결제 요청({names}) 금액으로 미리 채웠습니다. 다르면 고쳐 주세요."
+    return None, f"전자결재 카드결제 요청: {names} — 이 입금에 맞는 금액을 적어 주세요."
 
 
 def _collection_settlement_target(memo_text, deposit, old_num):
