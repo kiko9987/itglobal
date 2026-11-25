@@ -495,7 +495,10 @@
     warnLine(ws);
     $('vpBoard').classList.toggle('editing', P.canEdit);
     $('vpBar').hidden = !P.canEdit;
-    $('vpConfirm').textContent = P.data.confirmed_at ? '다시 확정 · 바뀐 사람에게 DM' : '일정 확정 · DM 보내기';
+    // DM 은 차량 배정 확정 때 한 번에(11-25) — 기다리는 날은 단추에 'DM' 을 붙이지 않는다
+    var waits = P.data.dm_mode === 'held' || (!P.data.confirmed_at && !P.data.cars_confirmed);
+    $('vpConfirm').textContent = P.data.confirmed_at ? (waits ? '다시 확정' : '다시 확정 · 바뀐 사람에게 DM')
+      : (waits ? '일정 확정' : '일정 확정 · DM 보내기');
     setDirty(P.dirty);
     status();
     if (P.focus) {
