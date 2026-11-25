@@ -242,7 +242,10 @@
   function memoHtml(d, me) {
     if (!d.memos) return '';
     var h = '<h3 class="gw-so-h" id="soMemoTitle">휴무 메모</h3><div class="gw-so-memo">' +
-      '<p class="gw-so-memo-how">꼭 쉬어야 하는 토요일이 있으면 먼저 적어 두세요. 다른 분들이 보고 양보하고 피해서 잡아요.</p>';
+      // 적는 사람(기술영업 본인)과 보기만 하는 사람(대표님·관리자 등)에게 안내를 다르게(11-25 부장님 '어드민이라 이렇게 보여?')
+      '<p class="gw-so-memo-how">' + (d.can_memo
+        ? '꼭 쉬어야 하는 토요일이 있으면 먼저 적어 두세요. 다른 분들이 보고 양보하고 피해서 잡아요.'
+        : '기술영업 매니저가 본인 휴무 사정을 적는 곳이에요. 여기서는 보기만 할 수 있어요.') + '</p>';
     // 토요일별 메모
     var by = {};
     (d.memos || []).forEach(function (x) { (by[x.day] = by[x.day] || []).push(x); });
@@ -266,7 +269,7 @@
       });
       h += '</ul>';
     } else {
-      h += '<p class="gw-so-none">아직 적힌 메모가 없어요.</p>';
+      h += '<p class="gw-so-none">' + cur.m + '월에 적힌 메모가 없어요.</p>';
     }
     // 적기
     if (d.can_memo) {
