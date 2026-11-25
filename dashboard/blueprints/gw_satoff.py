@@ -220,7 +220,7 @@ def api_memo():
     on = body.get('on', True) is not False
     try:
         name, sid = _actor()
-        target = (body.get('name') or name).strip()
+        target = name                    # 메모는 로그인한 본인 것만(11-25 부장님) — 화면이 보낸 이름은 쓰지 않음
         admin = _is_admin() and not _is_field()
         if on:
             res = so.write_memo(_day(body.get('day')), target, body.get('kind') or '', body.get('reason') or '', sid, name,

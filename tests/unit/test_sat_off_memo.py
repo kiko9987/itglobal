@@ -19,6 +19,8 @@ def test_must_memo_picks_and_everyone_sees(slack):
     v = so.view(DEC, B, '영업나', TODAY)                      # 다른 매니저도 봄
     assert [(m['name'], m['kind'], m['reason']) for m in v['memos']] == [('영업가', 'must', '가족 여행')]
     assert v['can_memo'] and not v['can_memo_others'] and not v['can_month_note']
+    assert not so.view(DEC, CO, '빈대리', TODAY)['can_memo_others']                  # 취합 담당도 대신 적기 없음
+    assert not so.view(DEC, JW, '박정우', TODAY)['can_memo']                          # 대상자가 아니면 못 적음
     # 같은 사람·같은 토요일은 고쳐 씀
     so.write_memo(S12, '영업가', so.MEMO_MUST, '결혼식', A, '영업가', TODAY)
     assert [m['reason'] for m in so.memos(DEC)['items']] == ['결혼식']
@@ -38,13 +40,17 @@ def test_must_memo_when_full_keeps_memo_and_asks_to_yield(slack):
 def test_cant_memo_and_permissions(slack):
     r = so.write_memo(S5, '영업나', so.MEMO_CANT, '현장 핸들링', B, '영업나', TODAY)
     assert not r['picked'] and '영업나' not in so.picks(DEC)['2026-12-05']
-    with pytest.raises(PermissionError):
-        so.write_memo(S5, '영업나', so.MEMO_MUST, '대신', A, '영업가', TODAY)      # 남의 메모는 안 됨
-    so.write_memo(S5, '영업다', so.MEMO_MUST, '돌잔치', CO, '빈대리', TODAY)        # 취합 담당은 대신 적음
-    with pytest.raises(PermissionError):
-        so.delete_memo(S5, '영업다', A, '영업가')
-    so.delete_memo(S5, '영업나', B, '영업나')                                       # 본인 것
-    so.delete_memo(S5, '영업다', CO, '빈대리')                                      # 취합 담당
+    for who, sid, actor in (('영업나', A, '영업가'), ('영업다', CO, '빈대리'), ('영업다', JW, '박정우')):
+        with pytest.raises(PermissionError, match='본인'):
+            so.write_memo(S5, who, so.MEMO_MUST, '대신', sid, actor, TODAY)        # 대신 적기 없음(11-25 부장님)
+    with pytest.raises(so.SatOffError, match='대상'):
+        so.write_memo(S5, '박정우', so.MEMO_MUST, '여행', JW, '박정우', TODAY)       # 승인권자도 대상자가 아니면
+    so.write_memo(S5, '영업다', so.MEMO_MUST, '돌잔치', C, '영업다', TODAY)
+    for sid, actor in ((A, '영업가'), (CO, '빈대리')):
+        with pytest.raises(PermissionError, match='본인'):
+            so.delete_memo(S5, '영업다', sid, actor)                               # 남의 메모는 지울 수 없음
+    so.delete_memo(S5, '영업나', B, '영업나')
+    so.delete_memo(S5, '영업다', C, '영업다')
     assert so.memos(DEC)['items'] == []
     assert '영업다' in so.picks(DEC)['2026-12-05']                                  # 메모를 지워도 휴무 이름은 그대로
     with pytest.raises(LookupError):
@@ -73,6 +79,5 @@ def test_confirmed_month_and_validation(slack):
         so.write_memo(S5, '영업가', so.MEMO_MUST, '여행', A, '영업가', date(2026, 12, 8))
     with pytest.raises(so.SatOffError, match='종류'):
         so.write_memo(S12, '영업가', 'month', '여행', A, '영업가', TODAY)
-    # 승인권자는 확정된 달에도 꼭 쉬어야 하는 날을 넣으면 이름까지 바로
-    r = so.write_memo(S12, '영업나', so.MEMO_MUST, '결혼식', JW, '박정우', TODAY)
-    assert r['picked']
+    r = so.write_memo(S12, '영업나', so.MEMO_CANT, '현장', B, '영업나', TODAY)       # 확정된 달에도 메모는 적힘
+    assert not r['picked'] and not r['warn']

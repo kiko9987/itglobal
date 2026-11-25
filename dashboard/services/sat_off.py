@@ -423,7 +423,7 @@ def _memo_reason(reason: str, limit: int) -> str:
 
 def write_memo(day: Optional[date], target: str, kind: str, reason: str, sid: str, actor_name: str,
                today: Optional[date] = None, admin: bool = False) -> dict:
-    """본인(또는 취합 담당·승인권자가 대신) 토요일 메모 — '꼭 쉬어야 해요'·'못 쉬어요' + 사유. 같은 사람·같은 토요일은 고쳐 씀.
+    """본인 토요일 메모 — '꼭 쉬어야 해요'·'못 쉬어요' + 사유. 로그인한 본인만(11-25 부장님 — 대신 적기 없음). 같은 토요일은 고쳐 씀.
     '꼭 쉬어야 해요'는 작성 중인 달이면 그 토요일에 이름도 넣는다(절반이 차 있으면 메모만 남기고 알려 줌 — 다른 분 양보 대기)."""
     today = today or date.today()
     if kind not in (MEMO_MUST, MEMO_CANT):
@@ -434,10 +434,10 @@ def write_memo(day: Optional[date], target: str, kind: str, reason: str, sid: st
     month = _check_day(day, today, edit)
     if not _member(target, on):
         raise SatOffError(f'{target} 님은 스케줄 근무 대상(기술영업)이 아니에요.')
-    if target != actor_name and not (r['manager'] or edit):
-        raise PermissionError('다른 사람 메모는 쓸 수 없어요.')
-    if target == actor_name and not (r['member'] or r['manager'] or edit):
-        raise PermissionError('스케줄 근무 대상이 아니에요.')
+    if target != actor_name:
+        raise PermissionError('메모는 본인 것만 적을 수 있어요.')
+    if not r['member']:
+        raise PermissionError('스케줄 근무 대상(기술영업)만 메모를 적을 수 있어요.')
     text = _memo_reason(reason, MEMO_MAX)
     key = day.isoformat()
     with lv._conn() as conn:
@@ -461,12 +461,11 @@ def write_memo(day: Optional[date], target: str, kind: str, reason: str, sid: st
 
 
 def delete_memo(day: Optional[date], target: str, sid: str, actor_name: str, admin: bool = False) -> dict:
-    """토요일 메모 지우기 — 본인 것, 또는 취합 담당·승인권자·관리자. 휴무 이름은 그대로 둔다(빼려면 달력에서)."""
+    """토요일 메모 지우기 — 본인 것만(11-25 부장님). 휴무 이름은 그대로 둔다(빼려면 달력에서)."""
     if not day:
         raise SatOffError('날짜를 다시 골라 주세요.')
-    r = role(sid, actor_name, day.replace(day=1))
-    if target != actor_name and not (r['manager'] or r['approver'] or admin):
-        raise PermissionError('다른 사람 메모는 지울 수 없어요.')
+    if target != actor_name:
+        raise PermissionError('메모는 본인 것만 지울 수 있어요.')
     month = _month_of(day)
     with lv._conn() as conn:
         n = conn.execute('DELETE FROM sat_off_memos WHERE month=? AND day=? AND name=? AND kind<>?',
@@ -544,10 +543,10 @@ def view(month: str, sid: str, name: str, today: Optional[date] = None, admin: b
         'changes': [x for x in changes if show_all or x['name'] == name],
         'log': recent_log(month) if show_all else [],
         'notify_fail': notify_fail(month),       # 마지막 처리의 슬랙 알림을 못 보냈으면 그 문구(11-24)
-        # 휴무 메모(11-25) — 모두 봄. 쓰기 = 본인(대상자)·취합 담당·승인권자, 그달 메모 = 취합 담당·승인권자·관리자
+        # 휴무 메모(11-25) — 모두 봄. 쓰기·지우기 = 로그인한 본인(대상자)만, 그달 메모 = 취합 담당·승인권자·관리자
         'memos': mm['items'], 'month_note': mm['month_note'],
-        'can_memo': in_range and (r['member'] or r['manager'] or edit),
-        'can_memo_others': r['manager'] or edit,
+        'can_memo': in_range and r['member'],          # 본인만(11-25 부장님 — 대신 적기 없음)
+        'can_memo_others': False,
         'can_month_note': r['manager'] or edit,
     }
 

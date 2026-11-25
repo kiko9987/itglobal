@@ -263,7 +263,7 @@
         h += '<li><div class="gw-so-mday">' + md(day) + '(토)' + (s ? ' <span class="gw-so-sub">' + (s.names.length) + '명 휴무</span>' : '') + '</div><ul>';
         by[day].forEach(function (x) {
           var mine = x.name === me.name;
-          var canDel = mine || d.can_memo_others;
+          var canDel = mine;                 // 본인 것만(11-25)
           var picked = s && s.names.indexOf(x.name) !== -1;
           h += '<li class="' + x.kind + (mine ? ' mine' : '') + '">' + memoIcon(x).replace(/^ /, '') +
             '<span class="gw-so-mwho">' + esc(x.name) + '</span><span class="gw-so-mwhy">' + esc(x.reason) + '</span>' +
@@ -286,13 +286,7 @@
         h += '<form class="gw-so-memoform" id="soMemoForm" novalidate><div class="gw-so-mrow">' +
           '<label class="visually-hidden" for="soMemoDay">토요일</label><select class="form-select form-select-sm" id="soMemoDay" name="day">' +
           opts.map(function (s) { return '<option value="' + s.day + '"' + (keep.day === s.day ? ' selected' : '') + '>' + md(s.day) + '(토)</option>'; }).join('') + '</select>';
-        if (d.can_memo_others) {
-          h += '<label class="visually-hidden" for="soMemoWho">누구</label><select class="form-select form-select-sm" id="soMemoWho" name="who">' +
-            (d.members || []).map(function (m) {
-              var sel = keep.name ? keep.name === m.name : m.name === me.name;
-              return '<option' + (sel ? ' selected' : '') + '>' + esc(m.name) + '</option>';
-            }).join('') + '</select>';
-        }
+        h += '<span class="gw-so-mme">' + esc(me.name) + '</span>';
         var kind = keep.kind || 'must';
         h += '</div><div class="btn-group gw-so-mkind" role="radiogroup" aria-label="메모 종류">' +
           '<input type="radio" class="btn-check" name="mkind" id="soMkMust" value="must"' + (kind === 'must' ? ' checked' : '') + '>' +
@@ -670,7 +664,7 @@
       var reason = f.reason.value.trim();
       if (!reason) { err.textContent = '사유를 적어 주세요.'; f.reason.focus(); return; }
       var kind = (f.querySelector('input[name="mkind"]:checked') || {}).value || 'must';
-      var who = f.who ? f.who.value : data.me.name;
+      var who = data.me.name;            // 본인만 — 서버도 로그인 이름으로만 저장
       var btn = f.querySelector('button[type="submit"]');
       btn.disabled = true;
       api('/api/satoff/memo', { method: 'POST', body: { day: f.day.value, name: who, kind: kind, reason: reason } }).then(function (j) {
