@@ -48,7 +48,7 @@ def test_outflows_match_approval_then_hints():
     assert {k: outs[0][k] for k in ('I', 'J', 'K', 'N')} == {'I': '1011', 'J': '외상매입', 'K': '0 JSH 전기 자재구매', 'N': '세광전기'}
     assert (outs[1]['J'], outs[1]['K']) == ('지급수수료', '기장료')
     assert (outs[2]['J'], outs[2]['K']) == ('지급수수료', '')                 # 공사마다 다른 적요는 계정만 제안
-    assert outs[3]['check'] is True
+    assert len(outs) == 3                       # 농협에서 받는 사람 없이 나간 돈은 자금일보에서 뺌(11-26 부장님)
 
 
 def _template(path):

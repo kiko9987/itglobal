@@ -205,8 +205,17 @@ def build_rows(txs: List[dict], hints=None, projects: Optional[Dict[str, dict]] 
     outs = [t for t in sorted(txs, key=lambda x: x.get('at') or '') if t['direction'] == 'out']
     pairs = match_approvals(outs, approvals or [])
     in_rows = [deposit_row(t, projects.get((t.get('project_code') or '').split(',')[0]), hints['in']) for t in ins]
-    out_rows = [outflow_row(t, pairs.get(i), hints['out'], initial_of) for i, t in enumerate(outs)]
+    out_rows = [outflow_row(t, pairs.get(i), hints['out'], initial_of) for i, t in enumerate(outs)
+                if not _skip_outflow(t, pairs.get(i))]
     return in_rows, out_rows
+
+
+def _skip_outflow(tx: dict, approval: Optional[dict]) -> bool:
+    """자금일보에 안 넣는 출금 — 농협(N통장)에서 받는 사람 없이 나간 돈(문자에 '농협 출금'만, 전자결재 짝도 없음).
+    11-26 부장님 '빼는 게 맞아'(11/25 1,000,000원 ×5 — SB 자금일보에도 없음). 장부·입출금 화면에는 그대로 남는다."""
+    if approval or tx.get('code') != '농협':
+        return False
+    return norm(tx.get('counterparty') or '') in ('', norm('농협 출금'), norm('농협'))
 
 
 # ── 시트 쓰기 ─────────────────────────────────────────────────────────
