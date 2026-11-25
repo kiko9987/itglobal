@@ -194,7 +194,7 @@ AREAS = [
     },
     {
         # 재무(11-25 부장님 — '경영지원'에서 이름 바꿈, 앞으로 ERP 기능도 여기). 관리자만(화면·API 도 collected_report 가 막음)
-        'key': 'support', 'label': '재무', 'icon': 'fas fa-coins',
+        'key': 'support', 'label': '재무', 'icon': 'fas fa-calculator',   # 계산기(11-25 부장님 — 정산·회계·ERP)
         'items': [
             {'href': '/settlement/collected', 'label': '월별 수금', 'icon': 'fas fa-file-invoice-dollar', 'admin': True},
         ],
