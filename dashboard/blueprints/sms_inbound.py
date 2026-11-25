@@ -140,6 +140,7 @@ def sms_inbound():
     _clean_in = strip_bold_markers(text)
     _acct = match_account(_clean_in)
     if _acct and _acct.code == 'N' and looks_like_payment(_clean_in):
+        _ledger(_clean_in, f'sms:{device}')
         res = record_nh_inflow(_clean_in, source=f'sms:{device}')
         if res.get('reason') != 'nh_inflow_recorded':
             logger.info(f"[SMS_INBOUND] skip: {res.get('status')}/{res.get('reason','')} (device={device})")
@@ -179,6 +180,8 @@ def ingest_deposit(text: str, source: str = 'sms', cash_receiver: str = '',
     # 현금 수령 판별 — '현금' + 금액, 사업자계좌 없음 (은행 SMS 아닌 매니저 자유문장).
     # 계좌 있으면 은행 입금이므로 현금으로 오인 안 함. (2026-08 현금 인입 도입)
     is_cash = allow_cash and looks_like_cash(text) and not has_business_account(text)
+    if not is_cash:
+        _ledger(text, source)   # 입출금 장부(11-26) — 잔액 포함 원문으로, 카드·보관 흐름과 따로
     if not is_cash:
         if not looks_like_payment(text):
             # 회사 계좌 출금 문자 — 슬랙 카드 없이 서버에만 보관 (법인 간 이체 짝짓기·진단용)
@@ -258,6 +261,16 @@ def ingest_deposit(text: str, source: str = 'sms', cash_receiver: str = '',
                 pass
         return {'status': 'card_failed', 'id': intake_id}
     return {'status': 'ok', 'id': intake_id, 'preview': preview}
+
+
+def _ledger(text: str, source: str) -> None:
+    """입출금 장부(재무 > 입출금, 관리자 전용)에 기록 — 잔액은 여기에만 남는다(11-26 부장님 '잔액 보관').
+    실패해도 입금 카드·출금 보관은 그대로 간다."""
+    try:
+        from dashboard.services import bank_ledger
+        bank_ledger.record_from_text(text, source)
+    except Exception as exc:
+        logger.error(f'[SMS_INBOUND] 입출금 장부 기록 실패: {exc}', exc_info=True)
 
 
 def record_outflow(text: str, source: str = 'sms') -> dict:

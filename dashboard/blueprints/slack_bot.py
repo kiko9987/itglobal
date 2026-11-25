@@ -817,6 +817,7 @@ def _register_payment_handlers(app):
                         else:
                             _intake_mark_done(_rc2, intake_id, _pc, _stg)  # 성공 후에만 마커
                             _recorded.append(_s)
+                            _ledger_designate(intake_id, _pc, _stg, _amt)
                             _notify_fund_move_bg(des.get("by", ""), _pc, _s.get("warn_notes"))
                     # 전건 성공했을 때만 카드 '분할 기록됨' 완료 처리. 부분 실패 시 카드를
                     # 대기(버튼 유지) 상태로 남겨 [확인 후 기록] 재클릭으로 재시도할 수 있게 한다.
@@ -945,6 +946,7 @@ def _register_payment_handlers(app):
                     _intake_ephemeral(client, channel, user, f":warning: 기록 실패: {err}")
                     return
                 _intake_mark_done(rc, intake_id, project_code, stage)  # 성공 후에만 마커
+                _ledger_designate(intake_id, project_code, stage)
                 _notify_fund_move_bg(des.get("by", ""), project_code, _des_notes)
                 if channel and ts:
                     client.chat_update(
@@ -3240,6 +3242,15 @@ def _collection_settlement_target(memo_text, deposit, old_num):
     except Exception as exc:
         logger.warning(f"[SLACK/수금봇] 추심 수수료 보정 판단 실패(무시): {exc}")
     return None
+
+
+def _ledger_designate(intake_id, project_code, stage, amount=None):
+    """입출금 장부(11-26)의 그 입금 줄에 공사 코드·적요 — 실패해도 확인 흐름은 그대로."""
+    try:
+        from dashboard.services import bank_ledger
+        bank_ledger.designate(intake_id, project_code, stage, amount)
+    except Exception as exc:
+        logger.error(f"[SLACK/수금봇] 입출금 장부 지정 반영 실패: {exc}", exc_info=True)
 
 
 def _commit_intake_to_sheet(project_code, stage, amount, memo_text, slack_user_id, note_extra=None,
