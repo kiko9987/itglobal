@@ -69,6 +69,34 @@ def test_modal_shows_gross_field_only_for_card():
     assert not [b for b in blocks(BANK_MEMO) if b.get('block_id') == 'card_gross']
 
 
+def test_split_modal_gross_per_row(monkeypatch):
+    monkeypatch.setattr(sb, '_intake_split_payers', lambda code: {})
+    v = sb._build_split_modal_view('i', 'c', 't', 4037600, CARD_MEMO, 2,
+                                   [{'card_gross': 2060000}, {}])
+    gross = [b for b in v['blocks'] if str(b.get('block_id', '')).endswith('_gross')]
+    assert [b['block_id'] for b in gross] == ['split_row_0_gross', 'split_row_1_gross']
+    assert gross[0]['element']['initial_value'] == '2,060,000'
+    v2 = sb._build_split_modal_view('i', 'c', 't', 800000, BANK_MEMO, 2, [])
+    assert not [b for b in v2['blocks'] if str(b.get('block_id', '')).endswith('_gross')]
+
+
+def test_split_state_reads_gross():
+    state = {'split_row_0_gross': {'split_gross_0': {'value': ' 2,060,000 '}}}
+    rows = sb._split_state_to_rows(state, 2)
+    assert rows[0]['card_gross'] == '2,060,000' and rows[0]['has_gross']
+    assert rows[1]['card_gross'] == '' and not rows[1]['has_gross']
+
+
+def test_split_cards_show_gross(monkeypatch):
+    monkeypatch.setattr(sb, '_resolve_manager_initial', lambda u: 'JW')
+    splits = [{'project_code': 'G4160-JW', 'stage': '잔금', 'amount': 2018800, 'card_gross': 2060000},
+              {'project_code': 'G9001-JW', 'stage': '잔금', 'amount': 1000000, 'card_gross': 0}]
+    for blocks in (sb._build_intake_split_pending_blocks('i', splits, 3018800, 'u', CARD_MEMO),
+                   sb._build_intake_split_done_blocks(splits, 3018800, 'u', 'u', CARD_MEMO)):
+        text = blocks[0]['text']['text']
+        assert text.count('💳 카드 실결제') == 1 and '41,200원' in text
+
+
 def test_cards_show_gross_and_fee():
     line = sb._card_gross_line(2060000, 2018800)
     assert '2,060,000원' in line and '41,200원' in line

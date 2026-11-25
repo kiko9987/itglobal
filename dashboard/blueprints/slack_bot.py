@@ -807,7 +807,8 @@ def _register_payment_handlers(app):
                         _sok, _o, _n, _serr = _commit_intake_to_sheet(
                             _pc, _stg, _amt, _smemo, user,
                             note_extra=_compose_warn_notes(_s.get("warn_notes"), des.get("by", ""), user),
-                            acct_text=d.get("text", ""), installment=_s.get("installment") or "")
+                            acct_text=d.get("text", ""), installment=_s.get("installment") or "",
+                            card_gross=int(_s.get("card_gross") or 0))
                         if not _sok:
                             _intake_release(_rc2, intake_id, _pc, _stg)  # 재시도 허용
                             _failed.append(_s)
@@ -1119,8 +1120,14 @@ def _register_payment_handlers(app):
                         else:
                             _inst = r["installment"]
                 if r["project_code"] and r["stage"] in ("계약금", "중도금", "잔금") and r["amount"] > 0:
+                    # 카드 정산 입금 — 중간 결제 행은 실결제(수수료 빼기 전) 필수 (2026-11-25, 단일 지정과 같은 기준)
+                    _gross, _gerr = _card_gross_check(r["project_code"], r["stage"], r["amount"],
+                                                      r.get("card_gross") or "", meta.get("memo", ""))
+                    if _gerr:
+                        errors[f"split_row_{i}_gross" if r.get("has_gross") else f"split_row_{i}_amount"] = _gerr
                     splits.append({"project_code": r["project_code"], "project_option": r["project_option"],
-                                   "stage": r["stage"], "amount": r["amount"], "installment": _inst})
+                                   "stage": r["stage"], "amount": r["amount"], "installment": _inst,
+                                   "card_gross": _gross or 0})
                     split_idx.append(i)
             if errors:
                 ack(response_action="errors", errors=errors)
@@ -1816,8 +1823,10 @@ def _parse_won(s) -> int:
 
 
 def _split_state_to_rows(state: dict, rows: int) -> list:
-    """모달 state → [{idx, project_code, project_option, stage, amount, installment, has_inst}] (행별).
-    installment/has_inst: 나눠 내는 공사 행의 차수 칸(split_row_{i}_inst)이 있었나·고른 값."""
+    """모달 state → [{idx, project_code, project_option, stage, amount, installment, has_inst,
+    card_gross, has_gross}] (행별).
+    installment/has_inst: 나눠 내는 공사 행의 차수 칸(split_row_{i}_inst)이 있었나·고른 값.
+    card_gross/has_gross: 카드 정산 입금의 행별 실결제 칸(split_row_{i}_gross) — 적은 글자 그대로."""
     out = []
     for i in range(rows):
         po = ((state.get(f"split_row_{i}_project") or {})
@@ -1828,7 +1837,11 @@ def _split_state_to_rows(state: dict, rows: int) -> list:
               .get(f"split_amount_{i}") or {}).get("value")
         io = ((state.get(f"split_row_{i}_inst") or {})
               .get(f"split_inst_{i}") or {}).get("selected_option")
+        gv = ((state.get(f"split_row_{i}_gross") or {})
+              .get(f"split_gross_{i}") or {}).get("value")
         out.append({
+            "card_gross": (gv or "").strip(),
+            "has_gross": f"split_row_{i}_gross" in state,
             "idx": i,
             "project_code": _cur_code((po or {}).get("value", "")) if po else "",
             "project_option": po,
@@ -1851,6 +1864,7 @@ def _build_split_modal_view(intake_id, channel, message_ts, total, memo, rows, p
                                                 match_deposit_stage)
     prefilled = prefilled or []
     _partner = ((parse_preview(memo or '') or {}).get('partner') or '')
+    _is_card = _is_card_settlement_memo(memo)   # 카드 정산 입금 — 행마다 실결제 칸 (2026-11-25)
 
     def _pf(i):
         return prefilled[i] if i < len(prefilled) else {}
@@ -1912,11 +1926,23 @@ def _build_split_modal_view(intake_id, channel, message_ts, total, memo, rows, p
             amt_el["initial_value"] = str(pf["amount"])
         blocks.append({"type": "input", "block_id": f"split_row_{i}_amount", "optional": True,
                        "label": {"type": "plain_text", "text": f"금액 {i+1}"}, "element": amt_el})
+        if _is_card:
+            gross_el = {"type": "plain_text_input", "action_id": f"split_gross_{i}",
+                        "placeholder": {"type": "plain_text", "text": "수수료 빼기 전 금액"}}
+            _g = pf.get("card_gross")
+            if _g:
+                gross_el["initial_value"] = f"{_g:,}" if isinstance(_g, int) else str(_g)
+            blocks.append({"type": "input", "block_id": f"split_row_{i}_gross", "optional": True,
+                           "label": {"type": "plain_text", "text": f"💳 카드 실결제 {i+1}"}, "element": gross_el})
         blocks.append({"type": "divider"})
     if rows < MAX_SPLIT_ROWS:
         blocks.append({"type": "actions", "elements": [
             {"type": "button", "text": {"type": "plain_text", "text": "➕ 분할 행 추가"},
              "action_id": "payment_intake_split_add"}]})
+    if _is_card:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": (
+            ":credit_card: 카드 결제 입금입니다. '금액'에는 통장에 들어온 돈을, '카드 실결제'에는 고객 카드로 "
+            "결제한 금액(수수료 빼기 전)을 적어 주세요. 그 결제로 남은 돈을 다 받은 행은 비워도 자동으로 맞춥니다.")}]})
     blocks.append({"type": "context", "elements": [{"type": "mrkdwn",
         "text": ":lock: 시트 기록은 경영지원 확인 후. 분할 금액 합이 통합액과 같아야 지정됩니다."}]})
     return {"type": "modal", "callback_id": "submit_payment_intake_split",
@@ -1968,6 +1994,8 @@ def _build_intake_split_pending_blocks(intake_id, splits, total, by_user, memo="
     for s in splits:
         _sd = _stage_display(s['stage'], s.get('who', ''), s.get('installment', ''))
         lines.append(f">• {s['project_code']} · {_sd} · {int(s['amount']):,}원")
+        if _card_gross_line(s.get('card_gross'), s['amount']):
+            lines.append(f">     {_card_gross_line(s.get('card_gross'), s['amount'])}")
         lines += [f">     :warning: *{w}*" for w in (s.get('warns') or [])]
     lines.append(f">{INTAKE_SEP}")
     return [
@@ -1995,6 +2023,8 @@ def _build_intake_split_done_blocks(splits, total, by_user, checker, memo=""):
     for s in splits:
         _sd = _stage_display(s['stage'], s.get('who', ''), s.get('installment', ''))
         lines.append(f">• {s['project_code']} · {_sd} · {int(s['amount']):,}원")
+        if _card_gross_line(s.get('card_gross'), s['amount']):
+            lines.append(f">     {_card_gross_line(s.get('card_gross'), s['amount'])}")
         lines += [f">     :warning: {w}" for w in (s.get('warns') or [])]
     lines.append(f">{INTAKE_SEP}")
     return [{"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}}]
