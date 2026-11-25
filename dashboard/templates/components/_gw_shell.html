@@ -34,7 +34,7 @@
 
 <nav class="gw-rail" id="gwRail" aria-label="주 메뉴">
     <div class="gw-nav-top">
-        <a class="gw-rail-logo" href="{{ gw_nav.areas[0].href if gw_nav.areas else '/home' }}" title="아이티글로벌그룹" aria-label="아이티글로벌그룹 처음 화면">
+        <a class="gw-rail-logo" href="{{ '/leave' if gw_field else (gw_nav.areas[0].href if gw_nav.areas else '/home') }}" title="아이티글로벌그룹" aria-label="아이티글로벌그룹 처음 화면">
             <img src="{{ url_for('static', filename='images/logo-symbol.png') }}" alt="" width="40" height="40">
         </a>
         <span class="gw-nav-brand">아이티글로벌그룹</span>

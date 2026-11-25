@@ -165,6 +165,13 @@ AREAS = [
         'items': [{'href': '/home', 'label': '홈', 'icon': 'fas fa-home'}],
     },
     {
+        # 공지(11-25) — 홈 묶음에 넣으면 '홈'이 바로 열리지 않고 하위 메뉴가 펼쳐져서 따로 둔다.
+        # 공지사항은 현장·미화도 본다(보이는 글은 카테고리 대상대로). 개발 노트는 사무실 직원만
+        'key': 'notice', 'label': '공지', 'icon': 'fas fa-bullhorn',
+        'items': [{'href': '/notices', 'label': '공지사항', 'icon': 'fas fa-bullhorn', 'field': True},
+                  {'href': '/devnotes', 'label': '개발 노트', 'icon': 'fas fa-code-branch'}],
+    },
+    {
         # 결재(11-10) — 슬랙 전자결재와 같은 장부. 작성은 슬랙, 결재함·처리 단추·플렉스 보관함은 여기
         'key': 'approval', 'label': '결재', 'icon': 'fas fa-file-signature',
         'items': [

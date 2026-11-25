@@ -1,0 +1,20 @@
+{% extends "modern_base.html" %}
+
+{% block title %}{{ kind_label }} - 아이티글로벌그룹{% endblock %}
+
+{% block additional_css %}
+<link rel="stylesheet" href="{{ gw_asset('css/gw-pages.css') }}">
+{% endblock %}
+
+{% block content %}
+{# 공지사항·개발 노트(11-25) — 목록·글·쓰기를 한 화면에서(mode). 규칙은 services/notices.py, 화면은 gw-notices.js #}
+<div class="gw-page gw-page-narrow gw-nt" id="ntPage" data-kind="{{ kind }}" data-label="{{ kind_label }}"
+     data-id="{{ nid }}" data-mode="{{ mode }}" data-can-edit="{{ '1' if can_edit else '0' }}">
+  <div class="gw-lv-flash" id="ntFlash" role="status" aria-live="polite" tabindex="-1" hidden></div>
+  <div id="ntRoot"><div class="gw-empty">불러오는 중…</div></div>
+</div>
+{% endblock %}
+
+{% block additional_js %}
+<script src="{{ gw_asset('js/gw-notices.js') }}" defer></script>
+{% endblock %}

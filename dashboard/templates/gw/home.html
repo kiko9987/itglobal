@@ -30,6 +30,15 @@
   {% endif %}
 
   <div class="gw-home-grid">
+    {# 공지(11-25) — 고정 공지 먼저, 최근 4건. 현장·미화도 본다(대상 카테고리만) #}
+    <section class="gw-panel gw-home-card" aria-labelledby="homeNoticeTitle">
+      <div class="gw-home-card-head">
+        <h2 class="gw-panel-title" id="homeNoticeTitle"><i class="fas fa-bullhorn me-1" aria-hidden="true"></i>공지 <span class="gw-nt-unread" id="homeNoticeN" hidden></span></h2>
+        <a class="gw-home-more" href="/notices">전체 보기</a>
+      </div>
+      <div id="homeNotice" aria-live="polite"><div class="gw-empty">불러오는 중…</div></div>
+    </section>
+
     {% if not is_field %}
     <section class="gw-panel gw-home-card" aria-labelledby="homeApprovalTitle">
       <div class="gw-home-card-head">

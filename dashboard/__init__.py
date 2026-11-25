@@ -471,6 +471,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         from dashboard.blueprints.gw_bids import gw_bids_bp
         from dashboard.blueprints.gw_vehicles import gw_vehicles_bp
         from dashboard.blueprints.gw_satoff import gw_satoff_bp
+        from dashboard.blueprints.gw_notices import gw_notices_bp
         from dashboard.blueprints.admin_sequence import sequence_bp
         from dashboard.blueprints.constructors import constructors_bp
         from dashboard.blueprints.slack_bot import slack_bp
@@ -497,6 +498,7 @@ def create_app(config_name=None, config_overrides=None, enable_socketio=True):
         app.register_blueprint(gw_bids_bp)  # 그룹웨어 입찰 공고(나라장터, 11-18)
         app.register_blueprint(gw_vehicles_bp)  # 그룹웨어 차량 운행(U+커넥트 운행일지, 11-20)
         app.register_blueprint(gw_satoff_bp)  # 그룹웨어 토요일 휴무(기술영업 격주휴무, 11-20)
+        app.register_blueprint(gw_notices_bp)  # 그룹웨어 공지사항·개발 노트(11-25)
         app.register_blueprint(monitoring_bp)
         app.register_blueprint(admin_bp)
         app.register_blueprint(users_bp)

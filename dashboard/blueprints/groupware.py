@@ -39,8 +39,13 @@ def _connect_gw_page_mark(state):
 # 슬랙 링크로 들어온 현장·미화 직원(session.user.gw_field)은 아래 경로만. 나머지(기존 PM 화면·API)는 전부 막는다.
 # 차량 화면(실시간 위치·차량 배정·운행 종료)은 현장에 안 보인다(11-25 부장님 '차량도 보여줄 필요 없어').
 #   차량 배정 DM 에는 그룹웨어 링크가 없고, 운전자 확인은 저녁 슬랙 DM 단추(vehicle_driver)로 따로 한다
-_FIELD_PAGES = ('/home', '/hr/me', '/leave', '/yearend', '/logout', '/login')
+_FIELD_PAGES = ('/home', '/hr/me', '/leave', '/yearend', '/logout', '/login', '/notices')
 _FIELD_API = [
+    (('GET',), re.compile(r'^/notices/\d+$')),             # 공지사항 글(11-25) — 보이는 글은 카테고리 대상대로(services/notices)
+    (('GET',), re.compile(r'^/api/notices$')),              # 공지 목록(kind=notice 만 — 개발 노트는 API 가 막음)
+    (('GET',), re.compile(r'^/api/notices/\d+$')),          # 공지 한 건(읽음 남김)
+    (('GET',), re.compile(r'^/api/notices/files/\d+$')),    # 첨부 내려받기(그 글을 볼 수 있을 때만)
+    (('GET',), re.compile(r'^/api/notices/unread$')),       # 홈 공지 카드
     (('GET',), re.compile(r'^/api/home$')),              # 홈(현장은 내 휴가만 담김)
     (('GET',), re.compile(r'^/api/hr/people/\d+$')),     # 본인 카드(본인 여부는 화면 쪽에서 다시 확인)
     (('GET',), re.compile(r'^/api/leave/me$')),          # 내 휴가(+신청 창 정보)

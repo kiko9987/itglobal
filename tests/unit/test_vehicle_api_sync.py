@@ -217,7 +217,7 @@ def test_now_menu_open_without_keys(monkeypatch):
     assert any(i['label'] == '실시간 위치' and i['active'] for i in nav['items'])
     assert [a['label'] for a in gw.build_nav('/home', 'editor')['areas']][-1] == '차량'
     # 현장·미화엔 차량 메뉴가 없다(11-25 부장님 '차량도 보여줄 필요 없어')
-    assert [a['key'] for a in gw.build_nav('/home', 'field', field=True)['areas']] == ['leave', 'hr']
+    assert [a['key'] for a in gw.build_nav('/home', 'field', field=True)['areas']] == ['notice', 'leave', 'hr']
 
 
 def test_now_page_open_to_all_and_field(db, monkeypatch):

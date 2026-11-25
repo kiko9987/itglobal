@@ -370,6 +370,23 @@
     ['homeApprovals', 'homeLeave', 'homeOff'].forEach(function (id) { fail(id, e.message); });
   });
 
+  // 공지(11-25) — 서버 재시작 전 화면엔 칸이 없을 수 있어 칸이 있을 때만
+  if (el('homeNotice')) {
+    api('/api/notices/unread').then(function (j) {
+      var box = el('homeNotice');
+      var n = el('homeNoticeN');
+      if (n) { n.hidden = !j.notice; n.textContent = '안 읽음 ' + j.notice; }
+      if (!j.recent || !j.recent.length) { box.innerHTML = '<div class="gw-empty">아직 공지가 없어요.</div>'; return; }
+      box.innerHTML = '<ul class="gw-home-nt">' + j.recent.map(function (x) {
+        var d = new Date(String(x.created_at).replace(' ', 'T'));
+        return '<li class="' + (x.read ? '' : 'unread') + '"><a href="/notices/' + x.id + '">' +
+          (x.pinned ? '<i class="fas fa-thumbtack" aria-label="고정"></i>' : '') +
+          '<span class="gw-home-nt-t">' + esc(x.title) + '</span>' +
+          '<span class="gw-home-nt-d">' + (d.getMonth() + 1) + '.' + d.getDate() + '</span></a></li>';
+      }).join('') + '</ul>';
+    }).catch(function (e) { fail('homeNotice', e.message); });
+  }
+
   if (el('homeMail')) {
     api('/api/home/mail').then(function (j) { renderMail(j.mail); })
       .catch(function () { renderMail(null); });
