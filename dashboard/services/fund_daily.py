@@ -12,7 +12,8 @@
 
 설정(.env)
 - FUND_DAILY_MODE  off(기본) / copy(시험 — 사본 폴더에만) / live(SB 파일에 직접)
-- FUND_DAILY_DIR   자금일보 폴더(기본 G:\\공유 드라이브\\경영지원관리Ⅱ\\자금관련\\자금일보)
+- FUND_DAILY_FOLDER_ID  자금일보 드라이브 폴더 ID(없으면 공유 드라이브 경영지원관리Ⅱ/자금관련/자금일보 를 찾음)
+  ※ 서버(Flask)는 LocalSystem 이라 G: 가 안 보여 서비스 계정 Drive API 로 받고 올린다(외부 백업과 같은 방식).
 - FUND_DAILY_COPY_DIR  copy 모드에서 쓸 폴더(기본 바탕화면\\ITG-Project\\자금일보_자동초안_시험)
 """
 from __future__ import annotations
@@ -286,29 +287,119 @@ def ledger_txs(start: str, end: str) -> List[dict]:
             for r in rows if r['direction'] in ('in', 'out') and r['acct_code']]
 
 
-def run(today: Optional[date] = None, force_mode: str = '') -> dict:
-    """07:00 — 전 영업일 시트 만들기. 반환 {'status', 'day', ...}."""
+# ── 드라이브(서버는 LocalSystem 이라 G: 가 안 보임 → 서비스 계정으로 Drive API, 외부 백업과 같은 방식) ─────
+DRIVE_NAME = '경영지원관리Ⅱ'
+FOLDER_PATH = ('자금관련', '자금일보')
+
+
+def _drive():
+    from google.oauth2.service_account import Credentials
+    from googleapiclient.discovery import build
+    from pathlib import Path
+    cred = (os.getenv('GOOGLE_CREDENTIALS_FILE') or os.getenv('GOOGLE_APPLICATION_CREDENTIALS') or 'credentials.json').strip()
+    if not os.path.isabs(cred):
+        cred = str(Path(__file__).resolve().parents[2] / cred)
+    creds = Credentials.from_service_account_file(cred, scopes=['https://www.googleapis.com/auth/drive'])
+    return build('drive', 'v3', credentials=creds, cache_discovery=False)
+
+
+def _folder_id(svc) -> str:
+    fid = (os.getenv('FUND_DAILY_FOLDER_ID') or '').strip()
+    if fid:
+        return fid
+    drives = svc.drives().list(pageSize=100).execute().get('drives', [])
+    drive = next((d for d in drives if d.get('name') == DRIVE_NAME), None)
+    if not drive:
+        raise RuntimeError(f"서비스 계정이 공유 드라이브 '{DRIVE_NAME}' 를 못 봄")
+    parent = drive['id']
+    for name in FOLDER_PATH:
+        q = (f"name = '{name}' and '{parent}' in parents and mimeType = 'application/vnd.google-apps.folder' "
+             "and trashed = false")
+        found = svc.files().list(q=q, fields='files(id)', corpora='drive', driveId=drive['id'], supportsAllDrives=True,
+                                 includeItemsFromAllDrives=True).execute().get('files', [])
+        if not found:
+            raise RuntimeError(f"공유 드라이브에 '{'/'.join(FOLDER_PATH)}' 폴더가 없음")
+        parent = found[0]['id']
+    return parent
+
+
+def _files(svc, folder_id: str) -> Dict[str, dict]:
+    """{이름: {id, modifiedTime}} — 자금일보 월 파일만."""
+    out, token = {}, None
+    while True:
+        r = svc.files().list(q=f"'{folder_id}' in parents and trashed = false", pageSize=200, pageToken=token,
+                             fields='nextPageToken, files(id, name, modifiedTime)', supportsAllDrives=True,
+                             includeItemsFromAllDrives=True).execute()
+        for f in r.get('files', []):
+            if f['name'].endswith('자금일보.xlsx'):
+                out[f['name']] = f
+        token = r.get('nextPageToken')
+        if not token:
+            return out
+
+
+def _download(svc, file_id: str, path: str) -> None:
+    import io
+    from googleapiclient.http import MediaIoBaseDownload
+    buf = io.BytesIO()
+    dl = MediaIoBaseDownload(buf, svc.files().get_media(fileId=file_id, supportsAllDrives=True))
+    done = False
+    while not done:
+        _st, done = dl.next_chunk()
+    with open(path, 'wb') as f:
+        f.write(buf.getvalue())
+
+
+def _upload(svc, file_id: str, path: str) -> None:
+    from googleapiclient.http import MediaFileUpload
+    media = MediaFileUpload(path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    svc.files().update(fileId=file_id, media_body=media, supportsAllDrives=True).execute()
+
+
+def work_dir() -> str:
+    from pathlib import Path
+    d = os.getenv('FUND_DAILY_WORK_DIR') or str(Path(__file__).resolve().parents[2] / 'instance' / 'fund_daily')
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def run(today: Optional[date] = None, force_mode: str = '', svc=None) -> dict:
+    """07:00 — 전 영업일 시트 만들기. 반환 {'status', 'day', ...}.
+    copy: 그 달 파일을 받아 'N 자동' 시트를 넣고 사본 폴더에 저장(드라이브엔 안 올림).
+    live: 받기 전 사본을 instance/fund_daily/backup 에 남기고, 고친 파일을 같은 파일의 새 버전으로 올림.
+          받은 뒤 그 사이 누가 고쳤으면(수정 시각이 바뀜) 올리지 않는다."""
     m = force_mode or mode()
     if m == 'off':
         return {'status': 'off'}
     today = today or date.today()
     day = prev_business_day(today)
-    src = os.path.join(fund_dir(), month_file(day))
-    if not os.path.exists(src):
+    svc = svc or _drive()
+    folder = _folder_id(svc)
+    files = _files(svc, folder)
+    meta = files.get(month_file(day))
+    if not meta:
         logger.warning(f'{_LOG} {month_file(day)} 이 없어 {day} 시트를 못 만듦 — 새 달 파일은 SB 가 처음 만든 뒤부터')
         return {'status': 'no_month_file', 'day': day.isoformat()}
+    wd = work_dir()
+    hint_dir = os.path.join(wd, 'hints')
+    os.makedirs(hint_dir, exist_ok=True)
+    for name, f in files.items():              # 지난 자금일보(계정·적요 배우기) — 바뀐 파일만 다시 받음
+        local = os.path.join(hint_dir, name)
+        stamp = local + '.mtime'
+        if not (os.path.exists(local) and os.path.exists(stamp) and open(stamp).read() == f['modifiedTime']):
+            _download(svc, f['id'], local)
+            open(stamp, 'w').write(f['modifiedTime'])
+    src = os.path.join(hint_dir, month_file(day))
     if m == 'copy':
         os.makedirs(copy_dir(), exist_ok=True)
-        dst = os.path.join(copy_dir(), month_file(day).replace('.xlsx', ' (자동 초안).xlsx'))
-        shutil.copy2(src, dst)
-        path_in = path_out = dst
+        path = os.path.join(copy_dir(), month_file(day).replace('.xlsx', ' (자동 초안).xlsx'))
     else:
-        backup = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'instance', 'backups', 'fund_daily')
-        os.makedirs(backup, exist_ok=True)
-        shutil.copy2(src, os.path.join(backup, f'{datetime.now():%Y%m%d-%H%M} {month_file(day)}'))
-        path_in = path_out = src
+        os.makedirs(os.path.join(wd, 'backup'), exist_ok=True)
+        shutil.copy2(src, os.path.join(wd, 'backup', f'{datetime.now():%Y%m%d-%H%M} {month_file(day)}'))
+        path = os.path.join(wd, 'upload.xlsx')
+    shutil.copy2(src, path)
     import openpyxl
-    wb = openpyxl.load_workbook(path_in, read_only=True)
+    wb = openpyxl.load_workbook(path, read_only=True)
     prev_days = sorted(int(n) for n in wb.sheetnames if n.isdigit() and int(n) < day.day)
     wb.close()
     start = day.replace(day=prev_days[-1]) + timedelta(days=1) if prev_days else day.replace(day=1)
@@ -321,10 +412,16 @@ def run(today: Optional[date] = None, force_mode: str = '') -> dict:
         c = (t['project_code'] or '').split(',')[0]
         if c and c not in projects:
             projects[c] = _project_cache_row(c) or {}
-    ins, outs = build_rows(txs, learn_hints(), projects,
+    ins, outs = build_rows(txs, learn_hints(hint_dir), projects,
                            transfers_done((start - timedelta(days=1)).isoformat(), (end + timedelta(days=1)).isoformat()),
                            initial)
-    res = add_day_sheet(path_in, path_out, day, ins, outs, suffix=' 자동' if m == 'copy' else '')
+    res = add_day_sheet(path, path, day, ins, outs, suffix=' 자동' if m == 'copy' else '')
+    if res == 'made' and m == 'live':
+        now_meta = svc.files().get(fileId=meta['id'], fields='modifiedTime', supportsAllDrives=True).execute()
+        if now_meta.get('modifiedTime') != meta['modifiedTime']:
+            logger.error(f'{_LOG} {month_file(day)} 이 받는 사이 바뀌어 올리지 않음 — 다시 돌리면 됨', extra={'force_alert': True})
+            return {'status': 'changed_meanwhile', 'day': day.isoformat()}
+        _upload(svc, meta['id'], path)
     logger.info(f'{_LOG} {m} {day} 시트 {res} — 입금 {len(ins)} 출금 {len(outs)} (확인 필요 '
                 f'{sum(1 for r in ins + outs if r.get("check"))})')
-    return {'status': res, 'day': day.isoformat(), 'mode': m, 'in': len(ins), 'out': len(outs), 'path': path_out}
+    return {'status': res, 'day': day.isoformat(), 'mode': m, 'in': len(ins), 'out': len(outs), 'path': path}
