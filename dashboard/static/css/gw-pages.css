@@ -4271,3 +4271,4 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
   .gw-home-o1 { order: 1; } .gw-home-o2 { order: 2; } .gw-home-o3 { order: 3; } .gw-home-o4 { order: 4; } .gw-home-o5 { order: 5; }
 }
 .gw-nt-body .gw-nt-slack { color: #4a154b; font-size: 1.05em; }   /* 슬랙 로고(:slack:) — 슬랙 보라 */
+.gw-nt-body svg.gw-nt-slack { width: 1em; height: 1em; vertical-align: -0.12em; }   /* 4색 슬랙 로고(11-25) */
