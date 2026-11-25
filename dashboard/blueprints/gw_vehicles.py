@@ -83,10 +83,25 @@ def _month() -> str:
 
 # 리드 행 짧은 메모(11-25 부장님 '차량 배정·방문 일정이 느려, 번갈아 누르면 더'): 화면을 열 때마다 리드 5천 행을
 #   Redis 에서 꺼내 표 → dict 로 바꾸느라 0.1~0.2초씩 CPU 를 써서, 같이 들어온 요청까지 느려졌다.
-#   화면 불러오기(GET)만 _LEADS_TTL 초 안이면 앞서 바꾼 목록을 다시 쓴다. 저장·확정(POST)·뒤에서 도는 일은 늘 새로 읽고
-#   그 결과로 메모도 바꾼다. 행 dict 는 요청마다 새로 복사해 서로 건드리지 않게.
-_LEADS_TTL = 10.0
-_leads_memo: dict = {'at': 0.0, 'val': None}
+#   화면 불러오기(GET)는 리드 캐시(Redis)가 그대로인 동안 앞서 바꾼 목록을 다시 쓴다 — 캐시가 새로 쓰이거나 지워지면
+#   (시트 수정·슬랙 등록 등) 만료 시각이 바뀌어 바로 새로 읽는다. 그래도 _LEADS_TTL 초를 넘으면 새로.
+#   저장·확정(POST)·뒤에서 도는 일은 늘 새로 읽고 그 결과로 메모도 바꾼다. 행 dict 는 요청마다 복사해 서로 건드리지 않게.
+_LEADS_TTL = 120.0
+_LEADS_KEY = 'cache:online_leads_sheet_data'
+_leads_memo: dict = {'at': 0.0, 'val': None, 'ver': None}
+
+
+def _leads_version() -> Optional[int]:
+    """리드 캐시의 만료 시각(초) — 같은 캐시면 그대로, 새로 쓰면 바뀐다. 모르면 None(메모 안 씀)."""
+    import time
+    try:
+        from dashboard.utils.smart_cache_manager import get_smart_cache
+        ms = get_smart_cache().redis.redis.pttl(_LEADS_KEY)      # 래퍼 안의 redis-py 클라이언트(장애로 대체 메모리면 예외 → None)
+        if ms is None or int(ms) < 0:
+            return None
+        return int(round(time.time() + int(ms) / 1000.0))
+    except Exception:
+        return None
 
 
 def _lead_rows() -> Optional[list]:
@@ -96,13 +111,15 @@ def _lead_rows() -> Optional[list]:
     use_memo = has_request_context() and request.method == 'GET'
     memo = _leads_memo
     if use_memo and memo['val'] is not None and time.monotonic() - memo['at'] < _LEADS_TTL:
-        return [dict(r) for r in memo['val']]
+        ver = _leads_version()
+        if ver is not None and memo['ver'] is not None and abs(ver - memo['ver']) <= 1:
+            return [dict(r) for r in memo['val']]
     from dashboard.services.lead_service import load_leads_data
     df = load_leads_data()
     if df is None or df.empty:
         return None
     rows = df.to_dict('records')
-    memo.update(at=time.monotonic(), val=rows)
+    memo.update(at=time.monotonic(), val=rows, ver=_leads_version())
     return [dict(r) for r in rows]
 
 

@@ -1,6 +1,6 @@
 """차량 배정·방문 일정 불러오기 속도(2026-11-25 부장님 '느려') — 결과는 같고 덜 계산하는지.
 - 직원 명단: 화면 요청 하나 안에서는 한 번만 만든다(요청 밖은 그때그때)
-- 리드 행: 화면 불러오기(GET)만 10초 메모, 저장(POST)은 늘 새로, 행은 요청마다 복사
+- 리드 행: 화면 불러오기(GET)는 리드 캐시가 그대로인 동안 메모(새로 쓰이면 바로 새로), 저장(POST)은 늘 새로, 행은 요청마다 복사
 - 방문 일정 날짜 고르기: 날짜 하나만 적힌 칸은 바로 비교(여러 날짜·다른 모양은 예전처럼)
 이름은 모두 가짜."""
 from datetime import date
@@ -32,20 +32,34 @@ def test_lead_rows_memo_get_only(monkeypatch):
     from dashboard.blueprints import gw_vehicles as bp
     import dashboard.services.lead_service as ls
     reads = []
-    monkeypatch.setattr(bp, '_leads_memo', {'at': 0.0, 'val': None})
+    monkeypatch.setattr(bp, '_leads_memo', {'at': 0.0, 'val': None, 'ver': None})
+    ver = {'v': 100}
+    monkeypatch.setattr(bp, '_leads_version', lambda: ver['v'])     # 리드 캐시 만료 시각(같은 캐시면 그대로)
     monkeypatch.setattr(ls, 'load_leads_data', lambda *a, **k: reads.append(1) or pd.DataFrame([{'리드 No': 'L-1', '고객명': '가상'}]))
     app = Flask(__name__)
     with app.test_request_context('/api/vehicles/assign', method='GET'):
         r = bp._leads()
         r[0]['고객명'] = '바뀜'
-        assert bp._leads()[0]['고객명'] == '가상' and len(reads) == 1      # 10초 안 GET 은 메모, 행은 복사
+        assert bp._leads()[0]['고객명'] == '가상' and len(reads) == 1      # 같은 캐시 동안 GET 은 메모, 행은 복사
     with app.test_request_context('/api/vehicles/plan', method='POST'):
         bp._plan_leads()
         assert len(reads) == 2                                              # 저장은 늘 새로
+    with app.test_request_context('/api/vehicles/assign', method='GET'):
+        bp._leads()
+        assert len(reads) == 2                                              # 저장 때 새로 읽은 걸로 메모도 바뀜
+    ver['v'] = 160
+    with app.test_request_context('/api/vehicles/assign', method='GET'):
+        bp._leads()
+        assert len(reads) == 3                                              # 리드 캐시가 새로 쓰이면 바로 새로
+    ver['v'] = None
+    with app.test_request_context('/api/vehicles/assign', method='GET'):
+        bp._leads()
+        assert len(reads) == 4                                              # 캐시 상태를 모르면 메모 안 씀
+    ver['v'] = 160
     monkeypatch.setattr(bp, '_LEADS_TTL', 0.0)
     with app.test_request_context('/api/vehicles/assign', method='GET'):
         bp._leads()
-        assert len(reads) == 3                                              # 오래되면 새로
+        assert len(reads) == 5                                              # 오래되면 새로
     monkeypatch.setattr(ls, 'load_leads_data', lambda *a, **k: None)
     with app.test_request_context('/api/vehicles/plan', method='POST'):
         try:
