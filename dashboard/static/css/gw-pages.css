@@ -4002,7 +4002,7 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-so-mnote { margin: 0 0 12px; }
 .gw-so-mnote-text { margin: 0 0 6px; padding: 8px 10px; border-radius: 8px; background: #f8fafc; border: 1px solid #e2e8f0; line-height: 1.6; }
 .gw-so-mnote-text .fa-thumbtack { color: #64748b; margin-right: 2px; }
-.gw-so-mnoteform textarea { font-size: 0.88rem; margin-bottom: 6px; }
+.gw-so-mnoteform textarea { font-size: 0.88rem; margin-bottom: 6px; height: auto !important; min-height: 84px; resize: vertical; }   /* 공용 31px 높이에 눌려 한 줄로 보이던 것 */
 .gw-so-memos { list-style: none; margin: 0 0 12px; padding: 0; }
 .gw-so-memos > li { padding: 8px 0; border-top: 1px solid #f1f5f9; }
 .gw-so-memos > li:first-child { border-top: 0; padding-top: 0; }
