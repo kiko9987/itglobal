@@ -389,7 +389,7 @@ def recent_log(month: str, limit: int = 20) -> List[dict]:
 
 # ── 휴무 메모(11-25) ────────────────────────────────────────────────────
 MEMO_MUST, MEMO_CANT, MEMO_MONTH = 'must', 'cant', 'month'
-MEMO_LABELS = {MEMO_MUST: '꼭 쉬어야 해요', MEMO_CANT: '못 쉬어요', MEMO_MONTH: '그달 메모'}
+MEMO_LABELS = {MEMO_MUST: '꼭 쉬어야 해요', MEMO_CANT: '못 쉬어요', MEMO_MONTH: '공통 메모'}   # 화면은 화살표로 달을 넘기므로 '그달' 대신(11-25 부장님)
 MEMO_MAX = 60
 MONTH_NOTE_MAX = 300
 
@@ -480,17 +480,17 @@ def set_month_note(month: str, text: str, sid: str, actor_name: str, admin: bool
     """그달 전체 메모(예: 26일 전체휴무 대표님 소통 예정, 앞당겨 사용 컨펌) — 취합 담당·승인권자·관리자. 빈 글이면 지움."""
     r = role(sid, actor_name, _first(month))
     if not (r['manager'] or r['approver'] or admin):
-        raise PermissionError('그달 메모는 취합 담당·승인권자만 적을 수 있어요.')
+        raise PermissionError('공통 메모는 취합 담당·승인권자만 적을 수 있어요.')
     body = ' '.join(str(text or '').split())
     if len(body) > MONTH_NOTE_MAX:
-        raise SatOffError(f'그달 메모는 {MONTH_NOTE_MAX}자까지 적을 수 있어요.')
+        raise SatOffError(f'공통 메모는 {MONTH_NOTE_MAX}자까지 적을 수 있어요.')
     with lv._conn() as conn:
         if body:
             conn.execute('INSERT OR REPLACE INTO sat_off_memos (month, day, name, kind, reason, written_by, written_at) '
                          "VALUES (?, '', '', ?, ?, ?, ?)", (month, MEMO_MONTH, body, actor_name, _now()))
         else:
             conn.execute("DELETE FROM sat_off_memos WHERE month=? AND day='' AND name='' AND kind=?", (month, MEMO_MONTH))
-        _log(conn, actor_name, 'memo', month, '그달 메모 ' + ('적음: ' + body if body else '지움'))
+        _log(conn, actor_name, 'memo', month, '공통 메모 ' + ('적음: ' + body if body else '지움'))
     return {'month': month, 'reason': body}
 
 
@@ -747,7 +747,7 @@ def _norm_days(days, month: str) -> List[str]:
     for x in days or []:
         d = lv._d(x)
         if not d or _month_of(d) != month:
-            raise SatOffError('그달 토요일만 고를 수 있어요.')
+            raise SatOffError(f'{int(month[5:7])}월 토요일만 고를 수 있어요.')
         if d.isoformat() not in out:
             out.append(d.isoformat())
     return sorted(out)

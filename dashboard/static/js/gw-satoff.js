@@ -249,7 +249,7 @@
       h += '<div class="gw-so-mnote" id="soMonthNote">' +
         (mn ? '<p class="gw-so-mnote-text"><i class="fas fa-thumbtack" aria-hidden="true"></i> ' + esc(mn.reason) +
           ' <span class="gw-so-sub">' + esc(mn.written_by) + '</span></p>' : '') +
-        (d.can_month_note ? '<button type="button" class="btn btn-light btn-sm" data-mnote="edit">' + (mn ? '그달 메모 고치기' : '그달 메모 적기') + '</button>' : '') +
+        (d.can_month_note ? '<button type="button" class="btn btn-light btn-sm" data-mnote="edit">' + (mn ? '공통 메모 고치기' : '공통 메모 적기') + '</button>' : '') +
         '</div>';
     }
     // 토요일별 메모
@@ -304,7 +304,7 @@
   }
   function memoNoteForm(cur) {
     return '<form class="gw-so-mnoteform" id="soMonthNoteForm" novalidate>' +
-      '<label class="visually-hidden" for="soMonthNoteText">그달 메모</label>' +
+      '<label class="visually-hidden" for="soMonthNoteText">공통 메모</label>' +
       '<textarea class="form-control form-control-sm" id="soMonthNoteText" rows="3" maxlength="300" ' +
       'placeholder="26일 전체휴무 대표님 소통 예정">' + esc(cur || '') + '</textarea>' +
       '<div class="gw-so-btns"><button type="submit" class="btn btn-primary btn-sm">저장</button> ' +
@@ -700,7 +700,7 @@
     var err = document.getElementById('soMonthNoteErr');
     if (err) err.textContent = '';
     api('/api/satoff/month-note', { method: 'POST', body: { month: data.month, text: text } }).then(function (j) {
-      flash(j.reason ? '그달 메모를 저장했어요.' : '그달 메모를 지웠어요.', 'ok');
+      flash(j.reason ? '공통 메모를 저장했어요.' : '공통 메모를 지웠어요.', 'ok');
       return load(true);
     }).catch(function (e) { if (err) err.textContent = e.message; else flash(e.message, 'err'); });
   }
@@ -725,7 +725,7 @@
     } else if (act === 'cancel') {
       render();
     } else if (act === 'clear') {
-      if (window.confirm('그달 메모를 지울까요?')) saveMonthNote('');
+      if (window.confirm('공통 메모를 지울까요?')) saveMonthNote('');
     }
   });
 
