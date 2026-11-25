@@ -27,8 +27,8 @@ NAME_MAX = 30
 SPAN_MAX_DAYS = 31          # 한 번에 넣는 기간(여름 휴무 등) — 잘못 고른 먼 날짜 막기
 YEAR_MIN, YEAR_MAX = 2020, 2100
 LABOR_DAY = (5, 1)          # 노동절 — 회사 휴무(11-05 KiKO). holidays.KR 엔 없음
-# 라이브러리의 법령 이름 → 화면 이름(11-25 부장님 '성탄절로'). 대체 공휴일 이름('… 대체 공휴일')도 같이 바뀜
-LEGAL_RENAME = {'기독탄신일': '성탄절'}
+# 라이브러리의 법령 이름 → 화면 이름(11-25 부장님 '성탄절로' → 같은 날 '크리스마스'로 — 휴가 캘린더와 같게). 대체 공휴일 이름('… 대체 공휴일')도 같이 바뀜
+LEGAL_RENAME = {'기독탄신일': '크리스마스'}
 
 DDL = [
     '''CREATE TABLE IF NOT EXISTS company_holidays (

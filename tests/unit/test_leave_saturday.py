@@ -156,7 +156,7 @@ def test_days_preview_explains_saturdays(db):
     assert p['days'] == 4 and p['lines'][1] == '11월 21일 (토) — 토요일은 근무일이 아니라 빠져요.'
     # 공휴일·반차·일요일
     p = lv.days_preview('사무직원', lv.ANNUAL, date(2026, 12, 24), date(2026, 12, 25))
-    assert p['lines'] == ['휴가 일수: 1일', '12월 25일 (금) — 쉬는 날(성탄절)이라 빠져요.']
+    assert p['lines'] == ['휴가 일수: 1일', '12월 25일 (금) — 쉬는 날(크리스마스)이라 빠져요.']
     assert lv.days_preview('시공직원', lv.HALF_AM, date(2026, 11, 21), None)['lines'] == [
         '휴가 일수: 0.5일', '11월 21일 (토) — 토요일도 근무일이라 들어가요.']
     assert lv.days_preview('시공직원', lv.ANNUAL, date(2026, 11, 22), None)['lines'] == ['휴가 일수: 0일']

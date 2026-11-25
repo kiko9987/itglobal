@@ -39,7 +39,7 @@ def _add(start, end='', name='창립기념일', kind=ch.KIND_COMPANY, yearly=Fal
 
 def test_legal_days_and_labor_day(db):
     lg = ch.legal(2026)
-    assert lg[date(2026, 5, 1)] == '노동절' and lg[date(2026, 12, 25)] == '성탄절'      # 기독탄신일 → 성탄절(11-25)
+    assert lg[date(2026, 5, 1)] == '노동절' and lg[date(2026, 12, 25)] == '크리스마스'      # 기독탄신일 → 크리스마스(11-25)
     assert lv.is_workday(date(2026, 12, 25)) is False and lv.is_workday(date(2026, 12, 28)) is True
     rows = ch.year_list(2026)['entries']
     seol = [e for e in rows if e['name'] == '설날']
