@@ -375,7 +375,7 @@ def recent_log(month: str, limit: int = 20) -> List[dict]:
     return [dict(r) for r in rows]
 
 
-def view(month: str, sid: str, name: str, today: Optional[date] = None) -> dict:
+def view(month: str, sid: str, name: str, today: Optional[date] = None, admin: bool = False) -> dict:
     """달력 화면 한 달치 — 토요일마다 쉬는 사람, 사람별 횟수, 내 역할로 할 수 있는 것."""
     today = today or date.today()
     row = month_row(month)
@@ -397,7 +397,8 @@ def view(month: str, sid: str, name: str, today: Optional[date] = None) -> dict:
     in_range = _month_of(today) <= month <= editable_until(today)
     can_edit_open = st == OPEN and in_range and (r['member'] or r['manager'])
     changes = _changes(month)
-    show_all = r['approver'] or r['manager']
+    edit = r['approver'] or bool(admin)          # 확정된 달도 바로 고치는 사람 — 승인권자·관리자(11-25)
+    show_all = edit or r['manager']
     my_wait = any(c['status'] == CH_WAIT and c['name'] == name for c in changes)   # 대기 중이면 새 신청은 그 뒤에
     return {
         'month': month, 'status': st, 'status_label': STATUS_LABELS[st],
@@ -408,14 +409,14 @@ def view(month: str, sid: str, name: str, today: Optional[date] = None) -> dict:
         'max_off': len(members(on)) // 2,        # 한 토요일 최대 쉬는 인원(절반, 11-25) — max_off(month) 와 같음
         'members': [{'name': m['name'], 'count': c.get(m['name'], 0), 'worked': wc.get(m['name'], 0)} for m in members(on)],
         'incentive': [m['name'] for m in incentive_members(on)],      # 기술영업 인센티브 — 스케줄 대상 아님(11-25)
-        'me': {'name': name, **r},
+        'me': {'name': name, **r, 'editor': edit},
         # 휴무 출근(11-24) — 결재 올린 뒤(대기·확정)부터. 작성 중엔 달력에서 이름을 빼면 됨
         'can_mark_worked': st in (WAIT, CONFIRMED) and (r['member'] or r['manager'] or r['approver']),
         'approvers': [a['name'] for a in approvers()],
         'worked': [dict(w, can_undo=w['name'] == name or r['manager'] or r['approver']) for w in wk],
         'full_days': full_days(month),           # 전체 휴무 토요일 {날짜: 메모}(11-25). 지정·풀기 권한은 화면 API(can_full_off)
-        'can_toggle': can_edit_open or r['approver'],
-        'pick_others': r['manager'],                       # 남의 이름도 넣고 뺄 수 있음(작성 중일 때)
+        'can_toggle': can_edit_open or edit,
+        'pick_others': r['manager'] or edit,               # 남의 이름도 넣고 뺄 수 있음(작성 중일 때)
         'can_submit': st == OPEN and r['manager'] and in_range,
         'can_decide': st == WAIT and r['approver'],
         'can_request_change': st == CONFIRMED and (r['member'] or r['manager']) and not r['approver'] and not my_wait,
@@ -470,25 +471,28 @@ def _over_cap(conn, month: str, day_iso: str, approver: bool) -> str:
         return ''
     msg = f'{kday(lv._d(day_iso))}은 쉬는 사람이 {n}명이 돼요. 한 토요일에 절반({cap}명)까지만 쉴 수 있어요.'
     if approver:
-        return msg[:-len('쉴 수 있어요.')] + '쉬는 게 기준이에요(승인권자라 그대로 저장했어요).'
+        return msg[:-len('쉴 수 있어요.')] + '쉬는 게 기준이에요(승인권자·관리자라 그대로 저장했어요).'
     raise SatOffError(msg)
 
 
 def toggle(day: Optional[date], target: str, on: bool, sid: str, actor_name: str,
-           today: Optional[date] = None) -> dict:
-    """토요일 칸에 이름 넣기(on)·빼기. 반환 {names, count, warn}."""
+           today: Optional[date] = None, admin: bool = False) -> dict:
+    """토요일 칸에 이름 넣기(on)·빼기. 반환 {names, count, warn}.
+    admin — 그룹웨어 관리자(admin·super_admin). 승인권자처럼 확정된 달도 바로 고친다(11-25 부장님: 변경은 본인 신청이
+    원칙이지만 관리자는 직접 수정도). 결재 승인 권한은 아님."""
     today = today or date.today()
     r = role(sid, actor_name, day.replace(day=1) if day else None)    # 인센티브는 그달 1일 기준(화면과 같게)
-    month = _check_day(day, today, r['approver'])
+    edit = r['approver'] or bool(admin)
+    month = _check_day(day, today, edit)
     m = _member(target, day.replace(day=1) if day else None)
     if not m:
         raise SatOffError(f'{target} 님은 스케줄 근무 대상(기술영업)이 아니에요.')
-    if target != actor_name and not (r['manager'] or r['approver']):
+    if target != actor_name and not (r['manager'] or edit):
         raise PermissionError('다른 사람 이름은 넣거나 뺄 수 없어요.')
     if target == actor_name and not (r['member'] or r['manager']):
         raise PermissionError('스케줄 근무 대상이 아니에요.')
     st = month_row(month)['status']
-    if st != OPEN and not r['approver']:
+    if st != OPEN and not edit:
         raise SatOffError('결재 대기 중이거나 확정된 달이에요. 바꾸려면 [변경 신청]을 해 주세요.'
                           if st == CONFIRMED else '결재 대기 중인 달이라 지금은 바꿀 수 없어요.')
     key = day.isoformat()
@@ -498,7 +502,7 @@ def toggle(day: Optional[date], target: str, on: bool, sid: str, actor_name: str
             cur = conn.execute('INSERT OR IGNORE INTO sat_off_days (day, name, slack_id, added_by, added_at) '
                                'VALUES (?, ?, ?, ?, ?)', (key, target, m['slack_id'], actor_name, _now()))
             if cur.rowcount:                    # 새로 넣었을 때만 절반 제한(이미 있던 이름은 그대로)
-                warn = _over_cap(conn, month, key, r['approver'])
+                warn = _over_cap(conn, month, key, edit)
             conn.execute('DELETE FROM sat_off_worked WHERE day=? AND name=?', (key, target))   # 다시 쉬면 출근 기록은 지움
         else:
             conn.execute('DELETE FROM sat_off_days WHERE day=? AND name=?', (key, target))

@@ -98,7 +98,7 @@ def api_view():
         return jsonify({'success': False, 'message': '스케줄 근무를 볼 수 없는 계정이에요.'}), 403
     try:
         m = so.parse_month(request.args.get('month') or '') or date.today().strftime('%Y-%m')
-        data = so.view(m, sid if not why else '', name)
+        data = so.view(m, sid if not why else '', name, admin=_is_admin() and not _is_field())
     except Exception as e:
         return _err(e)
     data['why'] = why
@@ -112,7 +112,8 @@ def api_toggle():
     body = request.get_json(silent=True) or {}
     try:
         name, sid = _actor()
-        res = so.toggle(_day(body.get('day')), (body.get('name') or name).strip(), bool(body.get('on')), sid, name)
+        res = so.toggle(_day(body.get('day')), (body.get('name') or name).strip(), bool(body.get('on')), sid, name,
+                        admin=_is_admin() and not _is_field())     # 관리자는 확정된 달도 바로 고침(11-25)
     except Exception as e:
         return _err(e)
     return jsonify({'success': True, **res})

@@ -94,13 +94,14 @@
   function clickMode(s) {
     if (!data || s.holiday) return '';
     var me = data.me || {};
-    if (s.past && !me.approver) return '';
+    var ed = me.approver || me.editor;     // 바로 고치는 사람 — 승인권자·관리자(11-25 부장님)
+    if (s.past && !ed) return '';
     if (data.status === 'confirmed') {
-      if (me.approver) return 'pick';
+      if (ed) return 'pick';
       return data.can_request_change && me.member ? 'draft' : '';
     }
     if (!data.can_toggle) return '';
-    if (me.approver || data.pick_others) return 'pick';
+    if (ed || data.pick_others) return 'pick';
     return me.member ? 'self' : '';
   }
 
@@ -119,7 +120,7 @@
     var acts = '';   // 그달 결재 단추 — 달·상태 줄 오른쪽(actEl). 변경 신청 단추는 고른 내용 옆(bar)에 그대로
     if (d.why) h += '<div class="gw-so-note warn">' + esc(d.why) + '</div>';
     // 기술영업·취합 담당·승인권자가 아닌 직원 — 보기만(11-25 시공·미화 빼고 모두에게 엶)
-    var viewer = !(me.member || me.manager || me.approver);
+    var viewer = !(me.member || me.manager || me.approver || me.editor);
     if (viewer) {
       h += '<p class="gw-so-how">기술영업의 토요일 근무 스케줄이에요. 보기만 할 수 있어요.</p>';
     } else if (d.status === 'open') {
@@ -145,7 +146,8 @@
       }
     } else {
       h += '<p class="gw-so-how">' + esc(d.decided_by) + ' 님이 승인해 확정됐어요(' + esc((d.decided_at || '').slice(5, 16)) + ').' +
-        (me.approver ? (narrow() ? ' [휴무자 선택]으로 바로 고칠 수 있어요. 기록이 남아요.' : ' 토요일 칸을 눌러 바로 고칠 수 있어요. 기록이 남아요.')
+        (me.approver || me.editor ? (narrow() ? ' [휴무자 선택]으로 바로 고칠 수 있어요. 기록이 남아요.' : ' 토요일 칸을 눌러 바로 고칠 수 있어요. 기록이 남아요.') +
+          (me.approver ? '' : ' 변경은 본인이 [변경 신청]으로 하는 게 원칙이에요. 관리자 수정은 급할 때만 써 주세요.')
           : d.can_request_change ? (narrow() ? ' 쉬는 날을 바꾸려면 취소할 내 휴무는 [휴무 취소], 새로 쉴 토요일은 [휴무 신청]으로 고른 뒤 [변경 신청]을 눌러 주세요.'
             : ' 쉬는 날을 바꾸려면 취소할 내 휴무 칸과 새로 쉴 토요일 칸을 눌러 고른 뒤 [변경 신청]을 눌러 주세요.') : '') + '</p>';
       if (draft.add.length || draft.remove.length) {
@@ -408,7 +410,7 @@
 
     // 기록
     var log = d.log || [];
-    document.getElementById('soLogBox').hidden = !(me.manager || me.approver);   // 보는 사람(역할)으로만 — 달마다 같게
+    document.getElementById('soLogBox').hidden = !(me.manager || me.approver || me.editor);   // 보는 사람(역할)으로만 — 달마다 같게
     document.getElementById('soLog').innerHTML = log.map(function (l) {
       return '<li><span>' + esc((l.at || '').slice(5, 16)) + '</span> ' + esc(l.actor || '') + ' · ' + esc(l.detail || '') + '</li>';
     }).join('') || NONE('이 달 수정 기록이 없어요.');

@@ -531,3 +531,40 @@ def test_full_off_api_admin_only(slack, monkeypatch):
         session['user'] = {'email': 'boss@example.com', 'permission_level': 'admin'}
         j = view().get_json()
     assert j['success'] and j['count'] == 4 and so.full_days(DEC) == {'2026-12-26': '연말'}
+
+
+def test_admin_edits_confirmed_month_directly(slack):
+    """변경은 본인 [변경 신청]이 원칙, 관리자(admin·super_admin)는 확정된 달도 바로 고친다(11-25 부장님)."""
+    so.toggle(S5, '영업가', True, A, '영업가', TODAY)
+    _confirm()
+    with pytest.raises(PermissionError):                                   # 관리자 아니면 남의 이름 못 고침
+        so.toggle(S12, '영업가', True, 'UMW', '박민우', TODAY)
+    so.toggle(S5, '영업가', False, 'UMW', '박민우', TODAY, admin=True)     # 확정 달 휴무 빼기
+    so.toggle(S12, '영업가', True, 'UMW', '박민우', TODAY, admin=True)     # 다른 토요일 넣기
+    assert '영업가' not in so.picks(DEC).get('2026-12-05', [])
+    assert so.picks(DEC)['2026-12-12'] == ['영업가']
+    assert any('확정 뒤 직접 수정' in l['detail'] for l in so.recent_log(DEC))
+    with pytest.raises(so.SatOffError):                                    # 기술영업 본인은 여전히 변경 신청으로
+        so.toggle(S19, '영업가', True, A, '영업가', TODAY)
+    v = so.view(DEC, 'UMW', '박민우', TODAY, admin=True)
+    assert v['me']['editor'] and v['can_toggle'] and v['pick_others'] and v['log'] and not v['can_decide']
+    assert not so.view(DEC, 'UMW', '박민우', TODAY)['me']['editor']
+
+
+def test_admin_flag_comes_from_session(slack, monkeypatch):
+    import inspect
+    from flask import Flask, session
+    from dashboard.blueprints import gw_satoff as so_bp
+    so.toggle(S5, '영업가', True, A, '영업가', TODAY)
+    _confirm()
+    view = inspect.unwrap(so_bp.api_toggle)
+    monkeypatch.setattr(so_bp, '_who', lambda: ('박민우', 'UMW', ''))
+    app = Flask(__name__)
+    app.secret_key = 'x'
+    with app.test_request_context(json={'day': '2026-12-12', 'name': '영업나', 'on': True}):
+        session['user'] = {'email': 'staff@example.com', 'permission_level': 'editor'}
+        assert view()[1] == 403
+    with app.test_request_context(json={'day': '2026-12-12', 'name': '영업나', 'on': True}):
+        session['user'] = {'email': 'boss@example.com', 'permission_level': 'admin'}
+        assert view().get_json()['success']
+    assert '영업나' in so.picks(DEC)['2026-12-12']
