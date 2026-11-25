@@ -210,9 +210,9 @@ _INFLOW_RULES = {'당근': 1, '전화': 2, '홈페이지': 2}
 def _is_business_day(d) -> bool:
     if d.weekday() >= 5:
         return False
-    try:
-        import holidays
-        return d not in holidays.KR()
+    try:      # 회사 쉬는 날(법정 공휴일 + 임시공휴일·회사 지정, 11-25)
+        from dashboard.services.leave import _is_holiday
+        return not _is_holiday(d)
     except Exception:
         return True
 

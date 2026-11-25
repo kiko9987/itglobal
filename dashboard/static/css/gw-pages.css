@@ -3918,3 +3918,80 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-help-note { margin: 0; color: #64748b; }
 .gw-va-sendnow { margin-left: 6px; padding: 2px 10px; font-size: 0.8rem; }
 @media (prefers-reduced-motion: reduce) { .gw-help-fold { transition: none; } }
+
+/* ── 쉬는 날(11-25) — 연도별 목록 + 경영지원 넣기·고치기·지우기(목록 위 펼침) ─────────────── */
+.gw-hd .gw-page-head { margin-bottom: 10px; }
+.gw-hd-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; }
+.gw-hd-year { display: flex; align-items: center; gap: 6px; }
+.gw-hd-title { font-size: 1.1rem; font-weight: 600; color: #0f172a; margin: 0 6px; min-width: 4.5em; text-align: center; font-variant-numeric: tabular-nums; }
+.gw-hd-title:focus { outline: none; }
+.gw-hd-sum { margin: 0; color: #475569; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+.gw-hd-sum strong { color: #0f172a; font-weight: 600; }
+.gw-hd-sep { margin: 0 6px; color: #cbd5e1; }
+.gw-hd-next { margin: 12px 0 0; padding: 10px 14px; border-radius: 10px; background: #fff7ed; color: #7c2d12; font-size: 0.9rem; }
+.gw-hd-next i { color: #ea580c; margin-right: 4px; }
+.gw-hd-next strong { font-weight: 600; }
+.gw-hd-rule { margin: 10px 0 14px; }
+
+.gw-hd-month { margin-bottom: 14px; }
+.gw-hd-mh { font-size: 0.8rem; font-weight: 600; color: #64748b; margin: 0 0 6px 2px; font-variant-numeric: tabular-nums; }
+.gw-hd-rows { list-style: none; margin: 0; padding: 0; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+.gw-hd-row { display: grid; grid-template-columns: minmax(12rem, 15rem) minmax(0, 1fr) auto; align-items: center; gap: 4px 14px; padding: 9px 14px; border-top: 1px solid #f1f5f9; }
+.gw-hd-row:first-child { border-top: 0; }
+.gw-hd-row.past { color: #64748b; }
+.gw-hd-row.past .gw-hd-name { color: #475569; font-weight: 500; }
+.gw-hd-row.next { background: #fffbf5; }
+.gw-hd-when { font-size: 0.9rem; color: #0f172a; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gw-hd-row.past .gw-hd-when { color: #64748b; }
+.gw-hd-days, .gw-hd-wkend { font-size: 0.75rem; color: #64748b; margin-left: 4px; }
+.gw-hd-what { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }
+.gw-hd-name { font-weight: 600; color: #0f172a; }
+.gw-hd-kind-legal { background: #f1f5f9; color: #475569; }
+.gw-hd-kind-temp { background: #fef3c7; color: #92400e; }
+.gw-hd-kind-company { background: #e0f2fe; color: #075985; }
+.gw-hd-tag { font-size: 0.75rem; color: #475569; border: 1px solid #e2e8f0; border-radius: 999px; padding: 0 7px; line-height: 1.5; }
+.gw-hd-tag.next { color: #9a3412; border-color: #fdba74; background: #fff; }
+.gw-hd-memo { font-size: 0.8rem; color: #64748b; flex-basis: 100%; }
+.gw-hd-row-act { display: flex; gap: 6px; }
+
+.gw-hd-form { margin: 0 0 16px; padding: 16px 18px; border: 1px solid #cbd5e1; border-radius: 12px; background: #fff; }
+.gw-hd-form.is-delete { border-color: #fecaca; }
+.gw-hd-form-title { font-size: 1rem; font-weight: 600; margin: 0 0 12px; color: #0f172a; }
+.gw-hd-fields { display: grid; grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr); gap: 12px 20px; align-items: end; }
+.gw-hd-kind { margin: 0; padding: 0; border: 0; }
+.gw-hd-kind legend { float: none; font-size: 0.875rem; margin-bottom: 0.5rem; }
+.gw-hd-dates { display: flex; align-items: end; gap: 8px; }
+.gw-hd-dates > div { flex: 1 1 0; min-width: 0; }
+.gw-hd-dash { padding-bottom: 8px; color: #94a3b8; }
+.gw-hd-opt { font-weight: 400; color: #64748b; font-size: 0.8rem; margin-left: 4px; }
+.gw-hd-yearly { grid-column: 1 / -1; margin: 0; }
+.gw-hd-del-what { margin: 0 0 8px; color: #334155; line-height: 1.7; }
+.gw-hd-impact { margin: 14px 0 0; padding: 12px 14px; border-radius: 10px; background: #f8fafc; border: 1px solid #e2e8f0; }
+.gw-hd-impact-head { margin: 0 0 8px; font-size: 0.875rem; color: #334155; }
+.gw-hd-impact-head i { color: #2563eb; margin-right: 2px; }
+.gw-hd-impact-list { list-style: none; margin: 0; padding: 0; font-size: 0.85rem; }
+.gw-hd-impact-list li { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr) auto; gap: 4px 12px; padding: 6px 0; border-top: 1px solid #eef2f6; font-variant-numeric: tabular-nums; }
+.gw-hd-impact-list li:first-child { border-top: 0; }
+.gw-hd-who { font-weight: 600; color: #0f172a; }
+.gw-hd-delta { text-align: right; white-space: nowrap; }
+.gw-hd-delta small { color: #047857; margin-left: 6px; }
+.gw-hd-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.gw-hd-actions .btn { min-width: 88px; }
+
+/* 전사 휴가 달력 — 쉬는 날 칸(빨간 날짜 + 이름) */
+.gw-cal-day.hol { background: #fffafa; }
+.gw-cal-day.hol .gw-cal-num { color: #b91c1c; }
+.gw-cal-hol { font-size: 0.72rem; color: #b91c1c; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+@media (max-width: 767.98px) {
+  .gw-hd .gw-page-head .btn, .gw-hd-year .btn, .gw-hd-row-act .btn, .gw-hd-actions .btn, .gw-hd-kind .btn { min-height: 44px; }
+  .gw-hd-year .btn { min-width: 44px; }
+  .gw-hd-form .form-control { font-size: 16px; min-height: 44px; }
+  .gw-hd-fields { grid-template-columns: 1fr; }
+  .gw-hd-row { grid-template-columns: minmax(0, 1fr) auto; padding: 10px 12px; }
+  .gw-hd-when { grid-column: 1 / -1; }
+  .gw-hd-impact-list li { grid-template-columns: 1fr auto; }
+  .gw-hd-impact-list li > span:nth-child(2) { grid-column: 1 / -1; grid-row: 2; color: #475569; }
+  .gw-hd-actions { flex-direction: column-reverse; }
+  .gw-hd-actions .btn { width: 100%; }
+}

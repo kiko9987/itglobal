@@ -107,13 +107,14 @@ def type_options() -> List[Tuple[str, str]]:
 
 # ── 날짜 ──────────────────────────────────────────────────────────────
 def _is_holiday(d: date) -> bool:
-    if (d.month, d.day) == (5, 1):   # 노동절 — 회사 휴무(11-05 KiKO). holidays.KR 엔 없음
-        return True
-    try:
-        import holidays
-        return d in holidays.KR(years=d.year)
-    except Exception:
-        return False
+    """회사 쉬는 날 — 법정 공휴일(+노동절) + 경영지원이 넣은 임시공휴일·회사 지정 휴일(services/company_holidays, 11-25)."""
+    from dashboard.services import company_holidays as ch
+    return ch.is_holiday(d)
+
+
+def holiday_name(d: date) -> str:
+    from dashboard.services import company_holidays as ch
+    return ch.holiday_name(d)
 
 
 def is_workday(d: date) -> bool:
@@ -203,7 +204,7 @@ def _day_note(d: date, pattern: str, first: date, last: date, plan: Dict[date, b
     if wd == 6:
         return ''
     if _is_holiday(d):
-        return '공휴일이라 빠져요.'
+        return f'쉬는 날({holiday_name(d)})이라 빠져요.'
     if wd != 5:
         return ''
     if plan and d in plan:
@@ -398,7 +399,8 @@ def _conn():
             if 'birth_date' not in gcols:
                 conn.execute('ALTER TABLE leave_custom_grants ADD COLUMN birth_date TEXT')
             from dashboard.services.sat_off import DDL as _SAT_OFF_DDL   # 토요일 휴무표(11-20) — 같은 DB
-            for ddl in _SAT_OFF_DDL:
+            from dashboard.services.company_holidays import DDL as _HOLIDAY_DDL   # 회사 쉬는 날(11-25)
+            for ddl in _SAT_OFF_DDL + _HOLIDAY_DDL:
                 conn.execute(ddl)
             conn.commit()
             _table_ready = True

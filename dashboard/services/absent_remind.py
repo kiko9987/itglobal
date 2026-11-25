@@ -125,11 +125,11 @@ def _is_business_day(d: date) -> bool:
     """평일 & 한국 공휴일 아님 → 영업일."""
     if d.weekday() >= 5:  # 토(5), 일(6)
         return False
-    try:
-        import holidays
-        return d not in holidays.KR()
+    try:      # 회사 쉬는 날(법정 공휴일 + 임시공휴일·회사 지정, 11-25)
+        from dashboard.services.leave import _is_holiday
+        return not _is_holiday(d)
     except Exception:
-        # holidays 미설치 or 오류 → 주말만 skip
+        # 판단 실패 → 주말만 skip
         return True
 
 

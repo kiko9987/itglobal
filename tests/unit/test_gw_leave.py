@@ -156,7 +156,9 @@ def test_leave_api_permissions(client):
 
 
 def test_nav_leave_menu():
-    assert [i['label'] for i in gw.build_nav('/leave', 'editor')['items']] == ['내 휴가']
+    assert [i['label'] for i in gw.build_nav('/leave', 'editor')['items']] == ['내 휴가', '쉬는 날']   # 쉬는 날 = 사무실 전 직원(11-25)
     nav = gw.build_nav('/leave/team', 'viewer', leave_all=True)
     assert [i['label'] for i in nav['items'] if i['active']] == ['전사 휴가 관리']          # /leave 는 안 켜짐
+    nav = gw.build_nav('/leave/holidays', 'editor')
+    assert [i['label'] for i in nav['items'] if i['active']] == ['쉬는 날']
     assert [i['label'] for i in gw.build_nav('/leave', 'field', field=True)['items']] == ['내 휴가']

@@ -585,6 +585,81 @@ def page_leave_team():
     return render_template('gw/leave_team.html')
 
 
+# ── 쉬는 날(11-25 부장님 — 플렉스 「쉬는 날」 대체) ─────────────────────────
+# 보기 = 사무실 직원 모두(현장 세션은 문지기가 막음). 넣기·고치기·지우기 = 인사카드 관리자(경영지원·대표).
+def _holiday_body() -> dict:
+    b = request.get_json(silent=True) or {}
+    return {k: b.get(k) for k in ('name', 'kind', 'start', 'end', 'yearly', 'note')}
+
+
+def _holiday_actor() -> str:
+    """기록에 남길 이름 — 인사카드 이름, 없으면 로그인 이름."""
+    try:
+        p = _my_person()
+    except Exception:
+        p = None
+    u = session.get('user') or {}
+    return (p or {}).get('name') or u.get('name') or _me()
+
+
+@hr_bp.route('/leave/holidays')
+@gw_page
+def page_leave_holidays():
+    return render_template('gw/leave_holidays.html', can_edit=_hr_admin())
+
+
+@hr_bp.route('/api/leave/holidays', methods=['GET'])
+@gw_page
+def api_holidays():
+    from datetime import date as _date
+    from dashboard.services import company_holidays as ch
+    try:
+        year = int(request.args.get('year') or _date.today().year)
+    except ValueError:
+        return jsonify({'success': False, 'message': '연도 형식이 맞지 않아요.'}), 400
+    if not (ch.YEAR_MIN <= year <= ch.YEAR_MAX):
+        return jsonify({'success': False, 'message': '연도를 다시 골라 주세요.'}), 400
+    try:
+        data = ch.year_list(year)
+    except Exception as e:
+        return _fail(e)
+    return jsonify(dict(data, success=True, can_edit=_hr_admin(), today=_date.today().isoformat()))
+
+
+def _holiday_write(action: str, hid: int = 0):
+    from dashboard.services import company_holidays as ch
+    if not _hr_admin():
+        return jsonify({'success': False, 'message': '쉬는 날은 경영지원만 넣고 고칠 수 있어요.'}), 403
+    body = request.get_json(silent=True) or {}
+    try:
+        if body.get('preview'):
+            return jsonify(dict(ch.preview(action, _holiday_body(), hid), success=True))
+        expect = body.get('expect')
+        res = ch.save(action, _holiday_body(), _me(), _holiday_actor(), hid,
+                      expect=int(expect) if expect is not None else None)
+    except Exception as e:
+        return _fail(e)
+    return jsonify(dict(res, success=True))
+
+
+@hr_bp.route('/api/leave/holidays/add', methods=['POST'])
+@gw_page
+def api_holiday_add():
+    return _holiday_write('add')
+
+
+@hr_bp.route('/api/leave/holidays/<int:hid>/edit', methods=['POST'])
+@gw_page
+def api_holiday_edit(hid):
+    return _holiday_write('edit', hid)
+
+
+@hr_bp.route('/api/leave/holidays/<int:hid>/delete', methods=['POST'])
+@gw_page
+def api_holiday_delete(hid):
+    return _holiday_write('delete', hid)
+
+
 @hr_bp.route('/api/leave/me', methods=['GET'])
 @gw_page
 def api_leave_me():
@@ -972,7 +1047,14 @@ def api_leave_calendar():
     except Exception as e:
         logger.warning(f'[GW휴가] 토요일 휴무 달력 실패: {e}')
         sat = []
-    return jsonify({'success': True, 'month': f'{y:04d}-{m:02d}', 'entries': leave_view.calendar(y, m), 'sat_off': sat})
+    try:
+        from dashboard.services import company_holidays as ch
+        hol = ch.month_days(y, m)                   # 쉬는 날(11-25) — 달력에 빨간 날로
+    except Exception as e:
+        logger.warning(f'[GW휴가] 쉬는 날 달력 실패: {e}')
+        hol = []
+    return jsonify({'success': True, 'month': f'{y:04d}-{m:02d}', 'entries': leave_view.calendar(y, m), 'sat_off': sat,
+                    'holidays': hol})
 
 
 # ── 홈 ────────────────────────────────────────────────────────────────

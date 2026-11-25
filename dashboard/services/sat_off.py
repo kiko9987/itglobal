@@ -199,13 +199,8 @@ def saturdays(month: str) -> List[date]:
 
 
 def holiday_name(d: date) -> str:
-    if (d.month, d.day) == (5, 1):
-        return '노동절'
-    try:
-        import holidays
-        return holidays.KR(years=d.year).get(d) or ''
-    except Exception:
-        return ''
+    """회사 쉬는 날 이름(법정 공휴일 + 회사 지정, 11-25 하나로) — 아니면 ''."""
+    return lv.holiday_name(d)
 
 
 def kday(d: date) -> str:

@@ -1,0 +1,91 @@
+{% extends "modern_base.html" %}
+
+{% block title %}쉬는 날 - 아이티글로벌그룹{% endblock %}
+
+{% block additional_css %}
+<link rel="stylesheet" href="{{ gw_asset('css/gw-pages.css') }}">
+{% endblock %}
+
+{% block content %}
+{# 회사 쉬는 날(11-25) — 법정 공휴일(자동) + 경영지원이 넣는 임시공휴일·회사 지정 휴일. 규칙은 services/company_holidays.py #}
+<div class="gw-page gw-page-narrow gw-hd" id="hdPage" data-can-edit="{{ '1' if can_edit else '0' }}">
+  <div class="gw-page-head">
+    <h1 class="gw-page-title">쉬는 날</h1>
+    {% if can_edit %}
+    <button type="button" class="btn btn-primary gw-hd-add" id="hdAdd" aria-controls="hdForm" aria-expanded="false">
+      <i class="fas fa-plus" aria-hidden="true"></i> 쉬는 날 추가
+    </button>
+    {% endif %}
+  </div>
+
+  <div class="gw-hd-bar">
+    <div class="gw-hd-year">
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="hdPrev" aria-label="이전 해"><i class="fas fa-chevron-left" aria-hidden="true"></i></button>
+      <h2 class="gw-hd-title" id="hdTitle" aria-live="polite"></h2>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="hdNext" aria-label="다음 해"><i class="fas fa-chevron-right" aria-hidden="true"></i></button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="hdThis">올해</button>
+    </div>
+    <p class="gw-hd-sum" id="hdSum"></p>
+  </div>
+  <p class="gw-hd-next" id="hdNextOff" hidden></p>
+  <p class="gw-note gw-hd-rule">쉬는 날은 휴가 일수에서 빠져요. 법정 공휴일은 자동으로 들어오고, 임시공휴일·회사 지정 휴일은 경영지원이 넣어요.</p>
+
+  <div class="gw-lv-flash" id="hdFlash" role="status" aria-live="polite" tabindex="-1" hidden></div>
+
+  {% if can_edit %}
+  {# 넣기·고치기·지우기 — 모달 대신 목록 위에서 바로(걸린 휴가를 목록과 함께 보며 정하게) #}
+  <form class="gw-panel gw-hd-form" id="hdForm" novalidate hidden aria-labelledby="hdFormTitle">
+    <h3 class="gw-hd-form-title" id="hdFormTitle">쉬는 날 추가</h3>
+    <div class="gw-hd-fields" id="hdFields">
+      <fieldset class="gw-hd-kind">
+        <legend class="form-label">구분</legend>
+        <div class="btn-group" role="radiogroup">
+          <input type="radio" class="btn-check" name="kind" id="hdKindTemp" value="temp">
+          <label class="btn btn-outline-secondary" for="hdKindTemp">임시공휴일</label>
+          <input type="radio" class="btn-check" name="kind" id="hdKindCompany" value="company" checked>
+          <label class="btn btn-outline-secondary" for="hdKindCompany">회사 지정</label>
+        </div>
+      </fieldset>
+      <div class="gw-hd-dates">
+        <div>
+          <label class="form-label" for="hdStart">날짜</label>
+          <input type="date" class="form-control" id="hdStart" name="start" required>
+        </div>
+        <span class="gw-hd-dash" aria-hidden="true">–</span>
+        <div>
+          <label class="form-label" for="hdEnd">끝 날짜 <span class="gw-hd-opt">하루면 비워 두세요</span></label>
+          <input type="date" class="form-control" id="hdEnd" name="end">
+        </div>
+      </div>
+      <div class="gw-hd-namebox">
+        <label class="form-label" for="hdName">이름</label>
+        <input type="text" class="form-control" id="hdName" name="name" maxlength="30" autocomplete="off" required
+               placeholder="창립기념일">
+      </div>
+      <div class="gw-hd-note">
+        <label class="form-label" for="hdNote">메모 <span class="gw-hd-opt">선택</span></label>
+        <input type="text" class="form-control" id="hdNote" name="note" maxlength="200" autocomplete="off"
+               placeholder="정부 발표 2026-11-20">
+      </div>
+      <div class="form-check gw-hd-yearly" id="hdYearlyBox">
+        <input class="form-check-input" type="checkbox" id="hdYearly" name="yearly">
+        <label class="form-check-label" for="hdYearly">매년 같은 날 쉬어요</label>
+      </div>
+    </div>
+    <p class="gw-hd-del-what" id="hdDelWhat" hidden></p>
+    <div class="gw-hd-impact" id="hdImpact" hidden></div>
+    <div class="gw-lv-err" id="hdErr" role="alert"></div>
+    <div class="gw-hd-actions">
+      <button type="button" class="btn btn-light" id="hdCancel">닫기</button>
+      <button type="submit" class="btn btn-primary" id="hdSave">저장</button>
+    </div>
+  </form>
+  {% endif %}
+
+  <div class="gw-hd-list" id="hdList"><div class="gw-empty">불러오는 중…</div></div>
+</div>
+{% endblock %}
+
+{% block additional_js %}
+<script src="{{ gw_asset('js/gw-leave-holidays.js') }}" defer></script>
+{% endblock %}

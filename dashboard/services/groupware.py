@@ -197,6 +197,7 @@ AREAS = [
             {'href': '/leave', 'label': '내 휴가', 'icon': 'fas fa-calendar-check', 'field': True},
             {'href': '/leave/team', 'label': '전사 휴가 관리', 'icon': 'fas fa-calendar-alt', 'leave_all': True},
             {'href': '/leave/saturday', 'label': '스케줄 근무', 'icon': 'fas fa-calendar-week', 'sat_off': True},   # 기술영업 격주휴무(11-20)
+            {'href': '/leave/holidays', 'label': '쉬는 날', 'icon': 'fas fa-calendar-day'},   # 회사 쉬는 날(11-25). 사무실 전 직원 보기, 경영지원만 고침
         ],
     },
     {

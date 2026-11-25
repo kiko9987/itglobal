@@ -866,10 +866,12 @@
     return calEntries.filter(function (e) { return e.start <= di && di <= e.end; });
   }
 
-  function renderCal(entries, sat) {
+  function renderCal(entries, sat, hol) {
     calEntries = entries;
     calSat = {};
     (sat || []).forEach(function (s) { calSat[s.day] = s; });
+    var calHol = {};      // 쉬는 날(11-25) {날짜: 이름} — 서버가 아직 안 주면(재시작 전) 빈 것
+    (hol || []).forEach(function (x) { calHol[x.day] = x.name; });
     var first = new Date(cur.y, cur.m - 1, 1);
     var lastDay = new Date(cur.y, cur.m, 0).getDate();
     var lead = (first.getDay() + 6) % 7;     // 월요일 시작
@@ -890,8 +892,10 @@
           esc(md(di) + ' 휴가 ' + todays.length + '명' + (waitN ? ', 승인 대기 ' + waitN + '명' : '') +
             (sat ? ', 토요일에 쉬는 사람 ' + sat.names.length + '명' : '') + ' 보기') + '"';
       }
-      h += '<div class="gw-cal-day' + (wd >= 5 ? ' we' : '') + (di === todayIso ? ' today' : '') + ((todays.length || sat) ? ' has' : '') + '"' + open + '>' +
-        '<div class="gw-cal-num">' + d + '</div>';
+      var holName = calHol[di];
+      h += '<div class="gw-cal-day' + (wd >= 5 ? ' we' : '') + (holName ? ' hol' : '') + (di === todayIso ? ' today' : '') + ((todays.length || sat) ? ' has' : '') + '"' + open + '>' +
+        '<div class="gw-cal-num">' + d + '</div>' +
+        (holName ? '<div class="gw-cal-hol" title="' + esc(holName) + '">' + esc(holName) + '</div>' : '');
       todays.forEach(function (e) {
         var label = e.half ? e.half + ' 반차' : (e.type === '연차' ? '' : e.type);
         h += '<div class="gw-cal-chip ' + (e.status === '대기' ? 'wait' : 'ok') + '" title="' +
@@ -919,7 +923,7 @@
     var seq = ++calSeq;
     api('/api/leave/calendar?month=' + cur.y + '-' + pad(cur.m)).then(function (j) {
       if (seq !== calSeq) return;
-      renderCal(j.entries || [], j.sat_off || []);
+      renderCal(j.entries || [], j.sat_off || [], j.holidays || []);
     }).catch(function (e) {
       if (seq !== calSeq) return;
       calEl.innerHTML = '<div class="gw-empty">' + esc(e.message) + '</div>';
