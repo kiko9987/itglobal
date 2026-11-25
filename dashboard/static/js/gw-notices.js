@@ -91,10 +91,12 @@
   function canView(name) { return /\.(pdf|jpe?g|png|gif|webp)$/i.test(name); }
 
   // 본문 — 글자 그대로(줄바꿈 유지) + 주소는 링크
+  // :slack: 은 슬랙 로고로(11-25 부장님 — 슬랙 공지와 같은 아이콘. 유니코드엔 슬랙 로고 그림 문자가 없음)
+  var SLACK_ICO = '<i class="fab fa-slack gw-nt-slack" role="img" aria-label="슬랙"></i>';
   function bodyHtml(t) {
     return esc(t).replace(/(https?:\/\/[^\s<]+[^\s<.,)\]])/g, function (u) {
       return '<a href="' + u + '" target="_blank" rel="noopener">' + u + '</a>';
-    });
+    }).replace(/:slack:/g, SLACK_ICO);
   }
 
   function setTitle(t) { document.title = t + ' - 아이티글로벌그룹'; }
