@@ -1022,12 +1022,14 @@
             }
         };
 
-        // 페이지 로드 직후 캐시 미리 채우기 (백그라운드)
+        // 페이지 로드 직후 캐시 미리 채우기 (백그라운드) — 그룹웨어 전용 화면(gw/*.html)은 시공사 칸이 없어 건너뜀(11-25)
+        {% if not gw_own_page %}
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', () => window.refreshConstructorCache());
         } else {
             window.refreshConstructorCache();
         }
+        {% endif %}
 
         /**
          * 시공자 체크박스 UI를 컨테이너에 동적으로 렌더링하는 헬퍼

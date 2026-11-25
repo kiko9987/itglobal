@@ -19,6 +19,22 @@ logger = get_logger(__name__)
 
 groupware_bp = Blueprint('groupware', __name__)
 
+
+def _mark_gw_page(sender, template, context, **extra):
+    """그룹웨어 전용 화면(templates/gw/*.html)이면 context['gw_own_page'] = True — 공용 틀(modern_base)이 PM 공사 화면용
+    미리 불러오기(시공사 목록 등)를 건너뛴다(11-25 부장님 '느려': 페이지마다 쓰지도 않는 요청이 같이 나가 서로 기다림)."""
+    try:
+        if (getattr(template, 'name', '') or '').startswith('gw/'):
+            context['gw_own_page'] = True
+    except Exception:
+        pass
+
+
+@groupware_bp.record_once
+def _connect_gw_page_mark(state):
+    from flask import before_render_template
+    before_render_template.connect(_mark_gw_page, state.app)
+
 # ── 현장 세션 문지기 ───────────────────────────────────────────────────
 # 슬랙 링크로 들어온 현장·미화 직원(session.user.gw_field)은 아래 경로만. 나머지(기존 PM 화면·API)는 전부 막는다.
 # 차량 화면(실시간 위치·차량 배정·운행 종료)은 현장에 안 보인다(11-25 부장님 '차량도 보여줄 필요 없어').

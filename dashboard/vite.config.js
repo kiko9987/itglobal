@@ -47,6 +47,11 @@ export default defineConfig({
           if (id.includes('/src/js/components/')) {
             return 'components';
           }
+          // logger 는 따로(11-25) — 모든 화면의 authInterceptor 가 logger 하나 때문에 utils 청크를 받고, utils 가 components
+          // 청크까지 끌고 와 그룹웨어 화면에서도 직원 목록·퇴사 매니저 요청이 나가던 것. logger.js 는 import 가 없다
+          if (id.includes('/src/js/utils/logger.js')) {
+            return 'logger';
+          }
           // 유틸리티 분리
           if (id.includes('/src/js/utils/') && !id.includes('authInterceptor')) {
             return 'utils';
