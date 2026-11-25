@@ -598,6 +598,11 @@ def start_scheduler():
         _scheduler.add_job(_safe_leave_card_check, 'interval', minutes=10, id='leave_card_check',
                            replace_existing=True)
         jobs.append('휴가 승인 카드 빠진 것 다시 보내기 10분')
+    # 2026-11-25 휴가·토요 휴무 → 구글 공유 캘린더(services/leave_calendar). .env GW_LEAVE_CALENDAR_ID 가 있을 때만 10분마다 맞춤
+    if os.getenv('GW_LEAVE_CALENDAR_ID', '').strip():
+        _scheduler.add_job(_safe_leave_calendar_sync, 'interval', minutes=10, id='leave_calendar_sync',
+                           next_run_time=datetime.now() + timedelta(minutes=1), replace_existing=True)
+        jobs.append('휴가·토요 휴무 구글 캘린더 10분')
     # 2026-11-20 입사·퇴사 할 일(플렉스 「할 일」 대체) — 인사카드 맞추기 + 평일 기한 다가온 일 경영지원 DM
     if os.getenv('SLACK_EAPPROVAL_BOT_TOKEN', '').strip():
         _scheduler.add_job(_safe_hr_tasks, 'cron', hour=9, minute=0, id='hr_tasks_daily', replace_existing=True)
@@ -1230,6 +1235,14 @@ def _safe_leave_accrual():
             logger.info(f'[SCHED] 연차 자동 발생 {n}줄')
     except Exception as exc:
         logger.error(f'[SCHED] 연차 자동 발생 실패: {exc}', exc_info=True)
+
+
+def _safe_leave_calendar_sync():
+    try:
+        from dashboard.services import leave_calendar
+        leave_calendar.sync()
+    except Exception as exc:
+        logger.error(f'[SCHED] 휴가 캘린더 맞추기 실패: {exc}', exc_info=True)
 
 
 def _safe_leave_card_check():
