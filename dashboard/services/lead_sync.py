@@ -2370,6 +2370,43 @@ def _batch_delete_sheet_rows(manager, cfg: dict, row_numbers: list) -> None:
     ).execute()
 
 
+# 10초마다 도는 보정이 매번 리드 시트 전체(5천 행·17칸)를 읽어 서버를 0.8초씩 붙잡았다(11-25 부장님 '그룹웨어가 느려').
+#   먼저 리드 No·플랫폼 두 칸(A·C)만 읽고, 번호를 매길 행이 있을 때만 전체를 읽는다. 두 칸 읽기가 실패하면 예전처럼 전체.
+WF_PLATFORMS = {'전화', '거래처', '기타', '소개'}
+
+
+def _wf_light_has_candidates() -> Optional[bool]:
+    """리드 No 가 비고 플랫폼이 WF_PLATFORMS 인 행이 있나 — A·C 두 칸만 읽어서. 모르면 None(전체로 확인)."""
+    from dashboard.services.lead_service import LEAD_COLUMN_MAPPING
+    no_col, pf_col = LEAD_COLUMN_MAPPING['리드 No'], LEAD_COLUMN_MAPPING['플랫폼']
+    if (no_col, pf_col) != ('A', 'C'):
+        return None                      # 칸 자리가 바뀌면 두 칸 읽기를 하지 않는다(전체로)
+    try:
+        cfg = _get_sheet_config()
+        if not cfg:
+            return None
+        mgr = get_sheets_manager()
+        res = mgr._execute_with_retry(
+            lambda: mgr.service.spreadsheets().values().get(
+                spreadsheetId=cfg['sheet_id'], range=f"{cfg['sheet_name']}!A:C",
+                valueRenderOption='FORMATTED_VALUE'),
+            'sync_workflow_phone_leads(A:C)')
+    except Exception as exc:
+        logger.warning(f'[SYNC/전화WF] 두 칸 미리 읽기 실패 — 전체로 확인: {exc}')
+        return None
+    rows = (res or {}).get('values') or []
+    if not rows:
+        return None
+    for row in rows[1:]:
+        if not row:
+            continue
+        no = str(row[0] if len(row) > 0 else '').strip()
+        pf = str(row[2] if len(row) > 2 else '').strip()
+        if not no and pf in WF_PLATFORMS:
+            return True
+    return False
+
+
 def sync_workflow_phone_leads() -> Dict[str, Any]:
     """슬랙 워크플로우/수동 입력 모달이 메인 시트에 직접 추가한 lead 자동 보정.
 
@@ -2418,6 +2455,9 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
         _sync_lock = None
 
     try:
+        if _wf_light_has_candidates() is False:      # 번호 매길 행이 없으면 전체를 읽지 않는다(11-25)
+            result['light'] = True
+            return result
         main_df = load_leads_data(force_refresh=True)
         if main_df is None or main_df.empty:
             return result
@@ -2434,7 +2474,6 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
             return result
 
         # 빈 lead_no + 플랫폼 in {'전화', '거래처', '기타', '소개'}
-        WF_PLATFORMS = {'전화', '거래처', '기타', '소개'}
         is_empty_no = main_df['리드 No'].astype(str).str.strip() == ''
         is_target = main_df['플랫폼'].astype(str).str.strip().isin(WF_PLATFORMS)
         candidates = main_df[is_empty_no & is_target].copy()

@@ -268,6 +268,11 @@ def start_scheduler():
     )
     jobs.append('워크플로 전화 lead 10초')
 
+    # 리드 캐시 미리 채우기(11-25) — 위 보정이 10초마다 시트 전체를 읽어 캐시가 늘 새것이었는데, 이제 번호 매길 행이
+    #   있을 때만 읽으므로 캐시(1분)가 비면 화면 요청이 시트를 직접 읽게 된다. 만료가 가까우면 뒤에서 새로 채운다
+    _scheduler.add_job(_safe_leads_cache_warm, 'interval', seconds=20, id='leads_cache_warm', replace_existing=True)
+    jobs.append('리드 캐시 미리 채우기(만료 25초 전)')
+
     # 수금 관리 알림 — 공사 현황 시트 U/V/W 입금 메모 변경 감지 (30초 주기)
     if os.getenv('SLACK_PAYMENT_BOT_TOKEN', '').strip():
         _scheduler.add_job(
@@ -759,6 +764,21 @@ def _safe_karrot_sync():
         if not _is_transient_error(exc):
             _notify_admin('karrot_sync_fail',
                           f':warning: 당근 sync 실패 — `{exc}`. 로그 확인 필요.')
+
+
+def _safe_leads_cache_warm():
+    """리드 캐시(online_leads_sheet_data, 1분)가 25초 안에 끝나거나 없으면 시트에서 새로 채운다."""
+    if not _redis_healthy():
+        return
+    try:
+        from dashboard.utils.smart_cache_manager import get_smart_cache
+        ms = get_smart_cache().redis.redis.pttl('cache:online_leads_sheet_data')
+        if ms is not None and int(ms) > 25000:
+            return
+        from dashboard.services.lead_service import load_leads_data
+        load_leads_data(force_refresh=True)
+    except Exception as exc:
+        logger.warning(f'[SCHED] 리드 캐시 미리 채우기 실패: {exc}')
 
 
 def _safe_workflow_phone_sync():
