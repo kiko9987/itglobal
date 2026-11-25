@@ -152,11 +152,19 @@ def assigners() -> List[str]:
     return _setting_list('vehicle_assigners', _DEFAULT_ASSIGNERS)
 
 
+def assign_editors() -> List[str]:
+    """관리자가 아니어도 차량 배정을 고칠 수 있는 사람(설정 vehicle_assign_editors, 11-25 부장님 'SJ 배차 열어 줘' —
+    JW 가 외근으로 배차를 못 할 때 사무실에서). '배정해 주세요' DM 은 여전히 관리자만(11-25 'SJ 한테 가던 DM 없애')."""
+    from dashboard.services.hr import _setting_list
+    return _setting_list('vehicle_assign_editors', ())
+
+
 def can_assign(email: str) -> bool:
-    """차량 배정 고치기·확정·차량 설정 — 관리자(admin·super_admin)만(11-25 부장님 '작성 권한은 어드민한테만').
-    배정 담당 명단(vehicle_assigners)은 '차량 배정해 주세요' DM 받을 사람만 정한다(그중 관리자에게만 보냄)."""
+    """차량 배정 고치기·확정·차량 설정 — 관리자(admin·super_admin)(11-25 부장님 '작성 권한은 어드민한테만')
+    + 배차 담당 명단(assign_editors). 배정 담당 명단(vehicle_assigners)은 '차량 배정해 주세요' DM 받을 사람만 정한다(그중 관리자에게만 보냄)."""
     from dashboard.services import hr
-    return hr.is_admin_email(email)
+    e = (email or '').strip().lower()
+    return hr.is_admin_email(e) or (bool(e) and e in assign_editors())
 
 
 # ── 차량·직원 ───────────────────────────────────────────────────────────

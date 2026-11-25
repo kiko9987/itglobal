@@ -1021,7 +1021,21 @@ def _next_dm_mode(day: str) -> str:
         return DM_PLAIN             # 차량 DM 을 꺼 두면 기다릴 까닭이 없다
     if (va._day_info(day) or {}).get('confirmed_at'):
         return DM_COMBINED
+    if _past_auto_send(day):
+        return DM_PLAIN             # 16:30 자동 발송이 이미 지나 기다리면 아무도 못 받는다(11-25 JW 16:51 모바일 확정) → 일정 먼저
     return DM_HELD
+
+
+def _past_auto_send(day: str, now: Optional[datetime] = None) -> bool:
+    """그날 일정의 자동 발송(전 근무일 16:30)이 이미 지났나 — 지금이 그 날 전 근무일 16:30 뒤이거나 그날 당일·지난날."""
+    now = now or datetime.now()
+    try:
+        target = date.fromisoformat(day)
+    except (TypeError, ValueError):
+        return False
+    if now.date() >= target:
+        return True
+    return va.next_workday(now.date()) == day and (now.hour, now.minute) >= AUTO_SEND_AT
 
 
 def _course_codes(plan: Optional[Dict]) -> List[str]:

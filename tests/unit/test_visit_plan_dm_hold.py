@@ -11,6 +11,13 @@ from dashboard.services import hr
 from dashboard.services import vehicle_assign as va
 from dashboard.services import visit_plan as vp
 from test_visit_plan import DAY, LEADS, STAFF, _Client, _lead, _NowThread, _RC, _Redis, db  # noqa: F401  (db = 픽스처)
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _before_auto_send(monkeypatch):
+    """이 파일은 16:30 자동 발송 전 확정을 가정(11-25 — 16:30 뒤 확정은 바로 일정 DM). 시계에 따라 달라지지 않게."""
+    monkeypatch.setattr(vp, '_past_auto_send', lambda day, now=None: False)
 
 RAY, SORENTO = '237허5358', '03모8021'
 PLAN = {'courses': [{'members': ['TH'], 'leads': ['L-3'], 'memo': ''},
