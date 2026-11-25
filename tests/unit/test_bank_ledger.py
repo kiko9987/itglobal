@@ -45,7 +45,7 @@ def test_sms_to_ledger_with_balance(db):
     assert rows['1011']['direction'] == 'in' and rows['1011']['amount'] == 2_018_800 and rows['1011']['balance'] == 310_869_202
     assert rows['1011']['counterparty'] == '국민카드' and rows['1011']['at'] == '2026-11-26 09:12'
     assert rows['9012']['direction'] == 'out' and rows['9012']['amount'] == 897_303 and rows['9012']['balance'] == 240_963_932
-    assert rows['N-NH']['amount'] == 7_450_600 and rows['N-NH']['balance'] == 82_517_408
+    assert rows['농협']['amount'] == 7_450_600 and rows['농협']['balance'] == 82_517_408
     assert all('잔액' not in (r['raw'] or '') for r in rows.values())        # 잔액은 숫자 칸에만, 원문엔 없음
 
 

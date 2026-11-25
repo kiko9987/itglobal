@@ -598,6 +598,12 @@ def start_scheduler():
         _scheduler.add_job(_safe_leave_card_check, 'interval', minutes=10, id='leave_card_check',
                            replace_existing=True)
         jobs.append('휴가 승인 카드 빠진 것 다시 보내기 10분')
+    # 2026-11-26 자금일보 자동 초안(services/fund_daily) — 07:00(SB 08:00 출근 전) 전 영업일 시트를 만든다.
+    #   .env FUND_DAILY_MODE copy(사본 폴더에 'N 자동' 시트로 시험) / live(SB 파일에 직접) — 없거나 off 면 안 돎
+    if (os.getenv('FUND_DAILY_MODE') or 'off').strip().lower() in ('copy', 'live'):
+        _scheduler.add_job(_safe_fund_daily, 'cron', day_of_week='mon-sat', hour=7, minute=0, id='fund_daily',
+                           replace_existing=True)
+        jobs.append('자금일보 자동 초안 07:00')
     # 2026-11-25 휴가·토요 휴무 → 구글 공유 캘린더(services/leave_calendar). .env GW_LEAVE_CALENDAR_ID 가 있을 때만 10분마다 맞춤
     if os.getenv('GW_LEAVE_CALENDAR_ID', '').strip():
         _scheduler.add_job(_safe_leave_calendar_sync, 'interval', minutes=10, id='leave_calendar_sync',
@@ -1235,6 +1241,16 @@ def _safe_leave_accrual():
             logger.info(f'[SCHED] 연차 자동 발생 {n}줄')
     except Exception as exc:
         logger.error(f'[SCHED] 연차 자동 발생 실패: {exc}', exc_info=True)
+
+
+def _safe_fund_daily():
+    try:
+        from dashboard.services import fund_daily
+        res = fund_daily.run()
+        if res.get('status') not in ('made', 'exists', 'off'):
+            logger.error(f"[SCHED] 자금일보 자동 초안을 못 만듦: {res}", extra={'force_alert': True})
+    except Exception as exc:
+        logger.error(f'[SCHED] 자금일보 자동 초안 실패: {exc}', exc_info=True)
 
 
 def _safe_leave_calendar_sync():
