@@ -138,7 +138,7 @@ def test_second_run_changes_nothing_then_follows_cancel_and_edit(env):
         conn.execute('UPDATE leave_requests SET status=? WHERE id=?', (lv.CANCELLED, b))      # 취소
     r = lc.sync(TODAY, svc=env)
     assert (r['changed'], r['removed']) == (1, 1)
-    assert _titles(env) == [('2026-12-07', '🌴 [영업가] 휴가')]
+    assert _titles(env) == [('2026-12-07', '🌴 [영업가] 연차')]
     # 취소했다 다시 승인되면(같은 ID 가 지운 채로 남음) 되살린다
     with lv._conn() as conn:
         conn.execute('UPDATE leave_requests SET status=? WHERE id=?', (lv.APPROVED, b))
@@ -219,7 +219,7 @@ def test_adopts_hand_made_same_events_without_duplicates(env):
     so.submit('2026-12', CO, '빈대리', TODAY)
     so.decide('2026-12', True, JW, '박정우')
     hand = {
-        'h1': ('2026-11-27', '🌴 [영업가] 휴가'),          # 같은 제목 → 이어받기
+        'h1': ('2026-11-27', '🌴 [영업가] 휴가'),          # 플렉스 봇 제목 → 이어받기(연차로 고쳐짐)
         'h2': ('2026-12-05', '스케줄휴가)영업가'),          # 이름이 모두 들어 있음 → 이어받기
         'h3': ('2026-12-05', '스케줄휴가)영업나'),          # 같은 날 또 → 겹쳐서 지우기
         'h4': ('2026-12-05', '스케줄휴가)시공가'),          # 그룹웨어에 없는 이름 → 그대로
@@ -233,7 +233,7 @@ def test_adopts_hand_made_same_events_without_duplicates(env):
     assert env.ev.calls == []                                # 미리 보기는 쓰지 않음
     r = lc.sync(TODAY, svc=env)
     assert (r['added'], r['adopted'], r['removed']) == (0, 2, 1) and not r['errors']
-    assert env.ev.items['h1']['summary'] == '🌴 [영업가] 휴가'
+    assert env.ev.items['h1']['summary'] == '🌴 [영업가] 연차'
     assert env.ev.items['h2']['summary'] == '📅 [영업가, 영업나] 스케줄휴가'
     assert env.ev.items['h3']['status'] == 'cancelled'
     for i in ('h4', 'h5', 'h6'):
@@ -260,3 +260,13 @@ def test_hand_event_removed_once_groupware_catches_up(env):
     r = lc.sync(TODAY, svc=env)
     assert (r['changed'], r['removed']) == (1, 1)
     assert _titles(env) == [('2026-12-05', '📅 [영업가, 영업나] 스케줄휴가')]
+
+
+def test_leave_kind_shown_but_health_kept_private(env):
+    for i, lt in enumerate(('annual', 'spouse_birth', 'event', 'military', 'reward', 'sick', 'health', 'maternity',
+                            'infertility', 'miscarriage')):
+        _leave('영업가', lt, f'2027-01-{i + 4:02d}', f'2027-01-{i + 4:02d}')
+    lc.sync(TODAY, svc=env)
+    got = [t for _, t in _titles(env)]
+    assert got == ['🌴 [영업가] 연차', '🌴 [영업가] 배우자 출산 휴가', '🌴 [영업가] 경조사 휴가', '🌴 [영업가] 군소집훈련',
+                   '🌴 [영업가] 보상 휴가'] + ['🌴 [영업가] 휴가'] * 5

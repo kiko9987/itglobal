@@ -1,7 +1,9 @@
 """휴가·토요 휴무 → 구글 캘린더(11-25 부장님 '토요일 휴무랑 연차 휴가 구글 캘린더에 반영').
 
 - 회사가 이미 쓰던 휴가 공유 캘린더(회사 전체 공개)에 승인된 휴가·반차와 확정된 토요 휴무를 올린다.
-- 올리는 내용은 #휴가_일정과 같다 — 이름과 휴가/오전·오후 반차/스케줄휴가만. 휴가 종류(병가·경조사)·사유는 올리지 않는다.
+- 휴가 종류를 구분해 올린다(11-25 부장님 '연차인지 반차인지 출산 휴가인지 구분'): 연차·오전/오후 반차·배우자 출산 휴가·
+  경조사 휴가·군소집훈련·보상 휴가. 건강·임신에 관한 것(병가·보건·산전후·난임 치료·유산·사산)은 회사 전체가 보는
+  캘린더라 '휴가'로만. 경조사 세부(조의·결혼)와 사유는 올리지 않는다.
 - 제목은 이 캘린더에 쓰던 형식(11-25 부장님 '스케줄도 아이콘 추가해서 통일'): '🌴 [이름] 휴가'·'🌴 [이름] 오후 반차',
   토요일은 하루 한 건 '📅 [이름, 이름] 스케줄휴가'(전체 휴무는 '📅 [전체] 스케줄휴가 (메모)').
 - 그룹웨어 기록이 기준. 10분마다 '있어야 할 일정'을 만들어 캘린더와 맞춘다(없으면 넣고, 다르면 고치고, 그룹웨어에서
@@ -84,6 +86,11 @@ def _eid(key: str) -> str:
     return 'itg' + hashlib.md5(key.encode('utf-8')).hexdigest()
 
 
+# 캘린더에 보일 휴가 종류(11-25). 여기 없는 종류(병가·보건·산전후·난임 치료·유산·사산 등)는 '휴가'로만
+CAL_WHAT = {'annual': '연차', 'half_am': '오전 반차', 'half_pm': '오후 반차', 'spouse_birth': '배우자 출산 휴가',
+            'event': '경조사 휴가', 'military': '군소집훈련', 'reward': '보상 휴가'}
+
+
 def leave_title(name: str, what: str) -> str:
     return f'{LEAVE_ICON} [{name}] {what}'
 
@@ -108,10 +115,7 @@ def desired(today: Optional[date] = None) -> Dict[str, dict]:
         s, e = lv._d(r['start']), lv._d(r['end'])
         if not s or not e or s < ws:            # 범위 앞에서 시작한 휴가는 옛 기록 쪽에 있음
             continue
-        if r['ltype'] in lv.HALF_TYPES:
-            what = '오전 반차' if r['ltype'] == lv.HALF_AM else '오후 반차'
-        else:
-            what = '휴가'
+        what = CAL_WHAT.get(r['ltype'], '휴가')
         out[f"lv:{r['id']}"] = _event(leave_title(r['name'], what), s, e, [r['name']])
 
     months, m = [], ws.replace(day=1)
@@ -169,8 +173,9 @@ def _hand_names(summary: str) -> Optional[set]:
 
 
 def _adoptable(key: str, want: dict, ev: dict) -> bool:
-    if key.startswith('lv:'):
-        return (ev.get('summary') or '').strip() == want['summary']
+    if key.startswith('lv:'):          # 같은 제목, 또는 플렉스 봇이 올리던 '🌴 [이름] 휴가'
+        s = (ev.get('summary') or '').strip()
+        return s in (want['summary'], leave_title(want['_names'][0], '휴가'))
     names = _hand_names(ev.get('summary'))
     return bool(names) and names <= set(want['_names'])
 
