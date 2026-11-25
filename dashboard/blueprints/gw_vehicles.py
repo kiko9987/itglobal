@@ -6,6 +6,7 @@
 """
 import re
 import threading
+from typing import Optional
 from datetime import date, timedelta
 
 from flask import Blueprint, jsonify, redirect, render_template, request, session
@@ -80,10 +81,33 @@ def _month() -> str:
     return m if _MONTH_RE.match(m) else date.today().strftime('%Y-%m')
 
 
-def _leads() -> list:
+# 리드 행 짧은 메모(11-25 부장님 '차량 배정·방문 일정이 느려, 번갈아 누르면 더'): 화면을 열 때마다 리드 5천 행을
+#   Redis 에서 꺼내 표 → dict 로 바꾸느라 0.1~0.2초씩 CPU 를 써서, 같이 들어온 요청까지 느려졌다.
+#   화면 불러오기(GET)만 _LEADS_TTL 초 안이면 앞서 바꾼 목록을 다시 쓴다. 저장·확정(POST)·뒤에서 도는 일은 늘 새로 읽고
+#   그 결과로 메모도 바꾼다. 행 dict 는 요청마다 새로 복사해 서로 건드리지 않게.
+_LEADS_TTL = 10.0
+_leads_memo: dict = {'at': 0.0, 'val': None}
+
+
+def _lead_rows() -> Optional[list]:
+    """리드 시트 행(dict 목록), 못 읽으면 None."""
+    import time
+    from flask import has_request_context
+    use_memo = has_request_context() and request.method == 'GET'
+    memo = _leads_memo
+    if use_memo and memo['val'] is not None and time.monotonic() - memo['at'] < _LEADS_TTL:
+        return [dict(r) for r in memo['val']]
     from dashboard.services.lead_service import load_leads_data
     df = load_leads_data()
-    return [] if df is None else df.to_dict('records')
+    if df is None or df.empty:
+        return None
+    rows = df.to_dict('records')
+    memo.update(at=time.monotonic(), val=rows)
+    return [dict(r) for r in rows]
+
+
+def _leads() -> list:
+    return _lead_rows() or []
 
 
 class _LeadsUnavailable(Exception):
@@ -96,12 +120,11 @@ _LEADS_DOWN_MSG = '리드 시트를 읽지 못했어요. 잠시 뒤 다시 해 �
 def _plan_leads() -> list:
     """방문 일정(불러오기·저장·확정·당일 배정)용 리드. 못 읽으면 멈춘다(11-24 조용한 실패 점검 1번:
     빈 리드로 저장하면 짜 둔 코스의 현장이 모두 빠진 채 덮어써졌음)."""
-    from dashboard.services.lead_service import load_leads_data
-    df = load_leads_data()
-    if df is None or df.empty:
+    rows = _lead_rows()
+    if not rows:
         logger.error('[방문일정] 리드 시트를 읽지 못해 방문 일정 작업을 멈춤')
         raise _LeadsUnavailable()
-    return df.to_dict('records')
+    return rows
 
 
 _LEAD_DAY = re.compile(r'^(\d{4})[-./](\d{1,2})[-./](\d{1,2})')

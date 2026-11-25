@@ -198,7 +198,23 @@ OFFICE_DEPTS = ('경영지원',)
 
 def staff() -> List[Dict]:
     """배정할 수 있는 사람 — 재직 인사카드 중 이니셜(공사 코드 접미사)이 있는 현장 인원(사무직 제외).
-    [{code, name, slack_id, dept}] (code = 이니셜)"""
+    [{code, name, slack_id, dept}] (code = 이니셜)
+    화면 요청 하나 안에서는 한 번만 만든다(11-25 부장님 '느려': 차량 배정 불러오기 한 번에 5번 — 이니셜 표를
+    만들 때마다 Redis 를 100번 넘게 읽어 0.15초쯤). 요청 밖(스케줄러·슬랙)은 그때그때 새로."""
+    try:
+        from flask import g, has_request_context
+        if has_request_context():
+            memo = getattr(g, '_va_staff', None)
+            if memo is None:
+                memo = _staff_now()
+                g._va_staff = memo
+            return [dict(p) for p in memo]
+    except Exception as e:      # g 를 못 쓰면 그냥 새로(느릴 뿐 결과는 같음)
+        logger.debug(f'[차량배정] 직원 명단 요청 메모 못 씀: {e}')
+    return _staff_now()
+
+
+def _staff_now() -> List[Dict]:
     from dashboard.services import hr
     from dashboard.services.staff_directory import suffix_map
     from dashboard.services.staff_directory import non_sales_owners

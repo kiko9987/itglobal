@@ -168,13 +168,28 @@ def _open_leads(leads: Iterable[dict]) -> List[dict]:
     return [l for l in leads if visit_open(l, rc)]
 
 
+_PLAIN_DAY = re.compile(r'^(\d{4})[-./](\d{1,2})[-./](\d{1,2})$')
+
+
 def _on_day(day: str, leads: Iterable[dict]) -> List[dict]:
-    """방문 예정일이 그날에 걸친 리드만(여러 날짜 '2026-11-23~24' 포함) — day_schedule 과 같은 기준."""
+    """방문 예정일이 그날에 걸친 리드만(여러 날짜 '2026-11-23~24' 포함) — day_schedule 과 같은 기준.
+    날짜 하나만 적힌 칸(대부분)은 바로 비교하고 나머지만 두 날짜 읽기로(11-25 부장님 '느려' — 리드 5천 건을
+    날짜를 고를 때마다 모두 해석하느라 0.04~0.07초)."""
     from dashboard.services import visit_assignment_sync as vas
     d = date.fromisoformat(day)
     out = []
     for l in leads:
         vd = l.get('방문 예정일')
+        if not vd:
+            continue
+        m = _PLAIN_DAY.match(str(vd).strip().lstrip("'"))
+        if m:
+            try:
+                if date(int(m.group(1)), int(m.group(2)), int(m.group(3))) == d:
+                    out.append(l)
+                continue
+            except ValueError:
+                pass
         st = vas._parse_visit_date_start(vd)
         if not st:
             continue
