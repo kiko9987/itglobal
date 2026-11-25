@@ -171,7 +171,7 @@ def test_summary_without_bot_flag():
 
 # ── 3. 확정 'done' 은 한 번, 뒤 단계까지 끝낸 뒤 ───────────────────────────
 def _confirm_env(monkeypatch, seen):
-    monkeypatch.setattr(vas, 'commit_plan', lambda parsed, target_date=None: {'ok': True, 'dm': {'visit_mgr_sent': 1}})
+    monkeypatch.setattr(vas, 'commit_plan', lambda parsed, target_date=None, **k: {'ok': True, 'dm': {'visit_mgr_sent': 1}})
     monkeypatch.setattr(vp.threading, 'Thread', _NowThread)
     monkeypatch.setattr(vp, '_staff', lambda: [dict(p) for p in STAFF])
     finishes = []

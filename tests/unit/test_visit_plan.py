@@ -257,7 +257,7 @@ class _NowThread:
 def test_confirm_runs_and_locks_slack(db, monkeypatch):
     seen = {}
 
-    def fake_commit(parsed, target_date=None):
+    def fake_commit(parsed, target_date=None, **k):
         seen['parsed'], seen['target'] = parsed, target_date
         return {'ok': True, 'updated_count': 2, 'failed': [], 'list_updated': 2, 'list_failed': 0,
                 'list_missing': [], 'dm': {'target_date': DAY, 'visit_mgr_sent': 3, 'online_duty_sent': 1}}
@@ -290,7 +290,7 @@ def test_confirm_runs_and_locks_slack(db, monkeypatch):
 
 
 def test_confirm_failure_kept(db, monkeypatch):
-    monkeypatch.setattr(vas, 'commit_plan', lambda parsed, target_date=None: {'ok': False, 'reason': '⏳ 처리 중입니다.'})
+    monkeypatch.setattr(vas, 'commit_plan', lambda parsed, target_date=None, **k: {'ok': False, 'reason': '⏳ 처리 중입니다.'})
     monkeypatch.setattr(vp.threading, 'Thread', _NowThread)
     plan = {'courses': [{'members': ['TH'], 'leads': ['L-3']}], 'online': [], 'online_shared': False}
     vp.start_confirm(DAY, plan, 'p@example.com', LEADS, lambda: LEADS)
@@ -432,7 +432,7 @@ def test_plan_routes_permission(db, monkeypatch):
     monkeypatch.setattr(bp, '_plan_leads', lambda: LEADS)
     monkeypatch.setattr(bp, '_fresh_leads', lambda: LEADS)
     monkeypatch.setattr(vp.threading, 'Thread', _NowThread)
-    monkeypatch.setattr(vas, 'commit_plan', lambda parsed, target_date=None: {'ok': True, 'dm': {}})
+    monkeypatch.setattr(vas, 'commit_plan', lambda parsed, target_date=None, **k: {'ok': True, 'dm': {}})
     monkeypatch.setattr(vp, '_audit', lambda res, by: [])
     monkeypatch.setattr(va, 'request_assignment', lambda day=None, by='': 0)
     monkeypatch.setattr(bp, 'render_template', lambda name, **k: name)
@@ -519,7 +519,7 @@ def test_view_all_edit_admin(db, monkeypatch):
 
 
 def _confirm(monkeypatch, plan, notices=None):
-    monkeypatch.setattr(vas, 'commit_plan', lambda parsed, target_date=None: {'ok': True, 'dm': {}})
+    monkeypatch.setattr(vas, 'commit_plan', lambda parsed, target_date=None, **k: {'ok': True, 'dm': {}})
     monkeypatch.setattr(vp.threading, 'Thread', _NowThread)
     monkeypatch.setattr(vp, '_audit', lambda res, by: [])
     monkeypatch.setattr(va, 'request_assignment', lambda day=None, by='': 0)

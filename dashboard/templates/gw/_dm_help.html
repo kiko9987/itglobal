@@ -1,0 +1,17 @@
+{# 도움말 — 방문 일정·차량 배정 DM 은 언제 가나(11-25 부장님). 두 화면 탭 아래 같은 글, 처음엔 접혀 있음.
+   규칙: services/visit_plan.py(DM_HELD·send_plan_dms·auto_send_held), vehicle_assign.save_day #}
+<details class="gw-help" id="gwDmHelp">
+  <summary><i class="fas fa-circle-question" aria-hidden="true"></i> 도움말 · 슬랙 DM 은 언제 가나요?<i class="fas fa-chevron-down gw-help-fold" aria-hidden="true"></i></summary>
+  <div class="gw-help-body">
+    <ol>
+      <li><strong>방문 일정 [확정]</strong> — 시트 영업 담당자, 슬랙 List, 캔버스는 바로 바뀌어요. 담당자·온라인 당번 DM 은 바로 보내지 않고 기다려요(<span class="gw-badge gw-badge-wait">DM 대기</span>).
+        차량 배정을 먼저 확정해 둔 날은 기다리지 않고 바로 한 번에 보내요.</li>
+      <li><strong>차량 배정 [확정하고 알리기]</strong> — 방문 일정과 탈 차를 사람마다 한 통으로 보내요. 방문 없이 차만 타는 사람에게는 차량 안내만 가요.</li>
+      <li><strong>16:30까지 차량 배정을 확정하지 않으면</strong> — 다음 근무일 방문 일정 DM 만 먼저 보내고 관리자에게 알려요.
+        차량 배정 화면 위의 [일정만 먼저 보내기]로 바로 보낼 수도 있어요. 이때 차는 차량 배정을 확정할 때 차량 안내로 따로 가요.</li>
+      <li><strong>보낸 뒤에 고치면</strong> — 일정이나 차가 바뀐 사람에게만 새 DM 이 가고, 전에 보낸 방문 일정 DM 은 지워져요.</li>
+      <li><strong>바로 가는 DM</strong> — 사내 업무 DM, 당일 배정 DM, 슬랙 /일정확정으로 정한 날의 DM 은 기다리지 않고 바로 가요.</li>
+    </ol>
+    <p class="gw-help-note">방문 일정과 차량 배정은 관리자만 수정할 수 있어요. 다른 직원은 참고만 할 수 있어요.</p>
+  </div>
+</details>

@@ -60,6 +60,14 @@ _URGENT_DDL = '''CREATE TABLE IF NOT EXISTS visit_plan_urgent (
 )'''
 _table_ready = False
 _run_lock = threading.Lock()
+_dm_lock = threading.Lock()
+
+# 담당자·당번 DM 을 언제 보내나(11-25 부장님) — 방문 일정을 확정해도 바로 보내지 않고, 차량 배정을 확정할 때
+#   방문 일정 + 차를 사람마다 한 통으로. 차량 배정이 늦으면 AUTO_SEND_AT 에 일정만 먼저(관리자에게 알림).
+DM_HELD = 'held'            # 기다리는 중(아직 아무 DM 도 안 감)
+DM_COMBINED = 'combined'    # 차와 함께 보냄 — 뒤에 일정·차가 바뀌면 바뀐 사람에게 한 통
+DM_PLAIN = 'plain'          # 일정만 보냄(자동·[일정만 먼저 보내기]·이 기능 전에 확정한 날) — 차는 차량 DM 으로 따로
+AUTO_SEND_AT = (16, 30)     # 다음 근무일 일정 DM 자동 발송(월~토). sync_scheduler 'visit_plan_dm_auto'
 
 
 @contextmanager
@@ -72,6 +80,11 @@ def _conn():
             for col in ('state', 'result'):      # 11-23 뒤에서 처리(시트·List·DM) 상태 — 먼저 만든 표에 칸 추가
                 try:
                     conn.execute(f'ALTER TABLE visit_plan_urgent ADD COLUMN {col} TEXT')
+                except Exception:
+                    pass
+            for col in ('dm_mode', 'dm_at', 'dm_by'):    # 11-25 담당자 DM 을 차량 배정까지 기다리기
+                try:
+                    conn.execute(f'ALTER TABLE visit_plan_day ADD COLUMN {col} TEXT')
                 except Exception:
                     pass
             conn.commit()
@@ -493,6 +506,8 @@ def load(day: str, leads: Iterable[dict], me: str = '') -> Dict:
         'saved_at': (row or {}).get('saved_at') or '', 'saved_name': _name_of_email((row or {}).get('saved_by') or ''),
         'confirmed_at': (row or {}).get('confirmed_at') or '',
         'confirmed_name': _name_of_email((row or {}).get('confirmed_by') or ''),
+        'dm_mode': (row or {}).get('dm_mode') or '', 'dm_at': (row or {}).get('dm_at') or '',
+        'cars_confirmed': bool((va._day_info(day) or {}).get('confirmed_at')),     # 차량 배정을 확정한 날 — 확정하면 바로 차와 함께
         'changed_since_confirm': bool(confirmed_plan) and confirmed_plan != plan,
         'warnings': warnings(plan, vs, off, names),
         'run': _state(row),
@@ -755,7 +770,9 @@ def _confirm_steps(day: str, plan: Dict, by: str, fresh_leads: Callable[[], List
         if not leads:
             raise ValueError('리드 시트를 읽지 못했어요. 잠시 뒤 다시 해 주세요.')
         parsed = build_parsed(day, plan, leads)
-        res = vas.commit_plan(parsed, target_date=date.fromisoformat(day))
+        mode = _next_dm_mode(day)
+        cars = car_lines(day, plan) if mode == DM_COMBINED else None
+        res = vas.commit_plan(parsed, target_date=date.fromisoformat(day), send_dm=mode != DM_HELD, car_by_mgr=cars)
         if not res.get('ok'):
             raise ValueError(str(res.get('reason') or '확정하지 못했어요.').lstrip('⏳ '))
     except ValueError as e:
@@ -769,6 +786,12 @@ def _confirm_steps(day: str, plan: Dict, by: str, fresh_leads: Callable[[], List
         return
     prog['committed'] = True
     summary = _summary(res)
+    summary['dm_mode'] = mode
+    try:
+        _set_dm_mode(day, mode, '' if mode == DM_HELD else 'confirm')
+    except Exception as e:      # 못 쓰면 차량 배정 확정 때 한 통으로 못 감 — 16:30 자동 발송도 못 찾음
+        summary['dm_mode_failed'] = True
+        logger.error(f'[방문일정] {day} DM 대기 상태 저장 실패: {e}', exc_info=True, extra={'force_alert': True})
     # /일정확정 뒤에 하던 것 — 온라인 당번 저장(차량 배정 명단), 차량 배정 요청 DM, 누락 점검
     try:
         va.record_online_duty(day, parsed['online_duty'], parsed['online_duty_shifts'])
@@ -957,6 +980,131 @@ def _audit(res: Dict, by: str) -> List[Dict]:
 
 def run_state(day: str) -> Dict:
     return _state(_row(day))
+
+
+# ── 담당자 DM 기다렸다 차와 함께(11-25 부장님) ───────────────────────────────
+def dm_mode(day: str) -> str:
+    return ((_row(day) or {}).get('dm_mode') or '').strip()
+
+
+def _set_dm_mode(day: str, mode: str, by: str) -> None:
+    with _conn() as conn:
+        conn.execute('UPDATE visit_plan_day SET dm_mode = ?, dm_at = ?, dm_by = ? WHERE day = ?',
+                     (mode, '' if mode == DM_HELD else _now(), by, day))
+
+
+def _next_dm_mode(day: str) -> str:
+    """이번 확정에서 DM 을 어떻게 할지. 처음 확정이면 기다림(차량 배정을 이미 확정한 날이면 바로 차와 함께),
+    이미 보낸 날은 보낸 방식 그대로 바뀐 사람에게만 다시."""
+    row = _row(day) or {}
+    prev = (row.get('dm_mode') or '').strip()
+    if prev in (DM_PLAIN, DM_COMBINED):
+        return prev
+    if not prev and row.get('confirmed_at'):
+        return DM_PLAIN             # 이 기능 전에 확정해 이미 일정만 보낸 날
+    if not va.CAR_DM_ON:
+        return DM_PLAIN             # 차량 DM 을 꺼 두면 기다릴 까닭이 없다
+    if (va._day_info(day) or {}).get('confirmed_at'):
+        return DM_COMBINED
+    return DM_HELD
+
+
+def _course_codes(plan: Optional[Dict]) -> List[str]:
+    out: List[str] = []
+    if not plan or not isinstance(plan.get('courses'), list):
+        return out
+    for c in _staffed(plan):
+        if is_work(c):
+            continue
+        for m in c['members']:
+            if m not in out:
+                out.append(m)
+    return out
+
+
+def car_lines(day: str, plan: Optional[Dict]) -> Dict[str, str]:
+    """방문 담당자별 차량 안내 — 담당자 DM 에 붙는다."""
+    return va.car_lines_for(day, _course_codes(plan))
+
+
+def _dm_leads() -> List[dict]:
+    from dashboard.services.lead_service import load_leads_data
+    df = load_leads_data()
+    if df is None or df.empty:
+        raise ValueError('리드 시트를 읽지 못해 방문 일정 DM 을 보내지 못했어요. 잠시 뒤 다시 해 주세요.')
+    return df.to_dict('records')
+
+
+def send_plan_dms(day: str, by: str = '', with_cars: bool = True, only_held: bool = False) -> Dict:
+    """확정한 방문 일정의 담당자·당번 DM 을 보낸다 — with_cars 면 차량 줄을 붙여 한 통(차량 배정 확정 때),
+    아니면 일정만(16:30 자동·[일정만 먼저 보내기]). 같은 날 앞서 보낸 DM 과 비교해 바뀐 사람만 다시 보낸다.
+    only_held = 아직 기다리는 날만(이미 보냈으면 건너뜀). 막는 문제는 ValueError.
+    돌려주는 값: {'ok', 'dm', 'dm_failed', 'duty', 'duty_failed', 'deassign', 'bot_missing', 'covered': [이니셜]}"""
+    from dashboard.services import visit_assignment_sync as vas
+    with _dm_lock:
+        row = _row(day) or {}
+        mode = (row.get('dm_mode') or '').strip()
+        if only_held and mode != DM_HELD:
+            return {'ok': True, 'skipped': True, 'dm': 0, 'covered': []}
+        plan = _loads(row.get('confirmed_plan'))
+        if not row.get('confirmed_at') or not plan:
+            raise ValueError('방문 일정을 아직 확정하지 않은 날이에요.')
+        parsed = build_parsed(day, plan, _dm_leads())
+        dm = vas.send_plan_dms(parsed, date.fromisoformat(day), car_by_mgr=car_lines(day, plan) if with_cars else None)
+        _set_dm_mode(day, DM_COMBINED if with_cars else DM_PLAIN, by)
+    out = {'ok': True, 'dm': dm.get('visit_mgr_sent', 0), 'dm_failed': dm.get('visit_mgr_failed', 0),
+           'duty': dm.get('online_duty_sent', 0), 'duty_failed': dm.get('online_duty_failed', 0),
+           'deassign': dm.get('deassign_sent', 0), 'bot_missing': bool(dm.get('visit_bot_missing')),
+           'covered': list(dm.get('mgr_done') or [])}
+    logger.info(f"[방문일정] {day} 담당자 DM {'차와 함께' if with_cars else '일정만'} — 보냄 {out['dm']} · 실패 {out['dm_failed']}"
+                f" · 당번 {out['duty']} ({by})")
+    if out['dm_failed'] or out['duty_failed'] or out['bot_missing']:
+        logger.error(f"[방문일정] {day} 담당자 DM 못 보낸 사람 있음 — 담당자 {out['dm_failed']} · 당번 {out['duty_failed']}"
+                     f"{' (방문봇 연결 없음)' if out['bot_missing'] else ''}. 직접 알려 주세요")
+    return out
+
+
+def _admin_targets(day: str) -> List[str]:
+    """자동 발송을 알릴 관리자 — 배정 담당(관리자인 사람) + 방문 일정을 확정한 사람."""
+    from dashboard.services import hr
+    out = [e for e in va.assigners() if hr.is_admin_email(e)]
+    by = ((_row(day) or {}).get('confirmed_by') or '').strip().lower()
+    if by and by not in out:
+        out.append(by)
+    return out
+
+
+def auto_send_held(today: Optional[date] = None) -> Optional[Dict]:
+    """16:30(월~토) — 다음 근무일 방문 일정 DM 이 아직 기다리는 중이면(차량 배정을 확정하지 않음) 일정만 먼저 보내고
+    관리자에게 알린다. 그 뒤 차량 배정을 확정하면 차는 차량 DM 으로 따로 간다."""
+    from dashboard.services import hr
+    day = va.next_workday(today)
+    if dm_mode(day) != DM_HELD:
+        return None
+    try:
+        res = send_plan_dms(day, by='auto', with_cars=False, only_held=True)
+    except Exception as e:
+        logger.error(f'[방문일정] {day} 일정 DM 자동 발송 실패: {e}', exc_info=True, extra={'force_alert': True})
+        res = {'ok': False, 'message': str(e) if isinstance(e, ValueError) else '보내지 못했어요.'}
+    if res.get('skipped'):
+        return res
+    label = va.day_label(day)
+    if res.get('ok') and not res.get('dm_failed') and not res.get('bot_missing'):
+        text = (f':alarm_clock: {label} 차량 배정이 아직 확정되지 않아 방문 일정 DM 만 먼저 보냈어요(담당자 {res["dm"]}명).\n'
+                f'차량 배정을 확정하면 차를 탄 사람에게 차량 DM 이 따로 가요. <{va._page_url(day)}|차량 배정 열기>')
+    else:
+        text = (f':warning: {label} 방문 일정 DM 을 자동으로 보내지 못했어요'
+                f"({res.get('message') or ('못 받은 담당자 ' + str(res.get('dm_failed', 0)) + '명')}). "
+                f'담당자에게 직접 알려 주세요. <{va._page_url(day)}|차량 배정 열기>')
+    sent = 0
+    for email in _admin_targets(day):
+        sid = ((hr.find_by_email(email) or {}).get('slack_id')) or ''
+        if va._dm(sid, text):
+            sent += 1
+    if not sent:
+        logger.error(f'[방문일정] {day} 일정 DM 자동 발송 알림을 관리자에게 못 보냈어요', extra={'force_alert': True})
+    res['admin_notified'] = sent
+    return res
 
 
 # ── 당일 배정(11-23 부장님) ──────────────────────────────────────────────
@@ -1213,7 +1361,7 @@ def confirmed_info(day: str) -> Optional[Dict]:
         return None
     courses = [c for c in plan.get('courses') or _old_courses(plan) or [] if c.get('members') and c.get('leads')]
     return {'confirmed_at': row['confirmed_at'], 'confirmed_name': _name_of_email(row.get('confirmed_by') or ''),
-            'courses': len(courses)}
+            'courses': len(courses), 'dm_mode': row.get('dm_mode') or '', 'dm_at': row.get('dm_at') or ''}
 
 
 def confirmed_work(day: str) -> List[Dict]:

@@ -546,14 +546,29 @@ def commit() -> Dict:
     return _guarded(_commit_locked)
 
 
-def commit_plan(parsed_full: Dict, target_date=None) -> Dict:
+def commit_plan(parsed_full: Dict, target_date=None, send_dm: bool = True,
+                car_by_mgr: Optional[Dict[str, str]] = None) -> Dict:
     """그룹웨어 방문 일정 확정(2026-11-22 부장님) — 캔버스 대신 화면에서 짠 배정으로 같은 처리를 한다.
     parsed_full 은 parse_assignment_canvas_full 과 같은 모양이고 배정마다 'lead'(시트 행)·'memo'(코스 메모)가 붙는다.
-    연타 가드를 /일정확정과 함께 써서 슬랙·그룹웨어가 동시에 돌지 않는다."""
+    연타 가드를 /일정확정과 함께 써서 슬랙·그룹웨어가 동시에 돌지 않는다.
+    send_dm=False 면 담당자·당번 DM 은 보내지 않고 기다린다 — 차량 배정을 확정할 때 차와 함께 한 통으로(11-25 부장님).
+    car_by_mgr = {이니셜: 차량 안내 글} 을 주면 담당자 DM 에 차량 줄을 붙인다."""
     def run():
         with _ASSIGN_LOCK:
-            return _apply_assignments(parsed_full, target_date=target_date)
+            return _apply_assignments(parsed_full, target_date=target_date, send_dm=send_dm, car_by_mgr=car_by_mgr)
     return _guarded(run)
+
+
+def send_plan_dms(parsed_full: Dict, target_date, car_by_mgr: Optional[Dict[str, str]] = None) -> Dict:
+    """기다리던 담당자·당번 DM 만 보낸다(시트·List·캔버스는 확정 때 이미 함) — 그룹웨어 방문 일정(11-25).
+    배정마다 'lead' 가 붙어 와 시트를 다시 찾지 않는다. 같은 날 v9 기록과 비교해 바뀐 사람만 다시 보냄."""
+    with _ASSIGN_LOCK:
+        initial_to_name, _ = _load_initial_maps()
+        return _send_dms_for_next_visit(
+            parsed_full['assignments'], {}, initial_to_name, parsed_full['online_duty'], parsed_full['off_duty'],
+            online_duty_shifts=parsed_full.get('online_duty_shifts') or {},
+            online_shared=parsed_full.get('online_shared', False),
+            target_date=target_date, car_by_mgr=car_by_mgr)
 
 
 def _guarded(fn) -> Dict:
@@ -604,9 +619,11 @@ def _commit_locked() -> Dict:
         return _apply_assignments(parse_assignment_canvas_full(html))
 
 
-def _apply_assignments(parsed_full: Dict, target_date=None) -> Dict:
+def _apply_assignments(parsed_full: Dict, target_date=None, send_dm: bool = True,
+                       car_by_mgr: Optional[Dict[str, str]] = None) -> Dict:
     """배정 반영 — 시트 담당자 → 슬랙 List → 담당자·당번 DM → 캔버스1. 캔버스(/일정확정)·그룹웨어(commit_plan) 공용.
-    target_date(date) 를 주면 DM 대상일을 그날로 고정한다(그룹웨어는 날짜를 골라 짠다)."""
+    target_date(date) 를 주면 DM 대상일을 그날로 고정한다(그룹웨어는 날짜를 골라 짠다).
+    send_dm=False 면 DM 단계만 건너뛴다(그룹웨어 — 차량 배정 확정 때 send_plan_dms 로 한 통, 11-25)."""
     from dashboard.services.lead_service import update_lead
     from dashboard.services.visit_canvas_sync import rebuild_canvas_async
 
@@ -664,14 +681,19 @@ def _apply_assignments(parsed_full: Dict, target_date=None) -> Dict:
     list_ok, list_fail, list_missing = _list_res
     list_skipped, list_not_found = list_result_info(_list_res)
 
-    # 3. DM 발송 (target_date = min(방문일 시작일) > today)
-    dm_result = _send_dms_for_next_visit(
-        assignments, phone_map, initial_to_name, online_duty, off_duty,
-        addr_candidates=addr_candidates,
-        online_duty_shifts=online_duty_shifts,
-        online_shared=online_shared,
-        target_date=target_date,
-    )
+    # 3. DM 발송 (target_date = min(방문일 시작일) > today) — 그룹웨어는 차량 배정 확정까지 기다릴 수 있음(11-25)
+    if send_dm:
+        dm_result = _send_dms_for_next_visit(
+            assignments, phone_map, initial_to_name, online_duty, off_duty,
+            addr_candidates=addr_candidates,
+            online_duty_shifts=online_duty_shifts,
+            online_shared=online_shared,
+            target_date=target_date,
+            car_by_mgr=car_by_mgr,
+        )
+    else:
+        dm_result = {'held': True, 'target_date': target_date.isoformat() if target_date else None,
+                     'visit_mgr_sent': 0, 'visit_mgr_failed': 0, 'deassign_sent': 0, 'online_duty_sent': 0}
 
     # 4. 방문 캔버스 A rebuild
     rebuild_canvas_async()
@@ -1259,8 +1281,12 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                               addr_candidates: Optional[List[Dict]] = None,
                               online_duty_shifts: Optional[Dict[str, str]] = None,
                               online_shared: bool = False,
-                              target_date=None) -> Dict:
+                              target_date=None,
+                              car_by_mgr: Optional[Dict[str, str]] = None) -> Dict:
     """min(방문일 시작일) > today 인 리드에 담당자/온라인 당번 DM.
+
+    car_by_mgr(11-25 그룹웨어): {이니셜: 차량 안내 여러 줄} — 담당자 DM 메모 아래에 붙이고 v9 기록에 남겨
+      차만 바뀌어도 그 사람에게 다시 보낸다. None 이면 차량 줄 없이 예전 그대로(차 비교도 안 함).
 
     2026-07-19 확장: dm_sent 를 JSON 으로 관리해 재실행 시 신규/유지/제거 분류.
       - 신규 매니저 → v9 DM
@@ -1276,11 +1302,14 @@ def _send_dms_for_next_visit(assignments: List[Dict],
     from datetime import date as _date
     result = {'target_date': None, 'visit_mgr_sent': 0, 'visit_mgr_failed': 0,
               'deassign_sent': 0, 'online_duty_sent': 0, 'lead_nos_flagged': [],
+              # 담당자 DM 을 받았거나(같아서 안 보낸 것 포함) 못 받은 이니셜 — 차량 DM 을 따로 보낼지 정하는 데(11-25)
+              'mgr_done': [], 'mgr_failed_codes': [],
               # 당번 DM·재배정 안내 실패 수, 이전 DM 기록(Redis)을 못 읽음(11-24 조용한 실패 점검)
               'online_duty_failed': 0, 'deassign_failed': 0, 'dm_history_unread': False}
 
     today = _date.today()
-    _addr_cands = addr_candidates or _load_addr_candidates()
+    # 리드가 모두 붙어 온 배정(그룹웨어)은 주소 후보가 필요 없다 — 전엔 빈 목록이면 시트를 또 읽었음
+    _addr_cands = addr_candidates or ([] if all(p.get('lead') for p in assignments) else _load_addr_candidates())
     # 각 assignment → (lead, start_date, end_date)
     # 2026-07-25 fix: 범위 방문일 (2026-07-24~27) 종료일 기준 필터.
     #   기존은 start <= today 이면 skip → 오늘이 range 중간에 걸리면 유효 lead 도
@@ -1386,6 +1415,7 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                     'ts': data.get('ts', ''),
                     'lead_nos': set(data.get('lead_nos') or []),
                     'memo': data.get('memo') or '',
+                    'car': data.get('car') or '',
                 }
             except Exception as exc:
                 result['dm_history_unread'] = True
@@ -1399,12 +1429,15 @@ def _send_dms_for_next_visit(assignments: List[Dict],
         _need = [ini for ini, cur in current_by_mgr.items()
                  if not (prev_v9_by_mgr.get(ini)
                          and {lno for lno, _ in cur} == prev_v9_by_mgr[ini]['lead_nos']
-                         and (prev_v9_by_mgr[ini].get('memo') or '') == ' / '.join(memo_by_mgr.get(ini) or []))]
+                         and (prev_v9_by_mgr[ini].get('memo') or '') == ' / '.join(memo_by_mgr.get(ini) or [])
+                         and (car_by_mgr is None or (prev_v9_by_mgr[ini].get('car') or '') == (car_by_mgr.get(ini) or '')))]
         _gone = [ini for ini in prev_v9_by_mgr if ini not in current_by_mgr]
         result['visit_bot_missing'] = True
         result['visit_mgr_failed'] = len(_need)
         result['deassign_failed'] = len(_gone)
         result['online_duty_failed'] = len(online_duty or [])
+        result['mgr_failed_codes'] = list(_need)
+        result['mgr_done'] = [ini for ini in current_by_mgr if ini not in _need]
         logger.error(f'[ASSIGN/DM] 방문봇 연결이 없어 DM 을 못 보냈어요({target_date_iso}) — 담당자 {len(_need)}명 · '
                      f'재배정 안내 {len(_gone)}명 · 당번 {len(online_duty or [])}명. 직접 알려 주세요.',
                      extra={'force_alert': True})
@@ -1519,14 +1552,18 @@ def _send_dms_for_next_visit(assignments: List[Dict],
         # 메모가 바뀌어도 다시 보낸다(옛 저장값과 비교)
         cur_memo = ' / '.join(memo_by_mgr.get(ini) or [])
         memo_changed = bool(prev_info) and (prev_info.get('memo') or '') != cur_memo
+        # 차량 줄(그룹웨어, 11-25) — None 이면 비교하지 않고 옛 기록의 차를 그대로 둔다
+        cur_car = (car_by_mgr.get(ini) or '') if car_by_mgr is not None else ((prev_info or {}).get('car') or '')
+        car_changed = car_by_mgr is not None and bool(prev_info) and (prev_info.get('car') or '') != cur_car
         # ────── (2) 배정 동일 (순서 무관) — skip ──────
-        if prev_info and current_set == prev_set and not memo_changed:
+        if prev_info and current_set == prev_set and not memo_changed and not car_changed:
             logger.info(
                 f'[ASSIGN/DM] {mgr_name}({ini}) 배정 동일 '
                 f'({len(current_set)}건) → skip'
             )
             for lno in current_set:
                 lead_nos_flagged.add(lno)
+            result['mgr_done'].append(ini)
             continue
 
         # ────── (3) 변경/신규 — 기존 v9 삭제 (있으면) + 재발송 ──────
@@ -1535,6 +1572,7 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                 f'[ASSIGN/DM] {mgr_name}({ini}): 이메일 매핑 실패 — skip'
             )
             result['visit_mgr_failed'] += 1
+            result['mgr_failed_codes'].append(ini)
             continue
 
         _v9_deleted = False
@@ -1576,6 +1614,10 @@ def _send_dms_for_next_visit(assignments: List[Dict],
             )
             lines.append('>이전 안내 DM 은 삭제되었습니다.')
             lines.append('>')
+        elif car_changed:       # 방문은 그대로, 차만 바뀜(11-25)
+            lines.append('>:arrows_counterclockwise: *차량 배정 변경*')
+            lines.append('>이전 안내 DM 은 삭제되었습니다.')
+            lines.append('>')
 
         lines.append(
             f'>:wave: *{mgr_name}님*, {target_date_iso} '
@@ -1585,6 +1627,9 @@ def _send_dms_for_next_visit(assignments: List[Dict],
             lines.append(f'>:busts_in_silhouette: 동행 : {"+".join(common)}')
         if cur_memo:
             lines.append(f'>:memo: 메모 : {cur_memo}')
+        if car_by_mgr is not None:      # 차량 배정과 한 통으로(11-25) — 차·같이 타는 사람·차 메모
+            for _cl in (cur_car or ':car: 차량 : 배정 없음').split('\n'):
+                lines.append(f'>{_cl}')
         lines.append(f'>{_SEP}')
         for i, (lno, lead) in enumerate(current_leads):
             e = _EMOJIS[i] if i < len(_EMOJIS) else f'*{i+1}.*'
@@ -1636,6 +1681,7 @@ def _send_dms_for_next_visit(assignments: List[Dict],
             )
             if r.get('ok'):
                 result['visit_mgr_sent'] += 1
+                result['mgr_done'].append(ini)
                 _tag = '재발송' if prev_info else '신규'
                 logger.info(
                     f'[ASSIGN/DM] {mgr_name}({ini}) → {len(current_leads)}건 '
@@ -1648,6 +1694,7 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                         'ts': r.get('ts', ''),
                         'lead_nos': sorted(current_set),
                         'memo': cur_memo,
+                        'car': cur_car,
                     })
                     if rc_pre is not None:
                         rc_pre.set(
@@ -1660,11 +1707,13 @@ def _send_dms_for_next_visit(assignments: List[Dict],
                     )
             else:
                 result['visit_mgr_failed'] += 1
+                result['mgr_failed_codes'].append(ini)
                 logger.warning(
                     f'[ASSIGN/DM] {mgr_name}({ini}) 응답 not ok: {r.get("error")}'
                 )
         except Exception as exc:
             result['visit_mgr_failed'] += 1
+            result['mgr_failed_codes'].append(ini)
             logger.warning(f'[ASSIGN/DM] {mgr_name}({ini}) 발송 예외: {exc}')
 
     # 온라인 당번 v13 DM — v9 처럼 내용 변경 시 삭제+재발송 (2026-07-30).

@@ -22,6 +22,8 @@ def db(tmp_path, monkeypatch):
     for mod in (gw, vl, va, hr, vd):
         monkeypatch.setattr(mod, '_db', lambda: d)
         monkeypatch.setattr(mod, '_table_ready', False)
+    from dashboard.services import visit_plan as _vp
+    monkeypatch.setattr(_vp, '_table_ready', False)     # 차량 배정 저장이 방문 일정 DM 대기 상태를 읽는다(11-25)
     monkeypatch.setattr(va, 'staff', lambda: [dict(p) for p in STAFF])
     monkeypatch.setattr(va, 'assigners', lambda: [ASSIGNER])
     monkeypatch.setattr(va, '_dm', lambda sid, text: True)

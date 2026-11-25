@@ -793,6 +793,13 @@
     } else if (S.courses && S.courses.source === 'sheet') {
       bits.push('<i class="fas fa-route" aria-hidden="true"></i> 슬랙으로 정한 날 — 시트 담당자대로 코스');
     }
+    // 방문 일정 DM 이 차량 배정 확정을 기다리는 중(11-25 부장님) — 확정하면 한 번에, 급하면 일정만 먼저
+    if (p && p.dm_mode === 'held') {
+      bits.push('<span class="gw-badge gw-badge-wait">방문 일정 DM 대기</span> 확정하면 방문 일정과 차를 한 번에 보내요' +
+        (S.canEdit ? ' <button type="button" class="btn btn-sm btn-outline-secondary gw-va-sendnow" data-act="sendnow">일정만 먼저 보내기</button>' : ''));
+    } else if (p && p.dm_mode === 'plain' && p.dm_at) {
+      bits.push('방문 일정 DM 은 먼저 보냄 ' + esc(p.dm_at.slice(11, 16)) + (S.confirmed ? '' : ' — 차는 확정할 때 따로 가요'));
+    }
     if (S.draftNote && S.canEdit && !S.confirmed) bits.push(esc(S.draftNote));
     var warn = staleText();
     var part = partialText();
@@ -878,6 +885,9 @@
     if (notify && S.dmOff) {          // 차량 DM 꺼 둠(11-23 부장님) — 확정 기록만 남고 슬랙은 안 나간다
       if (!window.confirm(dayText + ' 배정을 ' + (S.confirmed ? '저장할까요?' : '확정할까요?') + missText +
           '\n\n지금은 차량 DM 을 꺼 두어서 슬랙으로는 알리지 않아요.')) return;
+    } else if (notify && !S.confirmed && S.plan && S.plan.dm_mode === 'held') {
+      if (!window.confirm(dayText + ' 배정을 확정하고, 방문 일정과 탈 차를 사람마다 한 통으로 슬랙에 보낼까요?' +
+          '\n방문 없이 차만 타는 사람에게는 차량 안내만 가요.' + missText + '\n\n보낸 알림은 되돌릴 수 없어요.')) return;
     } else if (notify && !S.confirmed) {
       if (!window.confirm(dayText + ' 배정을 확정하고, 차에 넣은 ' + riders() + '명에게 슬랙으로 알릴까요?' + missText +
           '\n\n보낸 알림은 되돌릴 수 없어요.')) return;
@@ -894,13 +904,19 @@
         if (j.base != null) S.base = j.base;     // 같은 사람이 연달아 저장해도 막히지 않게(다시 불러오기가 실패해도)
         var t = j.changed.length ? '저장했어요.' : '바뀐 내용이 없어요.';
         var missed = j.failed || [];
-        if (j.notified) t += ' ' + j.notified + '명에게 슬랙으로 알렸어요.';
+        var pd = j.plan_dm;      // 방문 일정 + 차 한 통(11-25)
+        var pdBad = pd && (!pd.ok || pd.dm_failed || pd.bot_missing);
+        if (pd && pd.ok && pd.dm) t += ' 방문 일정과 차를 ' + pd.dm + '명에게 한 번에 보냈어요.';
+        if (pd && pd.ok && pd.dm_failed) t += ' 방문 일정 DM 을 ' + pd.dm_failed + '명이 받지 못했어요. 직접 알려 주세요.';
+        if (pd && pd.bot_missing) t += ' 방문봇 연결이 없어 방문 일정 DM 을 못 보냈어요. 직접 알려 주세요.';
+        if (pd && !pd.ok) t += ' 방문 일정 DM 은 보내지 못했어요(' + (pd.message || '') + ') — 차량 안내만 보냈어요. 위 [일정만 먼저 보내기]로 다시 보내 주세요.';
+        if (j.notified) t += ' ' + (pd && pd.ok ? '차량 안내만 ' : '') + j.notified + '명에게 슬랙으로 알렸어요.';
         else if (notify && j.dm_off) t += ' 차량 DM 은 꺼 두어서 슬랙으로는 알리지 않았어요.';
-        else if (notify && j.changed.length && !missed.length) t += ' 슬랙으로 알릴 사람이 없었어요.';
+        else if (notify && j.changed.length && !missed.length && !(pd && pd.dm)) t += ' 슬랙으로 알릴 사람이 없었어요.';
         // 못 받은 사람은 이름으로(11-24) — 이미 확정이라 다시 눌러도 안 가니 직접 알려야 한다
         if (missed.length) t += ' ' + missed.join(', ') + ' 님은 슬랙 알림을 받지 못했어요. 직접 알려 주세요.';
         return load(S.day).then(function () {
-          msg(t, missed.length ? 'err' : 'ok', true);
+          msg(t, missed.length || pdBad ? 'err' : 'ok', true);
           if ((j.retry || []).length) askResend(j.retry);   // 보내다 실패한 사람은 다시 보내 볼 수 있게(11-24 추가분)
         });
       }).catch(function (e) {
@@ -1199,6 +1215,23 @@
     S.pick = '';
     msg('');
     render();
+  });
+
+  // [일정만 먼저 보내기](11-25 부장님) — 차량 배정이 늦어질 때 기다리던 방문 일정 DM 만 지금. 차는 확정할 때 따로
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-act="sendnow"]');
+    if (!b) return;
+    if (!window.confirm(S.dayLabel + ' 방문 일정 DM 을 지금 먼저 보낼까요?\n\n차는 차량 배정을 확정할 때 차량 안내로 따로 가요.')) return;
+    b.disabled = true;
+    msg('방문 일정 DM 을 보내는 중…', 'info');
+    post('/api/vehicles/plan/send-now', { day: S.day }).then(function (j) {
+      var bad = j.dm_failed || j.bot_missing;
+      return load(S.day).then(function () {
+        msg('방문 일정 DM 을 ' + (j.dm || 0) + '명에게 먼저 보냈어요.' +
+          (bad ? ' ' + (j.bot_missing ? '방문봇 연결이 없어 못 보냈어요.' : j.dm_failed + '명은 받지 못했어요.') + ' 직접 알려 주세요.' : ''),
+          bad ? 'err' : 'ok');
+      });
+    }).catch(function (er) { b.disabled = false; msg(er.message, 'err'); });
   });
 
   // 슬랙으로 확정한 날의 방문 일정 칸 — 직접 접고 펼친 것만 기억

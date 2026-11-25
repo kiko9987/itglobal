@@ -419,17 +419,53 @@ def save_day(day: str, rows: Iterable[Dict], by: str, confirm: bool = False, not
                          'confirmed_at = excluded.confirmed_at', (day, by, now))
         new_base = _version(conn, day)     # 같은 사람이 연달아 저장해도 막히지 않게 새 판을 돌려준다
     notified, failed, retry = 0, [], []
+    plan_dm = None
+    covered: set = set()
+    if (confirm and not was_confirmed) or (was_confirmed and changed and notify):
+        # 그룹웨어로 확정한 방문 일정 DM 이 기다리는 날이면 — 방문 일정 + 차를 사람마다 한 통으로(11-25 부장님).
+        #   그 DM 을 받은 사람(covered)은 차량 DM 을 따로 안 보낸다. 못 보냈으면 예전처럼 차량 DM 만
+        plan_dm = _plan_dm_with_cars(day, by)
+        covered = set((plan_dm or {}).pop('covered', None) or [])
     if confirm and not was_confirmed:
-        notified = notify_people(day, cars, new, who, everyone=True, failed=failed, retry=retry)
+        notified = notify_people(day, cars, new, who, everyone=True, failed=failed, retry=retry, skip=covered)
     elif was_confirmed and changed and notify:
-        notified = notify_changes(day, cars, old, new, who, failed=failed, retry=retry)
+        notified = notify_changes(day, cars, old, new, who, failed=failed, retry=retry, skip=covered)
     if failed:
         # 못 받은 사람은 화면에 이름으로 — 이미 '확정'이라 다시 눌러도 안 간다(11-24 조용한 실패 점검 3번)
         log = logger.error if not notified else logger.warning
         log(f"[차량배정] {day} DM 못 받은 사람 {len(failed)}명: {', '.join(failed)} (받은 사람 {notified}명)",
             **({'extra': {'force_alert': True}} if not notified else {}))
     return {'changed': changed, 'notified': notified, 'failed': failed, 'retry': retry,
-            'confirmed': confirm or was_confirmed, 'dm_off': not CAR_DM_ON, 'base': new_base}
+            'confirmed': confirm or was_confirmed, 'dm_off': not CAR_DM_ON, 'base': new_base, 'plan_dm': plan_dm}
+
+
+def _plan_dm_with_cars(day: str, by: str) -> Optional[Dict]:
+    """방문 일정 DM 을 차와 함께 보낼 날이면 보내고 결과(+ 'covered' = 받은 이니셜), 아니면 None.
+    실패해도 차량 배정 저장은 그대로 — 결과에 ok=False 와 까닭(화면이 보여 줌). 방문 일정 DM 은 계속 기다린다
+    (16:30 자동 발송·[일정만 먼저 보내기])."""
+    if not CAR_DM_ON:
+        return None
+    try:
+        from dashboard.services import visit_plan as vp
+        if vp.dm_mode(day) not in (vp.DM_HELD, vp.DM_COMBINED):
+            return None
+        return vp.send_plan_dms(day, by=by, with_cars=True)
+    except ValueError as e:
+        logger.warning(f'[차량배정] {day} 방문 일정 DM 을 차와 함께 못 보냄 — 차량 DM 만 보냄: {e}')
+        return {'ok': False, 'message': str(e), 'covered': []}
+    except Exception as e:
+        logger.error(f'[차량배정] {day} 방문 일정 DM 을 차와 함께 못 보냄 — 차량 DM 만 보냄: {e}', exc_info=True)
+        return {'ok': False, 'message': '방문 일정 DM 을 보내지 못했어요.', 'covered': []}
+
+
+def car_lines_for(day: str, codes) -> Dict[str, str]:
+    """방문 일정 DM 에 붙일 사람별 차량 안내(여러 줄) — 차량 DM 과 같은 글. 차에 없으면 '배정 없음'(11-25)."""
+    rows = _day_rows(day)
+    cars = {c['plate']: c for c in fleet(True)}
+    cars[OWN] = OWN_CAR
+    who = _who_map()
+    where = _where(rows)
+    return {c: (_person_text(day, c, rows, cars, who) if c in where else ':car: 차량 : 배정 없음') for c in codes}
 
 
 def resend(day: str, codes: Iterable[str]) -> Dict:
@@ -750,12 +786,15 @@ def _dm_or_miss(p: Optional[Dict], code: str, text: str, failed: Optional[list],
 
 def notify_people(day: str, cars: Dict[str, Dict], rows: Dict[str, Dict], who: Dict[str, Dict],
                   everyone: bool = True, only: Optional[set] = None, failed: Optional[list] = None,
-                  retry: Optional[list] = None) -> int:
+                  retry: Optional[list] = None, skip: Optional[set] = None) -> int:
+    """skip = 방문 일정 DM 에 차가 같이 실려 간 사람(11-25) — 따로 안 보냄."""
     if not CAR_DM_ON:
         return 0
     n = 0
     for code in _where(rows):
         if only is not None and code not in only:
+            continue
+        if skip and code in skip:
             continue
         p = who.get(code)
         if _dm_or_miss(p, code, _person_text(day, code, rows, cars, who) if p else '', failed, retry):
@@ -764,13 +803,17 @@ def notify_people(day: str, cars: Dict[str, Dict], rows: Dict[str, Dict], who: D
 
 
 def notify_changes(day: str, cars: Dict[str, Dict], old: Dict[str, Dict], new: Dict[str, Dict],
-                   who: Dict[str, Dict], failed: Optional[list] = None, retry: Optional[list] = None) -> int:
-    """확정 뒤 고친 경우 — 차(오전·오후)·같이 타는 사람·운전·메모가 바뀐 사람에게만."""
+                   who: Dict[str, Dict], failed: Optional[list] = None, retry: Optional[list] = None,
+                   skip: Optional[set] = None) -> int:
+    """확정 뒤 고친 경우 — 차(오전·오후)·같이 타는 사람·운전·메모가 바뀐 사람에게만.
+    skip = 방문 일정 DM 으로 바뀐 차를 이미 받은 사람(11-25)."""
     if not CAR_DM_ON:
         return 0
     ow, nw = _where(old), _where(new)
     n = 0
     for code in set(ow) | set(nw):
+        if skip and code in skip:
+            continue
         if _person_view(code, old) == _person_view(code, new):
             continue
         p = who.get(code)

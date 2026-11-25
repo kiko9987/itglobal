@@ -274,7 +274,7 @@ def test_confirm_outer_try_before_commit(db, monkeypatch):
 
 
 def test_confirm_value_error_logged(db, monkeypatch):
-    monkeypatch.setattr(vas, 'commit_plan', lambda parsed, target_date=None: {'ok': False, 'reason': '⏳ 처리 중입니다'})
+    monkeypatch.setattr(vas, 'commit_plan', lambda parsed, target_date=None, **k: {'ok': False, 'reason': '⏳ 처리 중입니다'})
     monkeypatch.setattr(vp.threading, 'Thread', _NowThread)
     warns = _warnings(monkeypatch, vp)
     vp.start_confirm(DAY, BASE, 'p@example.com', LEADS, lambda: LEADS)

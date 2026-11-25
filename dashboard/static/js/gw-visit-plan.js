@@ -452,6 +452,7 @@
     if (d.confirmed_at) {
       parts.push('<span class="gw-badge gw-badge-ok">확정</span> <span class="gw-va-when">' + esc(d.confirmed_at.slice(5, 16)) +
         (d.confirmed_name ? ' · ' + esc(d.confirmed_name) : '') + '</span>');
+      if (d.dm_mode === 'held') parts.push('<span class="gw-badge gw-badge-wait">DM 대기</span>');
     } else if (d.source === 'sheet') {
       parts.push('<span class="gw-badge gw-badge-ok">슬랙에서 확정</span>');     // /일정확정으로 정한 날(시트 담당자대로 보임)
     } else {
@@ -459,6 +460,8 @@
     }
     if (d.saved_at && !d.confirmed_at) parts.push('<span class="gw-va-when">임시 저장 ' + esc(d.saved_at.slice(11, 16)) + (d.saved_name ? ' · ' + esc(d.saved_name) : '') + ' · DM 아직 안 보냄</span>');
     var notes = [];
+    if (d.confirmed_at && d.dm_mode === 'held') notes.push('DM 은 차량 배정을 확정할 때 방문 일정과 차를 한 번에 보내요.');
+    else if (d.confirmed_at && d.dm_mode === 'plain' && d.dm_at) notes.push('방문 일정 DM 만 먼저 보냈어요(' + d.dm_at.slice(11, 16) + ') — 차는 차량 배정을 확정할 때 따로 가요.');
     if (d.dropped) notes.push('저장한 뒤 날짜가 바뀌거나 취소된 현장 ' + d.dropped + '건은 코스에서 뺐어요.');
     if (d.changed_since_confirm || (d.confirmed_at && P.dirty)) notes.push('확정한 뒤 고친 내용이 있어요. 다시 확정해야 담당자 DM 이 바뀌어요.');
     var late = P.canEdit && d.confirmed_at ? inbox().filter(isLate).length : 0;
@@ -811,8 +814,8 @@
     var people = {}, nSites = 0;
     placed.forEach(function (c) { nSites += c.leads.length; c.members.forEach(function (m) { people[m] = 1; }); });
     var lines = [P.data.day_label + ' 방문 일정을 ' + (P.data.confirmed_at ? '다시 ' : '') + '확정할까요?',
-      '코스 ' + placed.length + '개 · 현장 ' + nSites + '건 · 담당자 ' + Object.keys(people).length + '명' +
-      (P.data.confirmed_at ? ' — 바뀐 사람에게만 DM 이 가요.' : '에게 DM 이 가요.')];
+      '코스 ' + placed.length + '개 · 현장 ' + nSites + '건 · 담당자 ' + Object.keys(people).length + '명',
+      dmWhen()];
     if (ws.length) {
       lines.push('', '확인할 것:');
       ws.forEach(function (w) { lines.push('· ' + w.text); });
@@ -902,8 +905,17 @@
       });
     }, 3000);
   }
+  // 확정하면 DM 이 언제 가는지(11-25) — 처음이면 차량 배정 확정 때 한 번에, 이미 보낸 날은 바뀐 사람에게만 바로
+  function dmWhen() {
+    var d = P.data, m = d.dm_mode || '';
+    if (m === 'combined' || m === 'plain' || (!m && d.confirmed_at)) return '바뀐 사람에게만 바로 DM 이 가요.';
+    if (d.cars_confirmed) return '차량 배정을 이미 확정한 날이라 방문 일정과 차를 한 번에 바로 보내요.';
+    return 'DM 은 차량 배정을 확정할 때 방문 일정과 차를 한 번에 보내요(16:30까지 확정하지 않으면 일정만 먼저 가요).';
+  }
   function resultText(r) {
-    var bits = ['시트 담당자 ' + (r.sheet || 0) + '건', '담당자 DM ' + (r.dm || 0) + '명'];
+    // 담당자·당번 DM 은 차량 배정을 확정할 때 차와 함께 한 통(11-25 부장님) — 그때까지 'DM 대기'
+    var held = r.dm_mode === 'held';
+    var bits = ['시트 담당자 ' + (r.sheet || 0) + '건', held ? '담당자·당번 DM 은 차량 배정을 확정할 때 함께 보내요' : '담당자 DM ' + (r.dm || 0) + '명'];
     if (r.work_dm) bits.push('사내 업무 DM ' + r.work_dm + '명');
     if (r.duty) bits.push('당번 DM ' + r.duty + '명');
     if (r.deassign) bits.push('재배정 안내 ' + r.deassign + '명');
@@ -930,6 +942,7 @@
     if (r.car_request_failed) bad.push('차량 배정 요청 DM 실패' + (r.car_request_failed_n ? ' ' + r.car_request_failed_n + '명' : '') + '(배정 담당에게 직접 알려 주세요)');
     if (r.car_notice_failed) bad.push('차량 배정 변경 알림 실패' + (r.car_notice_failed_n ? ' ' + r.car_notice_failed_n + '명' : '') + '(배정 담당에게 직접 알려 주세요)');
     if (r.cards_error) bad.push('캔버스1 누락 점검을 못 했어요');
+    if (r.dm_mode_failed) bad.push('DM 대기 상태를 저장하지 못했어요 — 차량 배정을 확정할 때 방문 일정 DM 이 함께 가지 않을 수 있어요');
     if (r.work_dm_failed) bad.push('사내 업무 DM 실패 ' + r.work_dm_failed + '명');
     if (r.list_skipped) bad.push('슬랙 List 못 고침(' + r.list_skipped + ')');
     if (r.list_failed) bad.push('슬랙 List 실패 ' + r.list_failed + '건');

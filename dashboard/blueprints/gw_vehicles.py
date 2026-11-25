@@ -468,6 +468,29 @@ def api_plan_state():
         return jsonify({'success': False, 'message': '상태를 읽지 못했어요.'}), 500
 
 
+@gw_vehicles_bp.route('/api/vehicles/plan/send-now', methods=['POST'])
+@gw_page
+def api_plan_send_now():
+    """[일정만 먼저 보내기](11-25 부장님) — 차량 배정을 확정하기 전에 기다리던 방문 일정 DM 만 지금 보낸다.
+    그 뒤 차량 배정을 확정하면 차는 차량 DM 으로 따로 간다. 관리자만."""
+    if not _can_assign():
+        return jsonify({'success': False, 'message': '방문 일정은 관리자만 수정할 수 있어요.'}), 403
+    day = ((request.get_json(silent=True) or {}).get('day') or '').strip()
+    if not va.valid_day(day):
+        return jsonify({'success': False, 'message': '날짜가 올바르지 않아요.'}), 400
+    if vp.dm_mode(day) != vp.DM_HELD:
+        return jsonify({'success': False, 'message': '이미 보냈거나 기다리는 DM 이 없는 날이에요. 새로 고쳐 주세요.'}), 409
+    try:
+        res = vp.send_plan_dms(day, by=_me(), with_cars=False, only_held=True)
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
+    except Exception as e:
+        logger.error(f'[방문일정] {day} 일정만 먼저 보내기 실패: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': '보내지 못했어요. 잠시 뒤 다시 해 주세요.'}), 500
+    res.pop('covered', None)
+    return jsonify({'success': True, **res})
+
+
 # ── [운행 종료](11-22 부장님) — 운행을 마친 사람이 바로 운전자를 적는다(저녁 DM 과 같은 자리에 저장) ──
 def _my_code() -> str:
     p = _my_person() or {}

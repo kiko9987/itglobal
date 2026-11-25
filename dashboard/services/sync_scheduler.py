@@ -493,6 +493,13 @@ def start_scheduler():
                            id='vehicle_alerts', replace_existing=True)
         jobs.append('U+ 운행 기록 03:40·단말 07:30·차량 상태 30분마다·차량 알림 08:40')
 
+    # 2026-11-25 방문 일정 DM 은 차량 배정을 확정할 때 차와 함께 한 통 — 16:30(월~토)까지 차량 배정을 확정하지 않으면
+    #   다음 근무일 일정 DM 만 먼저 보내고 관리자에게 알림(services/visit_plan.auto_send_held).
+    from dashboard.services.visit_plan import AUTO_SEND_AT as _vp_auto
+    _scheduler.add_job(_safe_visit_plan_dm_auto, 'cron', day_of_week='mon-sat', hour=_vp_auto[0], minute=_vp_auto[1],
+                       id='visit_plan_dm_auto', replace_existing=True)
+    jobs.append('방문 일정 DM 자동 발송(차량 배정 안 끝난 날) 월~토 %02d:%02d' % _vp_auto)
+
     # 2026-07-23 매일 아침 부재중/미완료 리마인드 (온라인 문의 채널) — 출근 직후.
     #   2026-10-07 출퇴근 08~17시 변경으로 09:00 → 08:10.
     _scheduler.add_job(
@@ -1369,6 +1376,17 @@ def _safe_vehicle_trip_morning():
             logger.info(f'[SCHED] 어제 운전자 다시 묻기: {result}')
     except Exception as exc:
         logger.error(f'[SCHED] 어제 운전자 다시 묻기 실패: {exc}', exc_info=True)
+
+
+def _safe_visit_plan_dm_auto():
+    """차량 배정을 확정하지 않아 기다리던 다음 근무일 방문 일정 DM — 일정만 먼저 보내기(월~토 16:30)."""
+    try:
+        from dashboard.services.visit_plan import auto_send_held
+        result = auto_send_held()
+        if result:
+            logger.info(f'[SCHED] 방문 일정 DM 자동 발송: {result}')
+    except Exception as exc:
+        logger.error(f'[SCHED] 방문 일정 DM 자동 발송 실패: {exc}', exc_info=True, extra={'force_alert': True})
 
 
 def _safe_visit_canvas_audit():
