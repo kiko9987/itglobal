@@ -171,27 +171,44 @@ def test_uplus_trips_merge(monkeypatch):
         monkeypatch.setenv(f'UPLUS_APP_{n}', '7')
     monkeypatch.setattr(up, '_tokens', {})
 
+    ranges = []
+
     def fake_post(path, body):
         if path == '/v1/session':
             return {'extensions': {'code': '20000000', 'data': [{'token': 't'}]}}
-        if path == up.APIS['eco']:
-            return {'extensions': {'code': '20000000', 'totalRecord': 3, 'data': [
-                {'use_start_dt': '2026-11-23T09:00:00.000+00:00', 'use_end_dt': '2026-11-23T10:00:00.000+00:00',
+        if path == up.APIS['eco']:      # 경제 운전 시각 = 세계 표준시(11-25 개발기 확인) → +9시간이 한국 시각
+            ranges.append((body['start_date'], body['end_date']))
+            return {'extensions': {'code': '20000000', 'totalRecord': 4, 'data': [
+                {'use_start_dt': '2026-11-23T00:00:00.000+00:00', 'use_end_dt': '2026-11-23T01:00:00.000+00:00',
                  'before_odometer': 100.0, 'after_odometer': 130.0, 'mileage': 30.0, 'echo_driving_index': 95.0, 'max_speed': 80},
-                {'use_start_dt': '2026-11-23T11:00:00.000+00:00', 'use_end_dt': '2026-11-23T11:00:00.000+00:00',
+                {'use_start_dt': '2026-11-23T02:00:00.000+00:00', 'use_end_dt': '2026-11-23T02:00:00.000+00:00',
                  'before_odometer': 130.0, 'after_odometer': 130.0, 'mileage': 0.0},                 # 시동만 — 뺌
-                {'use_start_dt': '2026-11-22T23:00:00.000+00:00', 'use_end_dt': '2026-11-23T00:10:00.000+00:00', 'mileage': 5.0}]}}
+                {'use_start_dt': '2026-11-22T14:00:00.000+00:00', 'use_end_dt': '2026-11-22T14:30:00.000+00:00', 'mileage': 5.0},   # 한국 11-22 23시 — 뺌
+                {'use_start_dt': '2026-11-22T16:00:00.000+00:00', 'use_end_dt': '2026-11-22T16:30:00.000+00:00', 'mileage': 4.0}]}}  # 한국 11-23 01시 — 넣음
         if path == up.APIS['safe']:
             return {'extensions': {'code': '20000000', 'totalRecord': 1, 'data': [
-                {'use_start_dt': '2026-11-23T09:00:00.000+00:00', 'safe_driving_index': 70.0, 'rapid_acceleration': 3, 'max_speed': 120}]}}
+                {'use_start_dt': '2026-11-23T00:00:00.000+00:00', 'safe_driving_index': 70.0, 'rapid_acceleration': 3, 'max_speed': 120}]}}
         raise AssertionError(path)
     monkeypatch.setattr(up, '_post', fake_post)
     out = up.trips(RAY, DAY)
-    assert len(out) == 1
-    t = out[0]
-    assert (t['start'], t['km'], t['eco'], t['safe'], t['rapid_acc'], t['max_speed']) == (T('09:00'), 30.0, 95.0, 70.0, 3, 120)
-    monkeypatch.setenv('UPLUS_TIME_UTC', '1')
-    assert up.parse_time('2026-11-23T00:30:00.000+00:00') == datetime(2026, 11, 23, 9, 30)
+    assert ranges == [('2026-11-22 00:00:00', '2026-11-23 23:59:59')]      # 한국 하루가 넘어가도록 전날부터
+    assert [t['start'] for t in out] == [T('01:00'), T('09:00')]
+    t = out[1]
+    assert (t['start'], t['end'], t['km'], t['eco'], t['safe'], t['rapid_acc'], t['max_speed']) ==         (T('09:00'), T('10:00'), 30.0, 95.0, 70.0, 3, 120)
+    assert out[0]['safe'] is None and out[0]['rapid_acc'] is None                  # 안전운전 짝 없음 → 모름
+
+
+def test_uplus_time_zone_per_api(monkeypatch):
+    """11-25 개발기: 표기는 모두 +00:00 인데 상태·경제·안전 운전은 세계 표준시, 경로는 한국 시각."""
+    monkeypatch.delenv('UPLUS_UTC_APIS', raising=False)
+    s = '2026-11-24T09:05:16.000+00:00'
+    assert up.parse_time(s, 'eco') == datetime(2026, 11, 24, 18, 5, 16)
+    assert up.parse_time(s, 'status') == datetime(2026, 11, 24, 18, 5, 16)
+    assert up.parse_time('2026-11-24 18:05:16', 'route_day') == datetime(2026, 11, 24, 18, 5, 16)
+    assert up.parse_time(s) == datetime(2026, 11, 24, 9, 5, 16)                   # API 를 안 밝히면 그대로
+    monkeypatch.setenv('UPLUS_UTC_APIS', 'status')                                  # 운영에서 다르면 .env 로
+    assert up.parse_time(s, 'eco') == datetime(2026, 11, 24, 9, 5, 16)
+    assert up.parse_time(s, 'status') == datetime(2026, 11, 24, 18, 5, 16)
 
 
 def test_now_menu_open_without_keys(monkeypatch):

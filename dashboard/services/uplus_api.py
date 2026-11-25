@@ -14,8 +14,12 @@
 - UPLUS_APP_<이름>         API 마다 받은 application_id. 이름 = 아래 APIS 의 키를 대문자로(UPLUS_APP_STATUS 등)
 - UPLUS_VERIFY_SSL         기본 1. 호스트가 IP 라 인증서가 안 맞으면 개발기 시험 때 0 으로(확인 필요)
 
-⚠️ 승인 뒤 개발기 시험에서 확인할 것: created_at 시각대(+00:00 표기지만 예시는 한국 시각으로 보임),
-   key_state 값의 뜻(문서에 없음 — 그래서 운행 종료는 '한 자리에 오래 서 있음'으로 판단), 호출 한도.
+시각대(2026-11-25 개발기 시험으로 확인): 모두 '+00:00' 표기로 오지만 실제 기준이 API 마다 다르다.
+   차량 상태(created_at)·경제/안전 운전(use_start_dt·use_end_dt) = 세계 표준시 → 9시간 더함(UTC_APIS).
+   경로(하루, gpsDttm·created_at) = 한국 시각 그대로. 근거: 같은 운행이 경제 운전 09:05~09:57, 경로 18:05~18:57.
+   단말 상태(disability_dt)는 시험 자료에 값이 없어 미확인 — 한국 시각으로 둔다(U+ 문의 중).
+위치: 차량 상태 응답엔 위도·경도 칸이 없다(개발기) → 위치 API(getRentCarLocation)를 차 번호로 붙인다.
+⚠️ 아직 확인할 것: key_state 값의 뜻(문서에 없음 — 그래서 운행 종료는 '한 자리에 오래 서 있음'으로 판단), 호출 한도.
 """
 from __future__ import annotations
 
@@ -186,14 +190,20 @@ def _num(x) -> Optional[float]:
     return v
 
 
-def _utc() -> bool:
-    """U+ 시각이 세계 표준시(UTC)로 오면 1 — 9시간 더한다. 규격서 예시는 한국 시각으로 보여 기본 0(승인 뒤 확인)."""
-    return (os.getenv('UPLUS_TIME_UTC', '0').strip().lower() in ('1', 'true', 'yes'))
+KST = timedelta(hours=9)
+# 시각이 세계 표준시로 오는 API(11-25 개발기 확인). 운영에서 다르면 .env UPLUS_UTC_APIS=status,eco,safe 처럼 바꾼다.
+UTC_APIS_DEFAULT = ('status', 'eco', 'safe')
 
 
-def parse_time(s) -> Optional[datetime]:
+def _utc(api: str) -> bool:
+    raw = os.getenv('UPLUS_UTC_APIS')
+    names = UTC_APIS_DEFAULT if raw is None else tuple(x.strip() for x in raw.split(',') if x.strip())
+    return api in names
+
+
+def parse_time(s, api: str = '') -> Optional[datetime]:
     """'2025-05-16 15:17:00.0' · '2025-03-17T20:04:27.000+00:00' → 한국 시각(naive).
-    +00:00 표기지만 규격서 예시는 한국 시각으로 보여 시각대를 바꾸지 않는다(UPLUS_TIME_UTC=1 이면 +9시간)."""
+    표기(+00:00)는 믿지 않는다 — api 가 세계 표준시로 오는 API(_utc)면 9시간 더하고, 아니면 그대로."""
     s = str(s or '').strip()
     if not s:
         return None
@@ -205,7 +215,7 @@ def parse_time(s) -> Optional[datetime]:
     for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M'):
         try:
             t = datetime.strptime(s, fmt)
-            return t + timedelta(hours=9) if _utc() else t
+            return t + KST if api and _utc(api) else t
         except ValueError:
             pass
     return None
@@ -244,13 +254,16 @@ def trips(plate: str, day: str) -> List[Dict]:
     """하루 운행 — 경제운전(사용 시작·끝, 주행 전·후 계기판, 거리, 연료) + 안전운전(급가속 등 횟수)을 시작 시각으로 합침.
     [{'start', 'end'(datetime), 'odo_start', 'odo_end', 'km', 'fuel_ml', 'eco', 'safe', 'avg_speed', 'max_speed',
       'rapid_acc', 'rapid_dec', 'sudden_stop', 'rapid_turn', 'rapid_u_turn', 'rapid_lane', 'rapid_pass'}]
-    시작·끝이 같고 거리가 0 인 줄(시동만 켬)은 뺀다."""
-    rng = {'vehicle_number': plate, 'start_date': f'{day} 00:00:00', 'end_date': f'{day} 23:59:59'}
+    시작·끝이 같고 거리가 0 인 줄(시동만 켬)은 뺀다.
+    시각이 세계 표준시라 한국 날짜 하루(전날 15시~그날 15시 UTC)가 조회 범위를 넘는다 — U+ 가 범위를 어느 시각대로
+    거르는지 몰라 전날 0시부터 넓게 받고, 한국 시각으로 바꾼 시작 날짜로 거른다(11-25)."""
+    prev = (date.fromisoformat(day) - timedelta(days=1)).isoformat()
+    rng = {'vehicle_number': plate, 'start_date': f'{prev} 00:00:00', 'end_date': f'{day} 23:59:59'}
     eco = _pages('eco', rng) if enabled('eco') else []
     safe = {str(d.get('use_start_dt')): d for d in (_pages('safe', rng) if enabled('safe') else [])}
     out = []
     for d in eco:
-        st, en = parse_time(d.get('use_start_dt')), parse_time(d.get('use_end_dt'))
+        st, en = parse_time(d.get('use_start_dt'), 'eco'), parse_time(d.get('use_end_dt'), 'eco')
         if not st or st.date().isoformat() != day:
             continue
         o1, o2 = _num(d.get('before_odometer')), _num(d.get('after_odometer'))
@@ -285,7 +298,7 @@ def route_day(plate: str, day: str) -> List[Tuple[datetime, float, float]]:
         data = data[0] if data else {}
     pts, last = [], None
     for p in (data.get('location') or []):
-        t = parse_time(p.get('created_at'))
+        t = parse_time(p.get('gpsDttm') or p.get('created_at'), 'route_day')
         lat, lon = _num(p.get('latitude')), _num(p.get('longitude') or p.get('logitude'))
         if not t or not lat or not lon or abs(lat) < 1:
             continue
@@ -298,17 +311,20 @@ def route_day(plate: str, day: str) -> List[Tuple[datetime, float, float]]:
     return pts
 
 
-def locations() -> List[Dict]:
-    """모든 차 마지막 위치 — [{'plate', 'lat', 'lon'}]. 위치 API 가 없으면 차량 상태로."""
-    if not enabled('location'):
-        return [{'plate': s['plate'], 'lat': s['lat'], 'lon': s['lon'], 'at': s['at'], 'speed': s['speed']}
-                for s in car_status() if s['lat'] is not None]
-    out = []
+def _location_map() -> Dict[str, Tuple[float, float]]:
+    """위치 API — 차 번호 → (위도, 경도). 같은 번호가 여러 줄이면 첫 줄(개발기 시험 자료에 있음). 시각 칸은 없다."""
+    out: Dict[str, Tuple[float, float]] = {}
     for d in _pages('location', {}):
         lat, lon = _num(d.get('latitude')), _num(d.get('longitude') or d.get('logitude'))
-        if lat and lon and abs(lat) > 1:
-            out.append({'plate': _plate(d), 'lat': lat, 'lon': lon, 'at': None, 'speed': None})
+        if lat and lon and abs(lat) > 1 and abs(lon) > 1:
+            out.setdefault(_plate(d), (lat, lon))
     return out
+
+
+def locations() -> List[Dict]:
+    """모든 차 마지막 위치 — [{'plate', 'lat', 'lon', 'at', 'speed'}] (차량 상태 + 위치 API 를 합친 것)."""
+    return [{'plate': s['plate'], 'lat': s['lat'], 'lon': s['lon'], 'at': s['at'], 'speed': s['speed']}
+            for s in car_status() if s['lat'] is not None]
 
 
 def vehicles() -> List[Dict]:
@@ -322,7 +338,7 @@ def device_status(day: str) -> List[Dict]:
     """단말 상태(그날) — [{'plate', 'model', 'status', 'fault_at'(datetime|None), 'memo'}]."""
     rows = _pages('device_status', {'start_date': f'{day} 00:00:00', 'end_date': f'{day} 23:59:59'})
     return [{'plate': _plate(d), 'model': d.get('model_name') or d.get('model_no') or '', 'status': str(d.get('status') or ''),
-             'fault_at': parse_time(d.get('disability_dt')), 'memo': d.get('error_memo') or ''} for d in rows]
+             'fault_at': parse_time(d.get('disability_dt'), 'device_status'), 'memo': d.get('error_memo') or ''} for d in rows]
 
 
 def car_status() -> List[Dict]:
@@ -335,7 +351,7 @@ def car_status() -> List[Dict]:
         out.append({
             'plate': _plate(d),
             'lat': lat if ok else None, 'lon': lon if ok else None,
-            'at': parse_time(d.get('created_at')),
+            'at': parse_time(d.get('created_at'), 'status'),
             'speed': _num(d.get('velocity')),
             'key_state': str(d.get('key_state') or ''),
             'odometer': _num(d.get('cumulative_driving_distance') or d.get('odometer')),
@@ -343,4 +359,15 @@ def car_status() -> List[Dict]:
             'tpms': [_num(d.get(k)) for k in ('tpms_fl', 'tpms_fr', 'tpms_rl', 'tpms_rr')],
             'idle_sec': _num(d.get('idling_seconds')), 'soc': _num(d.get('soc')),
         })
+    # 차량 상태엔 위도·경도가 안 온다(11-25 개발기: 500대 중 0대) → 위치 API 를 차 번호로 붙인다.
+    #   위치 API 가 실패해도 상태(연료·전압·시동)는 그대로 돌려준다 — 위치만 비고, 남는 기록으로 알 수 있게.
+    if out and enabled('location') and any(s['lat'] is None for s in out):
+        try:
+            locs = _location_map()
+        except Exception as e:
+            logger.warning(f'[U+] 위치 API 실패 — 이번엔 위치 없이 상태만: {e}')
+            locs = {}
+        for s in out:
+            if s['lat'] is None and s['plate'] in locs:
+                s['lat'], s['lon'] = locs[s['plate']]
     return out

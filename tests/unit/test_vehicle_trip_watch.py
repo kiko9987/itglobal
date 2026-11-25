@@ -193,6 +193,40 @@ def test_uplus_parse_and_token_retry(monkeypatch):
     out = up.car_status()
     assert [p for p, _ in sent] == ['/v1/session', up.APIS['status'], '/v1/session', up.APIS['status']]   # 토큰 다시 받고 한 번 더
     assert sent[1][1]['application_id'] == 12 and sent[3][1]['token'] == 'tok3'
-    assert out[0]['plate'] == RAY and out[0]['lat'] == pytest.approx(37.559848) and out[0]['at'] == datetime(2026, 11, 25, 16, 2)
-    assert out[1]['lat'] is None and out[1]['at'] == datetime(2026, 11, 25, 15, 20)       # 위치 0 → 없음, +00:00 은 그대로
+    assert out[0]['plate'] == RAY and out[0]['lat'] == pytest.approx(37.559848) and out[0]['at'] == datetime(2026, 11, 26, 1, 2)
+    assert out[1]['lat'] is None and out[1]['at'] == datetime(2026, 11, 26, 0, 20)        # 위치 0 → 없음, 상태 시각은 세계 표준시 → +9시간
     assert up.parse_time('') is None and up.parse_time('2026-11-25 16:02') == datetime(2026, 11, 25, 16, 2)
+
+
+def test_car_status_takes_location_api(monkeypatch):
+    """11-25 개발기: 차량 상태엔 위도·경도가 없다 → 위치 API 를 차 번호로 붙인다. 위치 API 가 죽어도 상태는 그대로."""
+    for n in ('STATUS', 'LOCATION'):
+        monkeypatch.setenv(f'UPLUS_APP_{n}', '12')
+    monkeypatch.setenv('UPLUS_SECURE_KEY', 'test-key')
+    monkeypatch.setattr(up, '_tokens', {})
+    state = {'loc_fail': False}
+
+    def fake_post(path, body):
+        if path == '/v1/session':
+            return {'extensions': {'code': '20000000', 'data': [{'token': 't'}]}}
+        if path == up.APIS['status']:
+            return {'extensions': {'code': '20000000', 'totalRecord': 2, 'data': [
+                {'vehicle_number': RAY, 'created_at': '2026-11-25T03:53:53.000+00:00', 'fuel_level': 20.0, 'key_state': '0'},
+                {'vehicle_number': SPARK, 'created_at': '2026-11-25T03:41:16.000+00:00'}]}}
+        if path == up.APIS['location']:
+            if state['loc_fail']:
+                return {'message': '서버 오류', 'extensions': {'code': '50000000'}, '_http': 500}
+            return {'extensions': {'code': '20000000', 'totalRecord': 3, 'data': [
+                {'vehicle_number': RAY, 'latitude': '37.583532', 'longitude': '126.887128', 'vehicle_id': '1'},
+                {'vehicle_number': RAY, 'latitude': '37.1', 'longitude': '127.1', 'vehicle_id': '2'},     # 같은 번호 두 줄 → 첫 줄
+                {'vehicle_number': '12가3456', 'latitude': '37.5', 'longitude': '126.9'}]}}
+        raise AssertionError(path)
+    monkeypatch.setattr(up, '_post', fake_post)
+    out = {s['plate']: s for s in up.car_status()}
+    assert (out[RAY]['lat'], out[RAY]['lon']) == (pytest.approx(37.583532), pytest.approx(126.887128))
+    assert out[RAY]['at'] == datetime(2026, 11, 25, 12, 53, 53) and out[RAY]['fuel'] == 20.0
+    assert out[SPARK]['lat'] is None and '12가3456' not in out                       # 상태에 없는 차는 만들지 않음
+    assert [loc['plate'] for loc in up.locations()] == [RAY]
+    state['loc_fail'] = True
+    out = up.car_status()
+    assert len(out) == 2 and all(s['lat'] is None for s in out) and out[0]['fuel'] == 20.0
