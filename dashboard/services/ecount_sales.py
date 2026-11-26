@@ -471,17 +471,18 @@ def vat_edit_plan(e: dict) -> Optional[Tuple[str, Optional[Tuple[str, int, int]]
     if e['kind'] == '부가세 변경' and not flip:      # 일부만 부가세 없음(나눠 내는 공사)
         part = round(abs(v1 - v0) * 10)
         if v1 < v0:
-            return (f"원래 매출전표를 공급가액 {s1 - part:,}원·부가세 {v1:,}원으로 고치고, "
-                    f"부가세 없는 몫 {part:,}원은 이 줄로 붙여넣어 주세요.", (VAT_TYPE_NONE, part, 0))
-        return (f"원래 매출전표를 공급가액 {s1 - part:,}원·부가세 없음으로 고치고, "
+            # 매출전표가 여러 장일 수 있어(G4151: 원래 + 수정 −300,000) 한 장이 아니라 공사 합계로 말한다
+            return (f"원래 매출전표를 고쳐 이 공사의 계산서 매출 합계가 공급가액 {s1 - part:,}원·부가세 {v1:,}원이 "
+                    f"되게 하고, 부가세 없는 몫 {part:,}원은 이 줄로 붙여넣어 주세요.", (VAT_TYPE_NONE, part, 0))
+        return (f"원래 매출전표를 고쳐 이 공사의 부가세 없는 매출 합계가 공급가액 {s1 - part:,}원이 되게 하고, "
                 f"부가세 있는 몫 {part:,}원은 이 줄로 붙여넣어 주세요.", (VAT_TYPE, part, v1))
     # 부가세 있음 ↔ 없음
     if not v1:
-        fix = f"원래 매출전표를 열어 부가세를 없음으로 고쳐 주세요(부가세유형 1Z, 공급가액 {s0:,}원 그대로)."
+        fix = f"이 공사 원래 매출전표의 부가세를 없음으로 고쳐 주세요(부가세유형 1Z, 공급가액 합계 {s0:,}원 그대로)."
         orig_vat = 0
     else:
         orig_vat = round(s0 * 0.1) if s1 != s0 else v1
-        fix = f"원래 매출전표를 열어 부가세 {orig_vat:,}원을 넣어 주세요(부가세유형 11, 공급가액 {s0:,}원 그대로)."
+        fix = f"이 공사 원래 매출전표에 부가세를 넣어 합계 {orig_vat:,}원이 되게 해 주세요(부가세유형 11, 공급가액 합계 {s0:,}원 그대로)."
     if s1 == s0:
         return fix + ' 새 전표는 넣지 않아요.', None
     ds, dv = s1 - s0, v1 - orig_vat

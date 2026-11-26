@@ -131,14 +131,14 @@ def test_vat_edit_plan_like_sb():
     나눠 내는 공사의 일부 현금 몫은 원래 전표를 계산서 몫으로 고치고 부가세 없는 몫 한 장 추가."""
     whole = _item('G3288-SH', '부가세 변경', 0, -900_000, partner='거래처', sent=(9_000_000, 900_000), target=(9_000_000, 0))
     r = es.upload_rows([whole])['sales'][0]
-    assert r['cells'] is None and '부가세를 없음으로 고쳐' in r['guide'] and '9,000,000원 그대로' in r['guide']         and '새 전표는 넣지 않아요' in r['guide']
+    assert r['cells'] is None and '부가세를 없음으로 고쳐' in r['guide'] and '공급가액 합계 9,000,000원 그대로' in r['guide']         and '새 전표는 넣지 않아요' in r['guide']
     part = _item('G4156-JW', '부가세 변경', 0, -161_350, partner='거래처', sent=(3_527_000, 352_700), target=(3_527_000, 191_350))
     r = es.upload_rows([part])['sales'][0]
     assert (r['cells'][1], r['cells'][4], r['cells'][7]) == ('1Z', '1613500', '')
-    assert '공급가액 1,913,500원·부가세 191,350원으로 고치고' in r['guide'] and '1,613,500원' in r['guide']
+    assert '계산서 매출 합계가 공급가액 1,913,500원·부가세 191,350원이' in r['guide'] and '1,613,500원' in r['guide']
     on = _item('G4208-MJ', '부가세 변경', 0, 280_000, sent=(2_800_000, 0), target=(2_800_000, 280_000))
     r = es.upload_rows([on])['sales'][0]
-    assert r['cells'] is None and '부가세 280,000원을 넣어' in r['guide']
+    assert r['cells'] is None and '합계 280,000원이 되게' in r['guide']
     both = _item('G4083-YG', '금액 변경', 400_000, -550_000, sent=(5_500_000, 550_000), target=(5_900_000, 0))
     r = es.upload_rows([both])['sales'][0]                  # G4083: 원래 전표 vat 제외 + 40만원 새 줄
     assert (r['cells'][1], r['cells'][4], r['cells'][7]) == ('1Z', '400000', '') and '부가세를 없음으로' in r['guide']
