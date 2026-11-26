@@ -5666,6 +5666,41 @@ def _pinv_grn_mismatch_once(view, code: str) -> str:
         return ''
 
 
+_PINV_EXPAND_NOTE = ('💸 이체 칸이 열렸어요. 아래 계좌·내용을 확인하고 [지정]을 한 번 더 눌러 주세요. '
+                     '(「이체 필요」를 체크하면 칸이 열리기까지 1~2초 걸려요)')
+
+
+def _pinv_expand_if_loading(view) -> Optional[dict]:
+    """「이체 필요」를 체크했는데 이체 칸이 아직 없는 창으로 제출했으면 펼친 창(입력값 유지 + 안내)을, 아니면 None.
+
+    체크하면 서버가 창을 다시 그려 이체 칸을 펼치는데 1~2초 걸린다. 그 사이 [지정]을 누르면 지정만 되고
+    자금집행은 조용히 안 올라갔다(11-26 KiKO — 매니저들이 자주 그랬고 나중에 다시 지정했다)."""
+    from dashboard.services import purchase_invoice_assign as pinv
+    vals = (view.get('state') or {}).get('values') or {}
+    if not pinv.transfer_requested(vals) or 'payee_name' in vals:
+        return None
+    try:
+        meta = json.loads(view.get('private_metadata') or '{}')
+        new = _pinv_modal_for(meta, transfer=True)
+        _carry_state(new, vals)
+        new['blocks'].insert(0, {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': _PINV_EXPAND_NOTE}]})
+        return new
+    except Exception as exc:
+        logger.warning(f'[SLACK/현장지정] 제출 때 이체 칸 펼치기 실패: {exc}')
+        return None
+
+
+def _carry_state(view: dict, vals: dict) -> None:
+    """새로 그린 창에 지금까지 고르고 적은 값을 초기값으로 옮긴다(고르기·글 칸)."""
+    for b in view.get('blocks') or []:
+        el = b.get('element') or {}
+        st = (vals.get(b.get('block_id')) or {}).get(el.get('action_id')) or {}
+        if st.get('selected_option'):
+            el['initial_option'] = st['selected_option']
+        elif st.get('value'):
+            el['initial_value'] = st['value']
+
+
 def _validate_pinv_submit(view) -> dict:
     """제출 직후 동기 검사 — 「이체 필요」면 이체 칸·전자결재 봇 설정 확인. {block_id: 문구}"""
     from dashboard.services import purchase_invoice_assign as pinv
@@ -6061,6 +6096,10 @@ def _register_invoice_handlers(app):
         deny = _pinv_deny(body, view)
         if deny:
             ack(response_action='errors', errors={'project': deny[:150]})
+            return
+        expanded = _pinv_expand_if_loading(view)
+        if expanded:   # 「이체 필요」를 체크했는데 계좌 칸이 펼쳐지기 전에 [지정]을 눌렀다 — 창을 닫지 않고 펼친다
+            ack(response_action='update', view=expanded)
             return
         errs = _validate_pinv_submit(view)
         if errs:
