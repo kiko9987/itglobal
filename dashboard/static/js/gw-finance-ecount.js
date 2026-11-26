@@ -58,7 +58,10 @@
   function load(refresh) {
     $('feRefresh').disabled = true;
     return api('/api/finance/ecount' + (refresh ? '?refresh=1' : '')).then(function (j) {
-      S.sales = j.sales || [];
+      // 바로 넣을 줄을 위로, 확인이 필요한 줄(확인할 점·원래 전표 고치기)은 아래로 — 표 안 차례는 그대로(11-26 부장님)
+      S.sales = (j.sales || []).map(function (r, i) { r._i = i; return r; }).sort(function (a, b) {
+        return (ready(a) ? 0 : 1) - (ready(b) ? 0 : 1) || a._i - b._i;
+      });
       S.excludeOk = !!j.exclude_ok;
       S.projects = j.projects || [];
       // 처음 열 때 새 프로젝트가 있으면 ① 프로젝트 등록부터, 없으면 ② 매출전표
@@ -92,11 +95,23 @@
     $('feCntSales').textContent = S.sales.length;
     $('feCntProjects').textContent = S.projects.length;
 
+    var divided = false;
     $('feSales').innerHTML = S.sales.length ? S.sales.map(function (r) {
       var on = !!S.pick.sales[r.key];
+      var divider = '';
+      if (ready(r) && r === S.sales[0]) {
+        var nReady = S.sales.filter(ready).length;
+        divider = '<tr class="gw-fe-divider gw-fe-divider-ok"><td colspan="10"><i class="fas fa-circle-check me-1" aria-hidden="true"></i>' +
+          '바로 붙여넣어도 되는 줄 ' + nReady + '건 — 아무것도 고르지 않고 [표 복사]를 누르면 이 줄들만 복사돼요.</td></tr>';
+      }
+      if (!ready(r) && !divided) {
+        divided = true;
+        divider = '<tr class="gw-fe-divider"><td colspan="10"><i class="fas fa-triangle-exclamation me-1" aria-hidden="true"></i>' +
+          '확인·수정이 필요한 줄 ' + S.sales.filter(function (x) { return !ready(x); }).length + '건 — 확인할 점을 보고, 원래 전표를 고칠 줄은 먼저 고친 뒤 골라서 복사해 주세요. 고르지 않으면 복사되지 않아요.</td></tr>';
+      }
       var warn = r.warn.map(function (w) { return '<span class="gw-badge gw-badge-wait">' + esc(w) + '</span>'; }).join(' ');
       var kindCls = r.kind === '공사 확정' ? 'gw-badge-active' : (r.kind === '공사 취소' ? 'gw-badge-reject' : 'gw-badge-wait');
-      return '<tr data-key="' + esc(r.key) + '"' + (r.warn.length ? ' class="gw-fe-warnrow"' : '') + '>' +
+      return divider + '<tr data-key="' + esc(r.key) + '"' + (r.warn.length ? ' class="gw-fe-warnrow"' : '') + '>' +
         '<td class="gw-fe-chk"><input type="checkbox" class="form-check-input" data-pick="sales" value="' + esc(r.key) + '"' + (on ? ' checked' : '') +
           ' aria-label="' + esc(r.code + ' 고르기') + '"></td>' +
         '<td class="text-nowrap">' + esc(md(r.date)) + '</td>' +
@@ -162,18 +177,23 @@
     ev.target.setAttribute('data-edited', '1');
   });
 
+  function ready(r) { return !!r.cells && !(r.warn && r.warn.length) && !r.guide; }
   function picked(t) { return S[t].filter(function (r) { return S.pick[t][r.key]; }); }
   function copyable(rows) { return rows.filter(function (r) { return !!r.cells; }); }   // 고치기만 하는 줄은 복사 안 함
+  // 고르지 않고 복사할 때 들어가는 줄 — 매출전표는 확인할 점·고치기 안내가 없는 줄만(11-26 부장님 '전체 복사하면 안 되잖아')
+  function defaults(t) { return t === 'sales' ? S.sales.filter(ready) : S[t]; }
   function syncPick() {
-    var t = S.tab, n = picked(t).length, all = S[t].length, can = copyable(S[t]).length;
-    $('fePick').textContent = n ? n + '줄 골랐어요' : (can ? '고르지 않으면 붙여넣을 줄 전체(' + can + '줄)를 복사해요' : '');
+    var t = S.tab, n = picked(t).length, all = S[t].length, can = defaults(t).length;
+    $('fePick').textContent = n ? n + '줄 골랐어요'
+      : t === 'sales' ? (can ? '고르지 않으면 바로 넣을 줄(' + can + '줄)만 복사해요. 확인이 필요한 줄은 골라서 복사해요' : '바로 넣을 줄이 없어요. 확인이 필요한 줄은 골라서 복사해요')
+      : (can ? '고르지 않으면 표 전체(' + can + '줄)를 복사해요' : '');
     $('feDone').hidden = t !== 'sales';
     $('feExclude').hidden = t !== 'sales' || !S.excludeOk;
     $('feDone').disabled = $('feExclude').disabled = !picked('sales').length;
     var box = $(t === 'sales' ? 'feAllSales' : 'feAllProjects');
     box.checked = !!all && n === all;
     box.indeterminate = n > 0 && n < all;
-    $('feCopy').disabled = !can;
+    $('feCopy').disabled = !copyable(S[t]).length;
   }
 
   // ── 탭 ──
@@ -254,7 +274,7 @@
   }
   $('feCopy').addEventListener('click', function () {
     var t = S.tab, rows = copyable(picked(t));
-    if (!picked(t).length) rows = copyable(S[t]);
+    if (!picked(t).length) rows = defaults(t);
     if (!rows.length) { msg('고른 줄은 이카운트에서 원래 전표를 고치는 줄이라 복사할 게 없어요.', 'err'); return; }
     var text = rows.map(function (r) { return cellsOf(r, t).map(clean).join('\t'); }).join('\r\n');
     copyText(text).then(function () {
