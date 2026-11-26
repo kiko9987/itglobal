@@ -73,22 +73,37 @@ def test_confirmed_month_and_validation(slack):
     assert not r['picked'] and not r['warn']
 
 
-# ── 선택 완료 → 모두 완료하면 자동 결재(11-25 부장님) ─────────────────────────
-def test_done_by_everyone_auto_submits(slack):
+# ── 선택 완료 → 모두 완료하면 취합 담당(SJ)이 검토하고 결재(11-27 부장님 회의. 11-25 엔 자동 결재) ──────────
+def test_done_by_everyone_asks_coordinator_to_review(slack):
     so.toggle(S5, '영업가', True, A, '영업가', TODAY)
     for sid, nm in ((A, '영업가'), (B, '영업나'), (C, '영업다')):
         r = so.mark_done(DEC, sid, nm, True, TODAY)
-        assert not r['submitted'] and r['left']
+        assert not r['submitted'] and not r['all_done'] and r['left']
     v = so.view(DEC, B, '영업나', TODAY)
     assert v['my_done'] and v['can_done'] and sorted(v['done']) == ['영업가', '영업나', '영업다']
     r = so.mark_done(DEC, CO, '빈대리', True, TODAY)          # 마지막 한 명(쉬는 날 없어도)
-    assert r['submitted'] and r['left'] == []
-    row = so.month_row(DEC)
-    assert row['status'] == so.WAIT and row['submitted_by'] == so.AUTO_SUBMITTER
+    assert r['all_done'] and not r['submitted'] and r['left'] == []
+    assert so.month_row(DEC)['status'] == so.OPEN               # 자동으로 올라가지 않음 — SJ 가 검토
+    so.notify('all_done', DEC, '빈대리')
+    assert any('대상자 모두 완료' in t and '[결재 올리기]' in t and '12/5(토) 영업가' in t for t in slack.to(CO))
+    so.submit(DEC, CO, '빈대리', TODAY)
+    assert so.month_row(DEC)['status'] == so.WAIT
     with pytest.raises(so.SatOffError, match='결재'):
         so.mark_done(DEC, A, '영업가', False, TODAY)                          # 올라간 뒤엔 다시 선택 못 함
     so.decide(DEC, False, JW, '박정우', '다시 조율')                           # 돌려보내면 선택 완료를 다시 받음
     assert so.done_names(DEC) == [] and so.month_row(DEC)['status'] == so.OPEN
+
+
+def test_coordinator_picks_everyone_in_open_month(slack):
+    """SJ(취합 담당)만 작성 중인 달 토요일 창에서 모두를 체크 — 일반 매니저는 자기 이름만(11-27 부장님 회의)."""
+    assert so.view(DEC, CO, '빈대리', TODAY)['pick_others']
+    assert not so.view(DEC, A, '영업가', TODAY)['pick_others']
+    so.toggle(S5, '영업가', True, CO, '빈대리', TODAY)                      # SJ 가 남의 이름 넣기
+    assert so.picks(DEC)['2026-12-05'] == ['영업가']
+    with pytest.raises(PermissionError):
+        so.toggle(S5, '영업나', True, A, '영업가', TODAY)                  # 일반 매니저는 남의 이름 못 넣음
+    _confirm()
+    assert not so.view(DEC, CO, '빈대리', TODAY)['pick_others']          # 확정 뒤엔 변경 신청으로
 
 
 def test_done_rules_and_reminder(slack, monkeypatch):

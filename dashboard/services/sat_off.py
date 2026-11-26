@@ -316,7 +316,15 @@ def worked(month: str) -> List[dict]:
 
 def approvers() -> List[dict]:
     """구두 승인할 수 있는 분 [{name, slack_id}] — 휴가 승인권자(박정우·박용구) 순서대로, 인사카드 이름."""
-    ids = approver_ids()
+    return _people(approver_ids())
+
+
+def coordinators() -> List[dict]:
+    """취합 담당 [{name, slack_id}] — 모두 선택 완료하면 검토하고 결재를 올리는 사람(11-27 회의: 빈승정 매니저)."""
+    return _people(coordinator_ids())
+
+
+def _people(ids) -> List[dict]:
     if not ids:
         return []
     with lv._conn() as conn:
@@ -524,7 +532,9 @@ def view(month: str, sid: str, name: str, today: Optional[date] = None, admin: b
         'worked': [dict(w, can_undo=w['name'] == name or r['manager'] or r['approver']) for w in wk],
         'full_days': full_days(month),           # 전체 휴무 토요일 {날짜: 메모}(11-25). 지정·풀기 권한은 화면 API(can_full_off)
         'can_toggle': can_edit_open or edit,
-        'pick_others': edit,               # 남의 이름도 넣고 뺄 수 있음 — 관리자만(11-25 부장님. 취합 담당도 본인만)
+        # 토요일 창에서 남의 이름도 체크 — 관리자, 그리고 작성 중인 달의 취합 담당(SJ)(11-27 부장님 회의: SJ 가 검토하고
+        # 제출. 일반 매니저와 다른 건 창에서 모두를 체크할 수 있느냐뿐)
+        'pick_others': edit or (st == OPEN and r['coordinator']),
         'can_submit': st == OPEN and r['manager'] and in_range,
         'can_decide': st == WAIT and r['approver'],
         'can_request_change': st == CONFIRMED and (r['member'] or r['manager']) and not r['approver'] and not my_wait,
@@ -533,7 +543,8 @@ def view(month: str, sid: str, name: str, today: Optional[date] = None, admin: b
         'notify_fail': notify_fail(month),       # 마지막 처리의 슬랙 알림을 못 보냈으면 그 문구(11-24)
         # 휴무 메모(11-25) — 모두 봄. 쓰기·지우기 = 로그인한 본인(대상자)만. 공통 메모는 없앰(부장님)
         'memos': mm['items'],
-        # 선택 완료(11-25) — 모두 누르면 자동 결재. 취합 담당의 [결재 올리기]는 비상용
+        # 선택 완료(11-25) — 모두 누르면 취합 담당(SJ)이 검토하고 [결재 올리기](11-27)
+        'coordinators': [x['name'] for x in coordinators()],
         'done': dn, 'my_done': name in dn, 'can_done': st == OPEN and in_range and r['member'],
         'auto_submitter': AUTO_SUBMITTER,
         'can_memo': in_range and r['member'],          # 본인만(11-25 부장님 — 대신 적기 없음)
@@ -602,8 +613,10 @@ def toggle(day: Optional[date], target: str, on: bool, sid: str, actor_name: str
     m = _member(target, day.replace(day=1) if day else None)
     if not m:
         raise SatOffError(f'{target} 님은 스케줄 근무 대상(기술영업)이 아니에요.')
-    if target != actor_name and not edit:      # 남의 이름 = 관리자(승인권자 포함)만(11-25 부장님 — 달력은 본인 신청만)
-        raise PermissionError('다른 사람 이름은 관리자만 넣거나 뺄 수 있어요.')
+    # 남의 이름 = 관리자(승인권자 포함), 그리고 작성 중인 달의 취합 담당(SJ)(11-27 부장님 회의 — SJ 가 검토하고 제출.
+    # 11-25 에는 '달력은 본인 신청만'으로 취합 담당도 막았었음)
+    if target != actor_name and not (edit or (r['coordinator'] and month_row(month)['status'] == OPEN)):
+        raise PermissionError('다른 사람 이름은 취합 담당과 관리자만 넣거나 뺄 수 있어요.')
     if target == actor_name and not (r['member'] or r['manager']):
         raise PermissionError('스케줄 근무 대상이 아니에요.')
     st = month_row(month)['status']
@@ -707,8 +720,8 @@ def done_names(month: str) -> List[str]:
 
 
 def mark_done(month: str, sid: str, actor_name: str, on: bool = True, today: Optional[date] = None) -> dict:
-    """본인 [선택 완료](on)·[다시 선택](off) — 작성 중인 달만. 대상자가 모두 완료하면 자동으로 결재를 올린다.
-    반환 {done, submitted, left: [아직인 이름]}."""
+    """본인 [선택 완료](on)·[다시 선택](off) — 작성 중인 달만. 대상자가 모두 완료하면 all_done — 취합 담당(SJ)이
+    검토한 뒤 [결재 올리기](11-27 부장님 회의. 11-25 에는 자동으로 결재가 올라갔음). 반환 {done, submitted, all_done, left}."""
     today = today or date.today()
     r = role(sid, actor_name, _first(month))
     if not r['member']:
@@ -725,14 +738,7 @@ def mark_done(month: str, sid: str, actor_name: str, on: bool = True, today: Opt
         _log(conn, actor_name, 'done', month, '선택 완료' if on else '선택 완료 취소(다시 선택)')
     done = set(done_names(month))
     left = [m['name'] for m in members(_first(month)) if m['name'] not in done]
-    submitted = False
-    if on and not left:
-        try:
-            _do_submit(month, AUTO_SUBMITTER, today, allow_empty=True)
-            submitted = True
-        except SatOffError as e:              # 그사이 누가 올렸으면 그대로
-            logger.info(f'{_LOG} {month} 자동 결재 건너뜀: {e}')
-    return {'done': on, 'submitted': submitted, 'left': left}
+    return {'done': on, 'submitted': False, 'all_done': bool(on and not left), 'left': left}
 
 
 def submit(month: str, sid: str, actor_name: str, today: Optional[date] = None) -> dict:
@@ -1080,6 +1086,11 @@ def notify(kind: str, month: str, actor: str, change: Optional[dict] = None, not
                 to = list(dict.fromkeys(to + [m['slack_id'] for m in members(_first(month)) if m['slack_id']]))
                 _dm_some(client, to, f'↩️ {t} 스케줄 근무표를 {actor} 님이 돌려보냈어요.\n사유: {note}\n'
                                      '휴무를 고친 뒤 다시 [선택 완료]를 눌러 주세요.', month, f'{t} 스케줄 근무표 돌려보냄')
+        elif kind == 'all_done':
+            # 대상자 모두 선택 완료(11-27) — 취합 담당(SJ)이 검토하고 결재를 올림
+            _dm_some(client, coordinator_ids(), f'📅 {t} 스케줄 근무 휴무 선택을 대상자 모두 완료했어요. '
+                                                f'검토한 뒤 [결재 올리기]를 눌러 주세요.\n토요일에 쉬는 사람\n{schedule_text(month)}',
+                     month, f'{t} 스케줄 근무 검토 요청')
         elif kind == 'change_request' and change:
             text = (f"🔁 *{change['name']} 님 스케줄 근무 변경 신청* ({t})\n쉬는 토요일: {change['what']}\n"
                     f"사유: {change.get('reason') or ''}\n두 분 중 한 분이 승인하면 바뀌어요.")

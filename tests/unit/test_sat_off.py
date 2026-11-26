@@ -116,10 +116,10 @@ def test_no_monthly_limit_and_only_admin_picks_others(slack):
     r = so.toggle(S19, '영업나', True, B, '영업나', TODAY)
     assert r['count'] == 3 and r['warn'] == ''
     with pytest.raises(PermissionError, match='관리자'):
-        so.toggle(S26, '영업나', True, CO, '빈대리', TODAY)
+        so.toggle(S26, '영업나', True, A, '영업가', TODAY)                     # 일반 매니저는 남의 이름 못 넣음
     so.toggle(S26, '영업나', True, 'UMW', '박민우', TODAY, admin=True)          # 관리자는 남의 이름도
     v = so.view(DEC, CO, '빈대리', TODAY)
-    assert not v['pick_others'] and v['can_submit'] and not v['can_decide'] and 'limit' not in v
+    assert v['pick_others'] and v['can_submit'] and not v['can_decide'] and 'limit' not in v   # SJ 는 모두 체크(11-27)
     assert so.view(DEC, JW, '박정우', TODAY)['pick_others']
     assert {m['name']: m['count'] for m in v['members']}['영업나'] == 4
 
@@ -466,8 +466,8 @@ def test_half_cap_per_saturday(slack):
     so.toggle(S5, '영업나', True, B, '영업나', TODAY)
     with pytest.raises(so.SatOffError, match='절반\(2명\)'):
         so.toggle(S5, '영업다', True, C, '영업다', TODAY)                 # 본인
-    with pytest.raises(PermissionError):
-        so.toggle(S5, '영업다', True, CO, '빈대리', TODAY)                # 취합 담당은 남의 이름 못 넣음(11-25)
+    with pytest.raises(so.SatOffError, match='절반'):
+        so.toggle(S5, '영업다', True, CO, '빈대리', TODAY)                # 취합 담당(SJ)도 절반 제한은 같음(11-27)
     assert so.picks(DEC)['2026-12-05'] == ['영업가', '영업나']             # 막히면 저장 안 됨
     r = so.toggle(S5, '영업다', True, JW, '박정우', TODAY)                # 승인권자는 예외(전체 휴무 등) — 경고만
     assert '절반(2명)' in r['warn'] and len(r['names']) == 3

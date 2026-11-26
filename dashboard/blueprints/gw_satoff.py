@@ -172,7 +172,7 @@ def api_submit():
 @gw_satoff_bp.route('/api/satoff/done', methods=['POST'])
 @gw_page
 def api_done():
-    """본인 [선택 완료](on)·[다시 선택](off, 11-25 부장님). 대상자 모두 완료면 자동 결재 + 승인권자 알림."""
+    """본인 [선택 완료](on)·[다시 선택](off, 11-25 부장님). 대상자 모두 완료면 취합 담당(SJ)에게 검토 알림(11-27)."""
     body = request.get_json(silent=True) or {}
     on = body.get('on', True) is not False
     try:
@@ -181,9 +181,9 @@ def api_done():
         res = so.mark_done(m, sid, name, on)
     except Exception as e:
         return _err(e)
-    logger.info(f'[토요휴무] {m} {name} 선택 완료 {"누름" if on else "취소"}' + (' → 자동 결재' if res['submitted'] else ''))
-    if res['submitted']:
-        so.notify('submit', m, so.AUTO_SUBMITTER)
+    logger.info(f'[토요휴무] {m} {name} 선택 완료 {"누름" if on else "취소"}' + (' → 모두 완료, 취합 담당 검토' if res.get('all_done') else ''))
+    if res.get('all_done'):
+        so.notify('all_done', m, name)
     return jsonify({'success': True, **res})
 
 

@@ -107,6 +107,8 @@
 
   function inDraft(list, day) { return list.indexOf(day) !== -1; }
 
+  // 취합 담당 — '빈승정 매니저가'(서버가 재시작 전이면 '취합 담당이')
+  function coordName(d) { return (d.coordinators || []).length ? d.coordinators.join('·') + ' 매니저가' : '취합 담당이'; }
   function render() {
     var d = data;
     document.getElementById('soTitle').textContent = cur.y + '년 ' + cur.m + '월';
@@ -145,12 +147,17 @@
           acts = '<button type="button" class="btn btn-outline-secondary btn-sm" data-act="undone">다시 선택</button>';
         } else {
           h += '<p class="gw-so-how">' + mon + ' 휴무를 다 고른 뒤 [선택 완료]를 눌러 주세요. 쉬는 날이 없어도 눌러 주세요. ' +
-            '모두 완료하면 결재가 자동으로 올라가요.</p>';
+            '모두 완료하면 ' + coordName(d) + ' 검토한 뒤 결재를 올려요.</p>';
           acts = '<button type="button" class="btn btn-primary btn-sm" data-act="done">선택 완료</button>';
         }
       }
-      // 취합 담당 — 모두 완료를 기다리지 않고 올릴 때(비상용)
-      if (d.can_submit) acts += '<button type="button" class="btn ' + (d.can_done ? 'btn-outline-secondary' : 'btn-primary') + ' btn-sm" data-act="submit">결재 올리기</button>';
+      // 취합 담당(SJ) — 모두 선택 완료하면 검토하고 올림(11-27 회의). 아직 남은 사람이 있으면 옅은 버튼
+      if (d.can_submit) {
+        var allDone = !!d.done && (d.members || []).every(function (m) { return d.done.indexOf(m.name) !== -1; });
+        if (allDone) h += '<p class="gw-so-how gw-so-done-note"><i class="fas fa-circle-check" aria-hidden="true"></i> ' +
+          '대상자 모두 선택을 완료했어요. 검토한 뒤 [결재 올리기]를 눌러 주세요.</p>';
+        acts += '<button type="button" class="btn ' + (d.can_done && !allDone ? 'btn-outline-secondary' : 'btn-primary') + ' btn-sm" data-act="submit">결재 올리기</button>';
+      }
     } else if (d.status === 'wait') {
       h += '<p class="gw-so-how">' + (d.submitted_by === d.auto_submitter ? '대상자 모두 선택을 완료해 자동으로 결재가 올라갔어요('
         : esc(d.submitted_by) + ' 님이 결재를 올렸어요(') + esc((d.submitted_at || '').slice(5, 16)) +
@@ -904,6 +911,7 @@
       api('/api/satoff/done', { method: 'POST', body: { month: k, on: act === 'done' } }).then(function (j) {
         if (act === 'undone') flash(cur.m + '월 휴무를 다시 선택할 수 있어요. 다 고른 뒤 [선택 완료]를 눌러 주세요.', 'ok');
         else if (j.submitted) { flash('대상자 모두 선택을 완료해 결재를 올렸어요. 승인권자께 슬랙 알림이 가요.', 'ok'); watchNotify(k); }
+        else if (j.all_done) { flash('대상자 모두 선택을 완료했어요. ' + coordName(data) + ' 검토한 뒤 결재를 올려요.', 'ok'); watchNotify(k); }
         else flash(cur.m + '월 휴무 선택을 완료했어요.' + ((j.left || []).length ? ' 아직 ' + j.left.length + '명이 남았어요.' : ''), 'ok');
         return load();
       }).catch(function (e) { flash(e.message, 'err'); b.disabled = false; });
