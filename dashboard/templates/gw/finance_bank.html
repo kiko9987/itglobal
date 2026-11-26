@@ -27,12 +27,15 @@
   </div>
 
   <div class="gw-ap-filters" id="fbFilters">
-    <select class="gw-chip-select" id="fbRange" aria-label="기간">
-      <option value="0">오늘</option><option value="1">어제</option><option value="7" selected>최근 7일</option>
-      <option value="month">이번 달</option><option value="">기간 직접</option>
-    </select>
-    <input type="date" class="gw-chip-date" id="fbStart" aria-label="시작 날짜">
-    <span class="gw-ap-tilde">~</span>
+    {# 계좌별 잔액 탭에선 기간이 필요 없어 '기준 날짜'(끝 날짜) 하나만 남김 #}
+    <span class="gw-fb-rangeonly">
+      <select class="gw-chip-select" id="fbRange" aria-label="기간">
+        <option value="0">오늘</option><option value="1">어제</option><option value="7" selected>최근 7일</option>
+        <option value="month">이번 달</option><option value="">날짜 직접 고르기</option>
+      </select>
+      <input type="date" class="gw-chip-date" id="fbStart" aria-label="시작 날짜">
+      <span class="gw-ap-tilde" aria-hidden="true">~</span>
+    </span>
     <input type="date" class="gw-chip-date" id="fbEnd" aria-label="끝 날짜">
     <span class="gw-fb-txonly">
       <select class="gw-chip-select" id="fbAcct" aria-label="계좌"><option value="">계좌</option></select>
@@ -68,7 +71,7 @@
       </table>
     </div>
   </div>
-  <p class="gw-vh-foot">기업 1011·하나 9012·농협·하도급은 은행 문자로 저절로 쌓여요. 문자가 안 오는 계좌는 [직접 입력]으로 넣고, 처음 한 번은 계좌를 눌러 지금 잔액을 넣어 주세요. 문자로 들어온 거래는 날짜·금액·잔액을 고칠 수 없고 계정·적요·공사 코드만 고칠 수 있어요.</p>
+  <p class="gw-vh-foot">기업 1011·하나 9012·농협·하도급은 은행 문자로 자동으로 쌓여요. 문자가 안 오는 계좌는 [직접 입력]으로 넣고, 처음 한 번은 [계좌별 잔액]에서 계좌를 눌러 지금 잔액을 넣어 주세요. 문자로 들어온 거래는 날짜·금액·잔액은 고칠 수 없고 계정·적요·공사 코드만 고칠 수 있어요.</p>
 </div>
 
 {# 넣기·고치기 — 다른 표 화면처럼 오른쪽에서 열리는 창 #}

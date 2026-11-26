@@ -1,103 +1,47 @@
 {% extends "modern_base.html" %}
 
-{% block title %}수금 정산{% endblock %}
+{% block title %}수금 정산 - 아이티글로벌그룹{% endblock %}
 
 {% block additional_css %}
-<style>
-  .cr-wrap { padding: 12px 16px 60px; }
-  .cr-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
-  .cr-bar select { min-width: 230px; }
-  .cr-range { display: flex; gap: 6px; align-items: center; }
-  .cr-range input { width: 140px; cursor: pointer; }
-  .cr-hint { color: #e8590c; font-size: .82rem; }
-  .cr-notes { margin-top: 10px; padding: 8px 12px; background: #fff9db; border: 1px solid #ffe066;
-              border-radius: 8px; font-size: .85rem; color: #5c3c00; }
-  .cr-cards { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
-  .cr-card { background: #fff; border: 1px solid #e3e6ea; border-radius: 10px; padding: 10px 16px; min-width: 150px; }
-  .cr-card .k { font-size: .8rem; color: #868e96; }
-  .cr-card .v { font-size: 1.15rem; font-weight: 700; }
-  .cr-sec { background: #fff; border: 1px solid #e3e6ea; border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
-  .cr-sec h6 { font-weight: 700; margin: 0 0 8px; }
-  /* 칸 넓이는 colgroup 비율로 고정 → 화면 넓이만큼 고르게 늘어나고 담당자가 달라도 칸이 같음.
-     너무 좁은 화면에선 min-width 아래로 줄지 않고 가로 스크롤 */
-  .cr-tbl { width: 100%; min-width: 1650px; table-layout: fixed; font-size: .8rem; border-collapse: collapse; }
-  .cr-tbl th, .cr-tbl td { padding: 5px 8px; border-bottom: 1px solid #f1f3f5; text-align: center;
-                           white-space: normal; word-break: keep-all; overflow-wrap: anywhere; }
-  .cr-tbl th { background: #f8f9fa; font-weight: 600; }
-  .cr-tbl td.n, .cr-tbl th.n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-  .cr-tbl td.lbl { text-align: left; }
-  .cr-tbl td.nw { white-space: nowrap; }
-  .cr-tbl tr.sub td { background: #f8f9fa; font-weight: 700; }
-  .cr-tbl tr.tot td { background: #e7f5ff; font-weight: 700; }
-  .cr-tbl tr.grand td { background: #d0ebff; font-weight: 700; border-top: 2px solid #a5d8ff; }
-  .cr-tbl td.cr-owner { text-align: left; cursor: pointer; user-select: none; font-weight: 700; font-size: .95rem;
-                        padding: 10px 6px 6px; border-top: 2px solid #dee2e6; background: #fff; }
-  .cr-owner .cnt { color: #868e96; font-weight: 400; font-size: .85rem; margin-left: 6px; }
-  .cr-tbl tbody.cr-hide { visibility: collapse; }
-  .cr-scroll { overflow-x: auto; }
-  .cr-empty { color: #868e96; padding: 30px; text-align: center; }
-  .cr-note { color: #868e96; font-size: .8rem; margin-top: 4px; }
-
-  /* 휴대폰(2026-11-16 리뉴얼 3단계) — PC 는 위 규칙 그대로 */
-  @media (max-width: 767.98px) {
-    .cr-wrap { padding: 12px 16px 40px; }
-    .cr-bar { gap: 8px; }
-    .cr-bar > label { flex: 0 0 auto; min-width: 48px; }
-    .cr-bar select { flex: 1 1 0; min-width: 0; width: auto !important; }
-    .cr-range { flex: 1 1 100%; flex-wrap: wrap; gap: 8px; }
-    .cr-range label { flex: 0 0 auto; min-width: 48px; margin-left: 0 !important; white-space: nowrap; }
-    /* 날짜 칸은 넓이 120px 부터 — [이 기간으로 저장]·[기본으로]가 나타나면 다음 줄로 내려가게(같은 줄에 끼어 날짜가 안 보였음) */
-    .cr-range input { flex: 1 1 120px; width: auto; min-width: 0; }
-    .cr-range .btn { flex: 1 1 calc(50% - 4px); }
-    .cr-bar select, .cr-range input { min-height: 44px; font-size: 16px; }
-    .cr-bar .btn, #crToggleAll { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; }
-    .cr-hint:empty { display: none; }
-    .cr-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .cr-card { min-width: 0; padding: 10px 12px; }
-    .cr-card .v { font-size: 1.05rem; overflow-wrap: anywhere; }
-    .cr-sec { padding: 8px; }
-    .cr-tbl td.cr-owner { padding: 12px 6px 8px; }
-    .cr-owner-in { position: sticky; left: 6px; width: calc(100vw - 64px); white-space: normal; }
-    .cr-owner .cnt { display: block; margin: 2px 0 0 18px; }
-  }
-
-  /* 보조 글자 대비: 회색 #868e96(3.3:1)·주황 #e8590c → 4.5:1 넘게 — PC·휴대폰 공통(11-16) */
-  .cr-note, .cr-card .k, .cr-owner .cnt, .cr-empty { color: #5f6670; }
-  .cr-hint { color: #c2410c; }
-</style>
+<link rel="stylesheet" href="{{ gw_asset('css/gw-pages.css') }}">
 {% endblock %}
 
-{% block page_title %}수금 정산{% endblock %}
-{% block page_subtitle %}정산용 · 기본 전월 26일 ~ 당월 25일 (달마다 바꿀 수 있음){% endblock %}
-
 {% block content %}
-<div class="cr-wrap">
-  <div class="cr-bar">
-    <label for="crPeriod" class="fw-bold mb-0">정산 월</label>
-    <select id="crPeriod" class="form-select form-select-sm w-auto">
+{# 수금 정산(재무) — 정산 월 고르기·담당자→사업자 묶음 합계. 규칙은 blueprints/collected_report.py
+   화면 틀은 다른 표 화면과 같게(11-26 점검): 제목·버튼 → 칩 → 요약 타일 → 표 → 맨 아래 설명.
+   표만 18칸 담당자 묶음이라 전용(cr-tbl)이고 폭도 전체 — 1400px 에 안 들어감 #}
+<div class="gw-page gw-cr" id="crPage">
+  <div class="gw-page-head">
+    <h1 class="gw-page-title">수금 정산</h1>
+    <div class="gw-page-actions">
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="crRefresh" title="시트에서 새로 읽어요">
+        <i class="fas fa-sync-alt me-1" aria-hidden="true"></i>새로고침</button>
+      <a class="btn btn-sm btn-outline-secondary" id="crDownload" href="#">
+        <i class="fas fa-file-excel me-1" aria-hidden="true"></i>엑셀 내려받기</a>
+    </div>
+  </div>
+
+  <div class="gw-cr-filters">
+    <select class="gw-chip-select" id="crPeriod" aria-label="정산 월">
       {% for p in periods %}<option value="{{ p.value }}">{{ p.label }}</option>{% endfor %}
     </select>
-    <span class="cr-range">
-      <label for="crStart" class="fw-bold mb-0 ms-2">기간</label>
-      <input type="date" id="crStart" class="form-control form-control-sm">
-      <span>~</span>
-      <input type="date" id="crEnd" class="form-control form-control-sm" aria-label="기간 끝날">
-      <button class="btn btn-sm btn-primary d-none" id="crSaveRange">이 기간으로 저장</button>
-      <button class="btn btn-sm btn-outline-secondary d-none" id="crResetRange">기본(26~25일)으로</button>
-    </span>
-    <span class="cr-hint" id="crHint"></span>
-    <button class="btn btn-sm btn-outline-secondary" id="crRefresh" title="시트에서 새로 읽기">
-      <i class="fas fa-sync-alt me-1"></i>새로고침</button>
-    <a class="btn btn-sm btn-success" id="crDownload" href="#">
-      <i class="fas fa-file-excel me-1"></i>엑셀 내려받기</a>
+    <input type="date" class="gw-chip-date" id="crStart" aria-label="기간 시작일">
+    <span class="gw-ap-tilde" aria-hidden="true">~</span>
+    <input type="date" class="gw-chip-date" id="crEnd" aria-label="기간 끝날">
+    <button type="button" class="btn btn-sm btn-primary d-none" id="crSaveRange">이 기간으로 저장</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="crResetRange">기본(26~25일)으로</button>
+    <span class="gw-cr-hint" id="crHint" aria-live="polite"></span>
   </div>
-  <div class="cr-note">수금 확인이 체크되고 수금 날짜가 기간 안에 있는 공사입니다. 담당자 이름을 누르면 사업자별 목록과 소계가 펼쳐집니다. 엑셀에는 전체 칸과 '담당자별 합계' 시트가 들어갑니다.<br>
-    {% if can_edit_range %}명절 등으로 기준일이 바뀐 달은 기간을 고치고 [이 기간으로 저장]을 누르세요. 다음에도 그 기간으로 열리고, 다음 달은 바꾼 끝날 다음 날부터 시작합니다.{% else %}정산 기간은 경영지원과 대표님이 정합니다.{% endif %}</div>
-  <div class="cr-notes d-none" id="crNotes"></div>
 
-  <div class="cr-cards mt-3" id="crCards"></div>
-  <div class="mb-2"><button class="btn btn-sm btn-outline-secondary" id="crToggleAll">모두 펼치기</button></div>
+  <div class="gw-vh-msg" id="crMsg" role="status" aria-live="polite"></div>
+  <div class="gw-callout gw-cr-notes d-none" id="crNotes" role="note"></div>
+  <div class="gw-stats gw-cr-stats" id="crCards"></div>
+
+  <div class="gw-cr-tools"><button type="button" class="btn btn-sm btn-outline-secondary" id="crToggleAll">모두 펼치기</button></div>
   <div id="crDetail"></div>
+
+  <p class="gw-vh-foot">수금 확인에 체크했고 수금 날짜가 이 기간 안인 공사예요. 담당자 이름을 누르면 사업자별 목록과 소계가 펼쳐져요. 엑셀에는 모든 칸과 '담당자별 합계' 시트가 들어가요.
+    {% if can_edit_range %}명절 등으로 기준일이 바뀐 달은 기간을 고친 뒤 [이 기간으로 저장]을 눌러 주세요. 다음에도 그 기간으로 열리고, 다음 달은 바꾼 끝날 다음 날부터 시작해요.{% else %}정산 기간은 경영지원과 대표님이 정해요.{% endif %}</p>
 </div>
 {% endblock %}
 
@@ -129,6 +73,9 @@
     cells.forEach(([t, c]) => r.appendChild(el('td', c ? { class: c } : {}, t)));
     return r;
   }
+  // 알림창(alert) 대신 화면 안 안내(11-26 점검) — 다른 그룹웨어 화면과 같은 칸
+  const msgBox = document.getElementById('crMsg');
+  function msg(text, kind) { msgBox.className = 'gw-vh-msg ' + (kind || 'err'); msgBox.textContent = text || ''; }
 
   // 기간: 지금 적용된 값과 다르게 고치면 [이 기간으로 저장]이 나타남
   const inS = document.getElementById('crStart'), inE = document.getElementById('crEnd');
@@ -146,7 +93,7 @@
   // 날짜 규칙 (새 프로젝트 등록 창과 같게, 2026-11-09)
   //  - 끝날 달력은 시작일 이전, 시작일 달력은 끝날 이후 날짜를 못 고름
   //  - 기간은 서버와 같은 62일까지 (달력에서 그 밖은 막힘)
-  //  - 글자 입력·붙여넣기는 막고 달력으로만 고름 (연도 입력 중 엉뚱한 날짜 방지)
+  //  - 글자 입력·붙여넣기는 막고 달력으로만 고름 (연도 입력 중 엉뚱한 날짜 방지 — 11-26 점검에서도 그대로 두기로)
   const MAX_DAYS = 62;
   const addDays = (iso, n) => {
     const [y, m, d] = iso.split('-').map(Number);
@@ -178,17 +125,18 @@
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     let j = {};
     try { j = await res.json(); } catch (e) {}
-    if (!res.ok || !j.success) throw new Error(j.error || `저장 실패 (${res.status})`);
+    if (!res.ok || !j.success) throw new Error(j.error || `저장하지 못했어요. 잠시 뒤 다시 해 주세요. (오류 ${res.status})`);
   }
   btnSave.addEventListener('click', async () => {
-    if (!inS.value || !inE.value) { alert('시작일과 끝날을 모두 넣어 주세요.'); return; }
-    if (inS.value > inE.value) { alert('시작일이 끝날보다 늦습니다.'); return; }
-    if (inE.value > addDays(inS.value, MAX_DAYS - 1)) { alert(`기간은 ${MAX_DAYS}일을 넘길 수 없습니다.`); return; }
+    if (!inS.value || !inE.value) { msg('시작일과 끝날을 모두 넣어 주세요.'); return; }
+    if (inS.value > inE.value) { msg('시작일이 끝날보다 늦어요. 날짜를 다시 골라 주세요.'); return; }
+    if (inE.value > addDays(inS.value, MAX_DAYS - 1)) { msg(`기간은 ${MAX_DAYS}일까지만 정할 수 있어요.`); return; }
     btnSave.disabled = true;
     try {
       await postRange({ period: sel.value, start: inS.value, end: inE.value });
       await load(false);
-    } catch (e) { alert(e.message); }
+      msg('기간을 저장했어요.', 'ok');
+    } catch (e) { msg(e.message); }
     btnSave.disabled = false;
   });
   btnReset.addEventListener('click', async () => {
@@ -196,7 +144,8 @@
     try {
       await postRange({ period: sel.value, reset: true });
       await load(false);
-    } catch (e) { alert(e.message); }
+      msg('기본 기간으로 되돌렸어요.', 'ok');
+    } catch (e) { msg(e.message); }
   });
 
   function render(d) {
@@ -209,20 +158,25 @@
     const opt = sel.options[sel.selectedIndex];
     if (opt && d.label) opt.text = d.label;
     document.getElementById('crHint').textContent = d.custom
-      ? `기본(${md(d.default_start)}~${md(d.default_end)})에서 바꾼 기간입니다.`
-      : (d.start !== d.default_start ? `앞 달을 바꾼 끝날에 맞춰 ${md(d.start)}부터 시작합니다.` : '');
+      ? `기본(${md(d.default_start)}~${md(d.default_end)})에서 바꾼 기간이에요.`
+      : (d.start !== d.default_start ? `앞 달에서 바꾼 끝날에 맞춰 ${md(d.start)}부터 시작해요.` : '');
     const notes = document.getElementById('crNotes');
-    notes.textContent = (d.notes || []).map(n => `⚠ ${n}`).join('\n');
-    notes.style.whiteSpace = 'pre-line';
+    notes.innerHTML = '';
+    (d.notes || []).forEach(n => {
+      const p = notes.appendChild(el('p', { class: 'gw-cr-note' }));
+      p.appendChild(el('i', { class: 'fas fa-triangle-exclamation me-1', 'aria-hidden': 'true' }));
+      p.appendChild(document.createTextNode(n));
+    });
     notes.classList.toggle('d-none', !(d.notes || []).length);
     setDownload(`/api/settlement/collected.xlsx?period=${sel.value}`);
     const cards = document.getElementById('crCards');
     cards.innerHTML = '';
-    [['건수', `${d.total['건수']}건`], ['총액 1', `${won(d.total['총액 1'])}원`],
-     ['총액 2', `${won(d.total['총액 2'])}원`], ['순익', `${won(d.total['순익'])}원`]].forEach(([k, v]) => {
-      const c = el('div', { class: 'cr-card' });
+    [['건수', d.total['건수'], '건'], ['총액 1', won(d.total['총액 1']), '원'],
+     ['총액 2', won(d.total['총액 2']), '원'], ['순익', won(d.total['순익']), '원']].forEach(([k, v, unit]) => {
+      const c = el('div', { class: 'gw-stat' });
       c.appendChild(el('div', { class: 'k' }, k));
-      c.appendChild(el('div', { class: 'v' }, v));
+      const vv = c.appendChild(el('div', { class: 'v' }, String(v)));
+      vv.appendChild(el('small', {}, ' ' + unit));
       cards.appendChild(c);
     });
 
@@ -230,7 +184,7 @@
     det.innerHTML = '';
     toggles.length = 0;
     if (!d.rows.length) {
-      det.appendChild(el('div', { class: 'cr-empty' }, '이 기간에 수금 완료된 공사가 없습니다.'));
+      det.appendChild(el('div', { class: 'gw-panel gw-empty' }, '이 기간에 수금 완료된 공사가 없어요.'));
       return;
     }
     // 합계 줄: 첫 칸에 이름, 금액 칸에 합계, 나머지는 빈칸
@@ -243,20 +197,21 @@
     };
     // 담당자 전부를 한 표에 담아 칸 넓이를 세로로 맞춤. 접힌 목록은 visibility:collapse 라
     // 보이지 않아도 칸 넓이 계산엔 들어가서, 펼치고 접어도 칸이 움직이지 않음.
-    const sec = el('div', { class: 'cr-sec' });
-    const box = sec.appendChild(el('div', { class: 'cr-scroll' }));
-    const t = box.appendChild(el('table', { class: 'cr-tbl' }));
+    const sec = el('div', { class: 'gw-panel gw-ap-tablewrap gw-cr-sec' });
+    const t = sec.appendChild(el('table', { class: 'cr-tbl' }));
     const cg = t.appendChild(el('colgroup'));
     const totalW = DETAIL.reduce((a, c) => a + COLW[c], 0);
     DETAIL.forEach(c => cg.appendChild(el('col', { style: `width:${(COLW[c] / totalW * 100).toFixed(3)}%` })));
     const hr = t.appendChild(el('thead')).appendChild(el('tr'));
-    DETAIL.forEach(c => hr.appendChild(el('th', NUM(c) ? { class: 'n' } : {}, c)));
+    DETAIL.forEach(c => hr.appendChild(el('th', NUM(c) ? { class: 'n', scope: 'col' } : { scope: 'col' }, c)));
     d.groups.forEach(g => {
       const head = t.appendChild(el('tbody'));
       const ht = head.appendChild(el('tr')).appendChild(el('td', { colspan: DETAIL.length, class: 'cr-owner' }));
       // 글자는 한 칸(div)에 담음 — 휴대폰에선 이 칸이 표 가로 스크롤과 상관없이 보이는 폭에 붙음(sticky)
       const inner = ht.appendChild(el('div', { class: 'cr-owner-in' }));
-      const name = inner.appendChild(el('span', {}, `▸ ${g['담당자']}`));
+      // 펼침 표시는 글자(▸▾) 대신 아이콘(11-26 점검)
+      const icon = inner.appendChild(el('i', { class: 'fas fa-chevron-right cr-caret', 'aria-hidden': 'true' }));
+      inner.appendChild(el('span', { class: 'cr-name' }, g['담당자']));
       // '총액 2 86,610,000원'이 '2억…'으로 읽혀서 이름과 금액 사이를 콜론으로 띄움(PC 점검 2차 11-16)
       inner.appendChild(el('span', { class: 'cnt' }, `${g.sum['건수']}건 · 총액2: ${won(g.sum['총액 2'])}원 · 순익: ${won(g.sum['순익'])}원`));
       const body = t.appendChild(el('tbody', { class: 'cr-hide' }));
@@ -268,7 +223,7 @@
       body.appendChild(sumRow(`${g['담당자']} 합계 · ${g.sum['건수']}건`, g.sum, 'tot'));
       const setOpen = open => {
         body.classList.toggle('cr-hide', !open);
-        name.textContent = `${open ? '▾' : '▸'} ${g['담당자']}`;
+        icon.className = `fas ${open ? 'fa-chevron-down' : 'fa-chevron-right'} cr-caret`;
         ht.setAttribute('aria-expanded', open ? 'true' : 'false');
       };
       ht.addEventListener('click', () => setOpen(body.classList.contains('cr-hide')));
@@ -314,7 +269,8 @@
 
   async function load(refresh) {
     const det = document.getElementById('crDetail');
-    det.innerHTML = '<div class="cr-empty">불러오는 중…</div>';
+    det.innerHTML = '<div class="gw-panel gw-empty">불러오는 중…</div>';
+    msg('');
     setDownload(null);
     document.getElementById('crCards').innerHTML = '';
     try {
@@ -322,7 +278,7 @@
                               { credentials: 'same-origin',
                                 headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
       // 로그인이 끝났으면(401 또는 로그인 화면 HTML 로 넘어감) 로그인 화면으로(최종 점검 11-16)
-      //   (서버 오류 HTML 은 로그인으로 보내지 않고 아래 '불러오지 못했습니다'로)
+      //   (서버 오류 HTML 은 로그인으로 보내지 않고 아래 '불러오지 못했어요'로)
       let toLogin = res.status === 401 || res.status === 440;
       try { toLogin = toLogin || (res.redirected && new URL(res.url).pathname === '/login'); } catch (_) {}
       if (toLogin) {
@@ -338,7 +294,7 @@
     } catch (e) {
       det.innerHTML = '';
       const why = e && e.message && !/token|JSON|fetch/i.test(e.message) ? ` (${e.message})` : '';
-      det.appendChild(el('div', { class: 'cr-empty', role: 'alert' }, `자료를 불러오지 못했습니다${why}. 잠시 뒤 [새로고침]을 눌러 주세요.`));
+      det.appendChild(el('div', { class: 'gw-panel gw-empty', role: 'alert' }, `자료를 불러오지 못했어요${why}. 잠시 뒤 [새로고침]을 눌러 주세요.`));
     }
   }
 

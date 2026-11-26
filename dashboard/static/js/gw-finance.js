@@ -63,11 +63,27 @@
     $('fbFilters').classList.toggle('has-active-filters', !!active);
   }
 
+  // 탭·거르기를 주소에 남김(웹 가이드라인 'URL reflects state', 11-26 점검)
+  function saveUrl() {
+    var q = new URLSearchParams();
+    if (S.tab !== 'tx') q.set('tab', S.tab);
+    var r = $('fbRange').value;
+    if (r !== '7') q.set('range', r);
+    if (r === '') { q.set('start', $('fbStart').value); q.set('end', $('fbEnd').value); }
+    if ($('fbAcct').value) q.set('acct', $('fbAcct').value);
+    if ($('fbDir').value) q.set('dir', $('fbDir').value);
+    if ($('fbUn').value) q.set('un', $('fbUn').value);
+    if ($('fbQ').value.trim()) q.set('q', $('fbQ').value.trim());
+    var qs = q.toString();
+    try { history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '')); } catch (e) { /* 미리보기 등 */ }
+  }
+
   // ── 불러오기 ──────────────────────────────────────────────────────
   var seq = 0;
   function load() {
     var my = ++seq;
     markChips();
+    saveUrl();
     var p = new URLSearchParams({
       start: $('fbStart').value, end: $('fbEnd').value, account: $('fbAcct').value, direction: $('fbDir').value,
       unassigned: $('fbUn').value, q: $('fbQ').value.trim()
@@ -127,7 +143,7 @@
 
   function renderRows() {
     $('fbCntTx').textContent = S.rows.length;
-    $('fbCount').textContent = S.tab === 'tx' ? S.rows.length + '건' : (S.end ? dayLabel(S.end) + ' 끝 기준' : '');
+    $('fbCount').textContent = S.tab === 'tx' ? '' : (S.end ? dayLabel(S.end) + ' 끝 기준 잔액' : '');   // 거래 건수는 탭에 있음
     if (!S.rows.length) {
       var filtered = $('fbUn').value || $('fbQ').value.trim() || $('fbAcct').value || $('fbDir').value;
       $('fbRows').innerHTML = '<tr><td colspan="8" class="gw-empty">' +
@@ -164,6 +180,9 @@
     $('fbPaneTx').hidden = tab !== 'tx';
     $('fbPaneAcct').hidden = tab !== 'acct';
     page.querySelector('.gw-fb-txonly').hidden = tab !== 'tx';
+    page.querySelector('.gw-fb-rangeonly').hidden = tab !== 'tx';
+    $('fbEnd').setAttribute('aria-label', tab === 'tx' ? '끝 날짜' : '기준 날짜');
+    saveUrl();
     renderRows();
   }
 
@@ -227,7 +246,7 @@
         h += '<label>구분<select class="form-select form-select-sm" name="direction">' +
             '<option value="in"' + (dir === 'in' ? ' selected' : '') + '>입금</option><option value="out"' + (dir === 'out' ? ' selected' : '') + '>출금</option></select></label>' +
           inp('amount', '금액(원)', row ? won(row.amount) : '', ' inputmode="numeric" data-num') +
-          inp('balance', '거래 후 잔액(원) · 모르면 비움', row ? won(row.balance) : '', ' inputmode="numeric" data-num') +
+          inp('balance', '거래 후 잔액(원) 모르면 비워 두세요', row ? won(row.balance) : '', ' inputmode="numeric" data-num') +
           inp('counterparty', '상대방', row ? row.counterparty : '', ' maxlength="60"');
       } else {
         h += '<input type="hidden" name="direction" value="bal">' +
@@ -314,7 +333,10 @@
     if (b) setTab(b.getAttribute('data-tab'));
   });
   $('fbTabs').addEventListener('keydown', function (ev) {
-    if (ev.key !== 'ArrowRight' && ev.key !== 'ArrowLeft') return;
+    var k = ev.key;
+    if (k === 'Home') { ev.preventDefault(); setTab('tx', true); return; }
+    if (k === 'End') { ev.preventDefault(); setTab('acct', true); return; }
+    if (k !== 'ArrowRight' && k !== 'ArrowLeft') return;
     setTab(S.tab === 'tx' ? 'acct' : 'tx', true);
   });
   $('fbRange').addEventListener('change', function () { applyRange(this.value); load(); });
@@ -361,6 +383,24 @@
     sync();
   })();
 
-  applyRange('7');
+  // 주소에 남은 탭·거르기로 열기(새로 고침·즐겨찾기 해도 그대로)
+  (function () {
+    var q = new URLSearchParams(location.search);
+    var r = q.get('range');
+    $('fbRange').value = r != null && $('fbRange').querySelector('option[value="' + r + '"]') ? r : '7';
+    applyRange($('fbRange').value);
+    if ($('fbRange').value === '') {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(q.get('start') || '')) $('fbStart').value = q.get('start');
+      if (/^\d{4}-\d{2}-\d{2}$/.test(q.get('end') || '')) $('fbEnd').value = q.get('end');
+      if (!$('fbStart').value) applyRange('7');
+    }
+    ['acct', 'dir', 'un'].forEach(function (k) {
+      var id = { acct: 'fbAcct', dir: 'fbDir', un: 'fbUn' }[k], v = q.get(k) || '';
+      if (k === 'acct' && v) { $(id).innerHTML += '<option value="' + esc(v) + '"></option>'; }   // 계좌 목록은 불러온 뒤 채움
+      $(id).value = v;
+    });
+    $('fbQ').value = (q.get('q') || '').slice(0, 40);
+    if (q.get('tab') === 'acct') setTab('acct');
+  })();
   load();
 })();
