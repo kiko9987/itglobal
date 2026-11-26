@@ -257,6 +257,14 @@
       var memo = r.memo || '';
       var need = (r.direction === 'in' || r.direction === 'out') && !memo;
       var memoCell = need ? '<span class="gw-badge gw-badge-wait">적요 없음</span>' : esc(memo);
+      // 공사 없는 지출 — 자금일보 관례 '0 이니셜 내용'(0 = 공사 코드 없음)을 화면에서는 '공사 외 · 이름 · 내용'으로.
+      //   장부·자금일보에 적는 글은 그대로 두고 보이는 것만 바꾼다(11-26 부장님 '0 JSH 라고만 하니 뭔가 싶다')
+      var noProj = !need && /^0 ([A-Z]{2,3})(?: (.*))?$/.exec(memo);
+      if (noProj) {
+        var who = (r.approval && r.approval.requester) || noProj[1];
+        memoCell = '<span class="gw-badge gw-fb-noproj" title="공사 코드 없는 지출 — 자금일보에는 \'' + esc(memo) + '\'로 적어요">공사 외</span> ' +
+          esc(who) + (noProj[2] ? ' · ' + esc(noProj[2]) : '');
+      }
       if (r.project_code && memo.indexOf(r.project_code) === -1) memoCell += ' <span class="text-muted small">' + esc(r.project_code) + '</span>';
       // 결재 링크 — 여러 결재를 한 번에 보낸 출금은 건별로 '결재 #87 · #88'(11-26 부장님 '외 1건보다 건별로')
       if (r.approval) memoCell += ' <span class="gw-fb-apprs">' + [r.approval.id].concat(r.approval.more || []).map(function (id, i) {
