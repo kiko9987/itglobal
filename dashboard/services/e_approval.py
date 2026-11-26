@@ -678,6 +678,8 @@ _TRANSITIONS = {
 def can_act(action: str, row: dict, user_id: str) -> bool:
     """권한 — 승인=KiKO·JW·YG(본인 요청은 본인이 못 누름), 최종 승인=JW·YG, 반려=승인자(승인·최종 승인 대기 중엔
     JW·YG, 이체 대기 중엔 이체 담당도), 이체=이체 담당, 취소=요청자·승인자."""
+    if action in ('approve', 'final') and row.get('id') and user_id == edited_by(row):
+        return False
     if action == 'approve':
         return user_id in approver_ids() or (user_id in final_approver_ids() and user_id != row.get('requester_id'))
     if action == 'final':
@@ -694,9 +696,23 @@ def can_act(action: str, row: dict, user_id: str) -> bool:
         return user_id == row.get('requester_id') and requester_can_cancel(row)
     if action == 'revise':   # 수정 요청 = 승인자(KiKO) + 경영지원(SB·JW·YG) + 최종 승인자 — 플렉스 댓글로 돌려보내던 사람들
         return user_id in approver_ids() or user_id in executor_ids() or user_id in final_approver_ids()
-    if action == 'edit':
-        return user_id == row.get('requester_id') and requester_can_edit(row)
+    if action == 'edit':   # 요청자 + 어드민(KiKO·SB·JW·YG, 11-26 KiKO) — 고칠 수 있는 때는 요청자와 같다
+        return (user_id == row.get('requester_id') or user_id in edit_admin_ids()) and requester_can_edit(row)
     return False
+
+
+def edit_admin_ids() -> tuple:
+    """남의 결재도 [✏️ 수정하기]로 고칠 수 있는 사람 — ① 승인자·최종 승인자·경영지원(정산 승인 명단)."""
+    return tuple(dict.fromkeys((*approver_ids(), *final_approver_ids(), *executor_ids())))
+
+
+def edited_by(row: dict) -> str:
+    """마지막으로 다시 올린 사람이 요청자가 아니면 그 사람 id — 그 사람은 이 회차를 승인하지 못한다
+    (금액·받는 곳을 고친 사람이 승인까지 하는 길을 막는다, 11-26). 승인을 유지한 수정('edit')은 해당 없음."""
+    last = next((s for s in reversed(steps(row['id'])) if s['step'] in ('resubmit', 'edit')), None)
+    if last and last['step'] == 'resubmit' and last.get('actor_id') != row.get('requester_id'):
+        return last.get('actor_id') or ''
+    return ''
 
 
 def requester_can_edit(row: dict) -> bool:
@@ -732,7 +748,7 @@ def resubmit(aid: int, actor_id: str, actor_name: str, fields: Dict) -> Optional
         old = _row(conn, aid)
         if not old or not requester_can_edit(old):   # 수정 요청 + 승인 전 요청자 직접 고치기(11-11)
             return None
-        if actor_id != old.get('requester_id'):   # 창 열기에서만 막던 것을 여기서도(11-14 보안 점검 3차)
+        if actor_id != old.get('requester_id') and actor_id not in edit_admin_ids():   # 11-14 보안 점검 3차·11-26 어드민
             return None
         prev = old['status']
         task = old['form'] in TASK_FORMS
@@ -1536,8 +1552,8 @@ def card_blocks(row: dict, step_rows: List[dict], project_line: str, quote_amoun
             hint = ('파일을 더 붙일 땐 이 카드 스레드에 올려 주세요. 경영지원은 결과 파일을 스레드에 올리고 '
                     '[처리 완료]를 눌러 주세요.')
         elif requester_can_edit(row):
-            hint = ('파일을 더 붙일 땐 이 카드 스레드에 올려 주세요. 올린 사람은 [✏️ 수정하기]로 바로 고칠 수 있고 '
-                    '(승인은 다시 받아요), 다른 사람은 [🔁 보완 요청]으로 돌려보내 주세요.')
+            hint = ('파일을 더 붙일 땐 이 카드 스레드에 올려 주세요. 올린 사람과 경영지원은 [✏️ 수정하기]로 바로 고칠 수 있고 '
+                    '(금액이 늘거나 받는 곳이 바뀌면 승인을 다시 받아요), 다른 사람은 [🔁 보완 요청]으로 돌려보내 주세요.')
         else:
             hint = '파일을 더 붙일 땐 이 카드 스레드에 올려 주세요. 고칠 게 있으면 [🔁 보완 요청]으로 돌려보내 주세요.'
         blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': hint}]})
