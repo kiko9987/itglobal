@@ -9,6 +9,15 @@
   if (!page || !document.getElementById('feSales')) return;
   var $ = function (id) { return document.getElementById(id); };
   var S = { sales: [], projects: [], tab: 'sales', pick: { sales: {}, projects: {} } };
+  // 재시작 전 옛 템플릿이어도 '확인할 점' 칸·[제외] 버튼이 있게(11-26 추가)
+  (function () {
+    var head = document.querySelector('#fePaneSales thead tr');
+    if (head && head.children.length === 9) head.insertAdjacentHTML('beforeend', '<th>확인할 점</th>');
+    if (!$('feExclude')) {
+      $('feDone').insertAdjacentHTML('afterend', '<button type="button" class="btn btn-sm btn-outline-secondary" id="feExclude" ' +
+        'title="이카운트에 넣지 않기로 한 줄을 목록에서 빼요"><i class="fas fa-ban me-1" aria-hidden="true"></i>제외</button>');
+    }
+  })();
 
   function esc(v) {
     return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -40,6 +49,7 @@
     $('feRefresh').disabled = true;
     return api('/api/finance/ecount' + (refresh ? '?refresh=1' : '')).then(function (j) {
       S.sales = j.sales || [];
+      S.excludeOk = !!j.exclude_ok;
       S.projects = j.projects || [];
       // 목록이 바뀌면 없어진 줄은 고른 것에서 뺌
       ['sales', 'projects'].forEach(function (t) {
@@ -49,7 +59,7 @@
       });
       render();
     }).catch(function (e) {
-      $('feSales').innerHTML = '<tr><td colspan="9" class="gw-empty">' + esc(e.message) + '</td></tr>';
+      $('feSales').innerHTML = '<tr><td colspan="10" class="gw-empty">' + esc(e.message) + '</td></tr>';
       $('feProjects').innerHTML = '<tr><td colspan="3" class="gw-empty">' + esc(e.message) + '</td></tr>';
       msg(e.message, 'err');
     }).then(function () { $('feRefresh').disabled = false; });
@@ -70,7 +80,7 @@
 
     $('feSales').innerHTML = S.sales.length ? S.sales.map(function (r) {
       var on = !!S.pick.sales[r.key];
-      var warn = r.warn.length ? '<div class="gw-fe-warn">' + r.warn.map(esc).join('<br>') + '</div>' : '';
+      var warn = r.warn.map(function (w) { return '<span class="gw-badge gw-badge-wait">' + esc(w) + '</span>'; }).join(' ');
       var kindCls = r.kind === '공사 확정' ? 'gw-badge-active' : (r.kind === '공사 취소' ? 'gw-badge-reject' : 'gw-badge-wait');
       return '<tr data-key="' + esc(r.key) + '"' + (r.warn.length ? ' class="gw-fe-warnrow"' : '') + '>' +
         '<td class="gw-fe-chk"><input type="checkbox" class="form-check-input" data-pick="sales" value="' + esc(r.key) + '"' + (on ? ' checked' : '') +
@@ -81,9 +91,10 @@
         '<td>' + esc(r.partner || '-') + '</td>' +
         '<td class="num">' + won(r.supply) + '</td>' +
         '<td class="num">' + (r.vat ? won(r.vat) : '<span class="text-muted">-</span>') + '</td>' +
-        '<td class="gw-fe-memo">' + esc(r.memo) + warn + '</td>' +
-        '<td class="text-nowrap"><strong>' + esc(r.code) + '</strong></td></tr>';
-    }).join('') : '<tr><td colspan="9" class="gw-empty">이카운트에 넣을 매출전표가 없어요.</td></tr>';
+        '<td class="gw-fe-memo">' + esc(r.memo) + '</td>' +
+        '<td class="text-nowrap"><strong>' + esc(r.code) + '</strong></td>' +
+        '<td class="gw-fe-check">' + (warn || '<span class="text-muted">-</span>') + '</td></tr>';
+    }).join('') : '<tr><td colspan="10" class="gw-empty">이카운트에 넣을 매출전표가 없어요.</td></tr>';
 
     $('feProjects').innerHTML = S.projects.length ? S.projects.map(function (r) {
       var on = !!S.pick.projects[r.key];
@@ -101,7 +112,8 @@
     var t = S.tab, n = picked(t).length, all = S[t].length;
     $('fePick').textContent = n ? n + '줄 골랐어요' : (all ? '고르지 않으면 표 전체(' + all + '줄)를 복사해요' : '');
     $('feDone').hidden = t !== 'sales';
-    $('feDone').disabled = !picked('sales').length;
+    $('feExclude').hidden = t !== 'sales' || !S.excludeOk;
+    $('feDone').disabled = $('feExclude').disabled = !picked('sales').length;
     var box = $(t === 'sales' ? 'feAllSales' : 'feAllProjects');
     box.checked = !!all && n === all;
     box.indeterminate = n > 0 && n < all;
@@ -180,19 +192,24 @@
     }).catch(function () { msg('복사하지 못했어요. 브라우저에서 클립보드 권한을 허용해 주세요.', 'err'); });
   });
 
-  // ── 넣음 표시 ──
-  $('feDone').addEventListener('click', function () {
+  // ── 넣음 표시 · 제외(이카운트에 넣지 않기로 한 줄 — 장부엔 '제외'로 남음) ──
+  function finish(btn, exclude) {
     var rows = picked('sales');
     if (!rows.length) return;
-    if (!window.confirm('고른 매출전표 ' + rows.length + '건을 이카운트에 넣었다고 표시할까요? 목록에서 빠져요.')) return;
-    var btn = this;
+    var ask = exclude
+      ? '고른 매출전표 ' + rows.length + '건을 이카운트에 넣지 않고 목록에서 제외할까요? 장부에는 "제외"로 남아요.'
+      : '고른 매출전표 ' + rows.length + '건을 이카운트에 넣었다고 표시할까요? 목록에서 빠져요.';
+    if (!window.confirm(ask)) return;
     btn.disabled = true;
-    api('/api/finance/ecount/done', { keys: rows.map(function (r) { return r.key; }) }).then(function (j) {
+    api('/api/finance/ecount/done', { keys: rows.map(function (r) { return r.key; }), exclude: exclude }).then(function (j) {
       S.pick.sales = {}; S.pick.projects = {};
-      msg(j.done + '건을 넣음으로 표시했어요.' + (j.skipped ? ' ' + j.skipped + '건은 그사이 목록이 바뀌어 건너뛰었어요.' : ''), 'ok');
+      msg(j.done + '건을 ' + (exclude ? '제외했어요.' : '넣음으로 표시했어요.') +
+        (j.skipped ? ' ' + j.skipped + '건은 그사이 목록이 바뀌어 건너뛰었어요.' : ''), 'ok');
       return load(false);
     }).catch(function (e) { msg(e.message, 'err'); btn.disabled = false; });
-  });
+  }
+  $('feDone').addEventListener('click', function () { finish(this, false); });
+  $('feExclude').addEventListener('click', function () { finish(this, true); });
 
   $('feRefresh').addEventListener('click', function () { msg(''); load(true); });
   load(false);

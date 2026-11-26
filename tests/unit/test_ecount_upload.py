@@ -42,7 +42,7 @@ def test_cancel_memo_and_vat_only_warning():
     vat_only = _item('G6-FF', '부가세 변경', 0, -420_000, partner='거래처', sent=(4_200_000, 420_000), target=(4_200_000, 0))
     s = es.upload_rows([cancel, vat_only])['sales']
     assert s[0]['memo'] == '취소 사유 : 고객 변심'
-    assert s[1]['cells'][1] == '11' and any('부가세만' in w for w in s[1]['warn'])   # 세금계산서 부가세를 빼는 전표
+    assert s[1]['cells'][1] == '11' and '부가세 별도 → 없음' in s[1]['warn']   # 세금계산서 부가세를 빼는 전표
 
 
 @pytest.fixture
@@ -75,3 +75,12 @@ def test_api_ecount_list_and_done(monkeypatch, db):
     with Flask('t').test_request_context('/api/finance/ecount'):
         resp = inspect.unwrap(g.api_ecount)()
     assert resp[1] == 503
+
+
+def test_exclude_records_as_excluded(db):
+    items = [_item('G7-GG', '부가세 변경', 0, -420_000, partner='거래처', sent=(4_200_000, 420_000), target=(4_200_000, 0))]
+    assert es.mark_done([items[0]['key']], by='gw:가나', items=items, exclude=True) == {'done': 1, 'skipped': 0}
+    assert es.ledger_totals()['G7-GG'] == (0, -420_000)                    # 차액이 장부에 → 다음 목록에서 빠짐
+    with es._db()._get_connection() as conn:
+        assert conn.execute("SELECT kind, note FROM ecount_sales_entries WHERE project_code='G7-GG' AND kind='제외'").fetchone()[1] \
+            == '제외 — 원래 부가세 변경'

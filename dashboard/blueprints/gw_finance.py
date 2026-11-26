@@ -144,7 +144,8 @@ def api_ecount():
         if items is None:
             return jsonify({'success': False, 'message': '장부 기준선이나 공사 현황을 읽지 못했어요. 잠시 뒤 다시 해 주세요.'}), 503
         rows = es.upload_rows(items)
-        return jsonify({'success': True, **rows, 'sales_cols': list(es.SALES_COLS), 'project_cols': list(es.PROJECT_COLS)})
+        return jsonify({'success': True, **rows, 'sales_cols': list(es.SALES_COLS), 'project_cols': list(es.PROJECT_COLS),
+                        'exclude_ok': True})   # 화면은 이 값이 있을 때만 [제외]를 보임(재시작 전 옛 서버는 제외를 넣음으로 적음)
     except Exception as e:
         return _err(e)
 
@@ -153,11 +154,13 @@ def api_ecount():
 @gw_page
 def api_ecount_done():
     from dashboard.services import ecount_sales as es
-    keys = [str(k) for k in ((request.get_json(silent=True) or {}).get('keys') or [])][:200]
+    body = request.get_json(silent=True) or {}
+    keys = [str(k) for k in (body.get('keys') or [])][:200]
+    exclude = bool(body.get('exclude'))          # [제외] — 이카운트에 넣지 않고 목록에서만 뺌(11-26 부장님)
     if not keys:
-        return jsonify({'success': False, 'message': '넣은 전표를 골라 주세요.'}), 400
+        return jsonify({'success': False, 'message': '전표를 골라 주세요.'}), 400
     try:
-        res = es.mark_done(keys, by=f'gw:{_by()}')
+        res = es.mark_done(keys, by=f'gw:{_by()}', exclude=exclude)
     except Exception as e:
         return _err(e)
     return jsonify({'success': True, **res})

@@ -393,16 +393,16 @@ def upload_rows(items: List[dict], today: Optional[date] = None) -> Dict[str, Li
         pcode = PARTNER_CODES.get(partner, '')
         warn = []
         if not pcode:
-            warn.append(f"유입 구분 '{partner or '빈칸'}' 의 이카운트 거래처가 없어요")
+            warn.append(f"거래처 없음('{partner or '빈칸'}')")
         if e.get('split'):
-            warn.append('나눠 내는 공사 — 부담자별로 나눠 넣을지 확인')
+            warn.append('나눠 내는 공사')
         day = _ymd(e.get('date') or '') or today.strftime(DATE_FMT)
         if not e.get('date'):
-            warn.append('바뀐 날을 못 찾아 오늘 날짜로 넣었어요')
+            warn.append('바뀐 날 모름(오늘로 넣음)')
         vat = '' if not e['vat'] else str(e['vat'])
         vtype = VAT_TYPE if (e['target'][1] or e['vat']) else VAT_TYPE_NONE
         if e['kind'] == '부가세 변경':
-            warn.append('부가세만 바뀐 전표 — 넣는 방식(유형·금액) 확인')
+            warn.append('부가세 별도 → 없음' if e['vat'] < 0 else '부가세 없음 → 별도')
         memo = memo_of(e)
         cells = [day, vtype, pcode, partner, str(e['supply']), '', '', vat, memo, SALES_ACCOUNT, AR_ACCOUNT, '',
                  e['code']]
@@ -416,8 +416,13 @@ def upload_rows(items: List[dict], today: Optional[date] = None) -> Dict[str, Li
     return {'sales': sales, 'projects': projects}
 
 
-def mark_done(keys: List[str], by: str, items: Optional[List[dict]] = None) -> Dict[str, int]:
-    """화면에서 [넣음 표시] — 지금 목록에 있는 전표만 장부에 적는다(목록이 바뀐 뒤 옛 키는 건너뜀)."""
+KIND_EXCLUDED = '제외'
+
+
+def mark_done(keys: List[str], by: str, items: Optional[List[dict]] = None, exclude: bool = False) -> Dict[str, int]:
+    """화면에서 [넣음 표시] — 지금 목록에 있는 전표만 장부에 적는다(목록이 바뀐 뒤 옛 키는 건너뜀).
+    exclude=True 는 [제외](11-26 부장님) — 이카운트에 넣지 않기로 한 줄(SH 정산 공사 등). 장부엔 kind '제외'로 남겨
+    목록에서 빠지게 한다(이카운트엔 없으니 나중에 이카운트와 맞출 땐 '제외' 줄을 빼고 본다)."""
     items = items if items is not None else (collect_items(force_refresh=False) or [])
     by_key = {e['key']: e for e in items}
     done = skipped = 0
@@ -426,10 +431,11 @@ def mark_done(keys: List[str], by: str, items: Optional[List[dict]] = None) -> D
         if not e:
             skipped += 1
             continue
-        if record_entry(e['code'], e['supply'], e['vat'], e['kind'], k, by=by):
+        if record_entry(e['code'], e['supply'], e['vat'], KIND_EXCLUDED if exclude else e['kind'], k, by=by,
+                        note=f"제외 — 원래 {e['kind']}" if exclude else ''):
             done += 1
         else:
             skipped += 1
     if done:
-        logger.info(f'[ECOUNT] 그룹웨어 [넣음 표시] {done}건 by {by}')
+        logger.info(f"[ECOUNT] 그룹웨어 [{'제외' if exclude else '넣음 표시'}] {done}건 by {by}")
     return {'done': done, 'skipped': skipped}

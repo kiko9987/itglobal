@@ -25,7 +25,7 @@
   <ol class="gw-callout gw-fe-steps">
     <li><b>프로젝트 등록</b> 탭에서 [표 복사] → 이카운트 <b>프로젝트등록 › 웹자료올리기</b> 표에 붙여넣고 저장</li>
     <li><b>매출전표 I</b> 탭에서 [표 복사] → 이카운트 <b>매출전표 I › 웹자료올리기</b> 표에 붙여넣고 저장</li>
-    <li>이카운트에 들어간 줄을 골라 [넣음 표시] — 목록에서 빠져요</li>
+    <li>이카운트에 들어간 줄을 골라 [넣음 표시] — 목록에서 빠져요. 넣지 않기로 한 줄은 [제외]</li>
   </ol>
 
   <div class="gw-ap-tabs" role="tablist" id="feTabs" aria-label="이카운트 올리기">
@@ -36,6 +36,7 @@
   <div class="gw-fe-tools">
     <button type="button" class="btn btn-sm btn-primary" id="feCopy"><i class="fas fa-copy me-1" aria-hidden="true"></i>표 복사</button>
     <button type="button" class="btn btn-sm btn-outline-secondary" id="feDone"><i class="fas fa-check me-1" aria-hidden="true"></i>넣음 표시</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="feExclude" title="이카운트에 넣지 않기로 한 줄을 목록에서 빼요"><i class="fas fa-ban me-1" aria-hidden="true"></i>제외</button>
     <span class="gw-fe-pick" id="fePick" aria-live="polite"></span>
   </div>
 
@@ -44,9 +45,9 @@
       <table class="gw-table gw-fe-table">
         <thead><tr>
           <th class="gw-fe-chk"><input type="checkbox" class="form-check-input" id="feAllSales" aria-label="매출전표 모두 고르기"></th>
-          <th>일자</th><th>구분</th><th>부가세유형</th><th>거래처</th><th class="num">공급가액</th><th class="num">부가세</th><th>적요</th><th>프로젝트코드</th>
+          <th>일자</th><th>구분</th><th>부가세유형</th><th>거래처</th><th class="num">공급가액</th><th class="num">부가세</th><th>적요</th><th>프로젝트코드</th><th>확인할 점</th>
         </tr></thead>
-        <tbody id="feSales"><tr><td colspan="9" class="gw-empty">불러오는 중…</td></tr></tbody>
+        <tbody id="feSales"><tr><td colspan="10" class="gw-empty">불러오는 중…</td></tr></tbody>
       </table>
     </div>
   </div>
