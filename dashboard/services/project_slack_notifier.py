@@ -715,6 +715,10 @@ def notify_amount_edit_to_settlement(code: str, field_changes: list,
         )
     lines.append('')
     lines.append('_경영지원을 거치지 않은 공사 금액 변경입니다. 회계·수금 반영을 확인해 주세요._')
+    # 이카운트 차액 전표 — 이 DM 은 알림만이라 주말에 오면 묻혔다(11-15 일 G4281 7,777,777→840,000 누락, 11-26).
+    #   이카운트 업로드 화면은 넣기 전까지 목록에 남으니 거기로 안내
+    _gw = ((os.getenv('GW_PUBLIC_URL') or '').strip() or 'https://pm.itg-aircon.com').rstrip('/')
+    lines.append(f'이카운트에도 차액 전표가 필요해요 → <{_gw}/finance/ecount|이카운트 업로드>에서 넣고 [넣음 표시]')
     if permalink:
         lines.append(f'<{permalink}|공사 확정 카드 보기>')
     text = '\n'.join(lines)

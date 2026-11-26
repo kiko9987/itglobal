@@ -2141,6 +2141,25 @@ export default class ModernProjectModal {
         }
       }
 
+      // 4-1. 임시 금액 확인 — 7,777,777 처럼 한 숫자만 되풀이한 총액은 금액을 정하기 전에 넣은 값일 수 있다
+      //   (2026-11-26 G4281: 등록 때 7,777,777원이 그대로 이카운트 매출로 들어갔다가 나중에 840,000원으로 고침)
+      if (retryCount === 0) {
+        const totalDigits = String(projectData['총액 1'] || '').replace(/[^0-9]/g, '');
+        if (/^(\d)\1{5,}$/.test(totalDigits)) {
+          const shown = Number(totalDigits).toLocaleString('ko-KR');
+          if (!window.confirm(`총액 1이 ${shown}원이에요. 임시로 넣은 금액이 아닌가요?\n실제 공사 금액이 맞으면 [확인], 고치려면 [취소]를 눌러 주세요.`)) {
+            if (submitBtn) {
+              submitBtn.disabled = false;
+              submitBtn.innerHTML = originalButtonText;
+            }
+            if (submitLoading) submitLoading.classList.add('d-none');
+            const totalInput = document.getElementById('modern-total-amount-display');
+            if (totalInput) totalInput.focus();
+            return;
+          }
+        }
+      }
+
       // 5. 총액 2는 구글 시트 수식으로 처리되므로 프론트엔드에서는 전송하지 않음
       // 백엔드에서 다음 수식이 자동 삽입됨: =IF(R:R=TRUE, Q:Q+ROUND(Q:Q*0.1,0), Q:Q)
 

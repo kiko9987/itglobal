@@ -642,6 +642,17 @@ class UserDatabase:
         except Exception as e:
             return False, f"백업 실패: {str(e)}"
 
+    @staticmethod
+    def _project_number_used(conn, number: int) -> bool:
+        """이 번호로 공사가 등록된 적이 있나 — 감사 로그 CREATE_PROJECT('R4286-SJ' 처럼 앞 글자 하나 + 4자리).
+        감사 표가 없으면(시험용 빈 DB) 없다고 본다."""
+        try:
+            return conn.execute(
+                "SELECT 1 FROM audit_logs WHERE action = 'CREATE_PROJECT' AND project_code LIKE ? LIMIT 1",
+                (f'_{int(number):04d}-%',)).fetchone() is not None
+        except sqlite3.Error:
+            return False
+
     def get_next_project_number(self, pattern: str, current_max_from_sheet: int = 0) -> int:
         """
         프로젝트 코드 패턴에 대한 다음 시퀀스 번호 반환 (다중 프로세스 안전)
@@ -711,6 +722,22 @@ class UserDatabase:
 
                 result = cursor.fetchone()
                 next_number = result['current_number'] if result else 1
+
+                # 한 번 등록된 적 있는 번호는 다시 주지 않는다(2026-11-26 R4286) — 중복 공사를 지우고 카운터를
+                #   낮춘 뒤 같은 번호가 다른 공사에 나가 이카운트·슬랙에 남은 옛 번호와 헷갈렸다
+                #   (R4286-JSH 중복 취소 → 카운터 4286→4285 → R4286-SJ). 등록 기록(감사 로그)에 있는 번호면 건너뜀.
+                start = next_number
+                for _ in range(100):
+                    if not self._project_number_used(conn, next_number):
+                        break
+                    next_number += 1
+                if next_number != start:
+                    conn.execute('''
+                        UPDATE project_code_sequences
+                        SET current_number = ?, last_updated = CURRENT_TIMESTAMP
+                        WHERE pattern = ?
+                    ''', (next_number, pattern))
+                    logger.warning(f"[SEQUENCE] {start}~{next_number - 1} 은 이미 등록된 적 있는 번호라 건너뜀 → {next_number}")
 
                 conn.commit()
                 logger.debug(f"[SEQUENCE] pattern={pattern}, next_number={next_number}")

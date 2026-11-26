@@ -56,6 +56,7 @@ def test_amount_edit_by_admin_sends_dm(monkeypatch):
     assert len(_FakeWeb.posted) == 1
     body = _FakeWeb.posted[0]['text']
     assert 'G3805-YG' in body and '총액 1' in body and 'JSH' in body
+    assert '/finance/ecount|이카운트 업로드>' in body      # 이카운트 차액 전표 안내(11-26 G4281 누락)
 
 
 def test_settlement_own_edit_skipped(monkeypatch):
