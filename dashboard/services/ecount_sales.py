@@ -14,6 +14,7 @@ G4208, 10-29 대조). 그래서 시트와 '이카운트에 들어 있다고 보�
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional, Tuple
@@ -338,3 +339,97 @@ def send_todo_dm() -> dict:
     except Exception as exc:
         logger.error(f'[ECOUNT] 경영지원 DM 발송 실패: {exc}', exc_info=True)
         return {'ok': False, 'total': total, 'reason': str(exc)}
+
+
+# ── 그룹웨어 '이카운트 올리기'(2026-11-26 부장님·SB) ─────────────────────────
+# SB 답: '전일 공사현황의 프로젝트명·주소·금액·유입구분·부가세 여부를 이카운트 양식에 맞게 만들어 주면 바로 등록'.
+# 이카운트 웹자료올리기는 엑셀에서 복사해 표에 붙여넣는 방식 — 칸 순서를 그대로 맞춘다(11-26 화면에서 확인).
+#   프로젝트등록:   프로젝트코드 · 프로젝트명 · ㅇㅇ · 프로젝트그룹1 · 프로젝트그룹2 · 적요
+#   매출전표 I:     일자 · 부가세유형 · 거래처코드 · 거래처명 · 공급가액 · 외화공급가액 · 환율 · 부가세 · 적요 ·
+#                   매출계정코드 · 입금계좌코드 · 수수료 · 프로젝트코드
+# SB 가 넣던 모양(회계거래조회 10/27~11/25 134건): 거래처 = 유입 구분, 적요 = 현장 주소(바뀐 금액은 '수정 사유 : …'),
+#   프로젝트 = 공사 코드, 부가세 없는 공사는 부가세 칸을 비움. 매출계정 4049 제품매출 · 입금계좌 1089 외상매출금(기본값).
+PROJECT_COLS = ('프로젝트코드', '프로젝트명', 'ㅇㅇ', '프로젝트그룹1', '프로젝트그룹2', '적요')
+SALES_COLS = ('일자', '부가세유형', '거래처코드', '거래처명', '공급가액', '외화공급가액', '환율', '부가세', '적요',
+              '매출계정코드', '입금계좌코드', '수수료', '프로젝트코드')
+VAT_TYPE = '11'          # 세금계산서(이카운트 부가세유형 코드)
+VAT_TYPE_NONE = '1Z'     # 기타매출 — 부가세 없는 공사(G4310-YG 전표에서 확인, 부가세 0)
+SALES_ACCOUNT = '4049'   # 제품매출
+AR_ACCOUNT = '1089'      # 외상매출금
+DATE_FMT = '%Y%m%d'      # 웹자료올리기 일자 칸
+# 유입 구분 → 이카운트 거래처코드(11-26 거래처등록에서 확인). 없는 유입 구분은 거래처명만 넣고 '확인 필요'
+PARTNER_CODES = {
+    '거래처': '99237', '홈페이지': '99655', '전화': '99656', '당근': '99644', '기타': '99657', '카카오톡': '99658',
+    '채널톡': '99661', '큐플레이스': '99662', '메일': '99663', '소개': '99051', '온라인': '99015', '숨고': '99295',
+}
+
+
+def memo_of(e: dict) -> str:
+    """적요 — 확정·재개는 현장 주소, 취소는 '취소 사유 : …', 금액·부가세 변경은 '수정 사유 : ' (사유는 SB 가 채움)."""
+    if e['kind'] in ('공사 확정', '공사 재개'):
+        return e.get('addr') or ''
+    if e['kind'] == '공사 취소':
+        reason = (e.get('note') or '').replace('공사 취소', '', 1).strip(' -:·\n')
+        m = re.match(r'^\(?\s*사유\s*[:：]\s*(.*?)\)?$', reason, re.S)   # 특이사항 '(사유: 고객변심)' → '고객변심'
+        reason = (m.group(1) if m else reason).strip()
+        return f'취소 사유 : {reason[:60]}' if reason else '취소 사유 : '
+    return '수정 사유 : '
+
+
+def _ymd(d: str) -> str:
+    try:
+        return datetime.strptime(d[:10], '%Y-%m-%d').strftime(DATE_FMT)
+    except (TypeError, ValueError):
+        return ''
+
+
+def upload_rows(items: List[dict], today: Optional[date] = None) -> Dict[str, List[dict]]:
+    """넣을 전표 목록 → 이카운트 웹자료올리기 줄. {'sales': [...], 'projects': [...]}.
+    줄마다 'cells'(칸 순서 그대로, 복사용)와 화면용 값·'warn'(확인 필요 사유)을 담는다."""
+    today = today or date.today()
+    sales, projects = [], []
+    for e in items:
+        partner = e.get('partner') or ''
+        pcode = PARTNER_CODES.get(partner, '')
+        warn = []
+        if not pcode:
+            warn.append(f"유입 구분 '{partner or '빈칸'}' 의 이카운트 거래처가 없어요")
+        if e.get('split'):
+            warn.append('나눠 내는 공사 — 부담자별로 나눠 넣을지 확인')
+        day = _ymd(e.get('date') or '') or today.strftime(DATE_FMT)
+        if not e.get('date'):
+            warn.append('바뀐 날을 못 찾아 오늘 날짜로 넣었어요')
+        vat = '' if not e['vat'] else str(e['vat'])
+        vtype = VAT_TYPE if (e['target'][1] or e['vat']) else VAT_TYPE_NONE
+        if e['kind'] == '부가세 변경':
+            warn.append('부가세만 바뀐 전표 — 넣는 방식(유형·금액) 확인')
+        memo = memo_of(e)
+        cells = [day, vtype, pcode, partner, str(e['supply']), '', '', vat, memo, SALES_ACCOUNT, AR_ACCOUNT, '',
+                 e['code']]
+        sales.append({'key': e['key'], 'code': e['code'], 'kind': e['kind'], 'date': e.get('date') or '',
+                      'partner': partner, 'supply': e['supply'], 'vat': e['vat'], 'memo': memo, 'vat_type': vtype,
+                      'sent': list(e['sent']), 'target': list(e['target']), 'warn': warn, 'cells': cells})
+        if e['kind'] == '공사 확정':
+            projects.append({'key': e['key'], 'code': e['code'], 'name': e.get('addr') or '',
+                             'warn': [] if e.get('addr') else ['현장 주소가 비어 있어요'],
+                             'cells': [e['code'], e.get('addr') or '', '', '', '', '']})
+    return {'sales': sales, 'projects': projects}
+
+
+def mark_done(keys: List[str], by: str, items: Optional[List[dict]] = None) -> Dict[str, int]:
+    """화면에서 [넣음 표시] — 지금 목록에 있는 전표만 장부에 적는다(목록이 바뀐 뒤 옛 키는 건너뜀)."""
+    items = items if items is not None else (collect_items(force_refresh=False) or [])
+    by_key = {e['key']: e for e in items}
+    done = skipped = 0
+    for k in keys:
+        e = by_key.get(k)
+        if not e:
+            skipped += 1
+            continue
+        if record_entry(e['code'], e['supply'], e['vat'], e['kind'], k, by=by):
+            done += 1
+        else:
+            skipped += 1
+    if done:
+        logger.info(f'[ECOUNT] 그룹웨어 [넣음 표시] {done}건 by {by}')
+    return {'done': done, 'skipped': skipped}

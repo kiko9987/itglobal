@@ -198,6 +198,7 @@ AREAS = [
         'items': [
             {'href': '/settlement/collected', 'label': '수금 정산', 'icon': 'fas fa-file-invoice-dollar', 'admin': True},   # 11-25 '월별 수금'에서 바꿈,
             {'href': '/finance/bank', 'label': '입출금', 'icon': 'fas fa-money-bill-transfer', 'admin': True},   # 은행 문자 장부·잔액(11-26)
+            {'href': '/finance/ecount', 'label': '이카운트 올리기', 'icon': 'fas fa-file-export', 'admin': True},   # 매출전표·프로젝트 웹자료올리기 표(11-26 SB)
         ],
     },
     {

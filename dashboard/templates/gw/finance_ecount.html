@@ -1,0 +1,71 @@
+{% extends "modern_base.html" %}
+
+{% block title %}이카운트 올리기 - 아이티글로벌그룹{% endblock %}
+
+{% block additional_css %}
+<link rel="stylesheet" href="{{ gw_asset('css/gw-pages.css') }}">
+{% endblock %}
+
+{% block content %}
+{# 재무 > 이카운트 올리기(11-26 SB '전일 공사현황을 이카운트 양식에 맞게 만들어 주면 바로 등록').
+   이카운트 웹자료올리기는 엑셀에서 복사해 붙여넣는 방식 — 표를 이카운트 칸 순서 그대로 복사해 준다.
+   규칙은 services/ecount_sales.py(넣을 전표 = 공사 현황 금액 − 이미 넣은 금액). 이카운트에는 아무것도 보내지 않는다. #}
+<div class="gw-page gw-fe" id="fePage">
+  <div class="gw-page-head">
+    <h1 class="gw-page-title">이카운트 올리기</h1>
+    <div class="gw-page-actions">
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="feRefresh" title="공사 현황 시트를 새로 읽어요">
+        <i class="fas fa-sync-alt me-1" aria-hidden="true"></i>새로고침</button>
+    </div>
+  </div>
+
+  <div class="gw-vh-msg" id="feMsg" role="status" aria-live="polite"></div>
+  <div class="gw-stats" id="feStats"></div>
+
+  <ol class="gw-callout gw-fe-steps">
+    <li><b>프로젝트 등록</b> 탭에서 [표 복사] → 이카운트 <b>프로젝트등록 › 웹자료올리기</b> 표에 붙여넣고 저장</li>
+    <li><b>매출전표 I</b> 탭에서 [표 복사] → 이카운트 <b>매출전표 I › 웹자료올리기</b> 표에 붙여넣고 저장</li>
+    <li>이카운트에 들어간 줄을 골라 [넣음 표시] — 목록에서 빠져요</li>
+  </ol>
+
+  <div class="gw-ap-tabs" role="tablist" id="feTabs" aria-label="이카운트 올리기">
+    <button type="button" role="tab" data-tab="sales" class="active" aria-selected="true" aria-controls="fePaneSales">매출전표 I <b id="feCntSales">-</b></button>
+    <button type="button" role="tab" data-tab="projects" aria-selected="false" tabindex="-1" aria-controls="fePaneProjects">프로젝트 등록 <b id="feCntProjects">-</b></button>
+  </div>
+
+  <div class="gw-fe-tools">
+    <button type="button" class="btn btn-sm btn-primary" id="feCopy"><i class="fas fa-copy me-1" aria-hidden="true"></i>표 복사</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary" id="feDone"><i class="fas fa-check me-1" aria-hidden="true"></i>넣음 표시</button>
+    <span class="gw-fe-pick" id="fePick" aria-live="polite"></span>
+  </div>
+
+  <div id="fePaneSales" role="tabpanel" aria-label="매출전표 I">
+    <div class="gw-panel gw-ap-tablewrap">
+      <table class="gw-table gw-fe-table">
+        <thead><tr>
+          <th class="gw-fe-chk"><input type="checkbox" class="form-check-input" id="feAllSales" aria-label="매출전표 모두 고르기"></th>
+          <th>일자</th><th>구분</th><th>부가세유형</th><th>거래처</th><th class="num">공급가액</th><th class="num">부가세</th><th>적요</th><th>프로젝트코드</th>
+        </tr></thead>
+        <tbody id="feSales"><tr><td colspan="9" class="gw-empty">불러오는 중…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+  <div id="fePaneProjects" role="tabpanel" aria-label="프로젝트 등록" hidden>
+    <div class="gw-panel gw-ap-tablewrap">
+      <table class="gw-table gw-fe-table">
+        <thead><tr>
+          <th class="gw-fe-chk"><input type="checkbox" class="form-check-input" id="feAllProjects" aria-label="프로젝트 모두 고르기"></th>
+          <th>프로젝트코드</th><th>프로젝트명</th>
+        </tr></thead>
+        <tbody id="feProjects"><tr><td colspan="3" class="gw-empty">불러오는 중…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <p class="gw-vh-foot">공사 현황에서 공사가 확정되거나 금액·부가세가 바뀐 공사 중 아직 이카운트에 넣지 않은 것만 나와요. 거래처는 유입 구분, 적요는 현장 주소예요. 금액이 바뀐 줄의 적요는 '수정 사유 : '까지만 들어가니 붙여넣은 뒤 사유를 채워 주세요. 부가세 없는 공사는 부가세유형 1Z(기타매출)로 들어가요. 아무 줄도 고르지 않고 [표 복사]를 누르면 표 전체가 복사돼요. 이카운트에는 아무것도 자동으로 보내지 않아요.</p>
+</div>
+{% endblock %}
+
+{% block additional_js %}
+<script src="{{ gw_asset('js/gw-finance-ecount.js') }}" defer></script>
+{% endblock %}

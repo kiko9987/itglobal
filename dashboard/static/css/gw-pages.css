@@ -3537,7 +3537,7 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
 .gw-vp-gtitle span { color: #64748b; font-weight: 400; }
 
 /* 차량 배정 ↔ 방문 일정 코스(11-23 부장님) — 화면 폭은 방문 일정과 같게 1400 가운데 */
-.gw-page.gw-va, .gw-page.gw-vm, .gw-page.gw-vh, .gw-page.gw-fb { max-width: 1400px; margin-left: auto; margin-right: auto; }   /* 차량 관리도 같게(11-23 부장님) */
+.gw-page.gw-va, .gw-page.gw-vm, .gw-page.gw-vh, .gw-page.gw-fb, .gw-page.gw-fe { max-width: 1400px; margin-left: auto; margin-right: auto; }   /* 차량 관리도 같게(11-23 부장님) */
 .gw-va-course + .gw-va-course { margin-top: 12px; padding-top: 10px; border-top: 1px solid #eef0f3; }
 .gw-va-course h3 { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 0.9rem; font-weight: 700; color: #1a1c20; margin: 0 0 4px; }
 .gw-va-cwho { font-weight: 600; color: #475569; }
@@ -4390,3 +4390,21 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 /* 차량 관리: 지난 차·차량 미지정 묶음(법인카드 지출결의서 비용, 11-26 — 1년 통계용) */
 .gw-vm-group th { font-size: 0.78rem; color: #64748b; background: #f8fafc; font-weight: 600; }
 .gw-vm-other td { color: #475569; }
+
+/* 재무 > 이카운트 올리기(11-26) — 입출금 표와 같은 틀, 머리·값 가운데 */
+.gw-fe-steps { margin: 8px 0 14px; padding-left: 34px; line-height: 1.7; }
+.gw-fe-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.gw-fe-pick { font-size: 0.85rem; color: #475569; }
+.gw-fe-table { min-width: 960px; }
+.gw-fe-table th, .gw-fe-table td { padding: 8px 10px; vertical-align: middle; text-align: center; }
+.gw-fe-table .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gw-fe-table td.gw-fe-memo { max-width: 360px; }
+.gw-fe-table th.gw-fe-chk, .gw-fe-table td.gw-fe-chk { width: 44px; }
+.gw-fe-table tbody tr[data-key] { cursor: pointer; }
+.gw-fe-table tbody tr[data-key]:hover > td { background: #f8fafc; }
+.gw-fe-table tr.gw-fe-warnrow > td { background: #fffbeb; }
+.gw-fe-warn { margin-top: 4px; font-size: 0.78rem; color: #92400e; }
+@media (max-width: 767.98px) {
+  .gw-fe-tools .btn { min-height: 44px; }
+  .gw-fe-table td.gw-fe-chk input { width: 22px; height: 22px; }
+}

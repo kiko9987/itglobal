@@ -126,6 +126,43 @@ def api_list():
         return _err(e)
 
 
+# ── 재무 > 이카운트 올리기(11-26 부장님·SB '이카운트 양식에 맞게 만들어 주면 바로 등록') ─────────
+# 규칙은 services/ecount_sales.py(넣을 전표 = 시트 금액 − 장부). 이카운트에는 아무것도 보내지 않는다 —
+# SB 가 표를 복사해 이카운트 웹자료올리기에 붙여넣고 [넣음 표시]를 누르면 장부에 적혀 목록에서 빠진다.
+@gw_finance_bp.route('/finance/ecount')
+@gw_page
+def ecount_page():
+    return render_template('gw/finance_ecount.html')
+
+
+@gw_finance_bp.route('/api/finance/ecount', methods=['GET'])
+@gw_page
+def api_ecount():
+    from dashboard.services import ecount_sales as es
+    try:
+        items = es.collect_items(force_refresh=request.args.get('refresh') == '1')
+        if items is None:
+            return jsonify({'success': False, 'message': '장부 기준선이나 공사 현황을 읽지 못했어요. 잠시 뒤 다시 해 주세요.'}), 503
+        rows = es.upload_rows(items)
+        return jsonify({'success': True, **rows, 'sales_cols': list(es.SALES_COLS), 'project_cols': list(es.PROJECT_COLS)})
+    except Exception as e:
+        return _err(e)
+
+
+@gw_finance_bp.route('/api/finance/ecount/done', methods=['POST'])
+@gw_page
+def api_ecount_done():
+    from dashboard.services import ecount_sales as es
+    keys = [str(k) for k in ((request.get_json(silent=True) or {}).get('keys') or [])][:200]
+    if not keys:
+        return jsonify({'success': False, 'message': '넣은 전표를 골라 주세요.'}), 400
+    try:
+        res = es.mark_done(keys, by=f'gw:{_by()}')
+    except Exception as e:
+        return _err(e)
+    return jsonify({'success': True, **res})
+
+
 @gw_finance_bp.route('/api/finance/bank', methods=['POST'])
 @gw_page
 def api_add():
