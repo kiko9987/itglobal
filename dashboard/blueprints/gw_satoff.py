@@ -116,6 +116,9 @@ def api_toggle():
                         admin=_is_admin() and not _is_field())     # 관리자는 확정된 달도 바로 고침(11-25)
     except Exception as e:
         return _err(e)
+    d = res.pop('direct', None)
+    if d:                                  # 확정된 달 직접 수정 — 본인·#휴가_일정·경영지원에 알림(11-26)
+        so.notify('direct_edit', d['month'], name, change=d)
     return jsonify({'success': True, **res})
 
 

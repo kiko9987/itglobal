@@ -616,17 +616,24 @@ def toggle(day: Optional[date], target: str, on: bool, sid: str, actor_name: str
         if on:
             cur = conn.execute('INSERT OR IGNORE INTO sat_off_days (day, name, slack_id, added_by, added_at) '
                                'VALUES (?, ?, ?, ?, ?)', (key, target, m['slack_id'], actor_name, _now()))
+            changed = cur.rowcount
             if cur.rowcount:                    # 새로 넣었을 때만 절반 제한(이미 있던 이름은 그대로)
                 warn = _over_cap(conn, month, key, edit)
             conn.execute('DELETE FROM sat_off_worked WHERE day=? AND name=?', (key, target))   # 다시 쉬면 출근 기록은 지움
         else:
-            conn.execute('DELETE FROM sat_off_days WHERE day=? AND name=?', (key, target))
+            changed = conn.execute('DELETE FROM sat_off_days WHERE day=? AND name=?', (key, target)).rowcount
         how = '넣음' if on else '뺌'
         _log(conn, actor_name, 'toggle', month,
              f'{kday(day)} {target} {how}' + (f' (확정 뒤 직접 수정)' if st != OPEN else '') + (' — 절반 넘음' if warn else ''))
     n = counts(month).get(target, 0)
+    # 확정된 달을 직접 고쳤으면(관리자·승인권자) 화면 API 가 변경 승인처럼 알림을 보낸다(11-26 부장님 —
+    # 기록만 남고 본인·#휴가_일정·경영지원 누구도 몰랐음). 실제로 바뀐 때만, 결재 대기 달은 승인 때 한꺼번에 공지되니 뺌
+    direct = None
+    if st == CONFIRMED and changed:
+        direct = {'month': month, 'name': target, 'slack_id': m['slack_id'], 'day': key, 'on': bool(on),
+                  'label': kday(day)}
     # 한 달 몇 번 기준 경고는 뺐다(11-24). warn = 승인권자가 한 토요일 절반을 넘겨 넣었을 때만(11-25)
-    return {'names': picks(month).get(key, []), 'count': n, 'warn': warn}
+    return {'names': picks(month).get(key, []), 'count': n, 'warn': warn, 'direct': direct}
 
 
 def mark_worked(day: Optional[date], target: str, verbal_by: str, reason: str, sid: str, actor_name: str,
@@ -1039,7 +1046,7 @@ def _who_sid(name: str) -> str:
 
 
 def notify(kind: str, month: str, actor: str, change: Optional[dict] = None, note: str = '') -> None:
-    """kind: submit·approve·return·change_request·change_approve·change_reject·worked·worked_undo.
+    """kind: submit·approve·return·change_request·change_approve·change_reject·direct_edit·full_off·worked·worked_undo.
     실패해도 화면 처리는 그대로."""
     def run():
         client = _client()
@@ -1090,6 +1097,19 @@ def notify(kind: str, month: str, actor: str, change: Optional[dict] = None, not
             else:
                 _dm_some(client, [who], f"↩️ 스케줄 근무 변경 신청을 {actor} 님이 반려했어요. 쉬는 토요일: {change['what']}\n사유: {note}",
                          month, f"{change['name']} 님 스케줄 근무 변경 반려")
+        elif kind == 'direct_edit' and change:
+            # 확정된 달 직접 수정(11-26) — 변경 승인과 같이 본인 DM·#휴가_일정·휴가 일수(경영지원)
+            what = f"{change['label']}는 {'쉬는 날로' if change['on'] else '근무하는 날로'} 바뀌었어요"
+            who = change.get('slack_id') or _who_sid(change['name'])
+            if change['name'] != actor:
+                _dm_some(client, [who], f"✏️ {actor} 님이 스케줄 근무를 고쳤어요. {what}.", month,
+                         f"{change['name']} 님 스케줄 근무 직접 수정")
+            _post(client, f"🔁 스케줄 근무 변경: {change['name']} {change['label']} "
+                          f"{'휴무' if change['on'] else '근무'} ({actor} 님 수정)")
+            if affected_leaves(month):
+                _dm_some(client, lv.manager_ids(), f"ℹ️ {change['name']} 님 스케줄 근무가 바뀌어 휴가 일수가 달라지는 신청이 있어요. "
+                                                   '휴가 관리에서 확인해 주세요.', month,
+                         f"{change['name']} 님 직접 수정으로 휴가 일수 고칠 신청")
         elif kind == 'full_off' and change:
             # 전체 휴무 지정·풀기(11-25) — 확정된 달이라 휴가 일수가 달라질 때만 경영지원에
             if affected_leaves(month):

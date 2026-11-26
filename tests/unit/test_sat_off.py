@@ -573,3 +573,34 @@ def test_admin_flag_comes_from_session(slack, monkeypatch):
         session['user'] = {'email': 'boss@example.com', 'permission_level': 'admin'}
         assert view().get_json()['success']
     assert '영업나' in so.picks(DEC)['2026-12-12']
+
+
+def test_direct_edit_in_confirmed_month_notifies(slack, monkeypatch):
+    """확정된 달 직접 수정도 변경 승인처럼 본인 DM·#휴가_일정 공지(11-26 부장님 — 기록만 남고 아무도 몰랐음)."""
+    import inspect
+    from flask import Flask, session
+    from dashboard.blueprints import gw_satoff as so_bp
+    so.toggle(S5, '영업가', True, A, '영업가', TODAY)
+    r = so.toggle(S12, '영업나', True, B, '영업나', TODAY)
+    assert r['direct'] is None                                             # 작성 중인 달은 알림 없음
+    _confirm()
+    slack.posts.clear()
+    view = inspect.unwrap(so_bp.api_toggle)
+    monkeypatch.setattr(so_bp, '_who', lambda: ('박민우', 'UMW', ''))
+    app = Flask(__name__)
+    app.secret_key = 'x'
+    with app.test_request_context(json={'day': '2026-12-19', 'name': '영업가', 'on': True}):
+        session['user'] = {'email': 'boss@example.com', 'permission_level': 'admin'}
+        j = view().get_json()
+    assert j['success'] and 'direct' not in j
+    assert any('박민우 님이 스케줄 근무를 고쳤어요' in t and '12/19(토)는 쉬는 날로' in t for t in slack.to(A))
+    assert any(p['ch'] == 'C-ANNOUNCE' and '영업가 12/19(토) 휴무 (박민우 님 수정)' in p['text'] for p in slack.posts)
+    slack.posts.clear()
+    r = so.toggle(S19, '영업가', True, 'UMW', '박민우', TODAY, admin=True)  # 이미 있던 이름 — 바뀐 게 없으면 알림 없음
+    assert r['direct'] is None
+    r = so.toggle(S19, '영업가', False, JW, '박정우', TODAY)               # 승인권자 빼기
+    assert r['direct'] == {'month': DEC, 'name': '영업가', 'slack_id': A, 'day': '2026-12-19', 'on': False,
+                           'label': '12/19(토)'}
+    so.notify('direct_edit', DEC, '박정우', change=r['direct'])
+    assert any('12/19(토)는 근무하는 날로' in t for t in slack.to(A))
+    assert any('영업가 12/19(토) 근무 (박정우 님 수정)' in p['text'] for p in slack.posts)
