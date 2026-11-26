@@ -170,6 +170,29 @@ def api_ecount_done():
     return jsonify({'success': True, **res})
 
 
+# ── 이카운트 대조(11-27 부장님) — 이카운트 매출과 공사 현황이 어긋난 공사를 줄마다 처리 ─────────
+@gw_finance_bp.route('/api/finance/ecount/audit', methods=['GET'])
+@gw_page
+def api_ecount_audit():
+    from dashboard.services import ecount_audit as ea
+    try:
+        return jsonify({'success': True, **ea.list_items()})
+    except Exception as e:
+        return _err(e)
+
+
+@gw_finance_bp.route('/api/finance/ecount/audit/<int:item_id>', methods=['POST'])
+@gw_page
+def api_ecount_audit_set(item_id):
+    from dashboard.services import ecount_audit as ea
+    body = request.get_json(silent=True) or {}
+    try:
+        res = ea.set_status(item_id, str(body.get('status') or ''), str(body.get('memo') or ''), _by())
+    except Exception as e:
+        return _err(e)
+    return jsonify({'success': True, **res})
+
+
 @gw_finance_bp.route('/api/finance/bank', methods=['POST'])
 @gw_page
 def api_add():

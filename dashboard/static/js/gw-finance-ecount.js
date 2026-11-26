@@ -21,6 +21,15 @@
     if (pb && sb && sb.compareDocumentPosition(pb) & Node.DOCUMENT_POSITION_FOLLOWING) tabs.insertBefore(pb, sb);
     if (pb && pb.firstChild && pb.firstChild.nodeType === 3 && pb.firstChild.nodeValue.indexOf('①') < 0) pb.firstChild.nodeValue = '① ' + pb.firstChild.nodeValue;
     if (sb && sb.firstChild && sb.firstChild.nodeType === 3 && sb.firstChild.nodeValue.indexOf('②') < 0) sb.firstChild.nodeValue = '② ' + sb.firstChild.nodeValue;
+    // ③ 이카운트 대조 탭(11-27) — 재시작 전 옛 템플릿이면 탭·칸을 만들어 둠
+    if (tabs && !tabs.querySelector('[data-tab="audit"]')) {
+      tabs.insertAdjacentHTML('beforeend', '<button type="button" role="tab" data-tab="audit" aria-selected="false" tabindex="-1" ' +
+        'aria-controls="fePaneAudit">③ 이카운트 대조 <b id="feCntAudit">-</b></button>');
+    }
+    if (!$('fePaneAudit') && $('fePaneProjects')) {
+      $('fePaneProjects').insertAdjacentHTML('afterend', '<div id="fePaneAudit" role="tabpanel" aria-label="이카운트 대조" hidden>' +
+        '<div id="feAudit"><p class="gw-empty">불러오는 중…</p></div></div>');
+    }
     var head = document.querySelector('#fePaneSales thead tr');
     if (head && head.children.length === 9) head.insertAdjacentHTML('beforeend', '<th>확인할 점</th>');
     if (!$('feExclude')) {
@@ -194,6 +203,10 @@
   // 고르지 않고 복사할 때 들어가는 줄 — 매출전표는 확인할 점·고치기 안내가 없는 줄만(11-26 부장님 '전체 복사하면 안 되잖아')
   function defaults(t) { return t === 'sales' ? S.sales.filter(ready) : S[t]; }
   function syncPick() {
+    // 대조 탭은 표 복사·넣음 표시와 상관없음 — 도구 줄·안내·통계를 숨김
+    var audit = S.tab === 'audit';
+    ['.gw-fe-tools', '.gw-fe-steps', '#feStats'].forEach(function (q) { var el = document.querySelector(q); if (el) el.hidden = audit; });
+    if (audit) return;
     var t = S.tab, n = picked(t).length, all = S[t].length, can = defaults(t).length;
     $('fePick').textContent = n ? n + '줄 골랐어요'
       : t === 'sales' ? (can ? '고르지 않으면 바로 넣을 줄(' + can + '줄)만 복사해요. 확인이 필요한 줄은 골라서 복사해요' : '바로 넣을 줄이 없어요. 확인이 필요한 줄은 골라서 복사해요')
@@ -219,6 +232,8 @@
     });
     $('fePaneSales').hidden = tab !== 'sales';
     $('fePaneProjects').hidden = tab !== 'projects';
+    if ($('fePaneAudit')) $('fePaneAudit').hidden = tab !== 'audit';
+    if (tab === 'audit' && !S.auditLoaded) loadAudit();
     syncPick();
   }
   $('feTabs').addEventListener('click', function (ev) {
@@ -228,7 +243,9 @@
   $('feTabs').addEventListener('keydown', function (ev) {
     if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight' && ev.key !== 'Home' && ev.key !== 'End') return;
     ev.preventDefault();
-    setTab(ev.key === 'Home' ? 'projects' : ev.key === 'End' ? 'sales' : (S.tab === 'sales' ? 'projects' : 'sales'), true);
+    var order = ['projects', 'sales', 'audit'], i = order.indexOf(S.tab);
+    setTab(ev.key === 'Home' ? order[0] : ev.key === 'End' ? order[order.length - 1]
+      : order[(i + (ev.key === 'ArrowRight' ? 1 : order.length - 1)) % order.length], true);
   });
 
   // ── 고르기 ──
@@ -315,6 +332,88 @@
     }).catch(function () { msg('복사하지 못했어요. 브라우저에서 클립보드 권한을 허용해 주세요.', 'err'); });
   });
 
+  // ── ③ 이카운트 대조(11-27 부장님) — 이카운트 매출과 공사 현황이 어긋난 공사를 줄마다 처리 ──
+  //   규칙은 services/ecount_audit.py. 이카운트를 읽어 맞춘 결과(대조 날짜)를 보여 주고, [이카운트 고침]·[시트가 틀림]·[그대로 둠]을 남긴다.
+  var ACTS = [['ecount_fixed', '이카운트 고침', 'btn-outline-primary'], ['sheet_wrong', '시트가 틀림', 'btn-outline-danger'],
+              ['keep', '그대로 둠', 'btn-outline-secondary']];
+  function amt(s, v) {
+    if (s == null && v == null) return '<span class="text-muted">-</span>';
+    return won(s || 0) + '<div class="gw-fa-vat">부가세 ' + (v ? won(v) : '없음') + '</div>';
+  }
+  function auditRow(r) {
+    var done = r.status !== 'open';
+    var codeCell = '<strong>' + esc(r.code) + '</strong>' + copyBtn('code', r.code, '코드 복사') +
+      (r.ecount_code && r.ecount_code !== r.code ? '<div class="gw-fa-eco">이카운트 <span>' + esc(r.ecount_code) + '</span>' +
+        copyBtn('code', r.ecount_code, '이카운트 코드 복사') + '</div>' : '');
+    var why = (r.note ? '<div>' + esc(r.note) + '</div>' : '') + (r.evidence ? '<div class="gw-fa-ev">' + esc(r.evidence) + '</div>' : '');
+    var act = done
+      ? '<span class="gw-badge ' + (r.status === 'sheet_wrong' ? 'gw-badge-reject' : 'gw-badge-active') + '">' + esc(r.status_label) + '</span>' +
+        '<div class="gw-fa-by">' + esc(r.resolved_by || '') + (r.memo ? ' · ' + esc(r.memo) : '') + '</div>' +
+        '<button type="button" class="btn btn-link btn-sm p-0 gw-fa-undo" data-aid="' + r.id + '" data-act="open">되돌리기</button>'
+      : '<input type="text" class="form-control form-control-sm gw-fa-memo" maxlength="200" placeholder="메모(선택)" aria-label="' + esc(r.code + ' 메모') + '">' +
+        '<div class="gw-fa-btns">' + ACTS.map(function (a) {
+          return '<button type="button" class="btn btn-sm ' + a[2] + '" data-aid="' + r.id + '" data-act="' + a[0] + '">' + a[1] + '</button>';
+        }).join('') + '</div>';
+    return '<tr data-aid="' + r.id + '"' + (done ? ' class="gw-fa-done"' : '') + '>' +
+      '<td class="text-nowrap">' + codeCell + '</td>' +
+      '<td class="gw-fe-memo">' + esc(r.site || '') + '</td>' +
+      '<td class="num">' + amt(r.eco_supply, r.eco_vat) + '</td>' +
+      '<td class="num">' + amt(r.sheet_supply, r.sheet_vat) + '</td>' +
+      '<td class="gw-fe-memo gw-fa-why">' + (why || '<span class="text-muted">-</span>') + '</td>' +
+      '<td class="gw-fa-act">' + act + '</td></tr>';
+  }
+  function renderAudit() {
+    var A = S.audit || { groups: [], counts: { open: 0, done: 0, total: 0 } };
+    if ($('feCntAudit')) $('feCntAudit').textContent = A.counts.open;
+    var box = $('feAudit');
+    if (!box) return;
+    if (!A.batch) { box.innerHTML = '<p class="gw-empty">아직 대조한 결과가 없어요.</p>'; return; }
+    var b = Number(A.batch.slice(5, 7)) + '/' + Number(A.batch.slice(8, 10));
+    box.innerHTML =
+      '<div class="gw-callout gw-fa-head"><b>' + esc(b) + ' 대조</b> — 이카운트 매출전표(2025년~)를 공사별로 합산해 공사 현황과 맞춰 본 결과예요. ' +
+        '처리 전 <b>' + A.counts.open + '</b>건 · 처리함 ' + A.counts.done + '건.<br>' +
+        '이카운트를 고쳤으면 [이카운트 고침], 공사 현황(시트)이 틀렸으면 [시트가 틀림], 차이가 맞으면 [그대로 둠]을 눌러 주세요. ' +
+        '이카운트는 자동으로 다시 읽지 않아요. 새로 맞춰 보려면 다시 대조해야 해요.</div>' +
+      A.groups.map(function (g) {
+        return '<section class="gw-fa-group"><h3 class="gw-fa-title">' + esc(g.label) +
+            ' <span>' + (g.open ? '처리 전 ' + g.open + ' / ' : '') + g.items.length + '건</span></h3>' +
+          '<p class="gw-fa-desc">' + esc(g.desc) + '</p>' +
+          '<div class="gw-panel gw-ap-tablewrap"><table class="gw-table gw-fe-table gw-fa-table"><thead><tr>' +
+          '<th>프로젝트코드</th><th>현장</th><th class="num">이카운트</th><th class="num">공사 현황</th><th>근거</th><th>처리</th>' +
+          '</tr></thead><tbody>' + g.items.map(auditRow).join('') + '</tbody></table></div></section>';
+      }).join('');
+  }
+  function loadAudit() {
+    return api('/api/finance/ecount/audit').then(function (j) {
+      S.audit = j; S.auditLoaded = true; renderAudit();
+    }).catch(function (e) {
+      if ($('feAudit')) $('feAudit').innerHTML = '<p class="gw-empty">' + esc(e.message) + '</p>';
+    });
+  }
+  if ($('feAudit')) {
+    $('feAudit').addEventListener('click', function (ev) {
+      var cp = ev.target.closest('.gw-fe-copy');
+      if (cp) {
+        var v = cp.getAttribute('data-copy'), icon = cp.innerHTML;
+        copyText(v).then(function () {
+          cp.innerHTML = CHECK_SVG; cp.classList.add('done'); msg(v + ' 코드를 복사했어요.', 'ok');
+          setTimeout(function () { cp.innerHTML = icon; cp.classList.remove('done'); }, 1500);
+        }).catch(function () { msg('복사하지 못했어요. 브라우저에서 클립보드 권한을 허용해 주세요.', 'err'); });
+        return;
+      }
+      var b = ev.target.closest('button[data-act]');
+      if (!b) return;
+      var tr = b.closest('tr'), memoEl = tr && tr.querySelector('.gw-fa-memo');
+      b.disabled = true;
+      api('/api/finance/ecount/audit/' + b.getAttribute('data-aid'),
+          { status: b.getAttribute('data-act'), memo: memoEl ? memoEl.value : '' }).then(function (j) {
+        var code = tr && tr.querySelector('strong') ? tr.querySelector('strong').textContent : '';
+        msg(code + ' — ' + (j.status === 'open' ? '처리 전으로 되돌렸어요.' : j.status_label + '(으)로 남겼어요.'), 'ok');
+        return loadAudit();
+      }).catch(function (e) { msg(e.message, 'err'); b.disabled = false; });
+    });
+  }
+
   // ── 넣음 표시 · 제외(이카운트에 넣지 않기로 한 줄 — 장부엔 '제외'로 남음) ──
   function finish(btn, exclude) {
     var rows = picked('sales');
@@ -337,4 +436,5 @@
 
   $('feRefresh').addEventListener('click', function () { msg(''); load(true); });
   load(false);
+  loadAudit();   // 탭 옆 숫자(처리 전 건수)
 })();
