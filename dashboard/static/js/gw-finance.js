@@ -11,7 +11,7 @@
   var page = document.getElementById('fbPage');
   if (!page || !document.getElementById('fbRows')) return;
   var $ = function (id) { return document.getElementById(id); };
-  var S = { accounts: [], rows: [], tab: 'tx', end: '', noOut: [] };
+  var S = { accounts: [], rows: [], tab: 'tx', end: '', noOut: [], open: {}, detail: {} };   // open·detail: 계좌별 잔액에서 펼친 계좌와 그 날 거래
   // 거르기 칩 — 결재 칩(fbAppr)은 11-26 추가라 재시작 전 옛 템플릿엔 없을 수 있음
   var CHIPS = ['fbAcct', 'fbDir', 'fbUn', 'fbAppr'].filter(function (id) { return document.getElementById(id); });
 
@@ -103,11 +103,18 @@
       S.accounts = j.accounts || [];
       S.rows = j.rows || [];
       S.noOut = j.no_out || [];
+      if (j.end !== S.end) S.detail = {};
       S.end = j.end;
       lastLoad = Date.now();
+      var fa = document.activeElement, fkey = '';
+      if (fa && fa.getAttribute) {
+        if (fa.getAttribute('data-acct')) fkey = '[data-acct="' + fa.getAttribute('data-acct') + '"]';
+        else if (fa.getAttribute('data-id')) fkey = '[data-id="' + fa.getAttribute('data-id') + '"]';
+      }
       renderStats(j.total || {});
       renderAccounts();
       renderRows();
+      if (fkey) { var nf = document.querySelector('.gw-fb-table tr' + fkey); if (nf) nf.focus({ preventScroll: true }); }   // 다시 그린 뒤에도 보던 줄에 그대로
     }).catch(function (e) {
       if (my !== seq || quiet) return;   // 자동 갱신 실패는 조용히 — 보던 목록 그대로 두고 다음 차례에 다시
       $('fbRows').innerHTML = '<tr><td colspan="8" class="gw-empty">' + esc(e.message) + '</td></tr>';
@@ -146,20 +153,78 @@
     }
     var row = function (a) {
       var bal = a.balance == null ? '<span class="gw-badge gw-badge-wait">잔액 넣기</span>' : won(a.balance);
-      return '<tr tabindex="0" role="button" data-acct="' + a.id + '" aria-label="' + esc(acctName(a) + ' 잔액 맞추기') + '"' +
-        (a.in_report ? '' : ' class="gw-fb-side"') + '>' +
-        '<td><strong>' + esc(a.code) + '</strong> <span class="text-muted">' + esc(a.bank) + '</span></td>' +
+      var on = !!S.open[a.id];
+      return '<tr tabindex="0" role="button" data-acct="' + a.id + '" aria-expanded="' + on + '" aria-controls="fbDet' + a.id + '"' +
+        ' aria-label="' + esc(acctName(a) + ' 거래 ' + (on ? '접기' : '펼치기')) + '"' +
+        ' class="gw-fb-acct' + (a.in_report ? '' : ' gw-fb-side') + '">' +
+        '<td><i class="fas fa-chevron-right gw-fb-chev" aria-hidden="true"></i><strong>' + esc(a.code) + '</strong> <span class="text-muted">' + esc(a.bank) + '</span></td>' +
         '<td class="c">' + esc(a.entity) + '</td>' +
         '<td class="num"><strong>' + bal + '</strong></td>' +
         '<td class="text-muted">' + esc(when(a.balance_at)) + '</td>' +
         '<td class="num gw-fb-in">' + (a.day_in ? won(a.day_in) : '<span class="text-muted">-</span>') + '</td>' +
         '<td class="num gw-fb-out">' + (a.day_out ? won(a.day_out) : '<span class="text-muted">-</span>') + '</td>' +
-        '<td class="c">' + srcBadge(a) + '</td></tr>';
+        '<td class="c">' + srcBadge(a) + '</td></tr>' + (on ? detailRow(a.id) : '');
     };
     var rep = S.accounts.filter(function (a) { return a.in_report; });
     var side = S.accounts.filter(function (a) { return !a.in_report; });
     $('fbAccts').innerHTML = rep.map(row).join('') +
       (side.length ? '<tr class="gw-fb-group"><th colspan="7" scope="rowgroup">자금일보 표에 없는 계좌</th></tr>' + side.map(row).join('') : '');
+    Object.keys(S.open).forEach(function (id) { loadDetail(Number(id)); });   // 펼쳐 둔 계좌는 새 거래로 다시
+  }
+
+  // 계좌 줄을 누르면 그 날(기준 날짜) 거래를 건별로 펼침(11-26 부장님 '아코디언으로 상세내역을 건별로')
+  function detailRow(id) {
+    return '<tr class="gw-fb-detail" id="fbDet' + id + '"><td colspan="7">' + detailHtml(id) + '</td></tr>';
+  }
+  function detailHtml(id) {
+    var d = S.detail[id], day = S.end ? (S.end === iso(new Date()) ? '오늘' : dayLabel(S.end)) : '';
+    var balBtn = '<button type="button" class="btn btn-sm btn-outline-secondary" data-balacct="' + id + '">잔액 맞추기</button>';
+    if (!d || d.end !== S.end) return '<div class="gw-fb-det-head"><span class="text-muted">불러오는 중…</span>' + balBtn + '</div>';
+    if (d.err) return '<div class="gw-fb-det-head"><span class="text-danger">' + esc(d.err) + '</span>' + balBtn + '</div>';
+    var head = '<div class="gw-fb-det-head"><span>' + esc(day) + ' 거래 <strong>' + d.rows.length + '</strong>건</span>' + balBtn + '</div>';
+    if (!d.rows.length) return head;
+    return head + '<table class="gw-fb-sub"><thead><tr><th scope="col">시각</th><th scope="col">상대방</th><th scope="col">입금</th><th scope="col">출금</th>' +
+      '<th scope="col">잔액</th><th scope="col">계정</th><th scope="col">적요</th></tr></thead><tbody>' +
+      d.rows.map(function (r) {
+        return '<tr tabindex="0" role="button" data-did="' + r.id + '" data-dacct="' + id + '" aria-label="' + esc(when(r.at) + ' ' + (r.counterparty || '') + ' 고치기') + '">' +
+          '<td class="text-nowrap">' + esc(r.at.slice(11, 16)) + (SRC_TAG[r.source] ? ' <span class="text-muted small">' + SRC_TAG[r.source] + '</span>' : '') + '</td>' +
+          '<td class="gw-fb-wrap">' + esc(r.counterparty || '') + '</td>' +
+          '<td class="num gw-fb-in">' + (r.direction === 'in' ? won(r.amount) : '<span class="text-muted">-</span>') + '</td>' +
+          '<td class="num gw-fb-out">' + (r.direction === 'out' ? won(r.amount) : '<span class="text-muted">-</span>') + '</td>' +
+          '<td class="num">' + won(r.balance) + '</td>' +
+          '<td class="text-nowrap">' + esc(r.title || '') + '</td>' +
+          '<td class="gw-fb-wrap">' + (r.memo ? esc(r.memo) : (r.direction === 'in' || r.direction === 'out' ? '<span class="gw-badge gw-badge-wait">적요 없음</span>' : '')) + '</td></tr>';
+      }).join('') + '</tbody></table>';
+  }
+  function paintDetail(id) {
+    var tr = $('fbDet' + id);
+    if (tr) tr.firstChild.innerHTML = detailHtml(id);
+  }
+  function loadDetail(id) {
+    var end = S.end;
+    api('/api/finance/bank?' + new URLSearchParams({ start: end, end: end, account: id }).toString()).then(function (j) {
+      if (end !== S.end) return;
+      S.detail[id] = { end: end, rows: (j.rows || []).filter(function (r) { return Number(r.account_id) === id; }) };
+      paintDetail(id);
+    }).catch(function (e) {
+      if (end !== S.end) return;
+      S.detail[id] = { end: end, rows: [], err: e.message };
+      paintDetail(id);
+    });
+  }
+  function toggleAcct(tr) {
+    var id = Number(tr.getAttribute('data-acct'));
+    if (S.open[id]) {
+      delete S.open[id];
+      var det = $('fbDet' + id); if (det) det.remove();
+    } else {
+      S.open[id] = true;
+      tr.insertAdjacentHTML('afterend', detailRow(id));
+      loadDetail(id);
+    }
+    var on = !!S.open[id], a = S.accounts.filter(function (x) { return x.id === id; })[0];
+    tr.setAttribute('aria-expanded', on);
+    if (a) tr.setAttribute('aria-label', acctName(a) + ' 거래 ' + (on ? '접기' : '펼치기'));
   }
 
   function renderNoOut() {
@@ -366,10 +431,18 @@
   $('fbBal').addEventListener('click', function () { openDrawer('bal', null, 0, this); });
   function rowOpen(ev) {
     if (ev.target.closest('a')) return;            // 결재 #번호 링크는 그대로 열림
-    var tr = ev.target.closest('tr[data-id], tr[data-acct]');
+    var bb = ev.target.closest('[data-balacct]');
+    if (bb) { if (ev.type === 'click') openDrawer('bal', null, Number(bb.getAttribute('data-balacct')), bb); return; }
+    var tr = ev.target.closest('tr[data-id], tr[data-acct], tr[data-did]');
     if (!tr || (ev.type === 'keydown' && ev.key !== 'Enter' && ev.key !== ' ')) return;
     ev.preventDefault();
-    if (tr.hasAttribute('data-acct')) { openDrawer('bal', null, Number(tr.getAttribute('data-acct')), tr); return; }
+    if (tr.hasAttribute('data-acct')) { toggleAcct(tr); return; }
+    if (tr.hasAttribute('data-did')) {
+      var did = Number(tr.getAttribute('data-did')), det = S.detail[Number(tr.getAttribute('data-dacct'))];
+      var drow = det && det.rows.filter(function (r) { return r.id === did; })[0];
+      if (drow) openDrawer('edit', drow, 0, tr);
+      return;
+    }
     var id = Number(tr.getAttribute('data-id'));
     var row = S.rows.filter(function (r) { return r.id === id; })[0];
     if (row) openDrawer('edit', row, 0, tr);
@@ -455,15 +528,23 @@
   })();
   load();
 
+  // 날짜 칸은 달력 아이콘만이 아니라 칸 어디를 눌러도 달력이 열림(11-26 부장님 — 차량 배정·방문 계획과 같게)
+  ['fbStart', 'fbEnd'].forEach(function (id) {
+    var inp = $(id);
+    if (!inp) return;
+    inp.style.cursor = 'pointer';
+    inp.addEventListener('click', function () { try { inp.showPicker(); } catch (e) { /* 지원 안 하는 브라우저는 원래대로 */ } });
+  });
+
   // ── 자동 갱신(11-26 부장님 '서버 무리 가지 않는 선에서') ─────────────
   // 화면이 보일 때만 2분마다, 다른 창에서 돌아오면 1분 넘었을 때 한 번.
-  // 오른쪽 창을 열었거나 입력·선택 중이거나 표 줄에 포커스가 있으면 건너뜀(쓰던 것·보던 자리 안 날아가게).
+  // 오른쪽 창을 열었거나 입력·선택 중이면 건너뜀(쓰던 것 안 날아가게).
   var AUTO_MS = 120000;
   function busy() {
     if (!box.hidden) return true;
     var a = document.activeElement;
     if (!a || a === document.body) return false;
-    return /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName) || !!a.closest('.gw-fb-table');
+    return /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName) || !!a.closest('.gw-fb-sub');   // 펼친 거래 줄에 있을 땐 건너뜀(바깥 줄은 다시 그린 뒤 포커스 되돌림)
   }
   function autoLoad() {
     if (document.hidden || busy()) return;

@@ -4301,6 +4301,22 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-fb-table td.gw-fb-in { color: #1d4ed8; }
 .gw-fb-table td.gw-fb-out { color: #b91c1c; }
 .gw-fb-wrap { min-width: 120px; max-width: 320px; }
+/* 계좌별 잔액: 계좌 줄을 누르면 그 날 거래를 건별로 펼침(11-26 부장님) */
+.gw-fb-acct > td:first-child { position: relative; padding-left: 28px; }
+.gw-fb-chev { position: absolute; left: 12px; top: 50%; margin-top: -0.35rem; font-size: 0.7rem; line-height: 0.7rem; color: #64748b; transition: transform 0.15s ease; }   /* 계좌 이름은 가운데, 화살표는 왼쪽 끝에 한 줄로 */
+.gw-fb-acct[aria-expanded="true"] .gw-fb-chev { transform: rotate(90deg); }
+.gw-fb-acct[aria-expanded="true"] > td { background: #f1f5f9; }
+.gw-fb-table tr.gw-fb-detail > td { background: #f8fafc; padding: 8px 14px 12px; text-align: left; cursor: default; }
+.gw-fb-det-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.85rem; color: #334155; margin-bottom: 6px; }
+.gw-fb-det-head:last-child { margin-bottom: 0; }
+.gw-fb-sub { width: 100%; font-size: 0.85rem; background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; border-collapse: separate; border-spacing: 0; }
+.gw-fb-sub th { font-size: 0.78rem; color: #64748b; font-weight: 600; border-bottom: 1px solid #e2e8f0; }
+.gw-fb-sub tbody tr { cursor: pointer; }
+.gw-fb-sub tbody tr:hover > td { background: #f8fafc; }
+.gw-fb-sub tbody tr + tr > td { border-top: 1px solid #f1f5f9; }
+.gw-fb-sub tbody tr:focus-visible { outline: 2px solid #2a3038; outline-offset: -2px; }
+@media (prefers-reduced-motion: reduce) { .gw-fb-chev { transition: none; } }
+@media (max-width: 767.98px) { .gw-fb-det-head .btn { min-height: 44px; } }
 .gw-fb-group th { font-size: 0.78rem; color: #64748b; background: #f8fafc; }
 .gw-fb-side td { color: #475569; }
 .gw-badge.gw-fb-sms { background: #ecfdf5; color: #065f46; }
