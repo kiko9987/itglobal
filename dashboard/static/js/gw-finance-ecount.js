@@ -91,10 +91,10 @@
         '<td class="text-nowrap">' + esc(md(r.date)) + '</td>' +
         '<td><span class="gw-badge ' + kindCls + '">' + esc(r.kind) + '</span>' +
           (r.lines > 1 ? '<div class="gw-fe-line">' + r.lines + '줄 중 ' + r.line + '</div>' : '') + '</td>' +
-        '<td>' + esc(r.vat_type === '1Z' ? '1Z 기타매출' : '11 세금계산서') + '</td>' +
+        '<td>' + (r.cells ? esc(r.vat_type === '1Z' ? '1Z 기타매출' : '11 세금계산서') : '<span class="gw-badge gw-fe-fix">원래 전표 고치기</span>') + '</td>' +
         '<td>' + esc(r.partner || '-') + '</td>' +
-        '<td class="num">' + won(r.supply) + '</td>' +
-        '<td class="num">' + (r.vat ? won(r.vat) : '<span class="text-muted">-</span>') + '</td>' +
+        '<td class="num">' + (r.cells ? won(r.supply) : '<span class="text-muted">-</span>') + '</td>' +
+        '<td class="num">' + (r.cells && r.vat ? won(r.vat) : '<span class="text-muted">-</span>') + '</td>' +
         '<td class="gw-fe-memo">' + memoCell(r) + '</td>' +
         '<td class="text-nowrap"><strong>' + esc(r.code) + '</strong></td>' +
         '<td class="gw-fe-check">' + (warn || (r.trace ? '' : '<span class="text-muted">-</span>')) +
@@ -123,7 +123,12 @@
     if (!p || S.edit[r.key] == null) return r.memo;
     return (p.head + S.edit[r.key].trim()).trim();
   }
+  // 원래 전표 고치기(부가세 있음↔없음, SB 방식 11-26) — 고칠 내용을 보여 주고, 붙여넣을 줄이 없으면 입력칸도 없음
   function memoCell(r) {
+    var guide = r.guide ? '<div class="gw-fe-guide"><i class="fas fa-pen-to-square me-1" aria-hidden="true"></i>' + esc(r.guide) + '</div>' : '';
+    return (r.cells ? memoInput(r) : '') + guide;
+  }
+  function memoInput(r) {
     var p = reasonParts(r);
     if (!p) return esc(r.memo);
     var edited = S.edit[r.key] != null;
@@ -147,16 +152,17 @@
   });
 
   function picked(t) { return S[t].filter(function (r) { return S.pick[t][r.key]; }); }
+  function copyable(rows) { return rows.filter(function (r) { return !!r.cells; }); }   // 고치기만 하는 줄은 복사 안 함
   function syncPick() {
-    var t = S.tab, n = picked(t).length, all = S[t].length;
-    $('fePick').textContent = n ? n + '줄 골랐어요' : (all ? '고르지 않으면 표 전체(' + all + '줄)를 복사해요' : '');
+    var t = S.tab, n = picked(t).length, all = S[t].length, can = copyable(S[t]).length;
+    $('fePick').textContent = n ? n + '줄 골랐어요' : (can ? '고르지 않으면 붙여넣을 줄 전체(' + can + '줄)를 복사해요' : '');
     $('feDone').hidden = t !== 'sales';
     $('feExclude').hidden = t !== 'sales' || !S.excludeOk;
     $('feDone').disabled = $('feExclude').disabled = !picked('sales').length;
     var box = $(t === 'sales' ? 'feAllSales' : 'feAllProjects');
     box.checked = !!all && n === all;
     box.indeterminate = n > 0 && n < all;
-    $('feCopy').disabled = !all;
+    $('feCopy').disabled = !can;
   }
 
   // ── 탭 ──
@@ -230,9 +236,9 @@
     });
   }
   $('feCopy').addEventListener('click', function () {
-    var t = S.tab, rows = picked(t);
-    if (!rows.length) rows = S[t];
-    if (!rows.length) return;
+    var t = S.tab, rows = copyable(picked(t));
+    if (!picked(t).length) rows = copyable(S[t]);
+    if (!rows.length) { msg('고른 줄은 이카운트에서 원래 전표를 고치는 줄이라 복사할 게 없어요.', 'err'); return; }
     var text = rows.map(function (r) { return cellsOf(r, t).map(clean).join('\t'); }).join('\r\n');
     copyText(text).then(function () {
       msg((t === 'sales' ? '매출전표 ' : '프로젝트 ') + rows.length + '줄을 복사했어요. 이카운트 웹자료올리기 표의 첫 칸을 누르고 붙여넣어 주세요.', 'ok');

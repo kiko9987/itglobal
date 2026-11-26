@@ -44,7 +44,7 @@ def test_cancel_memo_and_vat_only_warning():
     vat_only = _item('G6-FF', '부가세 변경', 0, -420_000, partner='거래처', sent=(4_200_000, 420_000), target=(4_200_000, 0))
     s = es.upload_rows([cancel, vat_only])['sales']
     assert s[0]['memo'] == '취소 사유 : 고객 변심'
-    assert s[1]['cells'][1] == '11' and s[1]['memo'] == '수정 사유 : 부가세 별도 → 없음'   # 세금계산서 부가세를 빼는 전표
+    assert s[1]['cells'] is None and s[1]['memo'] == '수정 사유 : 부가세 별도 → 없음'   # 원래 전표 고치기(붙여넣을 줄 없음)
     assert '부가세 별도 → 없음' not in s[1]['warn']        # 적요에 있으니 확인할 점에 또 쓰지 않음
     back = _item('G7-GG', '부가세 변경', 0, 300_000, sent=(3_000_000, 0), target=(3_000_000, 300_000))
     assert es.upload_rows([back])['sales'][0]['memo'] == '수정 사유 : 부가세 없음 → 별도'
@@ -126,24 +126,29 @@ def test_trace_and_sh_flag():
     assert s[1]['trace'] == ''
 
 
-def test_vat_change_two_lines_like_sb():
-    """부가세만 바뀐 공사는 11 감액 + 1Z 두 줄(SB 방식, 11-26 G4148-JW 확인). 나눠 내는 몫·전부 둘 다."""
-    part = _item('G4156-JW', '부가세 변경', 0, -161_350, partner='거래처', sent=(3_527_000, 352_700), target=(3_527_000, 191_350))
-    s = es.upload_rows([part])['sales']
-    assert [(r['cells'][1], r['cells'][4], r['cells'][7]) for r in s] == [('11', '-1613500', '-161350'), ('1Z', '1613500', '')]
-    assert s[0]['key'] == part['key'] and s[1]['key'] == part['key'] + '#2' and s[1]['group'] == part['key']
+def test_vat_edit_plan_like_sb():
+    """SB 규칙(11-26 이카운트 13건): 부가세 있음↔없음은 원래 전표를 고침(새 전표 없음), 금액도 바뀌면 차액만 새 줄,
+    나눠 내는 공사의 일부 현금 몫은 원래 전표를 계산서 몫으로 고치고 부가세 없는 몫 한 장 추가."""
     whole = _item('G3288-SH', '부가세 변경', 0, -900_000, partner='거래처', sent=(9_000_000, 900_000), target=(9_000_000, 0))
-    assert [(r['cells'][1], r['cells'][4], r['cells'][7]) for r in es.upload_rows([whole])['sales']] == \
-        [('11', '-9000000', '-900000'), ('1Z', '9000000', '')]
-    up = _item('G7-GG', '부가세 변경', 0, 300_000, sent=(3_000_000, 0), target=(3_000_000, 300_000))
-    assert [(r['cells'][1], r['cells'][4], r['cells'][7]) for r in es.upload_rows([up])['sales']] == \
-        [('1Z', '-3000000', ''), ('11', '3000000', '300000')]
+    r = es.upload_rows([whole])['sales'][0]
+    assert r['cells'] is None and '부가세를 없음으로 고쳐' in r['guide'] and '9,000,000원 그대로' in r['guide']         and '새 전표는 넣지 않아요' in r['guide']
+    part = _item('G4156-JW', '부가세 변경', 0, -161_350, partner='거래처', sent=(3_527_000, 352_700), target=(3_527_000, 191_350))
+    r = es.upload_rows([part])['sales'][0]
+    assert (r['cells'][1], r['cells'][4], r['cells'][7]) == ('1Z', '1613500', '')
+    assert '공급가액 1,913,500원·부가세 191,350원으로 고치고' in r['guide'] and '1,613,500원' in r['guide']
+    on = _item('G4208-MJ', '부가세 변경', 0, 280_000, sent=(2_800_000, 0), target=(2_800_000, 280_000))
+    r = es.upload_rows([on])['sales'][0]
+    assert r['cells'] is None and '부가세 280,000원을 넣어' in r['guide']
+    both = _item('G4083-YG', '금액 변경', 400_000, -550_000, sent=(5_500_000, 550_000), target=(5_900_000, 0))
+    r = es.upload_rows([both])['sales'][0]                  # G4083: 원래 전표 vat 제외 + 40만원 새 줄
+    assert (r['cells'][1], r['cells'][4], r['cells'][7]) == ('1Z', '400000', '') and '부가세를 없음으로' in r['guide']
     amt = _item('R3-CC', '금액 변경', -60_000, -6_000, sent=(4_300_000, 430_000))
-    assert len(es.upload_rows([amt])['sales']) == 1                     # 금액 변경은 한 줄 그대로
+    r = es.upload_rows([amt])['sales'][0]
+    assert r['guide'] == '' and (r['cells'][1], r['cells'][4], r['cells'][7]) == ('11', '-60000', '-6000')
 
 
-def test_mark_done_two_line_item_once(db):
-    part = _item('G4156-JW', '부가세 변경', 0, -161_350, sent=(3_527_000, 352_700), target=(3_527_000, 191_350))
-    res = es.mark_done([part['key'], part['key'] + '#2'], by='gw:가나', items=[part])
-    assert res == {'done': 1, 'skipped': 0}
-    assert es.ledger_totals()['G4156-JW'] == (0, -161_350)              # 장부엔 합계(공급가 0, 부가세 −) 한 줄
+def test_mark_done_edit_only_item(db):
+    whole = _item('G3288-SH', '부가세 변경', 0, -900_000, sent=(9_000_000, 900_000), target=(9_000_000, 0))
+    es.record_entry('G3288-SH', 9_000_000, 900_000, '기준선', 'base', by='t')
+    assert es.mark_done([whole['key']], by='gw:가나', items=[whole]) == {'done': 1, 'skipped': 0}
+    assert es.ledger_totals()['G3288-SH'] == (9_000_000, 0)            # 고친 뒤 이카운트 = 시트

@@ -453,19 +453,40 @@ def _ymd(d: str) -> str:
         return ''
 
 
-def vat_change_lines(e: dict) -> Optional[List[Tuple[str, int, int]]]:
-    """부가세만 바뀐 전표 → [(부가세유형, 공급가, 부가세), …] 두 줄. 계산서 낸 몫(11)과 부가세 없는 몫(1Z)을 따로.
-    SB 방식(11-26 이카운트 G4148-JW 오남프라자 305호: 11 10,042,000+1,004,200 / 1Z 6,000,000 두 장) — 한 줄로
-    '11·공급가 0·부가세 −' 를 넣으면 합계는 맞아도 세금계산서 쪽 공급가가 실제 발행보다 커진다.
-    부가세가 줄면 11 감액(−몫, −부가세) + 1Z(+몫), 늘면 반대. 몫 = 바뀐 부가세 × 10(일부), 전부면 공급가 전체."""
+def vat_edit_plan(e: dict) -> Optional[Tuple[str, Optional[Tuple[str, int, int]]]]:
+    """부가세 있음↔없음이 바뀐 전표 — SB 방식대로 (원래 전표 고치기 안내, 새로 넣을 한 장 또는 None).
+
+    SB 규칙(11-26, 감사기록 부가세 변경 ↔ 이카운트 13건): 부가세가 바뀌면 새 전표 없이 **원래 매출전표를 고친다**
+    (G4039·R4163·G4144·R4101·G4147·G4152·G4174·R4243·R4304·R4238·R4317, G4208 은 반대로). 금액도 같이 바뀌면
+    원래 전표의 부가세를 고치고 금액 차액만 새 전표(G4083 '…현금수령으로 인한 vat 제외'). 확정 때부터 나눠 내는
+    공사는 계산서 몫(11)과 부가세 없는 몫(1Z) 두 장(G4148) → 나중에 일부만 현금이 되면 원래 전표를 계산서 몫으로
+    고치고 부가세 없는 몫 한 장을 더한다(G4156·G4151, SB 확인 전 추정).
+    부가세와 상관없는 금액 변경·확정·취소는 None(지금처럼 차액 한 장)."""
     (s0, v0), (s1, v1) = e['sent'], e['target']
-    dv = v1 - v0
-    if e.get('kind') != '부가세 변경' or not dv or s0 != s1:
+    if e.get('kind') not in ('부가세 변경', '금액 변경') or v0 == v1:
         return None
-    part = s1 if (not v0 or not v1) else round(abs(dv) * 10)
-    if dv < 0:
-        return [(VAT_TYPE, -part, dv), (VAT_TYPE_NONE, part, 0)]
-    return [(VAT_TYPE_NONE, -part, 0), (VAT_TYPE, part, dv)]
+    flip = bool(v0) != bool(v1)
+    if e['kind'] == '금액 변경' and not flip:
+        return None                                   # 공급가를 따라 부가세가 바뀐 보통 금액 변경
+    if e['kind'] == '부가세 변경' and not flip:      # 일부만 부가세 없음(나눠 내는 공사)
+        part = round(abs(v1 - v0) * 10)
+        if v1 < v0:
+            return (f"원래 매출전표를 공급가액 {s1 - part:,}원·부가세 {v1:,}원으로 고치고, "
+                    f"부가세 없는 몫 {part:,}원은 이 줄로 붙여넣어 주세요.", (VAT_TYPE_NONE, part, 0))
+        return (f"원래 매출전표를 공급가액 {s1 - part:,}원·부가세 없음으로 고치고, "
+                f"부가세 있는 몫 {part:,}원은 이 줄로 붙여넣어 주세요.", (VAT_TYPE, part, v1))
+    # 부가세 있음 ↔ 없음
+    if not v1:
+        fix = f"원래 매출전표를 열어 부가세를 없음으로 고쳐 주세요(부가세유형 1Z, 공급가액 {s0:,}원 그대로)."
+        orig_vat = 0
+    else:
+        orig_vat = round(s0 * 0.1) if s1 != s0 else v1
+        fix = f"원래 매출전표를 열어 부가세 {orig_vat:,}원을 넣어 주세요(부가세유형 11, 공급가액 {s0:,}원 그대로)."
+    if s1 == s0:
+        return fix + ' 새 전표는 넣지 않아요.', None
+    ds, dv = s1 - s0, v1 - orig_vat
+    return (fix + f" 바뀐 금액 {ds:,}원은 이 줄로 붙여넣어 주세요.",
+            (VAT_TYPE if v1 else VAT_TYPE_NONE, ds, dv if v1 else 0))
 
 
 def upload_rows(items: List[dict], today: Optional[date] = None) -> Dict[str, List[dict]]:
@@ -492,16 +513,18 @@ def upload_rows(items: List[dict], today: Optional[date] = None) -> Dict[str, Li
         trace = '' if e['kind'] == '공사 확정' else (
             f"이카운트 {sum(e['sent']):,}원 → 시트 {sum(e['target']):,}원")
         memo = memo_of(e)
-        lines = vat_change_lines(e) or [(vtype, e['supply'], e['vat'])]
-        for i, (vt, sup, vv) in enumerate(lines):
+        plan = vat_edit_plan(e)
+        guide, line = (plan if plan else ('', (vtype, e['supply'], e['vat'])))
+        cells = None
+        vt, sup, vv = line if line else ('', 0, 0)
+        if line:
             cells = [day, vt, pcode, partner, str(sup), '', '', str(vv) if vv else '', memo, SALES_ACCOUNT, AR_ACCOUNT,
                      '', e['code']]
-            # 두 줄 전표는 같은 group — 화면에서 같이 고르고, [넣음 표시]는 공사 하나로 장부에 적는다(키 '#2' 떼고)
-            sales.append({'key': e['key'] + (f'#{i + 1}' if i else ''), 'group': e['key'], 'line': i + 1,
-                          'lines': len(lines), 'code': e['code'], 'kind': e['kind'], 'date': e.get('date') or '',
-                          'partner': partner, 'supply': sup, 'vat': vv, 'memo': memo, 'vat_type': vt,
-                          'sent': list(e['sent']), 'target': list(e['target']),
-                          'warn': warn if not i else [], 'trace': trace if not i else '', 'cells': cells})
+        # guide = 이카운트에서 원래 전표를 고칠 내용. cells 가 None 이면 붙여넣을 줄 없음(고치기만) — [표 복사]에서 빠짐
+        sales.append({'key': e['key'], 'code': e['code'], 'kind': e['kind'], 'date': e.get('date') or '',
+                      'partner': partner, 'supply': sup, 'vat': vv, 'memo': memo, 'vat_type': vt,
+                      'sent': list(e['sent']), 'target': list(e['target']), 'warn': warn, 'trace': trace,
+                      'guide': guide, 'cells': cells})
         if e['kind'] == '공사 확정':
             projects.append({'key': e['key'], 'code': e['code'], 'name': e.get('addr') or '',
                              'warn': [] if e.get('addr') else ['현장 주소가 비어 있어요'],
