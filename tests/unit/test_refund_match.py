@@ -427,3 +427,43 @@ def test_old_candidate_card_button_refuses_transfer_out(monkeypatch):
     assert '[🔁 법인 간 이체로 처리]' in said[0] and '[반환 아님]' in said[0]
     # '⏳ 기록 중' → 원래 후보 카드(버튼 포함)로 되돌림
     assert updates[-1]['blocks'][1]['elements'][0]['action_id'] == 'payment_refund_record'
+
+
+# ── 이름이 다른 반환 — 전자결재로 짝(2026-11-26 R4317-SJ 실데이터) ──
+DEP_4317 = '2026/11/21\n하나,11/21, 15:25\n255******31304\n입금470,000원\n이엔제이네일'
+OUT_4317 = {'id': 'o4317', 'amount': 470000, 'partner': '유재화', 'bank': '하나', 'acct_code': 'R',
+            'ts': int(datetime(2026, 11, 26, 15, 19).timestamp())}
+APPR_95 = {'id': 95, 'form': 'fund', 'amount': 470000, 'grn': 'R', 'done_at': '2026-11-26 15:19:45',
+           'project_code': 'R4317-SJ', 'partner': '이엔제일네일', 'payee_name': '유재화', 'content': '게약금반환/현금거래요청'}
+
+
+def _row_4317():
+    r = _row(u=470000, w=0, total2=2650000, notes=(DEP_4317, '', ''), inv=('미발행', '-', '-'))
+    r['code'] = 'R4317-SJ'
+    return r
+
+
+def test_name_differs_without_approval_no_candidate():
+    assert rm.find_candidates(dict(OUT_4317), [_row_4317()], include_reroute=True) == []
+
+
+def test_name_differs_matched_by_refund_approval():
+    o = dict(OUT_4317)
+    assert rm.attach_approval(o, [APPR_95])['id'] == 95
+    c = rm.find_candidates(o, [_row_4317()], include_reroute=True)
+    assert len(c) == 1 and c[0]['kind'] == 'reroute' and c[0]['stage'] == '계약금'
+    assert c[0]['name_via'] == '전자결재 #95 게약금반환/현금거래요청' and not c[0]['name_typo']
+    body = rm.build_candidate_blocks('o4317', o, c[0])[0]['text']['text']
+    assert '입금 이엔제이네일(통장 표시) / 출금 유재화' in body and '전자결재 #95' in body
+
+
+@pytest.mark.parametrize('change', [
+    {'project_code': 'R9999-XX'},                                   # 다른 공사 결재
+    {'content': '덕트 설치', 'partner': '우성공조닥트'},            # 반환 결재도 아니고 거래처도 다름
+    {'grn': 'G'},                                                   # 다른 사업자 통장
+    {'done_at': '2026-11-29 10:00:00'},                             # 날짜가 멀어 짝 아님
+])
+def test_approval_must_vouch_for_this_project(change):
+    o = dict(OUT_4317)
+    rm.attach_approval(o, [dict(APPR_95, **change)])
+    assert rm.find_candidates(o, [_row_4317()], include_reroute=True) == []

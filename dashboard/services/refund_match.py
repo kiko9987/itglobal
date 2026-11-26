@@ -107,6 +107,62 @@ def name_typo(a: str, b: str) -> bool:
     return _one_edit(na, nb) or sum(x != y for x, y in zip(na[:n], nb[:n])) <= 1
 
 
+# ── 이름이 다른 반환 — 전자결재로 짝(2026-11-26 R4317-SJ) ─────────────────────────────
+# 은행 문자의 이름은 보낸 사람이 정한 '받는 분 통장 표시' 글이라 실제 이름과 다를 수 있다. R4317-SJ 계약금 47만은
+# 문자에 '이엔제이네일'(상호)로 들어왔고, 경영지원은 은행 사이트에서 본 실제 이름 '유재화'로 돌려줬다 → 이름 조건 ③에서
+# 떨어져 후보 카드가 안 떴고 시트 계약금이 그대로 남았다. 그 반환은 전자결재 #95(거래처 '이엔제일네일', 받는 분 '유재화',
+# 공사 R4317-SJ, '계약금반환/현금거래요청')로 나갔다. 그래서 출금과 짝이 맞는 이체 완료 결재가 그 공사를 가리키고
+# ('반환·환불' 결재이거나 결재 거래처가 입금 이름과 같으면) 이름이 달라도 후보로 본다. 결재 없는 일반 출금은 그대로 이름 필수.
+_REFUND_WORDS = ('반환', '환불', '돌려')
+
+
+def attach_approval(outflow: Dict, approvals: List[Dict]) -> Optional[Dict]:
+    """출금 ↔ 전자결재 이체 완료 짝(같은 금액·사업자·±1.5일, 가장 가까운 시각). outflow['approval'] 에 넣고 돌려준다."""
+    amt = abs(_num(outflow.get('amount')))
+    acct = (outflow.get('acct_code') or '').strip().upper()
+    try:
+        o_at = datetime.fromtimestamp(int(outflow.get('ts') or 0))
+    except (TypeError, ValueError, OSError):
+        return None
+    best = None
+    for a in approvals or []:
+        if amt <= 0 or abs(_num(a.get('amount')) - amt) > 1:
+            continue
+        grn = str(a.get('grn') or '')[:1].upper()
+        if acct and grn and grn != acct:
+            continue
+        try:
+            done = datetime.fromisoformat(str(a.get('done_at') or '')[:19])
+        except ValueError:
+            continue
+        gap = abs((done - o_at).total_seconds())
+        if gap > 36 * 3600:
+            continue
+        if best is None or gap < best[0]:
+            best = (gap, a)
+    if not best:
+        return None
+    a = best[1]
+    info = {'id': a.get('id'), 'project_code': str(a.get('project_code') or '').strip(),
+            'partner': str(a.get('partner') or '').strip(), 'payee': str(a.get('payee_name') or '').strip(),
+            'content': str(a.get('content') or '').strip()[:60]}
+    outflow['approval'] = info
+    return info
+
+
+def approval_vouches(outflow: Dict, code: str, dep_partner: str) -> str:
+    """이름이 다를 때 — 짝 결재가 이 공사의 반환이면 그 설명('' = 아님)."""
+    from dashboard.services.fund_transfer import names_match
+    ap = outflow.get('approval') or {}
+    if not ap or not ap.get('project_code') or ap['project_code'] != code:
+        return ''
+    refund_like = any(w in (ap.get('content') or '') for w in _REFUND_WORDS)
+    same_name = bool(ap.get('partner')) and (names_match(ap['partner'], dep_partner) or name_typo(ap['partner'], dep_partner))
+    if not (refund_like or same_name):
+        return ''
+    return f"전자결재 #{ap.get('id')} {ap.get('content') or ''}".strip()
+
+
 def amount_check(paid: int, total2: int, amount: int) -> str:
     """⑤ 금액 검증 → 사유 문자열('' = 불충족)."""
     if total2 > 0 and abs((paid - total2) - amount) <= 1:
@@ -242,8 +298,12 @@ def find_candidates(outflow: Dict, rows: List[Dict], include_reroute: bool = Fal
                 if not _same_account(p, outflow):                       # ①
                     continue
                 _typo = not names_match(p.get('partner', ''), name)
+                _via = ''
                 if _typo and not name_typo(p.get('partner', ''), name):  # ③
-                    continue
+                    _via = approval_vouches(outflow, r['code'], p.get('partner', ''))   # 이름은 달라도 반환 결재가 이 공사(11-26)
+                    if not _via:
+                        continue
+                    _typo = False
                 d = _deposit_date(p, o_date)
                 if not d or d > o_date or (o_date - d).days > MAX_DAYS:  # ④
                     continue
@@ -261,6 +321,7 @@ def find_candidates(outflow: Dict, rows: List[Dict], include_reroute: bool = Fal
                     'dep_date': d.isoformat(), 'dep_partner': p.get('partner', ''),
                     'dep_amount': _pamt,    # 과입금이면 반환액보다 큼 — 카드 '입금' 줄은 이 값 (2026-10-28 R4182)
                     'name_typo': _typo,     # 입금·출금 이름 한 글자 다름 — 카드에 확인 줄
+                    'name_via': _via,       # 이름이 아예 달라 전자결재로 짝지음 — 카드에 확인 줄(11-26 R4317)
                     'dep_bank': p.get('bank', ''), 'dep_acct': p.get('acct_code', ''),
                     # 단계 계산서 칸 — 발행돼 있으면 반환 시 취소·수정발행 안내
                     'stage_invoice': str(vals[I[f'{stage} 계산서']] or '').strip(),
@@ -376,6 +437,9 @@ def build_candidate_blocks(oid: str, outflow: Dict, c: Dict) -> list:
         check = [f">금액 검증 : {c['reason']}"]
     if c.get('name_typo'):
         check.append(f">이름 확인 : 입금 {slack_esc(c['dep_partner'])} / 출금 {slack_esc(outflow.get('partner', ''))} — 한 글자 다름")
+    if c.get('name_via'):
+        check.append(f">이름 확인 : 입금 {slack_esc(c['dep_partner'])}(통장 표시) / 출금 {slack_esc(outflow.get('partner', ''))} — "
+                     f"이름이 달라 {slack_esc(c['name_via'])}로 짝지었어요")
     lines = [
         "⠀",
         head,
@@ -501,8 +565,17 @@ def scan_and_propose(slack=None) -> Dict:
         if not outs:
             return {'ok': True, 'outflows': 0, 'proposed': 0}
         rows = load_rows()
+        # 출금 ↔ 전자결재 이체 완료 — 이름이 다른 반환을 결재로 짝지을 때 씀(11-26 R4317). 실패해도 이름 규칙만으로 계속
+        approvals: List[Dict] = []
+        try:
+            from dashboard.services import fund_daily as fd
+            _d0 = date.fromtimestamp(int(time.time()) - OUTFLOW_LOOKBACK_SEC - 86400 * 2)
+            approvals = fd.transfers_done(_d0.isoformat(), (date.today()).isoformat() + ' 23:59:59')
+        except Exception as exc:
+            logger.warning(f"[REFUND_MATCH] 전자결재 이체 완료 읽기 실패 — 이름 규칙만으로 짝지음: {exc}")
         proposed = 0
         for o in outs:
+            attach_approval(o, approvals)
             allc = find_candidates(o, rows, include_reroute=True)
             # 자금 이동 요청이 붙은 입금과 짝이 맞는 출금 = 법인 간 이체의 보내는 쪽 → 반환 후보로 띄우지 않음.
             #   다른 공사 후보가 함께 있어도 이체가 가장 그럴듯하니 이 출금은 통째로 넘긴다 (2026-11-16 G4166-YM)
