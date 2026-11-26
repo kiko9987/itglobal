@@ -89,8 +89,8 @@
   }
 
   // ── 불러오기 ──────────────────────────────────────────────────────
-  var seq = 0;
-  function load() {
+  var seq = 0, lastLoad = 0;
+  function load(quiet) {
     var my = ++seq;
     markChips();
     saveUrl();
@@ -104,11 +104,12 @@
       S.rows = j.rows || [];
       S.noOut = j.no_out || [];
       S.end = j.end;
+      lastLoad = Date.now();
       renderStats(j.total || {});
       renderAccounts();
       renderRows();
     }).catch(function (e) {
-      if (my !== seq) return;
+      if (my !== seq || quiet) return;   // 자동 갱신 실패는 조용히 — 보던 목록 그대로 두고 다음 차례에 다시
       $('fbRows').innerHTML = '<tr><td colspan="8" class="gw-empty">' + esc(e.message) + '</td></tr>';
       msg(e.message, 'err');
     });
@@ -453,4 +454,24 @@
     if (q.get('tab') === 'acct') setTab('acct');
   })();
   load();
+
+  // ── 자동 갱신(11-26 부장님 '서버 무리 가지 않는 선에서') ─────────────
+  // 화면이 보일 때만 2분마다, 다른 창에서 돌아오면 1분 넘었을 때 한 번.
+  // 오른쪽 창을 열었거나 입력·선택 중이거나 표 줄에 포커스가 있으면 건너뜀(쓰던 것·보던 자리 안 날아가게).
+  var AUTO_MS = 120000;
+  function busy() {
+    if (!box.hidden) return true;
+    var a = document.activeElement;
+    if (!a || a === document.body) return false;
+    return /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName) || !!a.closest('.gw-fb-table');
+  }
+  function autoLoad() {
+    if (document.hidden || busy()) return;
+    if ($('fbRange').value) applyRange($('fbRange').value);   // '최근 7일'처럼 고른 기간은 날짜가 넘어가도 오늘까지로
+    load(true);
+  }
+  setInterval(function () { if (Date.now() - lastLoad >= AUTO_MS - 1000) autoLoad(); }, AUTO_MS);
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && Date.now() - lastLoad > 60000) autoLoad();
+  });
 })();
