@@ -4415,3 +4415,6 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-fe-table td.gw-fe-check { width: 1%; }
 .gw-fe-table td.gw-fe-check .gw-badge { display: block; width: max-content; margin: 2px auto; }
 .gw-fe-table .gw-fe-trace { font-size: 0.75rem; color: #64748b; margin-top: 2px; }
+
+/* 입출금 — 묶음 결재 링크는 한 줄로(결재 #87 · #88, 11-26) */
+.gw-fb-apprs { white-space: nowrap; }

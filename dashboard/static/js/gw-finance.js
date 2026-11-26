@@ -258,8 +258,11 @@
       var need = (r.direction === 'in' || r.direction === 'out') && !memo;
       var memoCell = need ? '<span class="gw-badge gw-badge-wait">적요 없음</span>' : esc(memo);
       if (r.project_code && memo.indexOf(r.project_code) === -1) memoCell += ' <span class="text-muted small">' + esc(r.project_code) + '</span>';
-      if (r.approval) memoCell += ' <a class="gw-fb-appr" href="/approval?id=' + r.approval.id + '" target="_blank" rel="noopener" title="결재함에서 열기">결재 #' + r.approval.id +
-        (r.approval.more && r.approval.more.length ? ' 외 ' + r.approval.more.length + '건' : '') + '</a>';   // 여러 결재를 한 번에 보낸 출금(11-26)
+      // 결재 링크 — 여러 결재를 한 번에 보낸 출금은 건별로 '결재 #87 · #88'(11-26 부장님 '외 1건보다 건별로')
+      if (r.approval) memoCell += ' <span class="gw-fb-apprs">' + [r.approval.id].concat(r.approval.more || []).map(function (id, i) {
+        return '<a class="gw-fb-appr" href="/approval?id=' + id + '" target="_blank" rel="noopener" title="결재함에서 열기">' +
+          (i ? '#' : '결재 #') + id + '</a>';
+      }).join(' · ') + '</span>';
       else if (r.no_approval) memoCell += ' <span class="gw-badge gw-fb-hand" title="같은 금액·날짜의 이체 완료 결재가 없어요">결재 없음</span>';
       return '<tr tabindex="0" role="button" data-id="' + r.id + '" aria-label="' + esc(when(r.at) + ' ' + (r.counterparty || '') + ' 고치기') + '">' +
         '<td class="text-nowrap">' + esc(when(r.at)) + (SRC_TAG[r.source] ? ' <span class="text-muted small">' + SRC_TAG[r.source] + '</span>' : '') + '</td>' +
