@@ -2726,6 +2726,51 @@ def _try_poi_fallback(text: str) -> Optional[str]:
     return None
 
 
+# 동 이름에서 '동'을 뺀 지역어 + 아파트·건물 이름 (2026-11-26 L-04696 '종암 sk 아파트 상가1층
+#   113호'): 구·동·도로가 없어 위 POI 구제가 건너뛰고, 'sk' 같은 영문은 상호 후보에서 빠져
+#   주소를 못 찾았음. 맨 앞 낱말부터 건물 접미까지 붙인 이름이 카카오 장소명과 (대소문자·
+#   띄어쓰기 무시) 똑같고, 그 장소의 지번 주소가 '맨앞낱말+동' 일 때만 채택.
+_STEM_BLDG_RE = re.compile(
+    r'^([가-힣]{2,4})\s+((?:[가-힣A-Za-z0-9]+\s+){0,2}?[가-힣A-Za-z0-9]*'
+    r'(?:아파트|빌딩|타워|오피스텔|빌라|맨션|프라자|플라자|상가))(?=\s|$)')
+
+
+def _dong_stem_building_poi_fallback(text: str) -> Optional[str]:
+    """'종암 sk 아파트 …' → '성북구 종암로24가길 53 종암SK아파트' (없으면 None)."""
+    if not text:
+        return None
+    first_line = re.sub(r'\s+', ' ', text.strip().split('\n', 1)[0])
+    if _ROAD_PATTERN.search(first_line) or re.search(r'\d+(?:-\d+)?\s*번지', first_line):
+        return None
+    m = _STEM_BLDG_RE.match(first_line)
+    if not m:
+        return None
+    stem = m.group(1)
+    if stem in _REGION_WORDS or re.search(r'[동구시군읍면리]$', stem):
+        return None
+    name = f'{stem} {m.group(2)}'
+    # '…아파트 상가'는 아파트 이름으로 찾는다('상가'는 뒤 꼬리로 남김)
+    _base = re.sub(r'(아파트|빌딩|타워|오피스텔)\s*상가$', r'\1', name)
+    suffix = ' 상가' if (_base != name or re.match(r'\s*상가', first_line[m.end():])) else ''
+    name = _base
+    key = re.sub(r'\s+', '', name).lower()
+    if len(key) < 5:
+        return None
+    try:
+        data = _kakao_get_json(_KAKAO_POI_ENDPOINT + '?' + urllib.parse.urlencode(
+            {'query': name, 'size': 5}))
+    except _KakaoTransientError:
+        return None
+    for d in (data or {}).get('documents', []) or []:
+        place = html.unescape(d.get('place_name', '') or '')
+        road = html.unescape(d.get('road_address_name', '') or '')
+        jibun = d.get('address_name', '') or ''
+        if (re.sub(r'\s+', '', place).lower() == key and road
+                and re.search(rf'(?:^|\s){re.escape(stem)}\d*동(?:\s|$)', jibun)):
+            return f'{normalize_display(road)} {place}{suffix}'
+    return None
+
+
 # 방문 주소 필드에 한 줄로 붙여쓴 매니저 지시 노트 분리 (2026-08-04 L-03524).
 #   기존 특이사항 이동(lead_sync)은 개행 분리만 처리 — 인라인('(현장은 3층) YG 소통
 #   하세요')은 주소로 저장됨. 보수적 2-신호로 tail 지시문 + 노트성 괄호만 상담으로 이동.
@@ -3451,7 +3496,7 @@ def resolve_address(
     # 1c-poi. POI fallback (2026-07-20 L-03292) — 시/도 빠진 케이스 상호 → 도로명.
     #   행안부(1b-juso) 미매치 시에만 도달(순수 지번은 위에서 이미 처리) → 상호 힌트가
     #   실재하는 케이스만 POI 로 구제.
-    poi_road = _try_poi_fallback(text)
+    poi_road = _try_poi_fallback(text) or _dong_stem_building_poi_fallback(text)
     if poi_road:
         addr = _enrich_verified_address(poi_road, text, regex_addr)
         addr = _strip_redundant_legal_dong(addr)

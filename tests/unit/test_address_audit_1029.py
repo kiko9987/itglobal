@@ -525,5 +525,37 @@ def test_ri_jibun_building_tail_l04665(raw, expected):
     assert ar._extract_building_tail(raw) == expected
 
 
+_JONGAM_DOCS = {'documents': [
+    {'place_name': '종암SK아파트', 'road_address_name': '서울 성북구 종암로24가길 53',
+     'address_name': '서울 성북구 종암동 3'},
+    {'place_name': '종암2차SK뷰아파트', 'road_address_name': '서울 성북구 종암로24길 35',
+     'address_name': '서울 성북구 종암동 125'},
+]}
+
+
+@pytest.mark.parametrize('raw, expected', [
+    # L-04696: '동' 뺀 지역어 + 영문 섞인 아파트 이름
+    ('종암 sk 아파트 상가1층 113호', '성북구 종암로24가길 53 종암SK아파트 상가'),
+    ('종암 sk 아파트 102동 1203호', '성북구 종암로24가길 53 종암SK아파트'),
+    # 이름이 장소명과 다르면 안 씀
+    ('종암 kt 아파트 3층', None),
+    # 맨 앞이 이미 행정구역이거나 도로·번지가 있으면 이 경로 아님
+    ('종암동 sk 아파트 3층', None),
+    ('서울 sk 아파트 3층', None),
+    ('종암 sk 아파트 종암로24가길 53', None),
+])
+def test_dong_stem_building_poi_l04696(monkeypatch, raw, expected):
+    monkeypatch.setattr(ar, '_kakao_get_json', lambda url: _JONGAM_DOCS)
+    assert ar._dong_stem_building_poi_fallback(raw) == expected
+
+
+def test_dong_stem_building_poi_other_dong_rejected(monkeypatch):
+    # 장소명이 같아도 지번 동이 맨 앞 낱말과 다르면 안 씀
+    docs = {'documents': [{'place_name': '중앙SK아파트', 'road_address_name': '부산 중구 중앙대로 1',
+                           'address_name': '부산 중구 대청동 1'}]}
+    monkeypatch.setattr(ar, '_kakao_get_json', lambda url: docs)
+    assert ar._dong_stem_building_poi_fallback('중앙 sk 아파트 3층') is None
+
+
 if __name__ == '__main__':
     sys.exit(pytest.main([__file__, '-v']))
