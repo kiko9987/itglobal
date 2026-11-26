@@ -8,10 +8,15 @@
   var page = document.getElementById('fePage');
   if (!page || !document.getElementById('feSales')) return;
   var $ = function (id) { return document.getElementById(id); };
-  var S = { sales: [], projects: [], tab: 'sales', pick: { sales: {}, projects: {} }, edit: {} };
+  var S = { sales: [], projects: [], tab: 'sales', pick: { sales: {}, projects: {} }, edit: {}, first: true };
   var MEMO_COL = 8;   // 매출전표 칸 중 적요 — 화면에서 고친 글로 복사(11-26 부장님 '수정 사유를 적을 수 없다')
   // 재시작 전 옛 템플릿이어도 '확인할 점' 칸·[제외] 버튼이 있게(11-26 추가)
   (function () {
+    // 탭 순서 ① 프로젝트 등록 → ② 매출전표 I — 새 프로젝트를 먼저 저장해야 매출전표가 들어감(11-26 부장님)
+    var tabs = $('feTabs'), pb = tabs && tabs.querySelector('[data-tab="projects"]'), sb = tabs && tabs.querySelector('[data-tab="sales"]');
+    if (pb && sb && sb.compareDocumentPosition(pb) & Node.DOCUMENT_POSITION_FOLLOWING) tabs.insertBefore(pb, sb);
+    if (pb && pb.firstChild && pb.firstChild.nodeType === 3 && pb.firstChild.nodeValue.indexOf('①') < 0) pb.firstChild.nodeValue = '① ' + pb.firstChild.nodeValue;
+    if (sb && sb.firstChild && sb.firstChild.nodeType === 3 && sb.firstChild.nodeValue.indexOf('②') < 0) sb.firstChild.nodeValue = '② ' + sb.firstChild.nodeValue;
     var head = document.querySelector('#fePaneSales thead tr');
     if (head && head.children.length === 9) head.insertAdjacentHTML('beforeend', '<th>확인할 점</th>');
     if (!$('feExclude')) {
@@ -52,6 +57,8 @@
       S.sales = j.sales || [];
       S.excludeOk = !!j.exclude_ok;
       S.projects = j.projects || [];
+      // 처음 열 때 새 프로젝트가 있으면 ① 프로젝트 등록부터, 없으면 ② 매출전표
+      if (S.first) { S.first = false; setTab(S.projects.length ? 'projects' : 'sales'); }
       // 목록이 바뀌면 없어진 줄은 고른 것에서 뺌
       ['sales', 'projects'].forEach(function (t) {
         var keys = {};
@@ -186,7 +193,7 @@
   $('feTabs').addEventListener('keydown', function (ev) {
     if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight' && ev.key !== 'Home' && ev.key !== 'End') return;
     ev.preventDefault();
-    setTab(ev.key === 'Home' ? 'sales' : ev.key === 'End' ? 'projects' : (S.tab === 'sales' ? 'projects' : 'sales'), true);
+    setTab(ev.key === 'Home' ? 'projects' : ev.key === 'End' ? 'sales' : (S.tab === 'sales' ? 'projects' : 'sales'), true);
   });
 
   // ── 고르기 ──
@@ -247,7 +254,9 @@
     if (!rows.length) { msg('고른 줄은 이카운트에서 원래 전표를 고치는 줄이라 복사할 게 없어요.', 'err'); return; }
     var text = rows.map(function (r) { return cellsOf(r, t).map(clean).join('\t'); }).join('\r\n');
     copyText(text).then(function () {
-      msg((t === 'sales' ? '매출전표 ' : '프로젝트 ') + rows.length + '줄을 복사했어요. 이카운트 웹자료올리기 표의 첫 칸을 누르고 붙여넣어 주세요.', 'ok');
+      msg(t === 'sales'
+        ? '매출전표 ' + rows.length + '줄을 복사했어요. 이카운트 매출전표 I › 웹자료올리기 표의 첫 칸을 누르고 붙여넣어 주세요.'
+        : '프로젝트 ' + rows.length + '줄을 복사했어요. 이카운트 프로젝트등록 › 웹자료올리기에 붙여넣고 저장한 뒤 ② 매출전표 I 탭으로 넘어가 주세요.', 'ok');
     }).catch(function () { msg('복사하지 못했어요. 브라우저에서 클립보드 권한을 허용해 주세요.', 'err'); });
   });
 
