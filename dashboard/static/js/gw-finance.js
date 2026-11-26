@@ -257,14 +257,14 @@
       var memo = r.memo || '';
       var need = (r.direction === 'in' || r.direction === 'out') && !memo;
       var memoCell = need ? '<span class="gw-badge gw-badge-wait">적요 없음</span>' : esc(memo);
-      // 공사 없는 지출 — 자금일보 관례 '0 이니셜 내용'(0 = 공사 코드 없음)을 화면에서는 '[프로젝트 0번] 이름 · 내용'으로(사내에서 부르는 말).
+      // 프로젝트 0번(= 회사 재고, 공사에 안 붙는 구매) — 자금일보 관례 '0 이니셜 내용'을 화면에서는 '[프로젝트 0번] 이름 · 내용'으로(사내에서 부르는 말).
       //   장부·자금일보에 적는 글은 그대로 두고 보이는 것만 바꾼다(11-26 부장님 '0 JSH 라고만 하니 뭔가 싶다')
       //   SB 자금일보(1~11월) '0 …' 150줄: 이니셜 붙은 것(0 TH·0 JSH·0 KIKO …)과 없는 것(0 소모품·0 운반비·0 중고매입 …)
       var noProj = !need && /^0\s+(?:([A-Z]{2,4})(?:\s+|$))?(.*)$/.exec(memo);
       if (noProj) {
         var who = noProj[1] ? ((r.approval && r.approval.requester) || noProj[1]) : '';
         noProj[2] = (noProj[2] || '').trim();
-        memoCell = '<span class="gw-badge gw-fb-noproj" title="공사 코드 없는 지출 — 자금일보에는 \'' + esc(memo) + '\'로 적어요">프로젝트 0번</span> ' +
+        memoCell = '<span class="gw-badge gw-fb-noproj" title="프로젝트 0번 = 회사 재고(공사에 안 붙는 구매) — 자금일보에는 \'' + esc(memo) + '\'로 적어요">프로젝트 0번</span> ' +
           esc(who) + (who && noProj[2] ? ' · ' : '') + esc(noProj[2]);
       }
       if (r.project_code && memo.indexOf(r.project_code) === -1) memoCell += ' <span class="text-muted small">' + esc(r.project_code) + '</span>';
