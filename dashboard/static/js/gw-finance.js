@@ -11,7 +11,9 @@
   var page = document.getElementById('fbPage');
   if (!page || !document.getElementById('fbRows')) return;
   var $ = function (id) { return document.getElementById(id); };
-  var S = { accounts: [], rows: [], tab: 'tx', end: '' };
+  var S = { accounts: [], rows: [], tab: 'tx', end: '', noOut: [] };
+  // 거르기 칩 — 결재 칩(fbAppr)은 11-26 추가라 재시작 전 옛 템플릿엔 없을 수 있음
+  var CHIPS = ['fbAcct', 'fbDir', 'fbUn', 'fbAppr'].filter(function (id) { return document.getElementById(id); });
 
   function esc(v) {
     return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -64,7 +66,7 @@
     $('fbEnd').value = iso(e);
   }
   function markChips() {
-    ['fbAcct', 'fbDir', 'fbUn'].forEach(function (id) { $(id).classList.toggle('on', !!$(id).value); });
+    CHIPS.forEach(function (id) { $(id).classList.toggle('on', !!$(id).value); });
     $('fbRange').classList.toggle('on', $('fbRange').value !== '7');   // 기본(최근 7일)에서 바꿨을 때만 진하게
     var active = $('fbAcct').value || $('fbDir').value || $('fbUn').value || $('fbQ').value.trim() || $('fbRange').value !== '7';
     $('fbFilters').classList.toggle('has-active-filters', !!active);
@@ -80,6 +82,7 @@
     if ($('fbAcct').value) q.set('acct', $('fbAcct').value);
     if ($('fbDir').value) q.set('dir', $('fbDir').value);
     if ($('fbUn').value) q.set('un', $('fbUn').value);
+    if ($('fbAppr') && $('fbAppr').value) q.set('appr', $('fbAppr').value);
     if ($('fbQ').value.trim()) q.set('q', $('fbQ').value.trim());
     var qs = q.toString();
     try { history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '')); } catch (e) { /* 미리보기 등 */ }
@@ -93,12 +96,13 @@
     saveUrl();
     var p = new URLSearchParams({
       start: $('fbStart').value, end: $('fbEnd').value, account: $('fbAcct').value, direction: $('fbDir').value,
-      unassigned: $('fbUn').value, q: $('fbQ').value.trim()
+      unassigned: $('fbUn').value, appr: $('fbAppr') ? $('fbAppr').value : '', q: $('fbQ').value.trim()
     });
     return api('/api/finance/bank?' + p.toString()).then(function (j) {
       if (my !== seq) return;
       S.accounts = j.accounts || [];
       S.rows = j.rows || [];
+      S.noOut = j.no_out || [];
       S.end = j.end;
       renderStats(j.total || {});
       renderAccounts();
@@ -120,7 +124,9 @@
         (known.length < rep.length ? '<div class="gw-fb-stat-note">잔액 넣은 계좌 ' + known.length + '/' + rep.length + '개만 더했어요</div>' : '') + '</div>' +
       '<div class="gw-stat"><div class="k">' + esc(label) + ' 입금</div><div class="v">' + won(tot['in'] || 0) + '<small> 원</small></div></div>' +
       '<div class="gw-stat"><div class="k">' + esc(label) + ' 출금</div><div class="v">' + won(tot.out || 0) + '<small> 원</small></div></div>' +
-      '<div class="gw-stat"><div class="k">적요 없는 거래</div><div class="v">' + (tot.unassigned || 0) + '<small> 건</small></div></div>';
+      '<div class="gw-stat"><div class="k">적요 없는 거래</div><div class="v">' + (tot.unassigned || 0) + '<small> 건</small></div></div>' +
+      '<div class="gw-stat' + (tot.no_out ? ' gw-fb-stat-warn' : '') + '"><div class="k">출금 문자 없는 이체 완료</div><div class="v">' + (tot.no_out || 0) + '<small> 건</small></div>' +
+        '<div class="gw-fb-stat-sub">결재 없는 출금 ' + (tot.no_approval || 0) + '건</div></div>';
   }
 
   function renderAccounts() {
@@ -148,11 +154,27 @@
       (side.length ? '<tr class="gw-fb-group"><th colspan="7" scope="rowgroup">자금일보 표에 없는 계좌</th></tr>' + side.map(row).join('') : '');
   }
 
+  function renderNoOut() {
+    var box = $('fbNoOut');
+    if (!box) return;
+    box.hidden = S.tab !== 'tx' || !S.noOut.length;
+    if (box.hidden) { box.innerHTML = ''; return; }
+    box.innerHTML = '<p class="gw-fb-noout-h"><i class="fas fa-triangle-exclamation me-1" aria-hidden="true"></i>' +
+      '전자결재에서 이체 완료를 눌렀는데 같은 금액의 출금 문자가 없는 결재 ' + S.noOut.length + '건이에요. ' +
+      '문자가 안 오는 통장(1012 등)에서 보냈다면 그대로 두셔도 돼요.</p><ul class="gw-fb-noout-list">' +
+      S.noOut.map(function (a) {
+        return '<li><a href="/approval?id=' + a.id + '" target="_blank" rel="noopener">결재 #' + a.id + '</a> ' +
+          '<span class="text-muted">' + esc(when(a.done_at)) + '</span> ' + esc([a.form, a.partner, a.content].filter(Boolean).join(' · ')) +
+          ' <strong>' + won(a.amount) + '원</strong>' + (a.grn ? ' <span class="text-muted small">(' + esc(a.grn) + ' 통장)</span>' : '') + '</li>';
+      }).join('') + '</ul>';
+  }
+
   function renderRows() {
+    renderNoOut();
     $('fbCntTx').textContent = S.rows.length;
     $('fbCount').textContent = S.tab === 'tx' ? '' : (S.end ? dayLabel(S.end) + ' 끝 기준 잔액' : '');   // 거래 건수는 탭에 있음
     if (!S.rows.length) {
-      var filtered = $('fbUn').value || $('fbQ').value.trim() || $('fbAcct').value || $('fbDir').value;
+      var filtered = $('fbUn').value || $('fbQ').value.trim() || $('fbAcct').value || $('fbDir').value || ($('fbAppr') && $('fbAppr').value);
       $('fbRows').innerHTML = '<tr><td colspan="8" class="gw-empty">' +
         ($('fbUn').value ? '이 기간에 적요 없는 거래가 없어요.' : filtered ? '조건에 맞는 거래가 없어요.' : '이 기간에 거래가 없어요.') + '</td></tr>';
       return;
@@ -162,6 +184,8 @@
       var need = (r.direction === 'in' || r.direction === 'out') && !memo;
       var memoCell = need ? '<span class="gw-badge gw-badge-wait">적요 없음</span>' : esc(memo);
       if (r.project_code && memo.indexOf(r.project_code) === -1) memoCell += ' <span class="text-muted small">' + esc(r.project_code) + '</span>';
+      if (r.approval) memoCell += ' <a class="gw-fb-appr" href="/approval?id=' + r.approval.id + '" target="_blank" rel="noopener" title="결재함에서 열기">결재 #' + r.approval.id + '</a>';
+      else if (r.no_approval) memoCell += ' <span class="gw-badge gw-fb-hand" title="같은 금액·날짜의 이체 완료 결재가 없어요">결재 없음</span>';
       return '<tr tabindex="0" role="button" data-id="' + r.id + '" aria-label="' + esc(when(r.at) + ' ' + (r.counterparty || '') + ' 고치기') + '">' +
         '<td class="text-nowrap">' + esc(when(r.at)) + (SRC_TAG[r.source] ? ' <span class="text-muted small">' + SRC_TAG[r.source] + '</span>' : '') + '</td>' +
         '<td class="text-nowrap c"><strong>' + esc(r.acct_code || '') + '</strong></td>' +
@@ -244,7 +268,12 @@
     } else if (sms) {
       h += '<dl class="gw-fb-facts"><dt>일시</dt><dd>' + esc(when(row.at)) + '</dd><dt>계좌</dt><dd>' + esc(row.acct_code) + '</dd>' +
         '<dt>상대방</dt><dd>' + esc(row.counterparty || '') + '</dd><dt>' + (row.direction === 'in' ? '입금' : '출금') + '</dt><dd>' + won(row.amount) + '원</dd>' +
-        '<dt>거래 후 잔액</dt><dd>' + (row.balance == null ? '-' : won(row.balance) + '원') + '</dd></dl>' +
+        '<dt>거래 후 잔액</dt><dd>' + (row.balance == null ? '-' : won(row.balance) + '원') + '</dd>' +
+        (row.approval ? '<dt>전자결재</dt><dd><a href="/approval?id=' + row.approval.id + '" target="_blank" rel="noopener">#' + row.approval.id + '</a> ' +
+          esc([row.approval.form, row.approval.partner, row.approval.content].filter(Boolean).join(' · ')) +
+          (row.approval.done_at ? ' <span class="text-muted small">이체 ' + esc(when(row.approval.done_at)) + '</span>' : '') + '</dd>'
+          : (row.no_approval ? '<dt>전자결재</dt><dd class="text-muted">같은 금액·날짜의 이체 완료 결재가 없어요</dd>' : '')) +
+        '</dl>' +
         '<p class="gw-fb-help">은행 문자로 들어온 거래라 위 내용은 고칠 수 없어요.</p>';
     } else if (isBal) {
       h += '<p class="gw-fb-help">지금 통장에 찍힌 잔액을 넣으면, 이 시각부터 이 금액을 기준으로 잔액을 이어 가요.</p>';
@@ -328,6 +357,7 @@
   $('fbAdd').addEventListener('click', function () { openDrawer('add', null, 0, this); });
   $('fbBal').addEventListener('click', function () { openDrawer('bal', null, 0, this); });
   function rowOpen(ev) {
+    if (ev.target.closest('a')) return;            // 결재 #번호 링크는 그대로 열림
     var tr = ev.target.closest('tr[data-id], tr[data-acct]');
     if (!tr || (ev.type === 'keydown' && ev.key !== 'Enter' && ev.key !== ' ')) return;
     ev.preventDefault();
@@ -355,12 +385,12 @@
   ['fbStart', 'fbEnd'].forEach(function (id) {
     $(id).addEventListener('change', function () { $('fbRange').value = ''; load(); });
   });
-  ['fbAcct', 'fbDir', 'fbUn'].forEach(function (id) { $(id).addEventListener('change', load); });
+  CHIPS.forEach(function (id) { $(id).addEventListener('change', load); });
   var qTimer;
   $('fbQ').addEventListener('input', function () { clearTimeout(qTimer); qTimer = setTimeout(load, 300); });
   $('fbReset').addEventListener('click', function () {
     $('fbRange').value = '7'; applyRange('7');
-    $('fbAcct').value = ''; $('fbDir').value = ''; $('fbUn').value = ''; $('fbQ').value = '';
+    CHIPS.forEach(function (id) { $(id).value = ''; }); $('fbQ').value = '';
     load();
   });
   document.addEventListener('keydown', function (ev) {
@@ -380,7 +410,7 @@
     box.insertBefore(btn, box.firstChild);
     var nEl = btn.querySelector('b');
     function sync() {
-      var n = ['fbAcct', 'fbDir', 'fbUn'].filter(function (id) { return !!$(id).value; }).length + ($('fbRange').value !== '7' ? 1 : 0);
+      var n = CHIPS.filter(function (id) { return !!$(id).value; }).length + ($('fbRange').value !== '7' ? 1 : 0);
       nEl.textContent = n;
       nEl.hidden = !n;
       btn.classList.toggle('on', n > 0);
@@ -406,8 +436,9 @@
       if (/^\d{4}-\d{2}-\d{2}$/.test(q.get('end') || '')) $('fbEnd').value = q.get('end');
       if (!$('fbStart').value) applyRange('7');
     }
-    ['acct', 'dir', 'un'].forEach(function (k) {
-      var id = { acct: 'fbAcct', dir: 'fbDir', un: 'fbUn' }[k], v = q.get(k) || '';
+    ['acct', 'dir', 'un', 'appr'].forEach(function (k) {
+      var id = { acct: 'fbAcct', dir: 'fbDir', un: 'fbUn', appr: 'fbAppr' }[k], v = q.get(k) || '';
+      if (!$(id)) return;
       if (k === 'acct' && v) { $(id).innerHTML += '<option value="' + esc(v) + '"></option>'; }   // 계좌 목록은 불러온 뒤 채움
       $(id).value = v;
     });

@@ -96,6 +96,9 @@ def _conn():
             if not _table_ready:
                 for q in DDL:
                     conn.execute(q)
+                # 11-26: 출금 ↔ 전자결재 짝(결재 번호) — 예전 표엔 칸이 없어 붙임
+                if 'approval_id' not in {r[1] for r in conn.execute('PRAGMA table_info(bank_tx)')}:
+                    conn.execute('ALTER TABLE bank_tx ADD COLUMN approval_id INTEGER')
                 for i, (code, ent, bank, num, rep, sms) in enumerate(SEED_ACCOUNTS):
                     conn.execute('INSERT OR IGNORE INTO bank_accounts (code, entity, bank, number, in_report, sms, sort) '
                                  'VALUES (?, ?, ?, ?, ?, ?, ?)', (code, ent, bank, num, rep, sms, i))
@@ -424,3 +427,47 @@ def sync_report_balances(day: str, balances: Dict[str, int]) -> int:
     if n:
         logger.info(f'{_LOG} 자금일보 {day} 잔액 → 장부 {n}줄')
     return n
+
+
+# ── 출금 ↔ 전자결재 이체 완료 짝(11-26 부장님 '붙여 줘') ──────────────────────────
+def link_approvals(start: str, end: str, approvals: List[dict]) -> int:
+    """[start, end) 은행 문자 출금 줄 중 아직 짝 없는 것을 전자결재 이체 완료와 짝짓는다(자금일보 초안과 같은 규칙:
+    같은 금액·±1일·이체 통장 사업자). 짝이 생기면 approval_id 를 남기고, 계정·적요·공사 코드가 비어 있을 때만
+    결재 내용으로 채운다(사람이 쓴 건 안 덮음). 한 결재는 한 줄에만. 반환: 새로 짝지은 줄 수."""
+    from dashboard.services import fund_daily as fd
+    try:
+        from dashboard.services.e_approval import initial
+    except Exception:          # 이니셜을 못 구해도 짝짓기는 계속
+        def initial(_n):
+            return ''
+    with _conn() as conn:
+        used = {r[0] for r in conn.execute('SELECT approval_id FROM bank_tx WHERE approval_id IS NOT NULL AND deleted_at IS NULL')}
+        rows = [dict(r) for r in conn.execute(
+            "SELECT t.*, a.code AS acct_code FROM bank_tx t JOIN bank_accounts a ON a.id=t.account_id "
+            "WHERE t.direction='out' AND t.source NOT IN ('manual', ?) AND t.approval_id IS NULL AND t.deleted_at IS NULL "
+            "AND t.at >= ? AND t.at < ? ORDER BY t.at", (REPORT, start, end))]
+        cands = [a for a in approvals if a.get('id') not in used]
+        txs = [{'code': r['acct_code'], 'amount': r['amount'], 'at': r['at'], 'counterparty': r['counterparty']} for r in rows]
+        pairs = fd.match_approvals(txs, cands)
+        for i, a in pairs.items():
+            r = rows[i]
+            sug = fd.outflow_row(txs[i], a, {}, initial)
+            pc = (a.get('project_code') or '').strip()
+            conn.execute('UPDATE bank_tx SET approval_id=?, title=?, memo=?, project_code=?, updated_at=?, updated_by=? WHERE id=?',
+                         (a['id'], r['title'] or sug['J'] or '', r['memo'] or sug['K'] or '',
+                          r['project_code'] or (pc if fd.PROJECT_RE.match(pc) else ''), _now(), '전자결재', r['id']))
+    if pairs:
+        logger.info(f'{_LOG} 출금 ↔ 전자결재 짝 {len(pairs)}줄')
+    return len(pairs)
+
+
+def sms_start() -> str:
+    """장부에 은행 문자가 처음 들어온 시각('' = 아직 없음) — 그 앞 결재는 '출금 문자 없음'으로 세지 않는다."""
+    with _conn() as conn:
+        r = conn.execute("SELECT MIN(at) FROM bank_tx WHERE source NOT IN ('manual', ?) AND deleted_at IS NULL", (REPORT,)).fetchone()
+    return (r[0] or '') if r else ''
+
+
+def linked_approval_ids() -> set:
+    with _conn() as conn:
+        return {r[0] for r in conn.execute('SELECT approval_id FROM bank_tx WHERE approval_id IS NOT NULL AND deleted_at IS NULL')}

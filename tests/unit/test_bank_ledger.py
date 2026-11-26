@@ -123,3 +123,19 @@ def test_report_balances_only_for_no_sms_accounts(db):
     assert [r['balance'] for r in rows] == [91_000_000, 91_420_704] and rows[0]['source'] == bl.REPORT
     with pytest.raises(bl.LedgerError):
         bl.delete(rows[0]['id'], 'SB', True)                                # 자금일보에서 온 줄은 못 지움
+
+
+
+def test_link_approvals_fills_empty_only(db):
+    """출금 문자 ↔ 전자결재 이체 완료 — 짝이면 결재 번호, 빈 계정·적요·공사 코드만 결재 내용으로(사람이 쓴 건 그대로)."""
+    bl.record_sms(HANA_OUT, bl.OUT, 'h1', 'sms', NOW)                       # 9012 출금 897,303원 11/26 10:05
+    appr = [{'id': 84, 'amount': 897_303, 'project_code': 'R4294-JW', 'cost_category': '자재비', 'content': '조명 자재',
+             'partner': '일산전기조명', 'requester_name': '', 'grn': 'R', 'done_at': '2026-11-26 10:30:00'},
+            {'id': 85, 'amount': 897_303, 'project_code': '', 'cost_category': '자재비', 'content': '다른 통장',
+             'partner': '', 'requester_name': '', 'grn': 'G', 'done_at': '2026-11-26 10:06:00'}]
+    assert bl.link_approvals('2026-11-26', '2026-11-27', appr) == 1
+    r = bl.list_tx('2026-11-26', '2026-11-26', _acct('9012')['id'])[0]
+    assert r['approval_id'] == 84                                           # G 통장 결재(85)는 R 통장 출금과 안 맞음
+    assert (r['title'], r['memo'], r['project_code']) == ('외상매입', 'R4294-JW 조명 자재', 'R4294-JW')
+    assert bl.link_approvals('2026-11-26', '2026-11-27', appr) == 0          # 이미 짝
+    assert bl.linked_approval_ids() == {84} and bl.sms_start().startswith('2026-11-26')

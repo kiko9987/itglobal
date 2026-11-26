@@ -45,6 +45,9 @@
       <select class="gw-chip-select" id="fbUn" aria-label="적요">
         <option value="">적요</option><option value="1">적요 없는 것</option>
       </select>
+      <select class="gw-chip-select" id="fbAppr" aria-label="전자결재">
+        <option value="">결재</option><option value="linked">결재 짝 있는 출금</option><option value="none">결재 없는 출금</option>
+      </select>
       <input type="search" class="gw-chip-search" id="fbQ" placeholder="상대방·적요·공사 코드" aria-label="찾기" maxlength="40" autocomplete="off">
       <button type="button" class="gw-chip-reset" id="fbReset"><i class="fas fa-times me-1" aria-hidden="true"></i>초기화</button>
     </span>
@@ -52,6 +55,8 @@
   </div>
 
   <div id="fbPaneTx" role="tabpanel" aria-label="거래 내역">
+    {# 이체 완료했는데 출금 문자가 없는 전자결재(11-26) — 서버가 짝지어 보고 남은 것만 #}
+    <div class="gw-callout gw-fb-noout" id="fbNoOut" role="note" hidden></div>
     <div class="gw-panel gw-ap-tablewrap">
       <table class="gw-table gw-table-click gw-fb-table">
         <thead><tr>

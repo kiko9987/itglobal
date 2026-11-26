@@ -55,6 +55,16 @@ def _day(v, default: date) -> str:
         return default.isoformat()
 
 
+def _appr(a: dict) -> dict:
+    """화면에 보일 결재 요약(관리자 전용 화면)."""
+    from dashboard.services import e_approval_forms  # noqa: F401 — 양식마다 이름이 FORM_LABELS 에 들어감
+    from dashboard.services.e_approval import FORM_LABELS
+    return {'id': a['id'], 'form': FORM_LABELS.get(a.get('form'), a.get('form') or ''), 'content': a.get('content') or '',
+            'partner': a.get('partner') or a.get('payee_name') or '', 'amount': int(a.get('amount') or 0),
+            'requester': a.get('requester_name') or '', 'grn': str(a.get('grn') or '')[:1].upper(),
+            'project_code': a.get('project_code') or '', 'done_at': str(a.get('done_at') or '')[:16]}
+
+
 @gw_finance_bp.route('/finance/bank')
 @gw_page
 def bank_page():
@@ -71,6 +81,15 @@ def api_list():
         if start > end:
             start, end = end, start
         acct = int(request.args.get('account') or 0) or None
+        # 출금 ↔ 전자결재 이체 완료 짝(11-26) — 서버가 알아서. 실패해도 목록은 보여 줌
+        d0, d1 = date.fromisoformat(start), date.fromisoformat(end)
+        approvals = []
+        try:
+            from dashboard.services import fund_daily as fd
+            approvals = fd.transfers_done((d0 - timedelta(days=2)).isoformat(), (d1 + timedelta(days=3)).isoformat())
+            bl.link_approvals((d0 - timedelta(days=1)).isoformat(), (d1 + timedelta(days=2)).isoformat(), approvals)
+        except Exception as e:
+            logger.error(f'[입출금] 전자결재 짝짓기 실패: {e}', exc_info=True)
         rows = bl.list_tx(start, end, acct, request.args.get('direction') or '',
                           request.args.get('unassigned') == '1', (request.args.get('q') or '').strip()[:40])
         # 농협(N통장)은 SB 가 관리하지 않는 계좌(11-26 부장님) — 화면·합계에서 뺀다.
@@ -79,10 +98,29 @@ def api_list():
         # 자금일보에서 아침마다 옮겨 오는 잔액 줄은 거래가 아니라 거래 내역엔 숨김 — 구분 '잔액 맞추기'를 고르면 보임
         if request.args.get('direction') != bl.BAL:
             rows = [r for r in rows if r.get('source') != bl.REPORT]
+        amap = {a['id']: a for a in approvals}
+        for r in rows:
+            a = amap.get(r.get('approval_id')) if r.get('approval_id') else None
+            r['approval'] = _appr(a) if a else ({'id': r['approval_id']} if r.get('approval_id') else None)
+            r['no_approval'] = r['direction'] == bl.OUT and r.get('source') not in ('manual', bl.REPORT) and not r.get('approval_id')
         tot = {'in': sum(r['amount'] for r in rows if r['direction'] == bl.IN),
                'out': sum(r['amount'] for r in rows if r['direction'] == bl.OUT),
-               'unassigned': sum(1 for r in rows if r['direction'] in (bl.IN, bl.OUT) and not (r['memo'] or ''))}
-        return jsonify({'success': True, 'start': start, 'end': end, 'rows': rows, 'total': tot,
+               'unassigned': sum(1 for r in rows if r['direction'] in (bl.IN, bl.OUT) and not (r['memo'] or '')),
+               'no_approval': sum(1 for r in rows if r['no_approval'])}
+        appr = request.args.get('appr') or ''
+        if appr == 'linked':
+            rows = [r for r in rows if r.get('approval_id')]
+        elif appr == 'none':
+            rows = [r for r in rows if r['no_approval']]
+        # 이체 완료했는데 출금 문자가 없는 결재 — 문자 오는 사업자(G 1011·R 9012)만, 장부에 문자가 들어오기 시작한 뒤만.
+        # 농협(N)은 관리 안 하는 계좌라 뺌. G·R 이라도 문자 없는 통장(1012 등)에서 나갔으면 여기 뜰 수 있음(화면에 적어 둠)
+        since = bl.sms_start()
+        linked = bl.linked_approval_ids() if since else set()
+        no_out = [_appr(a) for a in approvals
+                  if since and start <= str(a.get('done_at') or '')[:10] <= end and str(a.get('done_at')) >= since
+                  and str(a.get('grn') or '')[:1].upper() in ('G', 'R') and a['id'] not in linked]
+        tot['no_out'] = len(no_out)
+        return jsonify({'success': True, 'start': start, 'end': end, 'rows': rows, 'total': tot, 'no_out': no_out,
                         'accounts': [a for a in bl.summary(end) if a['code'] not in HIDDEN_CODES]})
     except Exception as e:
         return _err(e)
