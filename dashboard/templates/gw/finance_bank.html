@@ -28,15 +28,18 @@
 
   <div class="gw-ap-filters" id="fbFilters">
     {# 계좌별 잔액 탭에선 기간이 필요 없어 '기준 날짜'(끝 날짜) 하나만 남김 #}
+    <select class="gw-chip-select" id="fbRange" aria-label="기간">
+      <option value="0">오늘</option><option value="1">어제</option><option value="7" selected>최근 7일</option>
+      <option value="month">이번 달</option><option value="">날짜 직접 고르기</option>
+    </select>
+    {# 날짜 앞뒤 화살표: 잔액 탭은 하루씩, 거래 내역은 기간 길이만큼(11-26) #}
+    <button type="button" class="gw-fb-step" id="fbPrev" aria-label="이전 기간" title="이전 기간"><i class="fas fa-chevron-left" aria-hidden="true"></i></button>
     <span class="gw-fb-rangeonly">
-      <select class="gw-chip-select" id="fbRange" aria-label="기간">
-        <option value="0">오늘</option><option value="1">어제</option><option value="7" selected>최근 7일</option>
-        <option value="month">이번 달</option><option value="">날짜 직접 고르기</option>
-      </select>
       <input type="date" class="gw-chip-date" id="fbStart" aria-label="시작 날짜">
       <span class="gw-ap-tilde" aria-hidden="true">~</span>
     </span>
     <input type="date" class="gw-chip-date" id="fbEnd" aria-label="끝 날짜">
+    <button type="button" class="gw-fb-step" id="fbNext" aria-label="다음 기간" title="다음 기간"><i class="fas fa-chevron-right" aria-hidden="true"></i></button>
     <span class="gw-fb-txonly">
       <select class="gw-chip-select" id="fbAcct" aria-label="계좌"><option value="">계좌</option></select>
       <select class="gw-chip-select" id="fbDir" aria-label="구분">

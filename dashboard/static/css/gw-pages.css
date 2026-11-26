@@ -4301,6 +4301,20 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-fb-table td.gw-fb-in { color: #1d4ed8; }
 .gw-fb-table td.gw-fb-out { color: #b91c1c; }
 .gw-fb-wrap { min-width: 120px; max-width: 320px; }
+/* 날짜 앞뒤 화살표(11-26) — 날짜 칩과 같은 높이·테두리 */
+.gw-fb-step { width: 36px; height: 36px; flex: 0 0 36px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid #8b95a5; border-radius: 9999px; background: #fff; color: #1a1c20; font-size: 12px; padding: 0; cursor: pointer; }
+.gw-fb-step:hover:not(:disabled) { background: #f1f5f9; }
+.gw-fb-step:focus-visible { outline: none; border-color: #2a3038; box-shadow: 0 0 0 3px rgba(42, 48, 56, 0.25); }
+.gw-fb-step:disabled { color: #94a3b8; border-color: #cbd5e1; cursor: default; }
+@media (max-width: 767.98px) {
+  .gw-fb-step { width: 44px; height: 44px; flex-basis: 44px; }
+  .gw-ap-filters:not(.open) .gw-fb-step { display: none; }   /* 휴대폰은 날짜 칸과 함께 [필터]를 눌렀을 때만 */
+  .gw-ap-filters[data-tab="tx"] .gw-fb-step { display: none; }   /* 거래 내역은 날짜 칸이 둘이라 한 줄에 안 들어감 — 계좌별 잔액에서만 */
+  /* 계좌별 잔액: [필터]·[초기화] 아래 줄에 [<] 날짜 [>] 한 줄로 */
+  .gw-ap-filters.open[data-tab="acct"]::before { content: ''; flex: 0 0 100%; height: 0; margin-top: -8px; }
+  .gw-ap-filters.open[data-tab="acct"] #fbEnd { flex: 1 1 0; min-width: 0; }
+}
 /* 계좌별 잔액: 계좌 줄을 누르면 그 날 거래를 건별로 펼침(11-26 부장님) */
 .gw-fb-acct > td:first-child { position: relative; padding-left: 28px; }
 .gw-fb-chev { position: absolute; left: 12px; top: 50%; margin-top: -0.35rem; font-size: 0.7rem; line-height: 0.7rem; color: #64748b; transition: transform 0.15s ease; }   /* 계좌 이름은 가운데, 화살표는 왼쪽 끝에 한 줄로 */

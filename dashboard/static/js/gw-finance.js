@@ -94,6 +94,7 @@
     var my = ++seq;
     markChips();
     saveUrl();
+    if ($('fbNext')) stepState();
     var p = new URLSearchParams({
       start: $('fbStart').value, end: $('fbEnd').value, account: $('fbAcct').value, direction: $('fbDir').value,
       unassigned: $('fbUn').value, appr: $('fbAppr') ? $('fbAppr').value : '', q: $('fbQ').value.trim()
@@ -285,7 +286,10 @@
     $('fbPaneAcct').hidden = tab !== 'acct';
     page.querySelector('.gw-fb-txonly').hidden = tab !== 'tx';
     page.querySelector('.gw-fb-rangeonly').hidden = tab !== 'tx';
+    $('fbRange').hidden = tab !== 'tx';
+    $('fbFilters').setAttribute('data-tab', tab);
     $('fbEnd').setAttribute('aria-label', tab === 'tx' ? '끝 날짜' : '기준 날짜');
+    stepState();
     saveUrl();
     renderRows();
   }
@@ -462,6 +466,55 @@
     if (k !== 'ArrowRight' && k !== 'ArrowLeft') return;
     setTab(S.tab === 'tx' ? 'acct' : 'tx', true);
   });
+  // ── 날짜 앞뒤 화살표(11-26 부장님 — 차량 배정·일정 확인처럼) ─────────────
+  // 계좌별 잔액: 기준 날짜 하루씩. 거래 내역: 고른 기간 길이만큼 통째로(최근 7일 → 그 앞 7일).
+  // 템플릿에 화살표가 없으면(재시작 전) 여기서 만들어 넣음
+  (function () {
+    if ($('fbPrev')) return;
+    var rangeSpan = page.querySelector('.gw-fb-rangeonly');
+    var mk = function (id, icon) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.id = id; b.className = 'gw-fb-step';
+      b.innerHTML = '<i class="fas fa-chevron-' + icon + '" aria-hidden="true"></i>';
+      return b;
+    };
+    rangeSpan.parentNode.insertBefore($('fbRange'), rangeSpan);       // 기간 고르기는 화살표 밖으로
+    rangeSpan.parentNode.insertBefore(mk('fbPrev', 'left'), rangeSpan);
+    $('fbEnd').insertAdjacentElement('afterend', mk('fbNext', 'right'));
+  })();
+  function addDays(d, n) {
+    var x = new Date(d + 'T00:00:00');
+    x.setDate(x.getDate() + n);
+    return iso(x);
+  }
+  function stepState() {
+    var tx = S.tab === 'tx', today = iso(new Date());
+    $('fbFilters').setAttribute('data-tab', S.tab);
+    $('fbPrev').setAttribute('aria-label', tx ? '이전 기간' : '전날');
+    $('fbNext').setAttribute('aria-label', tx ? '다음 기간' : '다음 날');
+    $('fbPrev').title = $('fbPrev').getAttribute('aria-label');
+    $('fbNext').title = $('fbNext').getAttribute('aria-label');
+    $('fbNext').disabled = !$('fbEnd').value || $('fbEnd').value >= today;   // 오늘 뒤로는 거래가 없음
+  }
+  function step(dir) {
+    var e = $('fbEnd').value, today = iso(new Date());
+    if (!e) return;
+    if (S.tab === 'tx' && $('fbStart').value) {
+      var st = $('fbStart').value;
+      var len = Math.round((new Date(e + 'T00:00:00') - new Date(st + 'T00:00:00')) / 86400000) + 1;
+      var ns = addDays(st, dir * len), ne = addDays(e, dir * len);
+      if (ne > today) { ne = today; ns = addDays(today, -(len - 1)); }
+      $('fbStart').value = ns; $('fbEnd').value = ne;
+    } else {
+      var n = addDays(e, dir);
+      $('fbEnd').value = n > today ? today : n;
+    }
+    $('fbRange').value = '';
+    load();
+  }
+  $('fbPrev').addEventListener('click', function () { step(-1); });
+  $('fbNext').addEventListener('click', function () { step(1); });
+
   $('fbRange').addEventListener('change', function () { applyRange(this.value); load(); });
   ['fbStart', 'fbEnd'].forEach(function (id) {
     $(id).addEventListener('change', function () { $('fbRange').value = ''; load(); });
