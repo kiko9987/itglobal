@@ -122,7 +122,7 @@
         '<td class="num">' + (r.cells ? won(r.supply) : '<span class="text-muted">-</span>') + '</td>' +
         '<td class="num">' + (r.cells && r.vat ? won(r.vat) : '<span class="text-muted">-</span>') + '</td>' +
         '<td class="gw-fe-memo">' + memoCell(r) + '</td>' +
-        '<td class="text-nowrap"><strong>' + esc(r.code) + '</strong></td>' +
+        '<td class="text-nowrap"><strong>' + esc(r.code) + '</strong>' + (ready(r) ? '' : copyBtn('code', r.code, '코드 복사')) + '</td>' +
         '<td class="gw-fe-check">' + (warn || (r.trace ? '' : '<span class="text-muted">-</span>')) +
           (r.trace ? '<div class="gw-fe-trace">' + esc(r.trace) + '</div>' : '') + '</td></tr>';
     }).join('') : '<tr><td colspan="10" class="gw-empty">이카운트에 넣을 매출전표가 없어요.</td></tr>';
@@ -150,9 +150,20 @@
     return (p.head + S.edit[r.key].trim()).trim();
   }
   // 원래 전표 고치기(부가세 있음↔없음, SB 방식 11-26) — 고칠 내용을 보여 주고, 붙여넣을 줄이 없으면 입력칸도 없음
+  // 복사 아이콘 — PM 프로젝트 코드 복사와 같은 모양(흐린 아이콘, 누르면 잠깐 체크). 줄 고르기는 안 건드림
+  var COPY_SVG = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">' +
+    '<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 3v5A1.5 1.5 0 0 0 4 9.5h.5"/></svg>';
+  var CHECK_SVG = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"/></svg>';
+  function copyBtn(kind, value, label, text) {
+    return '<button type="button" class="gw-fe-copy" data-copy-kind="' + kind + '" data-copy="' + esc(value) + '" title="' + esc(label) +
+      '" aria-label="' + esc(label) + '">' + COPY_SVG + (text ? '<span>' + esc(text) + '</span>' : '') + '</button>';
+  }
+  // 적요 — 바로 넣을 줄은 사유를 고칠 수 있게, 확인·수정 줄은 글로만(고칠 일 없음, 11-26 부장님) + 고칠 내용 안내
   function memoCell(r) {
-    var guide = r.guide ? '<div class="gw-fe-guide"><i class="fas fa-pen-to-square me-1" aria-hidden="true"></i>' + esc(r.guide) + '</div>' : '';
-    return (r.cells ? memoInput(r) : '') + guide;
+    var line = r.cells && !ready(r) ? ' ' + copyBtn('line', r.key, '이 줄만 복사(이카운트 웹자료올리기에 붙여넣기)', '이 줄 복사') : '';
+    var guide = r.guide ? '<div class="gw-fe-guide"><i class="fas fa-pen-to-square me-1" aria-hidden="true"></i>' + esc(r.guide) + line + '</div>' : '';
+    var memo = !r.cells ? '' : ready(r) ? memoInput(r) : '<div class="gw-fe-memo-text">' + esc(r.memo) + '</div>';
+    return memo + guide + (r.cells && !ready(r) && !r.guide ? line : '');
   }
   function memoInput(r) {
     var p = reasonParts(r);
@@ -247,7 +258,7 @@
   // 줄 아무 데나 눌러도 고르기(체크 칸·글자 고르기 빼고)
   ['feSales', 'feProjects'].forEach(function (id) {
     $(id).addEventListener('click', function (ev) {
-      if (ev.target.closest('input') || String(window.getSelection && window.getSelection()) !== '') return;
+      if (ev.target.closest('input, button') || String(window.getSelection && window.getSelection()) !== '') return;
       var tr = ev.target.closest('tr[data-key]');
       var c = tr && tr.querySelector('input[data-pick]');
       if (c) { c.checked = !c.checked; c.dispatchEvent(new Event('change', { bubbles: true })); }
@@ -281,6 +292,26 @@
       msg(t === 'sales'
         ? '매출전표 ' + rows.length + '줄을 복사했어요. 이카운트 매출전표 I › 웹자료올리기 표의 첫 칸을 누르고 붙여넣어 주세요.'
         : '프로젝트 ' + rows.length + '줄을 복사했어요. 이카운트 프로젝트등록 › 웹자료올리기에 붙여넣고 저장한 뒤 ② 매출전표 I 탭으로 넘어가 주세요.', 'ok');
+    }).catch(function () { msg('복사하지 못했어요. 브라우저에서 클립보드 권한을 허용해 주세요.', 'err'); });
+  });
+
+  // 복사 아이콘 — 코드 또는 그 줄 하나(탭으로 칸 나눔)
+  $('feSales').addEventListener('click', function (ev) {
+    var b = ev.target.closest('.gw-fe-copy');
+    if (!b) return;
+    var kind = b.getAttribute('data-copy-kind'), v = b.getAttribute('data-copy'), text = v;
+    if (kind === 'line') {
+      var r = S.sales.filter(function (x) { return x.key === v; })[0];
+      if (!r || !r.cells) return;
+      text = cellsOf(r, 'sales').map(clean).join('\t');
+    }
+    var icon = b.innerHTML;
+    copyText(text).then(function () {
+      b.innerHTML = CHECK_SVG + (kind === 'line' ? '<span>복사됨</span>' : '');
+      b.classList.add('done');
+      msg(kind === 'line' ? '이 줄을 복사했어요. 원래 전표를 고친 뒤 이카운트 매출전표 I › 웹자료올리기에 붙여넣어 주세요.'
+        : v + ' 코드를 복사했어요. 이카운트 회계거래조회 프로젝트 칸에 붙여넣으면 원래 전표를 찾을 수 있어요.', 'ok');
+      setTimeout(function () { b.innerHTML = icon; b.classList.remove('done'); }, 1500);
     }).catch(function () { msg('복사하지 못했어요. 브라우저에서 클립보드 권한을 허용해 주세요.', 'err'); });
   });
 

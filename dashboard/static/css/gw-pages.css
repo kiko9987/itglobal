@@ -4451,3 +4451,9 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-fe-table tr.gw-fe-divider-ok td { background: #f0fdf4; color: #166534; }
 /* 적요·프로젝트명(현장 주소)은 긴 글이라 왼쪽 정렬 — 머리 칸은 가운데 그대로(11-26 부장님) */
 .gw-fe-table td.gw-fe-memo { text-align: left; }
+/* 확인·수정 줄 — 코드·줄 복사 아이콘(PM 코드 복사와 같은 모양, 11-26) */
+.gw-fe-copy { display: inline-flex; align-items: center; gap: 3px; border: 0; background: transparent; color: #94a3b8; padding: 2px 4px; margin-left: 4px; line-height: 1; cursor: pointer; border-radius: 4px; vertical-align: middle; font-size: 12px; }
+.gw-fe-copy:hover, .gw-fe-copy:focus-visible { color: #334155; background: #f1f5f9; }
+.gw-fe-copy.done { color: #16a34a; }
+.gw-fe-guide .gw-fe-copy { color: #9a3412; text-decoration: underline; text-underline-offset: 2px; }
+.gw-fe-memo-text { color: #334155; }
