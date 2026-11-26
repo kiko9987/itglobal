@@ -121,3 +121,76 @@ def test_report_balances_reads_latest_sheet_before_today(tmp_path):
     d, vals = fd.report_balances(p, date(2026, 11, 25))
     assert d == date(2026, 11, 24) and vals['1011'] == 100
     assert fd.report_balances(p, date(2026, 11, 24)) == (None, {})
+
+
+# ── 새 달 파일(11-26 SB '엑셀 원본이 만들어져야' → 서버가 첫 영업일에 만들어 둠) ──
+CODES = [1011, 1012, 1013, 1014, 9011, 9012, 4011, 5011]
+
+
+def _prev_month(path, last_missing=False):
+    wb = openpyxl.Workbook()
+    wb.active.title = '27'
+    for name, base in (('27', 100), ('30', 1000)):
+        ws = wb[name] if name in wb.sheetnames else wb.create_sheet(name)
+        for i, r in enumerate(fd.ACCT_ROWS):
+            ws[f'D{r}'] = CODES[i]
+            ws[f'G{r}'] = "=SUM('[1]27'!L6:M6)" if name == '27' else f"=SUM('27'!L{r}:M{r})"
+            ws[f'L{r}'] = None if (last_missing and name == '30' and i == 7) else base + i   # 엑셀 저장값 대신 숫자
+        for r in range(fd.FIRST_ROW, fd.LAST_ROW + 1):
+            ws.merge_cells(f'D{r}:F{r}')
+        ws['B19'], ws['H19'] = 1011, 5
+        ws['H128'] = '=SUM($H$19:$H$127)'
+    wb.save(path)
+
+
+def test_make_month_file_first_sheet_from_last_balances(tmp_path):
+    prev, out = str(tmp_path / '26.11 자금일보.xlsx'), str(tmp_path / '26.12 자금일보.xlsx')
+    _prev_month(prev)
+    res = fd.make_month_file(prev, out, date(2026, 12, 1))
+    assert res == {'status': 'made', 'missing': [], 'from_sheet': '30'}
+    wb = openpyxl.load_workbook(out)
+    ws = wb['1']
+    assert wb.sheetnames == ['1']                                            # 지난달 시트는 하나도 안 남김
+    assert [ws[f'G{r}'].value for r in fd.ACCT_ROWS] == [1000 + i for i in range(8)]   # 11/30 잔액을 숫자로
+    assert ws['G6'].comment is not None and ws['B19'].value is None and ws['H128'].value == '=SUM($H$19:$H$127)'
+    # 다음 날 07:00 — 상세가 빈 첫 시트는 그 자리에 채움(전일잔액 그대로), 채운 뒤엔 다시 안 건드림
+    ins = [{'B': '9012', 'C': '홈페이지', 'D': 'R1-A 매출수금완료', 'G': '가', 'H': 7, 'check': False}]
+    assert fd.add_day_sheet(out, out, date(2026, 12, 1), ins, []) == 'made'
+    ws = openpyxl.load_workbook(out)['1']
+    assert ws['B19'].value == 9012 and ws['G6'].value == 1000
+    assert fd.add_day_sheet(out, out, date(2026, 12, 1), ins, []) == 'exists'
+
+
+def test_make_month_file_marks_missing_balance(tmp_path):
+    prev, out = str(tmp_path / 'p.xlsx'), str(tmp_path / 'o.xlsx')
+    _prev_month(prev, last_missing=True)
+    res = fd.make_month_file(prev, out, date(2026, 12, 1))
+    assert res['missing'] == ['5011']
+    ws = openpyxl.load_workbook(out)['1']
+    assert ws['G13'].value is None and ws['G13'].comment is not None
+
+
+def test_copy_mode_first_day_uses_same_day_sheet(tmp_path):
+    prev, out = str(tmp_path / 'p.xlsx'), str(tmp_path / 'o.xlsx')
+    _prev_month(prev)
+    fd.make_month_file(prev, out, date(2026, 12, 1))
+    assert fd.add_day_sheet(out, out, date(2026, 12, 1), [], [], suffix=' 자동') == 'made'
+    wb = openpyxl.load_workbook(out)
+    assert wb.sheetnames == ['1', '1 자동'] and wb['1 자동']['G7'].value == 1001
+
+
+def test_ensure_month_file(tmp_path, monkeypatch):
+    from dashboard.services import company_holidays as ch
+    monkeypatch.setattr(ch, 'is_holiday', lambda d: d == date(2027, 1, 1))
+    monkeypatch.setenv('FUND_DAILY_COPY_DIR', str(tmp_path / 'copy'))
+    hint = tmp_path / 'hints'
+    hint.mkdir()
+    _prev_month(str(hint / '26.11 자금일보.xlsx'))
+    files = {'26.11 자금일보.xlsx': {'id': 'x', 'modifiedTime': 't'}}
+    assert fd.first_business_day(2027, 1) == date(2027, 1, 4)
+    assert fd.ensure_month_file(date(2026, 11, 30), 'copy', None, 'f', files, str(hint)) == 'exists'     # 이달 파일 있음
+    assert fd.ensure_month_file(date(2026, 12, 1), 'copy', None, 'f', files, str(hint)) == 'made'
+    assert (tmp_path / 'copy' / '26.12 자금일보 (새 달 자동).xlsx').exists()
+    assert fd.ensure_month_file(date(2026, 12, 2), 'copy', None, 'f', files, str(hint)) == 'exists'
+    assert fd.ensure_month_file(date(2027, 1, 1), 'copy', None, 'f', files, str(hint)) == 'not_yet'   # 1/1 휴일 → 첫 영업일 1/4
+    assert fd.ensure_month_file(date(2027, 1, 4), 'copy', None, 'f', files, str(hint)) == 'no_prev'    # 12월 파일이 드라이브에 없음

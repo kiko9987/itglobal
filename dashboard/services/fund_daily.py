@@ -7,7 +7,11 @@
   · 입금: 공사 코드가 붙은 줄(입금 지정 확인) → 계정 = 그 공사 유입 구분, 적요 = '{코드} 매출수금완료'(미수금 0) / '매출수금 중'
   · 출금: 전자결재 이체 완료와 금액으로 짝지음 → 계정(자재비·도급비 = 외상매입), 적요 '{공사 코드 또는 0 이니셜} {내용}', 상대방 = 거래처
   · 그 밖: 지난 자금일보에서 같은 상대방에 쓴 계정·적요를 제안. 못 찾으면 비워 두고 칸에 메모('확인 필요')
-- 그날 시트가 이미 있으면(SB 가 만들었으면) 건드리지 않는다. 새 달 파일이 없으면 만들지 않고 알린다(SB 가 만든 뒤 다음 날).
+- 그날 시트가 이미 있으면(SB 가 만들었으면) 건드리지 않는다. 단 상세 내역이 텅 빈 시트(새 달 첫 시트 등)는 그 자리에 채운다.
+- 새 달 파일(11-26 SB '엑셀 원본이 만들어져야 합니다' → 부장님 '새 파일을 만들어 두라는 뜻'): 그 달 첫 영업일 07:00 에
+  지난달 파일의 마지막 시트를 본떠 'YY.MM 자금일보.xlsx' 를 만들고 첫 영업일 시트 하나만 둔다(상세 내역 빈칸).
+  전일잔액(G)은 지난달 마지막 시트 잔액(L, 엑셀 저장값)을 숫자로 넣는다 — SB 는 다른 파일을 가리키는 수식([1]30!L6)을
+  썼지만 서버가 쓰면 그 연결의 저장값이 비어 엉뚱한 숫자가 보일 수 있어서.
 - 문자가 안 오는 계좌(우리·수협·국민·P 기업·G 하나·R 하나 9011)는 SB 가 그 시트에 직접 넣는다.
 
 설정(.env)
@@ -241,27 +245,38 @@ def add_day_sheet(path_in: str, path_out: str, day: date, in_rows: List[dict], o
     from openpyxl.comments import Comment
     wb = openpyxl.load_workbook(path_in)
     name = str(day.day) + suffix
+    in_place = None
     if name in wb.sheetnames:
-        if not replace:
+        if replace:
+            del wb[name]
+        elif _detail_blank(wb[name]):
+            in_place = wb[name]          # 상세 내역이 텅 빈 시트(새 달 첫 시트 등) — 그 자리에 채움, 위쪽 표는 그대로
+        else:
             return 'exists'
-        del wb[name]
-    prevs = [ws for ws in wb.worksheets if ws.title.isdigit() and int(ws.title) < day.day]
-    if not prevs:
-        return 'no_template'
-    prev = max(prevs, key=lambda w: int(w.title))
-    ws = wb.copy_worksheet(prev)
-    ws.title = name
-    # 시트 순서: 앞 시트 바로 뒤
-    wb.move_sheet(ws, offset=wb.sheetnames.index(prev.title) + 1 - wb.sheetnames.index(name))
-    # copy_worksheet 가 옮기지 않는 조건부 서식·열 너비 보정
-    for cf in prev.conditional_formatting:
-        for rule in cf.rules:
-            ws.conditional_formatting.add(str(cf.sqref), rule)
-    for k, dim in prev.column_dimensions.items():
-        ws.column_dimensions[k].width = dim.width
-    ws.sheet_view.tabSelected = False
-    for r in ACCT_ROWS:
-        ws[f'G{r}'] = f"=SUM('{prev.title}'!L{r}:M{r})"
+    if in_place is not None:
+        ws = in_place
+    else:
+        prevs = [w for w in wb.worksheets if w.title.isdigit() and int(w.title) < day.day]
+        same_day = None
+        if not prevs and str(day.day) in wb.sheetnames:
+            same_day = wb[str(day.day)]   # 그 달 첫 시트(시험 사본 'N 자동') — 같은 날 시트를 본뜨고 전일잔액도 그대로
+        if not prevs and same_day is None:
+            return 'no_template'
+        prev = same_day or max(prevs, key=lambda w: int(w.title))
+        ws = wb.copy_worksheet(prev)
+        ws.title = name
+        # 시트 순서: 앞 시트 바로 뒤
+        wb.move_sheet(ws, offset=wb.sheetnames.index(prev.title) + 1 - wb.sheetnames.index(name))
+        # copy_worksheet 가 옮기지 않는 조건부 서식·열 너비 보정
+        for cf in prev.conditional_formatting:
+            for rule in cf.rules:
+                ws.conditional_formatting.add(str(cf.sqref), rule)
+        for k, dim in prev.column_dimensions.items():
+            ws.column_dimensions[k].width = dim.width
+        ws.sheet_view.tabSelected = False
+        if same_day is None:
+            for r in ACCT_ROWS:
+                ws[f'G{r}'] = f"=SUM('{prev.title}'!L{r}:M{r})"
     # 상세 내역 비우기(값만 — 서식·합친 칸은 그대로)
     for row in ws.iter_rows(min_row=FIRST_ROW, max_row=LAST_ROW, min_col=2, max_col=15):
         for c in row:
@@ -288,6 +303,130 @@ def add_day_sheet(path_in: str, path_out: str, day: date, in_rows: List[dict], o
         logger.error(f'{_LOG} {day} 상세 내역이 {cap}줄을 넘어 일부를 못 넣음 — 입금 {len(in_rows)} 출금 {len(out_rows)}')
     wb.active = wb.sheetnames.index(name)
     wb.save(path_out)
+    return 'made'
+
+
+def _detail_blank(ws) -> bool:
+    for row in ws.iter_rows(min_row=FIRST_ROW, max_row=LAST_ROW, min_col=2, max_col=15, values_only=True):
+        if any(v not in (None, '') and not (isinstance(v, str) and v.startswith('=')) for v in row):
+            return False
+    return True
+
+
+def month_end_balances(path: str) -> Tuple[str, Dict[str, int]]:
+    """지난달 파일 마지막 시트의 계좌별 잔액(L, 엑셀 저장값) {코드: 잔액} 과 그 시트 이름."""
+    import openpyxl
+    wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
+    try:
+        days = sorted((n for n in wb.sheetnames if n.isdigit()), key=int)
+        if not days:
+            return '', {}
+        vals = {}
+        for row in wb[days[-1]].iter_rows(min_row=ACCT_ROWS.start, max_row=ACCT_ROWS.stop - 1, min_col=1, max_col=12,
+                                          values_only=True):
+            code, bal = row[3], row[11]
+            if isinstance(code, (int, float)) and isinstance(bal, (int, float)):
+                vals[str(int(code))] = int(round(bal))
+        return days[-1], vals
+    finally:
+        wb.close()
+
+
+def first_business_day(y: int, m: int) -> date:
+    from dashboard.services import company_holidays as ch
+    d = date(y, m, 1)
+    while d.weekday() >= 5 or ch.is_holiday(d):
+        d += timedelta(days=1)
+    return d
+
+
+def make_month_file(prev_path: str, out_path: str, first_day: date) -> Dict:
+    """지난달 파일 → 새 달 파일(첫 영업일 시트 하나). 반환 {'status': 'made'|'no_template', 'missing': [잔액 못 찾은 코드]}"""
+    import openpyxl
+    from openpyxl.comments import Comment
+    last, bals = month_end_balances(prev_path)
+    wb = openpyxl.load_workbook(prev_path)
+    days = [ws for ws in wb.worksheets if ws.title.isdigit()]
+    if not days:
+        return {'status': 'no_template', 'missing': []}
+    tpl = max(days, key=lambda w: int(w.title))
+    ws = wb.copy_worksheet(tpl)
+    for cf in tpl.conditional_formatting:
+        for rule in cf.rules:
+            ws.conditional_formatting.add(str(cf.sqref), rule)
+    for k, dim in tpl.column_dimensions.items():
+        ws.column_dimensions[k].width = dim.width
+    for other in [w for w in wb.worksheets if w is not ws]:
+        wb.remove(other)
+    ws.title = str(first_day.day)
+    wb._external_links = []                      # 지난달 파일을 가리키던 연결은 이제 안 씀(전일잔액은 숫자로)
+    missing = []
+    prev_label = f"{(first_day.replace(day=1) - timedelta(days=1)):%m}/{last}"
+    for r in ACCT_ROWS:
+        code = ws[f'D{r}'].value
+        key = str(int(code)) if isinstance(code, (int, float)) else ''
+        if key in bals:
+            ws[f'G{r}'] = bals[key]
+        else:
+            ws[f'G{r}'] = None
+            missing.append(key or f'{r}행')
+            ws[f'G{r}'].comment = Comment('그룹웨어: 지난달 마지막 시트에서 이 계좌 잔액을 못 찾았어요. 넣어 주세요.', '그룹웨어')
+    ws['G6'].comment = ws['G6'].comment or Comment(
+        f'그룹웨어: 지난달 파일 {prev_label} 시트의 잔액을 숫자로 옮겼어요. 지난달 잔액을 고치면 여기도 고쳐 주세요.', '그룹웨어')
+    for row in ws.iter_rows(min_row=FIRST_ROW, max_row=LAST_ROW, min_col=2, max_col=15):
+        for c in row:
+            if type(c).__name__ == 'MergedCell':
+                continue
+            if c.value is not None and not (isinstance(c.value, str) and c.value.startswith('=')):
+                c.value = None
+            c.comment = None
+    for r in range(FIRST_ROW, LAST_ROW + 1):     # 손 입력하기 좋게 앞쪽 30줄은 보이게
+        ws.row_dimensions[r].hidden = r >= FIRST_ROW + 30
+    ws.sheet_view.tabSelected = True
+    wb.active = 0
+    wb.save(out_path)
+    return {'status': 'made', 'missing': missing, 'from_sheet': last}
+
+
+def _create_on_drive(svc, folder: str, name: str, path: str) -> dict:
+    from googleapiclient.http import MediaFileUpload
+    media = MediaFileUpload(path, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    return svc.files().create(body={'name': name, 'parents': [folder]}, media_body=media, supportsAllDrives=True,
+                              fields='id, name, modifiedTime').execute()
+
+
+def new_month_copy_path(d: date) -> str:
+    return os.path.join(copy_dir(), month_file(d).replace('.xlsx', ' (새 달 자동).xlsx'))
+
+
+def ensure_month_file(today: date, m: str, svc, folder: str, files: Dict[str, dict], hint_dir: str) -> str:
+    """이달 파일이 없고 첫 영업일이 지났으면 지난달 파일로 만든다. 'made' / 'exists' / 'not_yet' / 'no_prev' / 'no_template'."""
+    name = month_file(today)
+    if name in files:
+        return 'exists'
+    first = first_business_day(today.year, today.month)
+    if today < first:
+        return 'not_yet'
+    if m == 'copy' and os.path.exists(new_month_copy_path(today)):
+        return 'exists'
+    prev_name = month_file(first.replace(day=1) - timedelta(days=1))
+    prev_local = os.path.join(hint_dir, prev_name)
+    if prev_name not in files or not os.path.exists(prev_local):
+        logger.error(f'{_LOG} 새 달 파일 {name} 을 못 만듦 — 지난달 파일 {prev_name} 이 없음', extra={'force_alert': True})
+        return 'no_prev'
+    out = new_month_copy_path(today) if m == 'copy' else os.path.join(work_dir(), name)
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    res = make_month_file(prev_local, out, first)
+    if res['status'] != 'made':
+        logger.error(f'{_LOG} 새 달 파일 {name} 을 못 만듦 — {res}', extra={'force_alert': True})
+        return res['status']
+    if m == 'live':
+        meta = _create_on_drive(svc, folder, name, out)
+        files[name] = meta
+        shutil.copy2(out, os.path.join(hint_dir, name))
+        open(os.path.join(hint_dir, name) + '.mtime', 'w').write(meta.get('modifiedTime') or '')
+    note = f" — 잔액 못 찾은 계좌 {', '.join(res['missing'])}(칸 메모)" if res['missing'] else ''
+    logger.info(f'{_LOG} {m} 새 달 파일 {name} 만듦(첫 시트 {first.day}일, 전일잔액 = 지난달 {res.get("from_sheet")}일){note}')
     return 'made'
 
 
@@ -428,10 +567,6 @@ def run(today: Optional[date] = None, force_mode: str = '', svc=None) -> dict:
     svc = svc or _drive()
     folder = _folder_id(svc)
     files = _files(svc, folder)
-    meta = files.get(month_file(day))
-    if not meta:
-        logger.warning(f'{_LOG} {month_file(day)} 이 없어 {day} 시트를 못 만듦 — 새 달 파일은 SB 가 처음 만든 뒤부터')
-        return {'status': 'no_month_file', 'day': day.isoformat()}
     wd = work_dir()
     hint_dir = os.path.join(wd, 'hints')
     os.makedirs(hint_dir, exist_ok=True)
@@ -441,7 +576,19 @@ def run(today: Optional[date] = None, force_mode: str = '', svc=None) -> dict:
         if not (os.path.exists(local) and os.path.exists(stamp) and open(stamp).read() == f['modifiedTime']):
             _download(svc, f['id'], local)
             open(stamp, 'w').write(f['modifiedTime'])
+    # 새 달 파일(그 달 첫 영업일부터) — 실패해도 전 영업일 시트는 계속
+    try:
+        new_month = ensure_month_file(today, m, svc, folder, files, hint_dir)
+    except Exception as e:
+        new_month = 'error'
+        logger.error(f'{_LOG} 새 달 파일 만들기 실패: {e}', exc_info=True, extra={'force_alert': True})
+    meta = files.get(month_file(day))
     src = os.path.join(hint_dir, month_file(day))
+    if not meta and m == 'copy' and os.path.exists(new_month_copy_path(day)):
+        src = new_month_copy_path(day)         # 시험: 드라이브엔 없고 사본 폴더에 만든 새 달 파일
+    elif not meta:
+        logger.warning(f'{_LOG} {month_file(day)} 이 없어 {day} 시트를 못 만듦')
+        return {'status': 'no_month_file', 'day': day.isoformat(), 'new_month': new_month}
     # 문자 안 오는 계좌 잔액은 SB 자금일보 계좌 표에서 입출금 장부로(11-26 부장님) — 실패해도 초안은 계속
     try:
         from dashboard.services import bank_ledger
@@ -486,4 +633,5 @@ def run(today: Optional[date] = None, force_mode: str = '', svc=None) -> dict:
         _upload(svc, meta['id'], path)
     logger.info(f'{_LOG} {m} {day} 시트 {res} — 입금 {len(ins)} 출금 {len(outs)} (확인 필요 '
                 f'{sum(1 for r in ins + outs if r.get("check"))})')
-    return {'status': res, 'day': day.isoformat(), 'mode': m, 'in': len(ins), 'out': len(outs), 'path': path}
+    return {'status': res, 'day': day.isoformat(), 'mode': m, 'in': len(ins), 'out': len(outs), 'path': path,
+            'new_month': new_month}
