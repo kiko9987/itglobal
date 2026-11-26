@@ -76,6 +76,9 @@ def api_list():
         # 농협(N통장)은 SB 가 관리하지 않는 계좌(11-26 부장님) — 화면·합계에서 뺀다.
         # 장부엔 그대로 남김: 자금일보 초안이 전자결재 N 출금과 짝지을 때 씀(services/fund_daily.py)
         rows = [r for r in rows if r.get('acct_code') not in HIDDEN_CODES]
+        # 자금일보에서 아침마다 옮겨 오는 잔액 줄은 거래가 아니라 거래 내역엔 숨김 — 구분 '잔액 맞추기'를 고르면 보임
+        if request.args.get('direction') != bl.BAL:
+            rows = [r for r in rows if r.get('source') != bl.REPORT]
         tot = {'in': sum(r['amount'] for r in rows if r['direction'] == bl.IN),
                'out': sum(r['amount'] for r in rows if r['direction'] == bl.OUT),
                'unassigned': sum(1 for r in rows if r['direction'] in (bl.IN, bl.OUT) and not (r['memo'] or ''))}
