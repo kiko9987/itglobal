@@ -258,7 +258,8 @@
       var need = (r.direction === 'in' || r.direction === 'out') && !memo;
       var memoCell = need ? '<span class="gw-badge gw-badge-wait">적요 없음</span>' : esc(memo);
       if (r.project_code && memo.indexOf(r.project_code) === -1) memoCell += ' <span class="text-muted small">' + esc(r.project_code) + '</span>';
-      if (r.approval) memoCell += ' <a class="gw-fb-appr" href="/approval?id=' + r.approval.id + '" target="_blank" rel="noopener" title="결재함에서 열기">결재 #' + r.approval.id + '</a>';
+      if (r.approval) memoCell += ' <a class="gw-fb-appr" href="/approval?id=' + r.approval.id + '" target="_blank" rel="noopener" title="결재함에서 열기">결재 #' + r.approval.id +
+        (r.approval.more && r.approval.more.length ? ' 외 ' + r.approval.more.length + '건' : '') + '</a>';   // 여러 결재를 한 번에 보낸 출금(11-26)
       else if (r.no_approval) memoCell += ' <span class="gw-badge gw-fb-hand" title="같은 금액·날짜의 이체 완료 결재가 없어요">결재 없음</span>';
       return '<tr tabindex="0" role="button" data-id="' + r.id + '" aria-label="' + esc(when(r.at) + ' ' + (r.counterparty || '') + ' 고치기') + '">' +
         '<td class="text-nowrap">' + esc(when(r.at)) + (SRC_TAG[r.source] ? ' <span class="text-muted small">' + SRC_TAG[r.source] + '</span>' : '') + '</td>' +
@@ -347,6 +348,7 @@
         '<dt>상대방</dt><dd>' + esc(row.counterparty || '') + '</dd><dt>' + (row.direction === 'in' ? '입금' : '출금') + '</dt><dd>' + won(row.amount) + '원</dd>' +
         '<dt>거래 후 잔액</dt><dd>' + (row.balance == null ? '-' : won(row.balance) + '원') + '</dd>' +
         (row.approval ? '<dt>전자결재</dt><dd><a href="/approval?id=' + row.approval.id + '" target="_blank" rel="noopener">#' + row.approval.id + '</a> ' +
+          (row.approval.more || []).map(function (id) { return '<a href="/approval?id=' + id + '" target="_blank" rel="noopener">#' + id + '</a> '; }).join('') +
           esc([row.approval.form, row.approval.partner, row.approval.content].filter(Boolean).join(' · ')) +
           (row.approval.done_at ? ' <span class="text-muted small">이체 ' + esc(when(row.approval.done_at)) + '</span>' : '') + '</dd>'
           : (row.no_approval ? '<dt>전자결재</dt><dd class="text-muted">같은 금액·날짜의 이체 완료 결재가 없어요</dd>' : '')) +

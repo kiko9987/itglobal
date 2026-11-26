@@ -196,6 +196,45 @@ def match_approvals(outs: List[dict], approvals: List[dict]) -> Dict[int, dict]:
         if best:
             used.add(best[1]['id'])
             out[i] = best[1]
+    # 2차 — 여러 결재를 한 번에 보낸 출금(11-26 이종원 개인경비 #87 24,200 + #88 3,850 = 출금 28,050).
+    #   같은 받는 분(payee_name)·같은 사업자·출금 ±1일 결재들의 합이 출금액과 같으면 묶음 하나로 본다.
+    #   결재가 2건 이상이고 받는 분 이름이 있을 때만(이름 없는 결재를 아무렇게나 더하지 않게).
+    for i, tx in enumerate(outs):
+        if i in out:
+            continue
+        ent = CODE_ENTITY.get(str(tx.get('code') or ''), '')
+        try:
+            t = datetime.strptime(tx['at'][:16], '%Y-%m-%d %H:%M')
+        except (KeyError, ValueError):
+            continue
+        groups: Dict[str, List[dict]] = {}
+        for a in approvals:
+            payee = re.sub(r'\s+', '', str(a.get('payee_name') or ''))
+            if a['id'] in used or not payee:
+                continue
+            grn = str(a.get('grn') or '')[:1].upper()
+            if grn and ent and grn != ent:
+                continue
+            try:
+                at = datetime.strptime(str(a['done_at'])[:16], '%Y-%m-%d %H:%M')
+            except ValueError:
+                continue
+            if abs((at - t).total_seconds()) <= 86400:
+                groups.setdefault(payee, []).append(a)
+        for payee, g in groups.items():
+            if len(g) >= 2 and sum(int(a.get('amount') or 0) for a in g) == int(tx['amount']):
+                g = sorted(g, key=lambda a: a['id'])
+                first = g[0]
+                pcs = {str(a.get('project_code') or '').strip() for a in g}
+                merged = dict(first)
+                merged.update({
+                    'ids': [a['id'] for a in g], 'amount': int(tx['amount']),
+                    'content': f"{first.get('content') or ''} 외 {len(g) - 1}건".strip(),
+                    'project_code': first.get('project_code') if len(pcs) == 1 else '',
+                })
+                used.update(a['id'] for a in g)
+                out[i] = merged
+                break
     return out
 
 

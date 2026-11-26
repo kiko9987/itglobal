@@ -97,8 +97,11 @@ def _conn():
                 for q in DDL:
                     conn.execute(q)
                 # 11-26: 출금 ↔ 전자결재 짝(결재 번호) — 예전 표엔 칸이 없어 붙임
-                if 'approval_id' not in {r[1] for r in conn.execute('PRAGMA table_info(bank_tx)')}:
+                _cols = {r[1] for r in conn.execute('PRAGMA table_info(bank_tx)')}
+                if 'approval_id' not in _cols:
                     conn.execute('ALTER TABLE bank_tx ADD COLUMN approval_id INTEGER')
+                if 'approval_more' not in _cols:     # 여러 결재를 한 번에 보낸 출금 — 나머지 결재 번호(쉼표, 11-26)
+                    conn.execute('ALTER TABLE bank_tx ADD COLUMN approval_more TEXT')
                 for i, (code, ent, bank, num, rep, sms) in enumerate(SEED_ACCOUNTS):
                     conn.execute('INSERT OR IGNORE INTO bank_accounts (code, entity, bank, number, in_report, sms, sort) '
                                  'VALUES (?, ?, ?, ?, ?, ?, ?)', (code, ent, bank, num, rep, sms, i))
@@ -441,7 +444,7 @@ def link_approvals(start: str, end: str, approvals: List[dict]) -> int:
         def initial(_n):
             return ''
     with _conn() as conn:
-        used = {r[0] for r in conn.execute('SELECT approval_id FROM bank_tx WHERE approval_id IS NOT NULL AND deleted_at IS NULL')}
+        used = _linked_ids(conn)
         rows = [dict(r) for r in conn.execute(
             "SELECT t.*, a.code AS acct_code FROM bank_tx t JOIN bank_accounts a ON a.id=t.account_id "
             "WHERE t.direction='out' AND t.source NOT IN ('manual', ?) AND t.approval_id IS NULL AND t.deleted_at IS NULL "
@@ -453,8 +456,10 @@ def link_approvals(start: str, end: str, approvals: List[dict]) -> int:
             r = rows[i]
             sug = fd.outflow_row(txs[i], a, {}, initial)
             pc = (a.get('project_code') or '').strip()
-            conn.execute('UPDATE bank_tx SET approval_id=?, title=?, memo=?, project_code=?, updated_at=?, updated_by=? WHERE id=?',
-                         (a['id'], r['title'] or sug['J'] or '', r['memo'] or sug['K'] or '',
+            more = ','.join(str(x) for x in (a.get('ids') or [])[1:])     # 묶음 결재면 나머지 번호
+            conn.execute('UPDATE bank_tx SET approval_id=?, approval_more=?, title=?, memo=?, project_code=?, updated_at=?, '
+                         'updated_by=? WHERE id=?',
+                         (a['id'], more or None, r['title'] or sug['J'] or '', r['memo'] or sug['K'] or '',
                           r['project_code'] or (pc if fd.PROJECT_RE.match(pc) else ''), _now(), '전자결재', r['id']))
     if pairs:
         logger.info(f'{_LOG} 출금 ↔ 전자결재 짝 {len(pairs)}줄')
@@ -468,6 +473,15 @@ def sms_start() -> str:
     return (r[0] or '') if r else ''
 
 
+def _linked_ids(conn) -> set:
+    ids = set()
+    for aid, more in conn.execute('SELECT approval_id, approval_more FROM bank_tx WHERE approval_id IS NOT NULL AND deleted_at IS NULL'):
+        ids.add(aid)
+        ids.update(int(x) for x in str(more or '').split(',') if x.strip().isdigit())
+    return ids
+
+
 def linked_approval_ids() -> set:
+    """출금 줄과 짝지어진 결재 번호 전부(묶음 결재의 나머지 번호 포함)."""
     with _conn() as conn:
-        return {r[0] for r in conn.execute('SELECT approval_id FROM bank_tx WHERE approval_id IS NOT NULL AND deleted_at IS NULL')}
+        return _linked_ids(conn)

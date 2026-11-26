@@ -194,3 +194,21 @@ def test_ensure_month_file(tmp_path, monkeypatch):
     assert fd.ensure_month_file(date(2026, 12, 2), 'copy', None, 'f', files, str(hint)) == 'exists'
     assert fd.ensure_month_file(date(2027, 1, 1), 'copy', None, 'f', files, str(hint)) == 'not_yet'   # 1/1 휴일 → 첫 영업일 1/4
     assert fd.ensure_month_file(date(2027, 1, 4), 'copy', None, 'f', files, str(hint)) == 'no_prev'    # 12월 파일이 드라이브에 없음
+
+
+def test_match_combined_approvals_same_payee():
+    """11-26 이종원 개인경비 #87 24,200 + #88 3,850 → 출금 28,050 한 번."""
+    outs = [{'code': '9012', 'amount': 28_050, 'at': '2026-11-26 15:00', 'counterparty': '이종원'},
+            {'code': '9012', 'amount': 17_050, 'at': '2026-11-26 15:00', 'counterparty': '오세영'}]
+    ap = [{'id': 87, 'amount': 24_200, 'grn': 'R', 'payee_name': '이종원', 'project_code': 'R4294-JW', 'content': '22M 스틸파이프 구매',
+           'done_at': '2026-11-26 14:58:31'},
+          {'id': 88, 'amount': 3_850, 'grn': 'R', 'payee_name': '이종원', 'project_code': 'R4294-JW', 'content': '전기 부속 구매',
+           'done_at': '2026-11-26 14:58:33'},
+          {'id': 85, 'amount': 17_050, 'grn': 'G', 'payee_name': '오세영', 'content': '전기 자재', 'done_at': '2026-11-26 14:58:15'}]
+    m = fd.match_approvals(outs, ap)
+    assert m[0]['ids'] == [87, 88] and m[0]['amount'] == 28_050 and m[0]['project_code'] == 'R4294-JW'
+    assert m[0]['content'] == '22M 스틸파이프 구매 외 1건'
+    assert 1 not in m                                   # 17,050 은 G 통장 결재라 R 통장 출금과 짝 아님
+    # 받는 분이 다르면 더하지 않음
+    ap2 = [dict(ap[0]), dict(ap[1], payee_name='다른사람')]
+    assert fd.match_approvals(outs[:1], ap2) == {}

@@ -139,3 +139,16 @@ def test_link_approvals_fills_empty_only(db):
     assert (r['title'], r['memo'], r['project_code']) == ('외상매입', 'R4294-JW 조명 자재', 'R4294-JW')
     assert bl.link_approvals('2026-11-26', '2026-11-27', appr) == 0          # 이미 짝
     assert bl.linked_approval_ids() == {84} and bl.sms_start().startswith('2026-11-26')
+
+
+def test_link_combined_approvals_records_all_ids(db):
+    """여러 결재를 한 번에 보낸 출금 — 첫 결재 번호 + 나머지(approval_more), 둘 다 '짝 있음'으로 셈(11-26 이종원)."""
+    bl.record_sms(HANA_OUT, bl.OUT, 'h2', 'sms', NOW)                       # 9012 출금 897,303원
+    appr = [{'id': 87, 'amount': 800_000, 'project_code': 'R4294-JW', 'cost_category': '', 'content': '스틸파이프', 'partner': '',
+             'payee_name': '이종원', 'requester_name': '', 'grn': 'R', 'done_at': '2026-11-26 10:00:00'},
+            {'id': 88, 'amount': 97_303, 'project_code': 'R4294-JW', 'cost_category': '', 'content': '전기 부속', 'partner': '',
+             'payee_name': '이종원', 'requester_name': '', 'grn': 'R', 'done_at': '2026-11-26 10:00:02'}]
+    assert bl.link_approvals('2026-11-26', '2026-11-27', appr) == 1
+    r = bl.list_tx('2026-11-26', '2026-11-26', _acct('9012')['id'])[0]
+    assert r['approval_id'] == 87 and r['approval_more'] == '88' and r['memo'] == 'R4294-JW 스틸파이프 외 1건'
+    assert bl.linked_approval_ids() == {87, 88}

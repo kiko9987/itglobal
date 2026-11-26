@@ -102,6 +102,10 @@ def api_list():
         for r in rows:
             a = amap.get(r.get('approval_id')) if r.get('approval_id') else None
             r['approval'] = _appr(a) if a else ({'id': r['approval_id']} if r.get('approval_id') else None)
+            more = [int(x) for x in str(r.get('approval_more') or '').split(',') if x.strip().isdigit()]
+            if r['approval'] and more:          # 여러 결재를 한 번에 보낸 출금(11-26) — 화면에 '결재 #87 외 1건'
+                r['approval']['more'] = more
+                r['approval']['amount'] = int(r['amount'])
             r['no_approval'] = r['direction'] == bl.OUT and r.get('source') not in ('manual', bl.REPORT) and not r.get('approval_id')
         tot = {'in': sum(r['amount'] for r in rows if r['direction'] == bl.IN),
                'out': sum(r['amount'] for r in rows if r['direction'] == bl.OUT),
