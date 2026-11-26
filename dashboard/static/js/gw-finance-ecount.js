@@ -93,7 +93,8 @@
         '<td class="num">' + (r.vat ? won(r.vat) : '<span class="text-muted">-</span>') + '</td>' +
         '<td class="gw-fe-memo">' + esc(r.memo) + '</td>' +
         '<td class="text-nowrap"><strong>' + esc(r.code) + '</strong></td>' +
-        '<td class="gw-fe-check">' + (warn || '<span class="text-muted">-</span>') + '</td></tr>';
+        '<td class="gw-fe-check">' + (warn || (r.trace ? '' : '<span class="text-muted">-</span>')) +
+          (r.trace ? '<div class="gw-fe-trace">' + esc(r.trace) + '</div>' : '') + '</td></tr>';
     }).join('') : '<tr><td colspan="10" class="gw-empty">이카운트에 넣을 매출전표가 없어요.</td></tr>';
 
     $('feProjects').innerHTML = S.projects.length ? S.projects.map(function (r) {

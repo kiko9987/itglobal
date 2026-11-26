@@ -84,3 +84,16 @@ def test_exclude_records_as_excluded(db):
     with es._db()._get_connection() as conn:
         assert conn.execute("SELECT kind, note FROM ecount_sales_entries WHERE project_code='G7-GG' AND kind='제외'").fetchone()[1] \
             == '제외 — 원래 부가세 변경'
+
+
+def test_one_won_rounding_not_pending():
+    """G4160-JW(11-26): 공급가 −1·부가세 +1 — 넣을 전표 아님."""
+    recs = [{'프로젝트 코드': 'G1-AA', '공사 확정': '2026-10-01', '총액 1': 10876090, '총액 2': 11963700, '부가세': True}]
+    assert es.compute_pending(recs, {'G1-AA': (10876091, 1087609)}) == []
+
+
+def test_trace_and_sh_flag():
+    e = _item('G3288-SH', '부가세 변경', 0, -900_000, partner='거래처', sent=(9_000_000, 900_000), target=(9_000_000, 0))
+    s = es.upload_rows([e, _item('R1-AA', '공사 확정', 100, 10)])['sales']
+    assert s[0]['trace'] == '이카운트 9,900,000원 → 시트 9,000,000원' and 'SH 정산 공사' in s[0]['warn']
+    assert s[1]['trace'] == ''

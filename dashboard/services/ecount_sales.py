@@ -124,6 +124,9 @@ def compute_pending(recs: List[dict], ledger: Dict[str, Tuple[int, int]],
         d_supply, d_vat = target[0] - sent[0], target[1] - sent[1]
         if not d_supply and not d_vat:
             continue
+        # 1원 반올림 차이(공급가 −1·부가세 +1 같은)는 넣을 전표가 아님(11-26 G4160-JW, 부장님 '제외 필요 없는 건만')
+        if abs(d_supply) <= 1 and abs(d_vat) <= 1:
+            continue
         kind = _classify(in_ledger, sent, target)
         out.append({
             'code': code, 'kind': kind,
@@ -403,12 +406,18 @@ def upload_rows(items: List[dict], today: Optional[date] = None) -> Dict[str, Li
         vtype = VAT_TYPE if (e['target'][1] or e['vat']) else VAT_TYPE_NONE
         if e['kind'] == '부가세 변경':
             warn.append('부가세 별도 → 없음' if e['vat'] < 0 else '부가세 없음 → 별도')
+        if e['code'].endswith('-SH'):
+            warn.append('SH 정산 공사')
+        # 어디서 어디로 — 이카운트에 있다고 보는 금액 → 공사 현황(새 공사는 없음). 확인할 점 칸에 회색 글로
+        trace = '' if e['kind'] == '공사 확정' else (
+            f"이카운트 {sum(e['sent']):,}원 → 시트 {sum(e['target']):,}원")
         memo = memo_of(e)
         cells = [day, vtype, pcode, partner, str(e['supply']), '', '', vat, memo, SALES_ACCOUNT, AR_ACCOUNT, '',
                  e['code']]
         sales.append({'key': e['key'], 'code': e['code'], 'kind': e['kind'], 'date': e.get('date') or '',
                       'partner': partner, 'supply': e['supply'], 'vat': e['vat'], 'memo': memo, 'vat_type': vtype,
-                      'sent': list(e['sent']), 'target': list(e['target']), 'warn': warn, 'cells': cells})
+                      'sent': list(e['sent']), 'target': list(e['target']), 'warn': warn, 'trace': trace,
+                      'cells': cells})
         if e['kind'] == '공사 확정':
             projects.append({'key': e['key'], 'code': e['code'], 'name': e.get('addr') or '',
                              'warn': [] if e.get('addr') else ['현장 주소가 비어 있어요'],
