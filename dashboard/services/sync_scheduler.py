@@ -604,6 +604,11 @@ def start_scheduler():
         _scheduler.add_job(_safe_fund_daily, 'cron', day_of_week='mon-sat', hour=7, minute=0, id='fund_daily',
                            replace_existing=True)
         jobs.append('자금일보 자동 초안 07:00')
+    # 2026-11-26 차량 유류비·하이패스 ← SB 법인카드 월 지출결의서(services/vehicle_card_costs). 매일 아침 한 번 읽어
+    #   차량 관리 비용에 넣음(SB 가 청구서 나온 뒤 채우는 파일이라 하루 한 번이면 충분)
+    _scheduler.add_job(_safe_vehicle_card_costs, 'cron', day_of_week='mon-sat', hour=7, minute=20, id='vehicle_card_costs',
+                       replace_existing=True)
+    jobs.append('차량 유류·통행료(법인카드 지출결의서) 07:20')
     # 2026-11-25 휴가·토요 휴무 → 구글 공유 캘린더(services/leave_calendar). .env GW_LEAVE_CALENDAR_ID 가 있을 때만 10분마다 맞춤
     if os.getenv('GW_LEAVE_CALENDAR_ID', '').strip():
         _scheduler.add_job(_safe_leave_calendar_sync, 'interval', minutes=10, id='leave_calendar_sync',
@@ -1251,6 +1256,16 @@ def _safe_fund_daily():
             logger.error(f"[SCHED] 자금일보 자동 초안을 못 만듦: {res}", extra={'force_alert': True})
     except Exception as exc:
         logger.error(f'[SCHED] 자금일보 자동 초안 실패: {exc}', exc_info=True)
+
+
+def _safe_vehicle_card_costs():
+    try:
+        from dashboard.services import vehicle_card_costs
+        res = vehicle_card_costs.run()
+        if res.get('status') != 'ok':
+            logger.warning(f'[SCHED] 차량 유류·통행료: 법인카드 지출결의서를 못 찾음 {res}')
+    except Exception as exc:
+        logger.error(f'[SCHED] 차량 유류·통행료 읽기 실패: {exc}', exc_info=True)
 
 
 def _safe_leave_calendar_sync():

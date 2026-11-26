@@ -146,13 +146,15 @@
       rows.map(function (r) {
         var src = r.source === 'manual'
           ? '<button type="button" class="btn btn-sm btn-link text-danger p-0" data-del="' + r.id + '">삭제</button>'
-          : '<span class="gw-badge gw-badge-resigned" title="결재에서 자동으로 들어온 줄">결재</span>';
+          : r.source === 'card'
+            ? '<span class="gw-badge gw-badge-resigned" title="SB 법인카드 월 지출결의서에서 매일 아침 자동으로 들어온 줄(월 합계)">카드 월합계</span>'
+            : '<span class="gw-badge gw-badge-resigned" title="결재에서 자동으로 들어온 줄">결재</span>';
         var shared = r.shared > 1 ? '<br><span class="text-muted small">' + r.shared + '대 나눔</span>' : '';
         return '<tr><td class="gw-vm-day">' + esc(shortDay(r.day)) + '</td>' +
           '<td><span class="gw-vm-kind">' + esc(r.kind) + '</span> ' + esc(r.item) +
             (r.vendor ? '<br><span class="text-muted small">' + esc(r.vendor) + '</span>' : '') + '</td>' +
           '<td class="num">' + esc(won(r.amount)) + shared + '<br>' + src + '</td></tr>';
-      }).join('') + '</tbody></table>' : '<p class="text-muted small">결재에 이 차 번호가 적힌 비용이 아직 없어요.</p>';
+      }).join('') + '</tbody></table>' : '<p class="text-muted small">아직 비용이 없어요. 결재에 차 번호가 적힌 비용과 법인카드 유류·하이패스(월 합계)가 자동으로 들어와요.</p>';
     return '<section class="gw-vm-sec"><h3>정비·비용</h3>' +
       '<details class="gw-vm-add"><summary>결재 없이 쓴 비용 직접 넣기</summary><form class="gw-vm-form" id="vmCost">' +
       '<label>날짜<input type="date" class="form-control form-control-sm" autocomplete="off" name="day" value="' + today() + '" required></label>' +
