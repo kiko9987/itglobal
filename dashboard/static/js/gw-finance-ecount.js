@@ -225,8 +225,14 @@
 
   // ── 표 복사(이카운트 칸 순서 그대로, 탭으로 칸 나눔 — 엑셀에서 복사한 것과 같은 모양) ──
   function clean(v) { return String(v == null ? '' : v).replace(/[\t\r\n]+/g, ' ').trim(); }
+  // 클립보드 쓰기가 막히면(권한·창 포커스 — 11-26 내장 브라우저에서 'Document is not focused') 예전 방식으로 한 번 더
   function copyText(text) {
-    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text).catch(function () { return legacyCopy(text); });
+    }
+    return legacyCopy(text);
+  }
+  function legacyCopy(text) {
     return new Promise(function (ok, fail) {
       var ta = document.createElement('textarea');
       ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
