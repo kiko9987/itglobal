@@ -30,7 +30,9 @@ def test_upload_rows_cells_in_ecount_order():
     assert s[0]['cells'] == ['20261125', '11', '99655', '홈페이지', '2200000', '', '', '220000', '서울 가나구 다라로 1',
                              '4049', '1089', '', 'R1-AA']
     assert s[1]['cells'][1] == '1Z' and s[1]['cells'][7] == '' and s[1]['cells'][2] == '99237'
-    assert s[2]['memo'] == '수정 사유 : ' and s[2]['cells'][4] == '-60000' and s[2]['cells'][1] == '11'
+    # 사유가 없으면 바뀐 금액으로 채움(11-26 부장님 '수정 사유 : 만 있으면 이상')
+    assert s[2]['memo'] == '수정 사유 : 공급가액 4,300,000 → 4,240,000 하향'
+    assert s[2]['cells'][8] == s[2]['memo'] and s[2]['cells'][4] == '-60000' and s[2]['cells'][1] == '11'
     assert s[3]['cells'][0] == '20261126' and s[3]['cells'][2] == '' and len(s[3]['warn']) == 2   # 거래처 없음·날짜 없음
     assert [p['code'] for p in out['projects']] == ['R1-AA', 'G2-BB', 'R4-DD']                  # 새 공사만
     assert out['projects'][0]['cells'] == ['R1-AA', '서울 가나구 다라로 1', '', '', '', '']
@@ -42,7 +44,32 @@ def test_cancel_memo_and_vat_only_warning():
     vat_only = _item('G6-FF', '부가세 변경', 0, -420_000, partner='거래처', sent=(4_200_000, 420_000), target=(4_200_000, 0))
     s = es.upload_rows([cancel, vat_only])['sales']
     assert s[0]['memo'] == '취소 사유 : 고객 변심'
-    assert s[1]['cells'][1] == '11' and '부가세 별도 → 없음' in s[1]['warn']   # 세금계산서 부가세를 빼는 전표
+    assert s[1]['cells'][1] == '11' and s[1]['memo'] == '수정 사유 : 부가세 별도 → 없음'   # 세금계산서 부가세를 빼는 전표
+    assert '부가세 별도 → 없음' not in s[1]['warn']        # 적요에 있으니 확인할 점에 또 쓰지 않음
+    back = _item('G7-GG', '부가세 변경', 0, 300_000, sent=(3_000_000, 0), target=(3_000_000, 300_000))
+    assert es.upload_rows([back])['sales'][0]['memo'] == '수정 사유 : 부가세 없음 → 별도'
+    split = _item('G9-II', '부가세 변경', 0, -161_350, sent=(3_527_000, 352_700), target=(3_527_000, 191_350))
+    assert es.upload_rows([split])['sales'][0]['memo'] == '수정 사유 : 부가세 352,700 → 191,350'   # 나눠 내는 공사
+    both = _item('G10-JJ', '금액 변경', -1_000_000, -300_000, sent=(4_000_000, 300_000), target=(3_000_000, 0))
+    assert es.upload_rows([both])['sales'][0]['memo'] == '수정 사유 : 공급가액 4,000,000 → 3,000,000 하향, 부가세 별도 → 없음'
+
+
+def test_request_reason_used_until_recorded(db):
+    """금액 수정 요청의 사유가 적요로 — 장부에 적힌 뒤 들어온 사유만(이미 넣은 변경의 사유는 안 씀)."""
+    es.record_entry('R8-HH', 3_200_000, 320_000, '이카운트 대조', 'R8-HH|old', by='t')
+    with db._get_connection() as c:     # 장부 줄을 예전 시각으로
+        c.execute("UPDATE ecount_sales_entries SET recorded_at='2026-11-01 00:00:00' WHERE project_code='R8-HH'")
+        es._ensure_table(c)
+        c.execute("INSERT INTO ecount_change_reasons (project_code, reason, created_at) VALUES ('R8-HH','옛 사유','2026-10-01 00:00:00')")
+        c.commit()
+    es.remember_reason('R8-HH', '배관  5M 추가')
+    es.remember_reason('R8-HH', '배관  5M 추가')            # 같은 사유 두 번이면 한 번만
+    assert es.pending_reasons(['R8-HH', 'R9-ZZ']) == {'R8-HH': '배관 5M 추가'}
+    e = _item('R8-HH', '금액 변경', 96_000, 9_600, sent=(3_200_000, 320_000))
+    e['reason'] = '배관 5M 추가'
+    assert es.memo_of(e) == '수정 사유 : 배관 5M 추가'
+    es.record_entry('R8-HH', 96_000, 9_600, '금액 변경', 'R8-HH|new', by='t')     # 넣음 표시 뒤엔 사유 안 씀
+    assert es.pending_reasons(['R8-HH']) == {}
 
 
 @pytest.fixture

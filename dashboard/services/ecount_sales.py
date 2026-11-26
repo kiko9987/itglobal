@@ -41,6 +41,16 @@ _DDL = '''
         note TEXT
     )
 '''
+# 공사 금액 수정 요청의 사유 — 요청 카드(Redis pending)는 반영(✅) 때 지워져서, 이카운트 '수정 사유' 칸에 쓰려고 따로 남긴다(11-26)
+_DDL_REASONS = '''
+    CREATE TABLE IF NOT EXISTS ecount_change_reasons (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_code TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        source TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+'''
 _table_ready = False
 
 
@@ -55,6 +65,8 @@ def _ensure_table(conn) -> None:
         return
     conn.execute(_DDL)
     conn.execute('CREATE INDEX IF NOT EXISTS idx_ecount_sales_code ON ecount_sales_entries(project_code)')
+    conn.execute(_DDL_REASONS)
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_ecount_reason_code ON ecount_change_reasons(project_code)')
     conn.commit()
     _table_ready = True
 
@@ -169,6 +181,41 @@ def record_entry(code: str, supply: int, vat: int, kind: str, key: str,
             return True
         except sqlite3.IntegrityError:
             return False
+
+
+def remember_reason(code: str, reason: str, source: str = '금액 수정 요청') -> None:
+    """금액·부가세 수정 요청의 사유를 남긴다 — 이카운트 올리기 '수정 사유 : …' 에 씀. 실패해도 요청은 그대로."""
+    code, reason = (code or '').strip(), re.sub(r'\s+', ' ', reason or '').strip()
+    if not code or not reason:
+        return
+    try:
+        with _db()._get_connection() as conn:
+            _ensure_table(conn)
+            conn.execute('INSERT INTO ecount_change_reasons (project_code, reason, source) VALUES (?, ?, ?)',
+                         (code, reason[:200], source))
+            conn.commit()
+    except Exception as exc:
+        logger.warning(f'[ECOUNT] 수정 사유 저장 실패({code}): {exc}')
+
+
+def pending_reasons(codes: List[str]) -> Dict[str, str]:
+    """공사별, 장부에 마지막으로 적힌 뒤 들어온 수정 요청 사유(여러 번이면 ' / '로 이어 붙임).
+    장부보다 먼저 들어온 사유는 이미 이카운트에 넣은 변경의 것이라 쓰지 않는다."""
+    if not codes:
+        return {}
+    out: Dict[str, List[str]] = {}
+    with _db()._get_connection() as conn:
+        _ensure_table(conn)
+        q = ','.join('?' * len(codes))
+        rows = conn.execute(
+            f"SELECT r.project_code, r.reason FROM ecount_change_reasons r "
+            f"WHERE r.project_code IN ({q}) AND r.created_at > COALESCE("
+            f"(SELECT MAX(e.recorded_at) FROM ecount_sales_entries e WHERE e.project_code = r.project_code), '') "
+            f"ORDER BY r.id", list(codes)).fetchall()
+    for code, reason in rows:
+        if reason not in out.setdefault(code, []):
+            out[code].append(reason)
+    return {k: ' / '.join(v) for k, v in out.items()}
 
 
 def seed_baseline(rows: List[Tuple[str, int, int, str]], by: str) -> int:
@@ -301,10 +348,17 @@ def collect_items(force_refresh: bool = True) -> Optional[List[dict]]:
     if not recs:
         return None
     items = compute_pending(recs, ledger)
-    dates = change_dates([e['code'] for e in items if e['kind'] != '공사 확정'])
+    changed = [e['code'] for e in items if e['kind'] != '공사 확정']
+    dates = change_dates(changed)
+    try:
+        reasons = pending_reasons(changed)
+    except Exception as exc:          # 사유가 없어도 목록은 띄운다(적요는 금액으로 채움)
+        logger.warning(f'[ECOUNT] 수정 사유 읽기 실패: {exc}')
+        reasons = {}
     for e in items:
         if e['kind'] != '공사 확정':
             e['date'] = dates.get(e['code'], '')
+            e['reason'] = reasons.get(e['code'], '')
     items.sort(key=lambda e: (e['date'] or '9999', e['code']))
     return items
 
@@ -367,8 +421,20 @@ PARTNER_CODES = {
 }
 
 
+def _auto_reason(e: dict) -> str:
+    """수정 요청 사유가 없을 때 — 무엇이 바뀌었는지(SB 가 이카운트에서 다시 고치지 않게, 11-26 부장님)."""
+    (s0, v0), (s1, v1) = e['sent'], e['target']
+    parts = []
+    if s0 != s1:
+        parts.append(f"공급가액 {s0:,} → {s1:,} {'상향' if s1 > s0 else '하향'}")
+    if v0 != v1 and not (s0 != s1 and v0 and v1):     # 공급가가 바뀌어 부가세가 따라 바뀐 건 공급가만 적음
+        parts.append('부가세 별도 → 없음' if not v1 else '부가세 없음 → 별도' if not v0 else f'부가세 {v0:,} → {v1:,}')
+    return ', '.join(parts)
+
+
 def memo_of(e: dict) -> str:
-    """적요 — 확정·재개는 현장 주소, 취소는 '취소 사유 : …', 금액·부가세 변경은 '수정 사유 : ' (사유는 SB 가 채움)."""
+    """적요 — 확정·재개는 현장 주소, 취소는 '취소 사유 : …', 금액·부가세 변경은 '수정 사유 : …'.
+    수정 사유는 금액 수정 요청에 적힌 사유, 없으면 바뀐 금액(11-26 부장님 '수정 사유 : 만 있으면 이상')."""
     if e['kind'] in ('공사 확정', '공사 재개'):
         return e.get('addr') or ''
     if e['kind'] == '공사 취소':
@@ -376,7 +442,8 @@ def memo_of(e: dict) -> str:
         m = re.match(r'^\(?\s*사유\s*[:：]\s*(.*?)\)?$', reason, re.S)   # 특이사항 '(사유: 고객변심)' → '고객변심'
         reason = (m.group(1) if m else reason).strip()
         return f'취소 사유 : {reason[:60]}' if reason else '취소 사유 : '
-    return '수정 사유 : '
+    reason = (e.get('reason') or '').strip() or _auto_reason(e)
+    return f'수정 사유 : {reason[:80]}'.strip()
 
 
 def _ymd(d: str) -> str:
@@ -404,8 +471,6 @@ def upload_rows(items: List[dict], today: Optional[date] = None) -> Dict[str, Li
             warn.append('바뀐 날 모름(오늘로 넣음)')
         vat = '' if not e['vat'] else str(e['vat'])
         vtype = VAT_TYPE if (e['target'][1] or e['vat']) else VAT_TYPE_NONE
-        if e['kind'] == '부가세 변경':
-            warn.append('부가세 별도 → 없음' if e['vat'] < 0 else '부가세 없음 → 별도')
         if e['code'].endswith('-SH'):
             warn.append('SH 정산 공사')
         # 어디서 어디로 — 이카운트에 있다고 보는 금액 → 공사 현황(새 공사는 없음). 확인할 점 칸에 회색 글로

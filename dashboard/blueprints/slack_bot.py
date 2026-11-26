@@ -15295,6 +15295,9 @@ def _post_amount_edit_request_card(
         _dkv.put(f'project_amount_req:{channel_id}:{ts}', _req, _PENDING_REQ_TTL)
     except Exception as exc:
         logger.warning(f'[SLACK/공사금액] pending 저장 실패 ({code}): {exc}')
+    # 이카운트 올리기 '수정 사유' 칸용 — 요청 카드는 반영 때 지워져서 사유만 따로 남김(11-26)
+    from dashboard.services.ecount_sales import remember_reason
+    remember_reason(code, reason)
     logger.info(f'[SLACK/공사금액] 수정 요청 카드 발송: {code} ts={ts}')
     return ts
 

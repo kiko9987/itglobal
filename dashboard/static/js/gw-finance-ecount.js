@@ -8,7 +8,8 @@
   var page = document.getElementById('fePage');
   if (!page || !document.getElementById('feSales')) return;
   var $ = function (id) { return document.getElementById(id); };
-  var S = { sales: [], projects: [], tab: 'sales', pick: { sales: {}, projects: {} } };
+  var S = { sales: [], projects: [], tab: 'sales', pick: { sales: {}, projects: {} }, edit: {} };
+  var MEMO_COL = 8;   // 매출전표 칸 중 적요 — 화면에서 고친 글로 복사(11-26 부장님 '수정 사유를 적을 수 없다')
   // 재시작 전 옛 템플릿이어도 '확인할 점' 칸·[제외] 버튼이 있게(11-26 추가)
   (function () {
     var head = document.querySelector('#fePaneSales thead tr');
@@ -91,7 +92,8 @@
         '<td>' + esc(r.partner || '-') + '</td>' +
         '<td class="num">' + won(r.supply) + '</td>' +
         '<td class="num">' + (r.vat ? won(r.vat) : '<span class="text-muted">-</span>') + '</td>' +
-        '<td class="gw-fe-memo">' + esc(r.memo) + '</td>' +
+        '<td class="gw-fe-memo"><input type="text" class="form-control form-control-sm gw-fe-memo-in" maxlength="100" data-memo="' + esc(r.key) + '"' +
+          ' value="' + esc(memoOf(r)) + '" aria-label="' + esc(r.code + ' 적요') + '"' + (S.edit[r.key] != null ? ' data-edited="1"' : '') + '></td>' +
         '<td class="text-nowrap"><strong>' + esc(r.code) + '</strong></td>' +
         '<td class="gw-fe-check">' + (warn || (r.trace ? '' : '<span class="text-muted">-</span>')) +
           (r.trace ? '<div class="gw-fe-trace">' + esc(r.trace) + '</div>' : '') + '</td></tr>';
@@ -107,6 +109,21 @@
     }).join('') : '<tr><td colspan="3" class="gw-empty">새로 등록할 프로젝트가 없어요.</td></tr>';
     syncPick();
   }
+
+  function memoOf(r) { return S.edit[r.key] != null ? S.edit[r.key] : r.memo; }
+  function cellsOf(r, t) {
+    if (t !== 'sales') return r.cells;
+    var c = r.cells.slice();
+    c[MEMO_COL] = memoOf(r);
+    return c;
+  }
+  // 적요 고치기 — 복사할 때 고친 글이 들어감(넣음 표시·새로 고침 전까지 기억)
+  $('feSales').addEventListener('input', function (ev) {
+    var k = ev.target.getAttribute && ev.target.getAttribute('data-memo');
+    if (k == null) return;
+    S.edit[k] = ev.target.value;
+    ev.target.setAttribute('data-edited', '1');
+  });
 
   function picked(t) { return S[t].filter(function (r) { return S.pick[t][r.key]; }); }
   function syncPick() {
@@ -187,7 +204,7 @@
     var t = S.tab, rows = picked(t);
     if (!rows.length) rows = S[t];
     if (!rows.length) return;
-    var text = rows.map(function (r) { return r.cells.map(clean).join('\t'); }).join('\r\n');
+    var text = rows.map(function (r) { return cellsOf(r, t).map(clean).join('\t'); }).join('\r\n');
     copyText(text).then(function () {
       msg((t === 'sales' ? '매출전표 ' : '프로젝트 ') + rows.length + '줄을 복사했어요. 이카운트 웹자료올리기 표의 첫 칸을 누르고 붙여넣어 주세요.', 'ok');
     }).catch(function () { msg('복사하지 못했어요. 브라우저에서 클립보드 권한을 허용해 주세요.', 'err'); });
@@ -204,6 +221,7 @@
     btn.disabled = true;
     api('/api/finance/ecount/done', { keys: rows.map(function (r) { return r.key; }), exclude: exclude }).then(function (j) {
       S.pick.sales = {}; S.pick.projects = {};
+      rows.forEach(function (r) { delete S.edit[r.key]; });
       msg(j.done + '건을 ' + (exclude ? '제외했어요.' : '넣음으로 표시했어요.') +
         (j.skipped ? ' ' + j.skipped + '건은 그사이 목록이 바뀌어 건너뛰었어요.' : ''), 'ok');
       return load(false);
