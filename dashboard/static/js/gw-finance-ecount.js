@@ -70,11 +70,13 @@
     var supply = S.sales.reduce(function (a, r) { return a + Number(r.supply || 0); }, 0);
     var warns = S.sales.filter(function (r) { return r.warn.length; }).length;
     var fresh = S.sales.filter(function (r) { return r.kind === '공사 확정'; }).length;
+    var changed = {};   // 부가세 변경은 두 줄(11 감액 + 1Z) — 공사 수는 묶음으로 셈
+    S.sales.forEach(function (r) { if (r.kind !== '공사 확정') changed[r.group || r.key] = 1; });
     $('feStats').innerHTML =
       '<div class="gw-stat gw-stat-main"><div class="k">넣을 매출전표</div><div class="v">' + S.sales.length + '<small> 건</small></div>' +
         '<div class="gw-fb-stat-sub">공급가 합 ' + won(supply) + '원</div></div>' +
       '<div class="gw-stat"><div class="k">새로 확정된 공사</div><div class="v">' + fresh + '<small> 건</small></div></div>' +
-      '<div class="gw-stat"><div class="k">금액·부가세 바뀐 공사</div><div class="v">' + (S.sales.length - fresh) + '<small> 건</small></div></div>' +
+      '<div class="gw-stat"><div class="k">금액·부가세 바뀐 공사</div><div class="v">' + Object.keys(changed).length + '<small> 건</small></div></div>' +
       '<div class="gw-stat' + (warns ? ' gw-fb-stat-warn' : '') + '"><div class="k">확인 필요</div><div class="v">' + warns + '<small> 건</small></div></div>';
     $('feCntSales').textContent = S.sales.length;
     $('feCntProjects').textContent = S.projects.length;
@@ -87,7 +89,8 @@
         '<td class="gw-fe-chk"><input type="checkbox" class="form-check-input" data-pick="sales" value="' + esc(r.key) + '"' + (on ? ' checked' : '') +
           ' aria-label="' + esc(r.code + ' 고르기') + '"></td>' +
         '<td class="text-nowrap">' + esc(md(r.date)) + '</td>' +
-        '<td><span class="gw-badge ' + kindCls + '">' + esc(r.kind) + '</span></td>' +
+        '<td><span class="gw-badge ' + kindCls + '">' + esc(r.kind) + '</span>' +
+          (r.lines > 1 ? '<div class="gw-fe-line">' + r.lines + '줄 중 ' + r.line + '</div>' : '') + '</td>' +
         '<td>' + esc(r.vat_type === '1Z' ? '1Z 기타매출' : '11 세금계산서') + '</td>' +
         '<td>' + esc(r.partner || '-') + '</td>' +
         '<td class="num">' + won(r.supply) + '</td>' +
@@ -193,7 +196,15 @@
     }
     var t2 = el.getAttribute && el.getAttribute('data-pick');
     if (!t2) return;
-    if (el.checked) S.pick[t2][el.value] = 1; else delete S.pick[t2][el.value];
+    // 두 줄 전표(부가세 변경)는 같이 골라짐 — 한 줄만 넣으면 이카운트 금액이 어긋남
+    var row = S[t2].filter(function (r) { return r.key === el.value; })[0];
+    var grp = row && row.group;
+    S[t2].forEach(function (r) {
+      if (r.key !== el.value && !(grp && r.group === grp)) return;
+      if (el.checked) S.pick[t2][r.key] = 1; else delete S.pick[t2][r.key];
+      var c = page.querySelector('input[data-pick="' + t2 + '"][value="' + CSS.escape(r.key) + '"]');
+      if (c) c.checked = el.checked;
+    });
     syncPick();
   });
   // 줄 아무 데나 눌러도 고르기(체크 칸·글자 고르기 빼고)

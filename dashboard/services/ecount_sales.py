@@ -453,6 +453,21 @@ def _ymd(d: str) -> str:
         return ''
 
 
+def vat_change_lines(e: dict) -> Optional[List[Tuple[str, int, int]]]:
+    """부가세만 바뀐 전표 → [(부가세유형, 공급가, 부가세), …] 두 줄. 계산서 낸 몫(11)과 부가세 없는 몫(1Z)을 따로.
+    SB 방식(11-26 이카운트 G4148-JW 오남프라자 305호: 11 10,042,000+1,004,200 / 1Z 6,000,000 두 장) — 한 줄로
+    '11·공급가 0·부가세 −' 를 넣으면 합계는 맞아도 세금계산서 쪽 공급가가 실제 발행보다 커진다.
+    부가세가 줄면 11 감액(−몫, −부가세) + 1Z(+몫), 늘면 반대. 몫 = 바뀐 부가세 × 10(일부), 전부면 공급가 전체."""
+    (s0, v0), (s1, v1) = e['sent'], e['target']
+    dv = v1 - v0
+    if e.get('kind') != '부가세 변경' or not dv or s0 != s1:
+        return None
+    part = s1 if (not v0 or not v1) else round(abs(dv) * 10)
+    if dv < 0:
+        return [(VAT_TYPE, -part, dv), (VAT_TYPE_NONE, part, 0)]
+    return [(VAT_TYPE_NONE, -part, 0), (VAT_TYPE, part, dv)]
+
+
 def upload_rows(items: List[dict], today: Optional[date] = None) -> Dict[str, List[dict]]:
     """넣을 전표 목록 → 이카운트 웹자료올리기 줄. {'sales': [...], 'projects': [...]}.
     줄마다 'cells'(칸 순서 그대로, 복사용)와 화면용 값·'warn'(확인 필요 사유)을 담는다."""
@@ -477,12 +492,16 @@ def upload_rows(items: List[dict], today: Optional[date] = None) -> Dict[str, Li
         trace = '' if e['kind'] == '공사 확정' else (
             f"이카운트 {sum(e['sent']):,}원 → 시트 {sum(e['target']):,}원")
         memo = memo_of(e)
-        cells = [day, vtype, pcode, partner, str(e['supply']), '', '', vat, memo, SALES_ACCOUNT, AR_ACCOUNT, '',
-                 e['code']]
-        sales.append({'key': e['key'], 'code': e['code'], 'kind': e['kind'], 'date': e.get('date') or '',
-                      'partner': partner, 'supply': e['supply'], 'vat': e['vat'], 'memo': memo, 'vat_type': vtype,
-                      'sent': list(e['sent']), 'target': list(e['target']), 'warn': warn, 'trace': trace,
-                      'cells': cells})
+        lines = vat_change_lines(e) or [(vtype, e['supply'], e['vat'])]
+        for i, (vt, sup, vv) in enumerate(lines):
+            cells = [day, vt, pcode, partner, str(sup), '', '', str(vv) if vv else '', memo, SALES_ACCOUNT, AR_ACCOUNT,
+                     '', e['code']]
+            # 두 줄 전표는 같은 group — 화면에서 같이 고르고, [넣음 표시]는 공사 하나로 장부에 적는다(키 '#2' 떼고)
+            sales.append({'key': e['key'] + (f'#{i + 1}' if i else ''), 'group': e['key'], 'line': i + 1,
+                          'lines': len(lines), 'code': e['code'], 'kind': e['kind'], 'date': e.get('date') or '',
+                          'partner': partner, 'supply': sup, 'vat': vv, 'memo': memo, 'vat_type': vt,
+                          'sent': list(e['sent']), 'target': list(e['target']),
+                          'warn': warn if not i else [], 'trace': trace if not i else '', 'cells': cells})
         if e['kind'] == '공사 확정':
             projects.append({'key': e['key'], 'code': e['code'], 'name': e.get('addr') or '',
                              'warn': [] if e.get('addr') else ['현장 주소가 비어 있어요'],
@@ -500,7 +519,12 @@ def mark_done(keys: List[str], by: str, items: Optional[List[dict]] = None, excl
     items = items if items is not None else (collect_items(force_refresh=False) or [])
     by_key = {e['key']: e for e in items}
     done = skipped = 0
+    seen = set()
     for k in keys:
+        k = str(k).split('#')[0]          # 두 줄 전표의 둘째 줄('…#2')도 공사 하나로
+        if k in seen:
+            continue
+        seen.add(k)
         e = by_key.get(k)
         if not e:
             skipped += 1

@@ -124,3 +124,26 @@ def test_trace_and_sh_flag():
     s = es.upload_rows([e, _item('R1-AA', '공사 확정', 100, 10)])['sales']
     assert s[0]['trace'] == '이카운트 9,900,000원 → 시트 9,000,000원' and 'SH 정산 공사' in s[0]['warn']
     assert s[1]['trace'] == ''
+
+
+def test_vat_change_two_lines_like_sb():
+    """부가세만 바뀐 공사는 11 감액 + 1Z 두 줄(SB 방식, 11-26 G4148-JW 확인). 나눠 내는 몫·전부 둘 다."""
+    part = _item('G4156-JW', '부가세 변경', 0, -161_350, partner='거래처', sent=(3_527_000, 352_700), target=(3_527_000, 191_350))
+    s = es.upload_rows([part])['sales']
+    assert [(r['cells'][1], r['cells'][4], r['cells'][7]) for r in s] == [('11', '-1613500', '-161350'), ('1Z', '1613500', '')]
+    assert s[0]['key'] == part['key'] and s[1]['key'] == part['key'] + '#2' and s[1]['group'] == part['key']
+    whole = _item('G3288-SH', '부가세 변경', 0, -900_000, partner='거래처', sent=(9_000_000, 900_000), target=(9_000_000, 0))
+    assert [(r['cells'][1], r['cells'][4], r['cells'][7]) for r in es.upload_rows([whole])['sales']] == \
+        [('11', '-9000000', '-900000'), ('1Z', '9000000', '')]
+    up = _item('G7-GG', '부가세 변경', 0, 300_000, sent=(3_000_000, 0), target=(3_000_000, 300_000))
+    assert [(r['cells'][1], r['cells'][4], r['cells'][7]) for r in es.upload_rows([up])['sales']] == \
+        [('1Z', '-3000000', ''), ('11', '3000000', '300000')]
+    amt = _item('R3-CC', '금액 변경', -60_000, -6_000, sent=(4_300_000, 430_000))
+    assert len(es.upload_rows([amt])['sales']) == 1                     # 금액 변경은 한 줄 그대로
+
+
+def test_mark_done_two_line_item_once(db):
+    part = _item('G4156-JW', '부가세 변경', 0, -161_350, sent=(3_527_000, 352_700), target=(3_527_000, 191_350))
+    res = es.mark_done([part['key'], part['key'] + '#2'], by='gw:가나', items=[part])
+    assert res == {'done': 1, 'skipped': 0}
+    assert es.ledger_totals()['G4156-JW'] == (0, -161_350)              # 장부엔 합계(공급가 0, 부가세 −) 한 줄
