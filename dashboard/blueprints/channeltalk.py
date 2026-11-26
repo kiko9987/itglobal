@@ -915,6 +915,12 @@ def _handle_user_message_locked(entity, refers, user_chat, user, chat_id) -> Non
                 logger.error(f'[ChannelTalk] 새 카드 발송 실패 (chat_id={chat_id}, lead={lead_no}) — '
                              f'시트엔 등록됨, 카드 수동 확인 필요')
             threading.Thread(target=_retry_card, daemon=True).start()
+        # 첫 메시지가 사진이면 방금 만든 카드 스레드에 올린다 — 예전엔 위에서 읽은 thread_ts(None)를
+        #   그대로 써서 2단계를 건너뛰어 사진이 사라졌다(2026-11-26 L-04704 툴립 548 도면 사진).
+        thread_ts = _threads.get_thread_ts(chat_id)
+        if has_files and not thread_ts:
+            logger.error(f'[ChannelTalk] 새 카드가 아직 없어 첫 메시지 파일 {len(files)}건을 못 올림 '
+                         f'(chat_id={chat_id}, lead={lead_no}) — 채널톡에서 직접 확인 필요')
     elif not has_files:
         # 기존 thread + 텍스트만 → reply
         _slack_post('chat.postMessage', {
