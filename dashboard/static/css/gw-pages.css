@@ -3536,7 +3536,7 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
 .gw-vp-gtitle span { color: #64748b; font-weight: 400; }
 
 /* 차량 배정 ↔ 방문 일정 코스(11-23 부장님) — 화면 폭은 방문 일정과 같게 1400 가운데 */
-.gw-page.gw-va, .gw-page.gw-vm, .gw-page.gw-vh { max-width: 1400px; margin-left: auto; margin-right: auto; }   /* 차량 관리도 같게(11-23 부장님) */
+.gw-page.gw-va, .gw-page.gw-vm, .gw-page.gw-vh, .gw-page.gw-fb { max-width: 1400px; margin-left: auto; margin-right: auto; }   /* 차량 관리도 같게(11-23 부장님) */
 .gw-va-course + .gw-va-course { margin-top: 12px; padding-top: 10px; border-top: 1px solid #eef0f3; }
 .gw-va-course h3 { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 0.9rem; font-weight: 700; color: #1a1c20; margin: 0 0 4px; }
 .gw-va-cwho { font-weight: 600; color: #475569; }
@@ -4273,88 +4273,25 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-nt-body .gw-nt-slack { color: #4a154b; font-size: 1.05em; }   /* 슬랙 로고(:slack:) — 슬랙 보라 */
 .gw-nt-body svg.gw-nt-slack { width: 1em; height: 1em; vertical-align: -0.12em; }   /* 4색 슬랙 로고(11-25) */
 
-/* ── 재무 > 입출금(11-26) — 쉬는 날(기간 줄·요약)·공지(칩·찾기)와 같은 결 ───────── */
-.gw-fb .gw-page-head { flex-wrap: wrap; gap: 10px; }
-.gw-fb-head-acts { display: flex; gap: 8px; flex-wrap: wrap; }
-.gw-fb-head-acts .btn { min-height: 38px; display: inline-flex; align-items: center; gap: 6px; }
-.gw-fb-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; }
-.gw-fb-range { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.gw-fb-dates { display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; }
-.gw-fb-dates .form-control { width: 140px; min-height: 34px; font-variant-numeric: tabular-nums; }
-.gw-fb-dash { color: #94a3b8; }
-.gw-fb-sum { margin: 0; color: #475569; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
-.gw-fb-sum strong { color: #0f172a; font-weight: 600; }
-.gw-fb-sum strong.in { color: #1d4ed8; }
-.gw-fb-sum strong.out { color: #b91c1c; }
-.gw-fb-sep { margin: 0 6px; color: #cbd5e1; }
-.gw-fb-rule { margin: 10px 0 14px; }
-
-.gw-fb-box { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; margin-bottom: 16px; overflow: hidden; }
-.gw-fb-box-head { display: flex; align-items: baseline; gap: 8px; padding: 12px 16px 10px; }
-.gw-fb-box-title { font-size: 1rem; font-weight: 600; color: #0f172a; margin: 0; }
-.gw-fb-box-sub { font-size: 0.85rem; color: #64748b; font-variant-numeric: tabular-nums; }
-.gw-fb-tools { align-items: center; flex-wrap: wrap; border-bottom: 1px solid #eef1f4; }
-.gw-fb-tools .form-select { width: auto; min-height: 34px; }
-.gw-fb-un-n { font-variant-numeric: tabular-nums; font-weight: 700; color: #c2410c; }
-.gw-fb-un[aria-pressed="true"] .gw-fb-un-n { color: #fed7aa; }
-.gw-fb-search { margin-left: auto; }
-.gw-fb-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-
-.gw-fb-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
-.gw-fb-table th, .gw-fb-table td { padding: 8px 16px 8px 0; border-top: 1px solid #f1f5f9; text-align: left; white-space: nowrap; vertical-align: middle; }
-.gw-fb-table th:first-child, .gw-fb-table td:first-child { padding-left: 16px; }
-.gw-fb-table thead th { font-size: 0.78rem; font-weight: 600; color: #64748b; background: #f8fafc; border-top: 1px solid #eef1f4; padding-top: 7px; padding-bottom: 7px; }
-.gw-fb-tools + .gw-fb-scroll thead th { border-top: 0; }
-.gw-fb-table .num { text-align: right; font-variant-numeric: tabular-nums; }
-.gw-fb-table td.in { color: #1d4ed8; }
-.gw-fb-table td.out { color: #b91c1c; }
-.gw-fb-acct-table tbody th { font-weight: 400; }
-.gw-fb-code { font-weight: 600; color: #0f172a; font-variant-numeric: tabular-nums; }
-.gw-fb-bank { color: #64748b; margin-left: 2px; }
-.gw-fb-ent { font-size: 0.72rem; font-weight: 600; color: #475569; background: #f1f5f9; border-radius: 4px; padding: 1px 6px; margin-left: 4px; }
-.gw-fb-bal { font-weight: 600; color: #0f172a; }
-.gw-fb-setbal { padding: 0; font-size: 0.85rem; font-weight: 500; color: #c2410c; text-decoration: none; min-height: 0; }
-.gw-fb-setbal:hover { color: #9a3412; text-decoration: underline; text-underline-offset: 2px; }
-.gw-fb-at { color: #64748b; font-variant-numeric: tabular-nums; }
-.gw-fb-src { font-size: 0.75rem; color: #475569; border: 1px solid #e2e8f0; border-radius: 999px; padding: 1px 8px; }
-.gw-fb-src.sms { color: #065f46; border-color: #a7f3d0; background: #ecfdf5; }
-.gw-fb-total th, .gw-fb-total td { border-top: 1px solid #e2e8f0; background: #fafbfc; }
-.gw-fb-total th { font-weight: 600; color: #0f172a; }
-.gw-fb-total .num { font-weight: 700; color: #0f172a; }
-.gw-fb-group th { font-size: 0.78rem; font-weight: 600; color: #64748b; background: #f8fafc; padding-top: 7px; padding-bottom: 7px; }
-.gw-fb-side .gw-fb-code, .gw-fb-side .gw-fb-bal { color: #475569; }
-.gw-fb-list tbody tr:hover { background: #fafbfc; }
-.gw-fb-who, .gw-fb-memo { white-space: normal !important; min-width: 120px; max-width: 280px; }
-.gw-fb-need { font-size: 0.75rem; color: #9a3412; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
-.gw-fb-tag { font-size: 0.72rem; color: #475569; background: #f1f5f9; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
-.gw-fb-balrow { background: #fafbfc; }
-.gw-fb-act { text-align: right !important; }
-.gw-fb-act .btn { min-height: 32px; }
-
-.gw-fb-form { margin: 0 0 16px; padding: 16px 18px; border: 1px solid #cbd5e1; border-radius: 12px; background: #fff; }
-.gw-fb-form-title { font-size: 1rem; font-weight: 600; margin: 0 0 6px; color: #0f172a; }
-.gw-fb-form-desc { margin: 0 0 12px; font-size: 0.85rem; color: #64748b; }
-.gw-fb-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: 12px 20px; align-items: end; margin-top: 10px; }
-.gw-fb-field { min-width: 0; margin: 0; }
-.gw-fb-field.wide { grid-column: span 2; }
-.gw-fb-dir { border: 0; padding: 0; }
-.gw-fb-dir legend.form-label { font-size: 1rem; float: none; width: auto; padding: 0; margin-bottom: .5rem; line-height: inherit; }
-.gw-fb-dir .btn-group { display: flex; }
-.gw-fb-dir .btn-group .btn { flex: 1; }
-.gw-fb-opt { font-weight: 400; color: #64748b; font-size: 0.8rem; margin-left: 4px; }
-.gw-fb-fields input.num { text-align: right; font-variant-numeric: tabular-nums; }
-.gw-fb-form-acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
-.gw-fb-form-acts .btn { min-height: 38px; }
-@media (max-width: 640px) {
-  .gw-fb-dates { margin-left: 0; width: 100%; }
-  .gw-fb-dates .form-control { flex: 1; width: auto; font-size: 16px; }
-  .gw-fb-fields { grid-template-columns: 1fr; }
-  .gw-fb-field.wide { grid-column: auto; }
-  .gw-fb-fields .form-control, .gw-fb-fields .form-select { font-size: 16px; }
-  .gw-fb-tools .form-select { flex: 1 1 40%; font-size: 16px; }
-  .gw-fb-search { margin-left: 0; flex: 1 1 100%; }
-  .gw-fb-search .form-control { font-size: 16px; }
-  .gw-fb-act .btn, .gw-fb-head-acts .btn, .gw-fb-form-acts .btn, .gw-fb .gw-nt-chip { min-height: 44px; }
-  .gw-fb-table th, .gw-fb-table td { padding-right: 10px; }
-  .gw-fb-table th:first-child, .gw-fb-table td:first-child { padding-left: 12px; }
-}
+/* ── 재무 > 입출금(11-26) — 결재함·운행일지·차량 관리와 같은 틀(gw-stats·gw-ap-tabs·gw-ap-filters·gw-table·gw-drawer).
+   여기엔 이 화면에만 있는 것만 둔다. 폭 1400px 은 차량 화면 묶음 규칙에 같이 있음 ───────────────── */
+.gw-fb .gw-stats { margin-bottom: 14px; }
+.gw-fb-stat-note { font-size: 0.75rem; color: #9a3412; margin-top: 2px; }
+.gw-fb-txonly { display: contents; }
+.gw-fb-txonly[hidden] { display: none; }
+.gw-fb-table { min-width: 860px; }
+.gw-fb-table th, .gw-fb-table td { padding: 8px 10px; vertical-align: middle; }
+.gw-fb-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gw-fb-table td.gw-fb-in { color: #1d4ed8; }
+.gw-fb-table td.gw-fb-out { color: #b91c1c; }
+.gw-fb-wrap { min-width: 120px; max-width: 320px; }
+.gw-fb-group th { font-size: 0.78rem; color: #64748b; background: #f8fafc; }
+.gw-fb-side td { color: #475569; }
+.gw-badge.gw-fb-sms { background: #ecfdf5; color: #065f46; }
+.gw-badge.gw-fb-hand { background: #f1f5f9; color: #475569; }
+.gw-fb-facts { display: grid; grid-template-columns: 7rem minmax(0, 1fr); gap: 6px 12px; margin: 0 0 8px; font-size: 0.88rem; }
+.gw-fb-facts dt { font-weight: 500; color: #64748b; }
+.gw-fb-facts dd { margin: 0; color: #0f172a; font-variant-numeric: tabular-nums; }
+.gw-fb-help { font-size: 0.82rem; color: #64748b; margin: 0 0 14px; }
+.gw-fb-panel .gw-vm-form input[data-num] { text-align: right; font-variant-numeric: tabular-nums; }
+@media (min-width: 768px) { .gw-fb #fbAcct { max-width: 190px; text-overflow: ellipsis; } }
