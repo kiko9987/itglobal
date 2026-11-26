@@ -37,7 +37,8 @@ SHEET_10 = [
     ('유류비', 1, '1111', '231허6854', '레이', 392000),
     (None, 2, '2222', '박민우', None, 416000),             # 사람 이름 = MW 스파크
     (None, 3, '3333', '81루 4904', '포터', 317162),          # 끝 4자리 오타도
-    (None, 4, '4444', '퇴사자갑', None, 50000),              # 못 찾음 → 안 넣고 남김
+    (None, 4, '4444', '퇴사자갑', None, 50000),              # 차를 모르는 카드 → '미지정'으로(1년 통계용)
+    (None, 6, '6666', '254누 2593', 'GV80', 485800),         # 판 차 → 그 번호로
     (None, 5, '5555', '03모8021', '쏘렌토', 0),              # 0원은 건너뜀
     ('유류비 합계', None, None, None, None, 1175162),
     ('하이패스', 1, 'B000001', '231허 6854', '레이', 56650),
@@ -51,8 +52,8 @@ SHEET_10 = [
 def test_parse_and_save_monthly_rows(db, tmp_path):
     path = _book(tmp_path / '2026년 법인카드 월 지출결의서(SB).xlsx', {'2610': SHEET_10, '메모': []})
     res = vcc.run(path=path)
-    assert res['status'] == 'ok' and res['added'] == 5 and res['changed'] == 0
-    assert [(u['label'], u['amount']) for u in res['unmatched']] == [('퇴사자갑', 50000)]
+    assert res['status'] == 'ok' and res['added'] == 7 and res['changed'] == 0
+    assert [(u['label'], u['plate']) for u in res['unmatched']] == [('퇴사자갑', '미지정'), ('254누 2593 GV80', '254누2593')]
     rows = {(r['plate'], r['kind']): r for r in vm.costs(limit=50)}
     assert rows[('231허6854', '유류')]['amount'] == 392000 and rows[('231허6854', '유류')]['day'] == '2026-10-31'
     assert rows[('231허6854', '유류')]['item'] == '10월 유류비 (월 합계)' and rows[('231허6854', '유류')]['source'] == 'card'
@@ -60,6 +61,16 @@ def test_parse_and_save_monthly_rows(db, tmp_path):
     assert rows[('817루4904', '유류')]['amount'] == 317162
     assert rows[('231허6854', '통행료')]['amount'] == 56650 and rows[('143고9687', '통행료')]['amount'] == 600
     assert not any(r['plate'] == '03모8021' for r in vm.costs(limit=50))
+    assert rows[('미지정', '유류')]['item'] == '10월 유류비 (월 합계) · 퇴사자갑 카드'
+    assert rows[('254누2593', '유류')]['amount'] == 485800
+
+
+def test_overview_lists_sold_and_unassigned_below(db, tmp_path):
+    vcc.run(path=_book(tmp_path / 'a.xlsx', {'2610': SHEET_10}))
+    ov = vm.overview(today=__import__('datetime').date(2026, 11, 26))
+    assert [o['plate'] for o in ov['others']] == ['254누2593', '미지정']          # 미지정은 맨 아래
+    assert ov['others'][0]['label'].startswith('GV80') and ov['others'][1]['cost_year'] == 50000
+    assert ov['year_total'] == sum(r['amount'] for r in vm.costs(limit=50))     # 합계에도 들어감
 
 
 def test_rerun_updates_changed_amount_only(db, tmp_path):

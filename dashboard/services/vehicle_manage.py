@@ -593,9 +593,15 @@ def overview(today: Optional[date] = None) -> Dict:
         checks += bool(issues)
         c['warn'] = c['warn'] or bool(issues)
     cars.sort(key=lambda x: (not x['warn'], x['usage'] == 'off', x['label']))
+    # 지금 목록에 없는 차·카드의 비용(판 GV80, 차를 모르는 퇴사자 카드 — 법인카드 지출결의서, 11-26) — 1년 통계용으로 표 아래 따로
+    from dashboard.services import vehicle_card_costs as vcc
+    in_fleet = {c['plate'] for c in cars}
+    others = [{'plate': p, 'label': vcc.EXTRA_LABELS.get(p, p), 'cost_year': s.get('year', 0), 'cost_month': s.get('month', 0)}
+              for p, s in sorted(by_plate.items()) if p not in in_fleet and s.get('year')]
+    others.sort(key=lambda x: x['plate'] == vcc.UNASSIGNED)
     with _conn() as conn:
         open_acc = conn.execute("SELECT COUNT(*) FROM vehicle_accidents WHERE status != '처리 끝'").fetchone()[0]
-    return {'today': today.isoformat(), 'year': year, 'month': month, 'cars': cars, 'alerts': alerts + checks,
+    return {'today': today.isoformat(), 'year': year, 'month': month, 'cars': cars, 'others': others, 'alerts': alerts + checks,
             'checks': checks, 'open_accidents': open_acc, 'has_state': bool(states),
             'accident_kinds': list(ACCIDENT_KINDS), 'accident_status': list(ACCIDENT_STATUS),
             'month_total': month_total, 'year_total': year_total,

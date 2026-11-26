@@ -8,7 +8,9 @@ SB 가 카드 청구서가 나오면(다음 달 20일 무렵) 손으로 채우�
 - 시트 = 'YYMM'(2601~). 칸: B 종류(유류비·하이패스 — 첫 줄에만), C NO, D 카드번호, E 차량번호, F 차량종류, G 사용액.
 - 구획은 B 칸에 다음 글(…합계·신용카드·개인지급·종류 등)이 나오면 끝.
 - 차는 차량번호 끝 4자리로 찾는다('81루 4904' 같은 오타도). 사람 이름 줄은 PERSON_PLATE 로만(박민우=MW 스파크).
-  못 찾은 줄(퇴사자·매각 차 등)은 넣지 않고 결과에 남긴다.
+- 지금 차 목록에 없는 줄도 1년 통계엔 필요해서 버리지 않는다(11-26 부장님): 판 차(SOLD — GV80)는 그 번호로,
+  차를 모르는 카드(퇴사자 강성환 등)는 UNASSIGNED('미지정') 로 넣고 내용에 누구 카드인지 적는다.
+  차량 관리 첫 화면 표 아래 '지난 차·차량 미지정' 줄로 보이고 올해 차량비 합계에도 들어감.
 - 차량 관리엔 한 달에 한 줄(그 달 마지막 날, '10월 유류비 (월 합계)'). SB 가 금액을 고치면 다음 읽기 때 같이 고침.
 - 서버(LocalSystem)는 G: 가 안 보여 서비스 계정 Drive API 로 받는다(자금일보와 같은 방식).
 """
@@ -31,6 +33,12 @@ FILE_RE = re.compile(r'^(\d{4})년 법인카드 월 지출결의서.*\.xlsx$')
 SECTIONS = {'유류비': '유류', '하이패스': '통행료'}
 # 차량번호 칸에 사람 이름이 적힌 카드 — MW 스파크(개인 차, 회사가 유류비 지원, 11-22). 11월 시트부터는 53우1783 로 적힘
 PERSON_PLATE = {'박민우': '53우1783', 'MW': '53우1783'}
+# 지금 목록에 없는 차·카드(1년 통계용) — 화면 이름도 여기서
+SOLD = {'254누2593': 'GV80 2593 (26.10.02 매각)'}
+UNASSIGNED = '미지정'
+EXTRA_LABELS = dict(SOLD, **{UNASSIGNED: '차량 미지정 (퇴사자 카드 등)'})
+# 같은 카드의 다른 이름 — 하이패스 B704931 이 1~2월 'SH', 그 뒤 오른쪽 표에 '강성환'(2610 시트)
+PERSON_ALIAS = {'SH': '강성환'}
 SOURCE = 'card'
 
 
@@ -73,12 +81,18 @@ def parse_workbook(path: str, fleet: List[Dict]) -> Dict[str, List[Dict]]:
                 label = ' '.join(x for x in (who, model) if x)
                 found = vm.find_plates(who, fleet) if who else []
                 plate = found[0] if len(found) == 1 else PERSON_PLATE.get(who)
+                person = ''
                 if plate not in plates:
+                    digits = re.sub(r'\D', '', who)
+                    sold = next((p for p in SOLD if digits and p.endswith(digits[-4:])), None)
+                    if sold:
+                        plate = sold
+                    else:
+                        plate, person = UNASSIGNED, PERSON_ALIAS.get(who, who) or '(빈칸)'
                     out['unmatched'].append({'month': end.strftime('%Y-%m'), 'kind': kind, 'card': card,
-                                             'label': label or '(빈칸)', 'amount': int(amt)})
-                    continue
+                                             'label': label or '(빈칸)', 'amount': int(amt), 'plate': plate})
                 out['rows'].append({'month_end': end.isoformat(), 'kind': kind, 'card': card, 'plate': plate,
-                                    'amount': int(round(amt)), 'label': label})
+                                    'amount': int(round(amt)), 'label': label, 'person': person})
     finally:
         wb.close()
     return out
@@ -93,9 +107,9 @@ def save_rows(rows: List[Dict]) -> Dict[str, int]:
         for r in rows:
             m = int(r['month_end'][5:7])
             name = '유류비' if r['kind'] == '유류' else '하이패스 통행료'
-            item = f'{m}월 {name} (월 합계)'
+            item = f'{m}월 {name} (월 합계)' + (f" · {r['person']} 카드" if r.get('person') else '')
             vendor = f"법인카드 {r['card']}"[:40]
-            key = f"card:{r['month_end'][:7]}:{r['kind']}:{r['card']}:{r['plate']}"
+            key = f"card:{r['month_end'][:7]}:{r['kind']}:{r['card']}:{r['plate']}" + (f":{r['person']}" if r.get('person') else '')
             cur = conn.execute('SELECT id, amount FROM vehicle_costs WHERE source_key = ?', (key,)).fetchone()
             if cur is None:
                 conn.execute('INSERT INTO vehicle_costs (plate, day, kind, item, amount, shared, vendor, source, source_key, '

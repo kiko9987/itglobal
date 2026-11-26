@@ -49,7 +49,7 @@
     return esc(shortDay(day)) + tag;
   }
 
-  var S = { kinds: [], cars: [], accKinds: [], accStatus: [], accidents: [] };
+  var S = { kinds: [], cars: [], others: [], accKinds: [], accStatus: [], accidents: [] };
 
   // 차량 상태(U+ '차량상태 조회'와 같은 뜻, 11-24) — 점검 필요는 꼬리표, 양호면 전압·연료만 작게
   function stateCell(c) {
@@ -67,7 +67,7 @@
   // ── 첫 화면 ──
   function load() {
     return api('/api/vehicles/manage').then(function (j) {
-      S.kinds = j.kinds; S.cars = j.cars;
+      S.kinds = j.kinds; S.cars = j.cars; S.others = j.others || [];
       S.accKinds = j.accident_kinds || []; S.accStatus = j.accident_status || [];
       var head = document.querySelector('.gw-vm-table thead tr');     // 칸 구성은 여기서(재시작 전 옛 템플릿과 어긋나지 않게)
       if (head) {
@@ -96,7 +96,15 @@
           '<td class="num">' + (c.cost_year ? esc(won(c.cost_year)) : '<span class="text-muted">-</span>') + '</td>' +
           '<td class="gw-vm-opt">' + (c.last_fix_day ? esc(shortDay(c.last_fix_day)) + '<br><span class="text-muted small">' + esc(c.last_fix_item) + '</span>' : '<span class="text-muted">-</span>') + '</td>' +
           '<td class="num gw-vm-opt">' + kmCell + '</td></tr>';
-      }).join('');
+      }).join('') + (S.others.length
+        ? '<tr class="gw-vm-group"><th colspan="7" scope="rowgroup">지난 차·차량 미지정 (올해 통계에 들어가는 비용)</th></tr>' +
+          S.others.map(function (o) {
+            return '<tr tabindex="0" role="button" class="gw-vm-other" data-plate="' + esc(o.plate) + '" aria-label="' + esc(o.label + ' 비용 보기') + '">' +
+              '<td><strong>' + esc(o.label) + '</strong>' + (o.plate !== '미지정' ? '<br><span class="text-muted small">' + esc(o.plate) + '</span>' : '') + '</td>' +
+              '<td colspan="3" class="text-muted small">법인카드 지출결의서의 유류·하이패스(월 합계)</td>' +
+              '<td class="num">' + esc(won(o.cost_year)) + '</td><td class="gw-vm-opt"></td><td class="gw-vm-opt"></td></tr>';
+          }).join('')
+        : '');
     }).catch(function (e) { msg(e.message, 'err'); });
   }
 
@@ -139,10 +147,9 @@
       '<label>계기판 km<input type="number" inputmode="decimal" step="0.1" min="0" class="form-control form-control-sm" autocomplete="off" name="km" required></label>' +
       '<div class="gw-vm-actions"><button type="submit" class="btn btn-sm btn-primary">넣기</button></div></form>' + list + '</section>';
   }
-  function costSection(car, rows) {
-    var kinds = S.kinds.map(function (k) { return '<option>' + esc(k) + '</option>'; }).join('');
+  function costList(rows) {
     // 세 칸(날짜·내용·금액) — 종류는 내용 앞 꼬리표, 결재/삭제는 금액 아래(휴대폰에서 내용 칸이 좁아지지 않게, 11-22)
-    var list = rows.length ? '<table class="gw-table gw-vm-list"><thead><tr><th>날짜</th><th>내용</th><th class="num">금액</th></tr></thead><tbody>' +
+    return rows.length ? '<table class="gw-table gw-vm-list"><thead><tr><th>날짜</th><th>내용</th><th class="num">금액</th></tr></thead><tbody>' +
       rows.map(function (r) {
         var src = r.source === 'manual'
           ? '<button type="button" class="btn btn-sm btn-link text-danger p-0" data-del="' + r.id + '">삭제</button>'
@@ -155,6 +162,10 @@
             (r.vendor ? '<br><span class="text-muted small">' + esc(r.vendor) + '</span>' : '') + '</td>' +
           '<td class="num">' + esc(won(r.amount)) + shared + '<br>' + src + '</td></tr>';
       }).join('') + '</tbody></table>' : '<p class="text-muted small">아직 비용이 없어요. 결재에 차 번호가 적힌 비용과 법인카드 유류·하이패스(월 합계)가 자동으로 들어와요.</p>';
+  }
+  function costSection(car, rows) {
+    var kinds = S.kinds.map(function (k) { return '<option>' + esc(k) + '</option>'; }).join('');
+    var list = costList(rows);
     return '<section class="gw-vm-sec"><h3>정비·비용</h3>' +
       '<details class="gw-vm-add"><summary>결재 없이 쓴 비용 직접 넣기</summary><form class="gw-vm-form" id="vmCost">' +
       '<label>날짜<input type="date" class="form-control form-control-sm" autocomplete="off" name="day" value="' + today() + '" required></label>' +
@@ -197,6 +208,8 @@
       '<details class="gw-vm-add" id="vmAccAdd"><summary>사고 기록 넣기</summary>' + accForm(null, insurer) + '</details>' + list + '</section>';
   }
   function openCar(plate) {
+    var other = S.others.filter(function (o) { return o.plate === plate; })[0];
+    if (other) return openOther(other);
     cur = S.cars.filter(function (c) { return c.plate === plate; })[0];
     box.hidden = false;
     document.body.classList.add('gw-drawer-open');
@@ -208,6 +221,20 @@
         infoForm(cur, j.info) + costSection(cur, j.costs) + accSection(j.accidents || [], j.info.insurer) +
         ((cur && !cur.uplus) || j.odometer.length ? odoSection(cur, j.odometer) : '');
       S.accidents = j.accidents || []; S.insurer = j.info.insurer || '';
+    }).catch(function (e) { $('vmCarBody').innerHTML = '<p class="text-danger">' + esc(e.message) + '</p>'; });
+  }
+  // 지난 차·차량 미지정 — 비용 목록만 보기(보험·사고·직접 넣기 없음)
+  function openOther(o) {
+    cur = null;
+    box.hidden = false;
+    document.body.classList.add('gw-drawer-open');
+    $('vmCarTitle').textContent = o.label;
+    $('vmCarBody').innerHTML = '<p class="text-muted">불러오는 중…</p>';
+    $('vmCarTitle').focus();
+    return api('/api/vehicles/manage/car?plate=' + encodeURIComponent(o.plate)).then(function (j) {
+      $('vmCarBody').innerHTML = '<section class="gw-vm-sec"><h3>비용</h3><p class="text-muted small">' +
+        (o.plate === '미지정' ? '차가 정해지지 않은 법인카드(퇴사자 카드 등)의 유류·하이패스예요. 올해 차량비 합계에 들어가요.'
+          : '지금은 없는 차예요. 올해 차량비 합계에 들어가요.') + '</p>' + costList(j.costs || []) + '</section>';
     }).catch(function (e) { $('vmCarBody').innerHTML = '<p class="text-danger">' + esc(e.message) + '</p>'; });
   }
   function carMsg(text, kind) {

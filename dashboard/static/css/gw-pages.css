@@ -4386,3 +4386,7 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
   .cr-owner-in { position: sticky; left: 6px; width: calc(100vw - 64px); white-space: normal; }
   .cr-owner .cnt { display: block; margin: 2px 0 0 22px; }
 }
+
+/* 차량 관리: 지난 차·차량 미지정 묶음(법인카드 지출결의서 비용, 11-26 — 1년 통계용) */
+.gw-vm-group th { font-size: 0.78rem; color: #64748b; background: #f8fafc; font-weight: 600; }
+.gw-vm-other td { color: #475569; }
