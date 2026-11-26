@@ -594,13 +594,42 @@ def test_direct_edit_in_confirmed_month_notifies(slack, monkeypatch):
         j = view().get_json()
     assert j['success'] and 'direct' not in j
     assert any('박민우 님이 스케줄 근무를 고쳤어요' in t and '12/19(토)는 쉬는 날로' in t for t in slack.to(A))
-    assert any(p['ch'] == 'C-ANNOUNCE' and '영업가 12/19(토) 휴무 (박민우 님 수정)' in p['text'] for p in slack.posts)
+    assert any(p['ch'] == 'C-ANNOUNCE' and p['text'] == '🔁 스케줄 근무 변경 (박민우 님 수정): 12/19(토) 영업가 휴무' for p in slack.posts)
     slack.posts.clear()
     r = so.toggle(S19, '영업가', True, 'UMW', '박민우', TODAY, admin=True)  # 이미 있던 이름 — 바뀐 게 없으면 알림 없음
     assert r['direct'] is None
     r = so.toggle(S19, '영업가', False, JW, '박정우', TODAY)               # 승인권자 빼기
     assert r['direct'] == {'month': DEC, 'name': '영업가', 'slack_id': A, 'day': '2026-12-19', 'on': False,
                            'label': '12/19(토)'}
-    so.notify('direct_edit', DEC, '박정우', change=r['direct'])
+    so.notify('direct_edit', DEC, '박정우', change={'items': [r['direct']]})
     assert any('12/19(토)는 근무하는 날로' in t for t in slack.to(A))
-    assert any('영업가 12/19(토) 근무 (박정우 님 수정)' in p['text'] for p in slack.posts)
+    assert any('(박정우 님 수정): 12/19(토) 영업가 근무' in p['text'] for p in slack.posts)
+
+
+def test_pick_save_notifies_once(slack, monkeypatch):
+    """[휴무자 선택] 저장 한 번 — DM 은 바뀐 사람마다 1통, #휴가_일정 공지는 한 줄(11-26 부장님 '너무 많이 가')."""
+    import inspect
+    from flask import Flask, session
+    from dashboard.blueprints import gw_satoff as so_bp
+    so.toggle(S5, '영업가', True, A, '영업가', TODAY)
+    _confirm()
+    slack.posts.clear()
+    view = inspect.unwrap(so_bp.api_pick)
+    monkeypatch.setattr(so_bp, '_who', lambda: ('박민우', 'UMW', ''))
+    app = Flask(__name__)
+    app.secret_key = 'x'
+    body = {'day': '2026-12-05', 'changes': [{'name': '영업가', 'on': False}, {'name': '영업나', 'on': True},
+                                             {'name': '영업다', 'on': True}]}
+    with app.test_request_context(json=body):
+        session['user'] = {'email': 'boss@example.com', 'permission_level': 'admin'}
+        j = view().get_json()
+    assert j['success'] and so.picks(DEC)['2026-12-05'] == ['영업나', '영업다']
+    posts = [p['text'] for p in slack.posts if p['ch'] == 'C-ANNOUNCE']
+    assert posts == ['🔁 스케줄 근무 변경 (박민우 님 수정): 12/5(토) 영업가 근무, 12/5(토) 영업나 휴무, 12/5(토) 영업다 휴무']
+    assert len(slack.to(A)) == len(slack.to(B)) == len(slack.to(C)) == 1
+    with app.test_request_context(json={'day': '2026-12-05', 'changes': [{'name': '영업가', 'on': True}]}):
+        session['user'] = {'email': 'staff@example.com', 'permission_level': 'editor'}
+        assert view()[1] == 403                                          # 관리자 아니면 확정 달 못 고침
+    with app.test_request_context(json={'day': '2026-12-05', 'changes': []}):
+        session['user'] = {'email': 'boss@example.com', 'permission_level': 'admin'}
+        assert view()[1] == 400

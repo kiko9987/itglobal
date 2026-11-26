@@ -833,14 +833,25 @@
     var btn = document.getElementById('soPickSave');
     btn.disabled = true;
     var warns = [];
-    var chain = Promise.resolve();
-    jobs.forEach(function (j) {
-      chain = chain.then(function () {
-        return api('/api/satoff/toggle', { method: 'POST', body: { day: pickDay, name: j.name, on: j.on } })
-          .then(function (r) { if (r.warn) warns.push(r.warn); });
+    // 저장 한 번 = 요청 한 번(11-26) — 확정된 달이면 #휴가_일정 공지가 한 줄로 묶인다
+    function oneByOne() {
+      var chain = Promise.resolve();
+      jobs.forEach(function (j) {
+        chain = chain.then(function () {
+          return api('/api/satoff/toggle', { method: 'POST', body: { day: pickDay, name: j.name, on: j.on } })
+            .then(function (r) { if (r.warn) warns.push(r.warn); });
+        });
       });
-    });
-    chain.then(function () {
+      return chain;
+    }
+    var run = !jobs.length ? Promise.resolve() :
+      api('/api/satoff/pick', { method: 'POST', body: { day: pickDay, changes: jobs } })
+        .then(function (r) { (r.warns || []).forEach(function (w) { warns.push(w); }); })
+        .catch(function (e) {
+          if (/오류 40[45]\)/.test(e.message)) return oneByOne();      // 서버 재시작 전(새 경로 없음) — 예전처럼
+          throw e;
+        });
+    run.then(function () {
       if (pickModal) pickModal.hide();
       var said = jobs.length ? md(pickDay) + ' 토요일을 고쳤어요.' : '';
       flash(warns.length ? (said + ' ' + warns.join(' ')).trim() : said, warns.length ? 'warn' : 'ok');

@@ -1098,18 +1098,24 @@ def notify(kind: str, month: str, actor: str, change: Optional[dict] = None, not
                 _dm_some(client, [who], f"↩️ 스케줄 근무 변경 신청을 {actor} 님이 반려했어요. 쉬는 토요일: {change['what']}\n사유: {note}",
                          month, f"{change['name']} 님 스케줄 근무 변경 반려")
         elif kind == 'direct_edit' and change:
-            # 확정된 달 직접 수정(11-26) — 변경 승인과 같이 본인 DM·#휴가_일정·휴가 일수(경영지원)
-            what = f"{change['label']}는 {'쉬는 날로' if change['on'] else '근무하는 날로'} 바뀌었어요"
-            who = change.get('slack_id') or _who_sid(change['name'])
-            if change['name'] != actor:
-                _dm_some(client, [who], f"✏️ {actor} 님이 스케줄 근무를 고쳤어요. {what}.", month,
-                         f"{change['name']} 님 스케줄 근무 직접 수정")
-            _post(client, f"🔁 스케줄 근무 변경: {change['name']} {change['label']} "
-                          f"{'휴무' if change['on'] else '근무'} ({actor} 님 수정)")
-            if affected_leaves(month):
-                _dm_some(client, lv.manager_ids(), f"ℹ️ {change['name']} 님 스케줄 근무가 바뀌어 휴가 일수가 달라지는 신청이 있어요. "
-                                                   '휴가 관리에서 확인해 주세요.', month,
-                         f"{change['name']} 님 직접 수정으로 휴가 일수 고칠 신청")
+            # 확정된 달 직접 수정(11-26) — 변경 승인과 같이 본인 DM·#휴가_일정·휴가 일수(경영지원).
+            # change = {'items': [toggle 의 direct …]} — [휴무자 선택] 저장 한 번이 한 묶음: DM 은 바뀐 사람마다 1통,
+            # 공지·경영지원 알림은 한 번(11-26 부장님 '너무 많이 가는 거 아니야')
+            items = change.get('items') or []
+            for it in items:
+                if it['name'] == actor:
+                    continue
+                what = f"{it['label']}는 {'쉬는 날로' if it['on'] else '근무하는 날로'} 바뀌었어요"
+                _dm_some(client, [it.get('slack_id') or _who_sid(it['name'])], f"✏️ {actor} 님이 스케줄 근무를 고쳤어요. {what}.",
+                         month, f"{it['name']} 님 스케줄 근무 직접 수정")
+            if items:
+                body = ', '.join(f"{it['label']} {it['name']} {'휴무' if it['on'] else '근무'}" for it in items)
+                _post(client, f"🔁 스케줄 근무 변경 ({actor} 님 수정): {body}")
+                if affected_leaves(month):
+                    who = ', '.join(dict.fromkeys(it['name'] for it in items))
+                    _dm_some(client, lv.manager_ids(), f"ℹ️ {who} 님 스케줄 근무가 바뀌어 휴가 일수가 달라지는 신청이 있어요. "
+                                                       '휴가 관리에서 확인해 주세요.', month,
+                             f"{who} 님 직접 수정으로 휴가 일수 고칠 신청")
         elif kind == 'full_off' and change:
             # 전체 휴무 지정·풀기(11-25) — 확정된 달이라 휴가 일수가 달라질 때만 경영지원에
             if affected_leaves(month):

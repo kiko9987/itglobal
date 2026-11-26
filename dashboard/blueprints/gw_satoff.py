@@ -118,8 +118,40 @@ def api_toggle():
         return _err(e)
     d = res.pop('direct', None)
     if d:                                  # 확정된 달 직접 수정 — 본인·#휴가_일정·경영지원에 알림(11-26)
-        so.notify('direct_edit', d['month'], name, change=d)
+        so.notify('direct_edit', d['month'], name, change={'items': [d]})
     return jsonify({'success': True, **res})
+
+
+@gw_satoff_bp.route('/api/satoff/pick', methods=['POST'])
+@gw_page
+def api_pick():
+    """[휴무자 선택] 창 저장 한 번 — 여러 사람을 차례로 넣고 빼고, 확정된 달이면 알림은 한 묶음으로(11-26 부장님:
+    사람마다 따로 부르면 #휴가_일정 공지가 사람 수만큼 올라감). 중간에 막히면 거기서 멈추고 앞의 것만 알린다."""
+    body = request.get_json(silent=True) or {}
+    changes = body.get('changes')
+    if not isinstance(changes, list) or not changes or len(changes) > 60:
+        return jsonify({'success': False, 'message': '바꿀 사람을 다시 골라 주세요.'}), 400
+    try:
+        name, sid = _actor()
+    except Exception as e:
+        return _err(e)
+    day, admin = _day(body.get('day')), _is_admin() and not _is_field()
+    warns, directs, err = [], [], None
+    for c in changes:
+        try:
+            res = so.toggle(day, str((c or {}).get('name') or '').strip(), bool((c or {}).get('on')), sid, name, admin=admin)
+        except Exception as e:
+            err = e
+            break
+        if res.get('warn'):
+            warns.append(res['warn'])
+        if res.get('direct'):
+            directs.append(res['direct'])
+    if directs:
+        so.notify('direct_edit', directs[0]['month'], name, change={'items': directs})
+    if err:
+        return _err(err)
+    return jsonify({'success': True, 'warns': warns})
 
 
 @gw_satoff_bp.route('/api/satoff/submit', methods=['POST'])
