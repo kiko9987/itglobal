@@ -92,8 +92,7 @@
         '<td>' + esc(r.partner || '-') + '</td>' +
         '<td class="num">' + won(r.supply) + '</td>' +
         '<td class="num">' + (r.vat ? won(r.vat) : '<span class="text-muted">-</span>') + '</td>' +
-        '<td class="gw-fe-memo"><input type="text" class="form-control form-control-sm gw-fe-memo-in" maxlength="100" data-memo="' + esc(r.key) + '"' +
-          ' value="' + esc(memoOf(r)) + '" aria-label="' + esc(r.code + ' 적요') + '"' + (S.edit[r.key] != null ? ' data-edited="1"' : '') + '></td>' +
+        '<td class="gw-fe-memo">' + memoCell(r) + '</td>' +
         '<td class="text-nowrap"><strong>' + esc(r.code) + '</strong></td>' +
         '<td class="gw-fe-check">' + (warn || (r.trace ? '' : '<span class="text-muted">-</span>')) +
           (r.trace ? '<div class="gw-fe-trace">' + esc(r.trace) + '</div>' : '') + '</td></tr>';
@@ -110,7 +109,26 @@
     syncPick();
   }
 
-  function memoOf(r) { return S.edit[r.key] != null ? S.edit[r.key] : r.memo; }
+  // 적요 — 사유를 적는 줄(수정 사유·취소 사유)만 사유 부분을 고칠 수 있게. 현장 주소(확정·재개)는 그대로(11-26 부장님)
+  var REASON_RE = /^(수정 사유|취소 사유) ?: ?/;
+  function reasonParts(r) {
+    var m = REASON_RE.exec(r.memo || '');
+    return m ? { head: m[1] + ' : ', text: r.memo.slice(m[0].length) } : null;
+  }
+  function memoOf(r) {
+    var p = reasonParts(r);
+    if (!p || S.edit[r.key] == null) return r.memo;
+    return (p.head + S.edit[r.key].trim()).trim();
+  }
+  function memoCell(r) {
+    var p = reasonParts(r);
+    if (!p) return esc(r.memo);
+    var edited = S.edit[r.key] != null;
+    return '<div class="gw-fe-reason"><span class="gw-fe-reason-h">' + esc(p.head.replace(/ : $/, '')) + '</span>' +
+      '<input type="text" class="form-control form-control-sm gw-fe-memo-in" maxlength="80" data-memo="' + esc(r.key) + '"' +
+      ' value="' + esc(edited ? S.edit[r.key] : p.text) + '" placeholder="사유를 적어 주세요"' +
+      ' aria-label="' + esc(r.code + ' ' + p.head.replace(/ : $/, '')) + '"' + (edited ? ' data-edited="1"' : '') + '></div>';
+  }
   function cellsOf(r, t) {
     if (t !== 'sales') return r.cells;
     var c = r.cells.slice();
