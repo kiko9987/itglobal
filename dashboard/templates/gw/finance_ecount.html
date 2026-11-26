@@ -1,6 +1,6 @@
 {% extends "modern_base.html" %}
 
-{% block title %}이카운트 올리기 - 아이티글로벌그룹{% endblock %}
+{% block title %}이카운트 업로드 - 아이티글로벌그룹{% endblock %}
 
 {% block additional_css %}
 <link rel="stylesheet" href="{{ gw_asset('css/gw-pages.css') }}">
@@ -12,7 +12,7 @@
    규칙은 services/ecount_sales.py(넣을 전표 = 공사 현황 금액 − 이미 넣은 금액). 이카운트에는 아무것도 보내지 않는다. #}
 <div class="gw-page gw-fe" id="fePage">
   <div class="gw-page-head">
-    <h1 class="gw-page-title">이카운트 올리기</h1>
+    <h1 class="gw-page-title">이카운트 업로드</h1>
     <div class="gw-page-actions">
       <button type="button" class="btn btn-sm btn-outline-secondary" id="feRefresh" title="공사 현황 시트를 새로 읽어요">
         <i class="fas fa-sync-alt me-1" aria-hidden="true"></i>새로고침</button>
@@ -28,7 +28,7 @@
     <li>이카운트에 들어간 줄을 골라 [넣음 표시] — 목록에서 빠져요. 넣지 않기로 한 줄은 [제외]</li>
   </ol>
 
-  <div class="gw-ap-tabs" role="tablist" id="feTabs" aria-label="이카운트 올리기">
+  <div class="gw-ap-tabs" role="tablist" id="feTabs" aria-label="이카운트 업로드">
     <button type="button" role="tab" data-tab="projects" aria-selected="false" tabindex="-1" aria-controls="fePaneProjects">① 프로젝트 등록 <b id="feCntProjects">-</b></button>
     <button type="button" role="tab" data-tab="sales" class="active" aria-selected="true" aria-controls="fePaneSales">② 매출전표 I <b id="feCntSales">-</b></button>
   </div>

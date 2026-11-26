@@ -12,6 +12,10 @@
   var MEMO_COL = 8;   // 매출전표 칸 중 적요 — 화면에서 고친 글로 복사(11-26 부장님 '수정 사유를 적을 수 없다')
   // 재시작 전 옛 템플릿이어도 '확인할 점' 칸·[제외] 버튼이 있게(11-26 추가)
   (function () {
+    // 메뉴 이름 '이카운트 업로드'(11-26 부장님) — 재시작 전 옛 템플릿 제목도 바꿈
+    var h1 = document.querySelector('.gw-page-title');
+    if (h1 && h1.textContent.trim() === '이카운트 올리기') h1.textContent = '이카운트 업로드';
+    document.title = document.title.replace('이카운트 올리기', '이카운트 업로드');
     // 탭 순서 ① 프로젝트 등록 → ② 매출전표 I — 새 프로젝트를 먼저 저장해야 매출전표가 들어감(11-26 부장님)
     var tabs = $('feTabs'), pb = tabs && tabs.querySelector('[data-tab="projects"]'), sb = tabs && tabs.querySelector('[data-tab="sales"]');
     if (pb && sb && sb.compareDocumentPosition(pb) & Node.DOCUMENT_POSITION_FOLLOWING) tabs.insertBefore(pb, sb);
