@@ -27,6 +27,13 @@
   }
   function when(s) { return s ? dayLabel(s) + ' ' + s.slice(11, 16) : ''; }
   function acctName(a) { return a.code + ' ' + a.bank; }
+  // 줄 출처 꼬리표(일시 칸 옆) · 계좌 기록 방식
+  var SRC_TAG = { manual: '직접', report: '자금일보' };
+  function srcBadge(a) {
+    if (a.sms) return '<span class="gw-badge gw-fb-sms">문자 자동</span>';
+    if (a.in_report) return '<span class="gw-badge gw-fb-report" title="SB 자금일보 계좌 표에서 아침마다 옮겨 와요">자금일보 잔액</span>';
+    return '<span class="gw-badge gw-fb-hand">직접 입력</span>';
+  }
 
   function api(url, body) {
     var init = { method: body ? 'POST' : 'GET', credentials: 'same-origin' };
@@ -133,7 +140,7 @@
         '<td class="text-muted">' + esc(when(a.balance_at)) + '</td>' +
         '<td class="num gw-fb-in">' + (a.day_in ? won(a.day_in) : '') + '</td>' +
         '<td class="num gw-fb-out">' + (a.day_out ? won(a.day_out) : '') + '</td>' +
-        '<td><span class="gw-badge ' + (a.sms ? 'gw-fb-sms' : 'gw-fb-hand') + '">' + (a.sms ? '문자 자동' : '직접 입력') + '</span></td></tr>';
+        '<td>' + srcBadge(a) + '</td></tr>';
     };
     var rep = S.accounts.filter(function (a) { return a.in_report; });
     var side = S.accounts.filter(function (a) { return !a.in_report; });
@@ -156,7 +163,7 @@
       var memoCell = need ? '<span class="gw-badge gw-badge-wait">적요 없음</span>' : esc(memo);
       if (r.project_code && memo.indexOf(r.project_code) === -1) memoCell += ' <span class="text-muted small">' + esc(r.project_code) + '</span>';
       return '<tr tabindex="0" role="button" data-id="' + r.id + '" aria-label="' + esc(when(r.at) + ' ' + (r.counterparty || '') + ' 고치기') + '">' +
-        '<td class="text-nowrap">' + esc(when(r.at)) + (r.source === 'manual' ? ' <span class="text-muted small">직접</span>' : '') + '</td>' +
+        '<td class="text-nowrap">' + esc(when(r.at)) + (SRC_TAG[r.source] ? ' <span class="text-muted small">' + SRC_TAG[r.source] + '</span>' : '') + '</td>' +
         '<td class="text-nowrap"><strong>' + esc(r.acct_code || '') + '</strong></td>' +
         '<td class="gw-fb-wrap">' + esc(r.counterparty || (r.direction === 'bal' ? '잔액 맞추기' : '')) + '</td>' +
         '<td class="num gw-fb-in">' + (r.direction === 'in' ? won(r.amount) : '') + '</td>' +
@@ -224,12 +231,17 @@
     var isBal = dir === 'bal';
     var pick = row ? row.account_id : (acctId || Number($('fbAcct').value) || 0);
     var dis = sms ? ' disabled' : '';
-    $('fbDrawerTitle').textContent = row ? (sms ? '계정·적요 고치기' : '직접 넣은 거래 고치기') : (isBal ? '잔액 맞추기' : '직접 입력');
+    var fromReport = row && row.source === 'report';
+    $('fbDrawerTitle').textContent = row ? (fromReport ? '자금일보 잔액' : sms ? '계정·적요 고치기' : '직접 넣은 거래 고치기') : (isBal ? '잔액 맞추기' : '직접 입력');
     var acctOpts = S.accounts.map(function (a) {
       return '<option value="' + a.id + '"' + (a.id === pick ? ' selected' : '') + '>' + esc(acctName(a)) + '</option>';
     }).join('');
     var h = '<div class="gw-vh-msg" id="fbDMsg" role="status" aria-live="polite"></div>';
-    if (sms) {
+    if (fromReport) {
+      h += '<dl class="gw-fb-facts"><dt>날짜</dt><dd>' + esc(dayLabel(row.at)) + ' 끝</dd><dt>계좌</dt><dd>' + esc(row.acct_code) + '</dd>' +
+        '<dt>잔액</dt><dd>' + won(row.balance) + '원</dd></dl>' +
+        '<p class="gw-fb-help">SB 자금일보 계좌 표에서 아침마다 옮겨 오는 잔액이에요. 잔액이 틀리면 자금일보를 고쳐 주세요. 다음 날 아침에 다시 맞춰져요.</p>';
+    } else if (sms) {
       h += '<dl class="gw-fb-facts"><dt>일시</dt><dd>' + esc(when(row.at)) + '</dd><dt>계좌</dt><dd>' + esc(row.acct_code) + '</dd>' +
         '<dt>상대방</dt><dd>' + esc(row.counterparty || '') + '</dd><dt>' + (row.direction === 'in' ? '입금' : '출금') + '</dt><dd>' + won(row.amount) + '원</dd>' +
         '<dt>거래 후 잔액</dt><dd>' + (row.balance == null ? '-' : won(row.balance) + '원') + '</dd></dl>' +

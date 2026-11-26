@@ -102,3 +102,24 @@ def test_sms_rows_keep_bank_values(db):
     m = bl.add_manual({'account_id': r['account_id'], 'at': '2026-11-26 13:00', 'direction': 'in', 'amount': 5}, 'SB', True)
     bl.delete(m, 'SB', True)
     assert len(bl.list_tx('2026-11-26', '2026-11-26')) == 1
+
+
+def test_report_balances_only_for_no_sms_accounts(db):
+    """SB 자금일보 잔액 → 문자 안 오는 자금일보 계좌만(11-26). 같은 날 다시 돌면 고치고, 그대로면 줄을 안 늘림."""
+    bals = {'1011': 306_638_537, '1012': 91_420_704, '1013': 63_520_584, '9011': 0, '9012': 247_053_932}
+    bl.record_sms(HANA_OUT, bl.OUT, 'h1', 'sms', NOW)                       # 9012 는 은행 문자 잔액이 이미 있음
+    assert bl.sync_report_balances('2026-11-25', bals) == 4                 # 1012·1013·9011 + 1011(문자 잔액 없어 시작점)
+    s = {a['code']: a for a in bl.summary('2026-11-25')}
+    assert s['1012']['balance'] == 91_420_704 and s['9011']['balance'] == 0 and s['1011']['balance'] == 306_638_537
+    assert s['9012']['balance'] is None                                     # 문자(11/26) 계좌는 자금일보로 안 덮음
+    bl.record_sms(IBK, bl.IN, 'i1', 'sms', NOW)                             # 1011 문자가 오면 그 뒤론 문자 잔액
+    assert bl.sync_report_balances('2026-11-26', {'1011': 1}) == 0
+    assert bl.sync_report_balances('2026-11-25', bals) == 0                 # 다시 돌려도 그대로
+    assert bl.sync_report_balances('2026-11-25', dict(bals, **{'1013': 63_500_000})) == 1   # SB 가 고친 값
+    assert bl.summary('2026-11-25')[2]['balance'] == 63_500_000
+    assert bl.sync_report_balances('2026-11-26', dict(bals, **{'1013': 63_500_000})) == 0   # 다음 날 같으면 줄 안 늘림
+    assert bl.sync_report_balances('2026-11-27', dict(bals, **{'1012': 91_000_000, '1013': 63_500_000})) == 1
+    rows = bl.list_tx('2026-11-25', '2026-11-27', _acct('1012')['id'])
+    assert [r['balance'] for r in rows] == [91_000_000, 91_420_704] and rows[0]['source'] == bl.REPORT
+    with pytest.raises(bl.LedgerError):
+        bl.delete(rows[0]['id'], 'SB', True)                                # 자금일보에서 온 줄은 못 지움

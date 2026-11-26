@@ -385,6 +385,36 @@ def work_dir() -> str:
     return d
 
 
+def report_balances(path: str, before: date) -> Tuple[Optional[date], Dict[str, int]]:
+    """SB 자금일보 월 파일에서 before 앞날 중 가장 늦은 날 시트의 계좌 표(6~13행) 잔액 {코드: 잔액}.
+    코드는 D 칸, 잔액은 L 칸(엑셀이 저장해 둔 값). 값이 없는 시트(서버가 만든 수식만 있는 시트 등)는 건너뜀."""
+    import openpyxl
+    m = re.match(r'(\d{2})\.(\d{2})', os.path.basename(path))
+    if not m:
+        return None, {}
+    y, mon = 2000 + int(m.group(1)), int(m.group(2))
+    wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
+    try:
+        for name in sorted((n for n in wb.sheetnames if n.isdigit()), key=int, reverse=True):
+            try:
+                d = date(y, mon, int(name))
+            except ValueError:
+                continue
+            if d >= before:
+                continue
+            vals = {}
+            for row in wb[name].iter_rows(min_row=ACCT_ROWS.start, max_row=ACCT_ROWS.stop - 1, min_col=1, max_col=12,
+                                          values_only=True):
+                code, bal = row[3], row[11]
+                if isinstance(code, (int, float)) and isinstance(bal, (int, float)):
+                    vals[str(int(code))] = int(round(bal))
+            if len(vals) >= len(ACCT_ROWS) - 2:
+                return d, vals
+    finally:
+        wb.close()
+    return None, {}
+
+
 def run(today: Optional[date] = None, force_mode: str = '', svc=None) -> dict:
     """07:00 — 전 영업일 시트 만들기. 반환 {'status', 'day', ...}.
     copy: 그 달 파일을 받아 'N 자동' 시트를 넣고 사본 폴더에 저장(드라이브엔 안 올림).
@@ -412,6 +442,16 @@ def run(today: Optional[date] = None, force_mode: str = '', svc=None) -> dict:
             _download(svc, f['id'], local)
             open(stamp, 'w').write(f['modifiedTime'])
     src = os.path.join(hint_dir, month_file(day))
+    # 문자 안 오는 계좌 잔액은 SB 자금일보 계좌 표에서 입출금 장부로(11-26 부장님) — 실패해도 초안은 계속
+    try:
+        from dashboard.services import bank_ledger
+        rday, bals = report_balances(src, today)
+        if rday:
+            bank_ledger.sync_report_balances(rday.isoformat(), bals)
+        else:
+            logger.warning(f'{_LOG} {month_file(day)} 에서 {today} 앞 잔액 시트를 못 찾아 입출금 잔액은 그대로')
+    except Exception as e:
+        logger.error(f'{_LOG} 자금일보 잔액 → 입출금 장부 실패: {e}', exc_info=True)
     if m == 'copy':
         os.makedirs(copy_dir(), exist_ok=True)
         path = os.path.join(copy_dir(), month_file(day).replace('.xlsx', ' (자동 초안).xlsx'))

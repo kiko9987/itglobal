@@ -359,7 +359,7 @@ def delete(tid: int, by: str, admin: bool) -> None:
         if not r:
             raise LookupError('없는 거래예요. 새로 고쳐 주세요.')
         if r['source'] != 'manual':
-            raise LedgerError('은행 문자로 들어온 거래는 지울 수 없어요. 계정·적요만 고쳐 주세요.')
+            raise LedgerError('은행 문자나 자금일보에서 들어온 줄은 지울 수 없어요. 계정·적요만 고쳐 주세요.')
         conn.execute('UPDATE bank_tx SET deleted_at=?, updated_by=? WHERE id=?', (_now(), by, tid))
 
 
@@ -380,3 +380,47 @@ def record_from_text(text: str, source: str) -> None:
     except Exception as e:
         logger.error(f'{_LOG} 문자 장부 입구 실패: {e}', exc_info=True)
 
+
+
+# ── SB 자금일보 → 문자 없는 계좌 잔액(11-26 부장님 '자동으로 옮겨줘') ─────────────
+REPORT = 'report'      # 출처: SB 자금일보 계좌 표에서 옮겨 온 잔액
+
+
+def sync_report_balances(day: str, balances: Dict[str, int]) -> int:
+    """SB 자금일보(그날 시트) 계좌 표의 잔액을, 문자가 안 오는 자금일보 계좌(sms=0, in_report=1)에만
+    '잔액 맞추기' 줄로 넣는다 — 그날 23:59 기준. 문자 오는 계좌(1011·9012)는 은행 문자가 더 정확해 장부에 잔액이
+    하나도 없을 때(시작점)만 넣고, 그 뒤엔 건드리지 않음.
+    같은 날을 다시 돌리면 그 줄을 고치고(SB 가 나중에 고친 값), 장부 잔액과 같으면 줄을 늘리지 않는다.
+    반환: 넣거나 고친 줄 수."""
+    datetime.strptime(day, '%Y-%m-%d')
+    at = f'{day} 23:59'
+    n = 0
+    with _conn() as conn:
+        for a in conn.execute('SELECT * FROM bank_accounts WHERE in_report=1').fetchall():
+            if a['code'] not in balances:
+                continue
+            if a['sms'] and conn.execute('SELECT 1 FROM bank_tx WHERE account_id=? AND deleted_at IS NULL AND balance IS NOT NULL '
+                                         "AND source != ? LIMIT 1", (a['id'], REPORT)).fetchone():
+                continue                          # 문자 계좌는 은행 문자 잔액이 생기면 그걸로
+            bal = int(round(balances[a['code']]))
+            uid = f'{REPORT}:{a["code"]}:{day}'
+            cur = conn.execute('SELECT id, balance FROM bank_tx WHERE uid=?', (uid,)).fetchone()
+            if cur:
+                if cur['balance'] != bal:
+                    conn.execute('UPDATE bank_tx SET balance=?, deleted_at=NULL, updated_at=?, updated_by=? WHERE id=?',
+                                 (bal, _now(), '자금일보', cur['id']))
+                    n += 1
+                continue
+            last = conn.execute('SELECT balance FROM bank_tx WHERE account_id=? AND deleted_at IS NULL AND balance IS NOT NULL '
+                                'AND at <= ? ORDER BY at DESC, id DESC LIMIT 1', (a['id'], at)).fetchone()
+            if last and last['balance'] == bal:
+                continue
+            d = date.fromisoformat(day)
+            conn.execute(
+                'INSERT INTO bank_tx (uid, account_id, at, direction, amount, balance, counterparty, title, memo, project_code, '
+                'source, created_by, created_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)',
+                (uid, a['id'], at, BAL, bal, '', '', f'자금일보 {d.month}/{d.day} 잔액', '', REPORT, '자금일보', _now()))
+            n += 1
+    if n:
+        logger.info(f'{_LOG} 자금일보 {day} 잔액 → 장부 {n}줄')
+    return n

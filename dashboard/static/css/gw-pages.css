@@ -4291,6 +4291,7 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-fb-side td { color: #475569; }
 .gw-badge.gw-fb-sms { background: #ecfdf5; color: #065f46; }
 .gw-badge.gw-fb-hand { background: #f1f5f9; color: #475569; }
+.gw-badge.gw-fb-report { background: #eff6ff; color: #1e40af; }
 .gw-fb-facts { display: grid; grid-template-columns: 7rem minmax(0, 1fr); gap: 6px 12px; margin: 0 0 8px; font-size: 0.88rem; }
 .gw-fb-facts dt { font-weight: 500; color: #64748b; }
 .gw-fb-facts dd { margin: 0; color: #0f172a; font-variant-numeric: tabular-nums; }

@@ -104,3 +104,20 @@ def test_prev_business_day(monkeypatch):
 def test_off_by_default(monkeypatch):
     monkeypatch.delenv('FUND_DAILY_MODE', raising=False)
     assert fd.run() == {'status': 'off'}
+
+
+def test_report_balances_reads_latest_sheet_before_today(tmp_path):
+    p = str(tmp_path / '26.11 자금일보.xlsx')
+    wb = openpyxl.Workbook()
+    wb.active.title = '24'
+    for name, base in (('24', 100), ('25', 200)):
+        ws = wb[name] if name in wb.sheetnames else wb.create_sheet(name)
+        for i, r in enumerate(fd.ACCT_ROWS):
+            ws[f'D{r}'], ws[f'L{r}'] = [1011, 1012, 1013, 1014, 9011, 9012, 4011, 5011][i], base + i
+    wb.create_sheet('26')                                                    # 오늘 시트(아직 값 없음)
+    wb.save(p)
+    d, vals = fd.report_balances(p, date(2026, 11, 26))
+    assert d == date(2026, 11, 25) and vals['1012'] == 201 and vals['5011'] == 207
+    d, vals = fd.report_balances(p, date(2026, 11, 25))
+    assert d == date(2026, 11, 24) and vals['1011'] == 100
+    assert fd.report_balances(p, date(2026, 11, 24)) == (None, {})
