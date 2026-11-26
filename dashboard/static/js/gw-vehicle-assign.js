@@ -477,7 +477,10 @@
         ? '<p class="gw-vc-ownpick"><i class="fas fa-car-side" aria-hidden="true"></i> 본인 차량: ' + esc(mine.map(name).join(', ')) + '</p>' : '';
     }
     if (!S.ownPick[g.key] && !mine.length) return '';
-    return '<div class="gw-vc-ownpick" role="group" aria-label="' + esc(g.label) + ' 본인 차량으로 가는 사람"><span>자차로 가는 사람</span>' +
+    // 아직 아무도 안 골랐으면 파란 테두리 + '골라 주세요' — 체크만 켜고 지나치기 쉬웠다(11-26 부장님 '눈에 잘 안 띄어')
+    var need = !mine.length;
+    return '<div class="gw-vc-ownpick edit' + (need ? ' need' : '') + '" role="group" aria-label="' + esc(g.label) + ' 본인 차량으로 가는 사람">' +
+      '<span><i class="fas fa-car-side" aria-hidden="true"></i> ' + (need ? '자차로 가는 사람을 골라 주세요' : '자차로 가는 사람') + '</span>' +
       ps.map(function (m) {
         return '<label class="gw-vc-owncheck"><input type="checkbox" class="form-check-input" data-ownp="' + esc(m) + '" data-ckey="' +
           esc(g.key) + '"' + (onOwn(m) ? ' checked' : '') + '> ' + esc(name(m)) + '</label>';
