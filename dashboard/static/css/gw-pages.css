@@ -4284,6 +4284,8 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-fb-table { min-width: 860px; }
 .gw-fb-table th, .gw-fb-table td { padding: 8px 10px; vertical-align: middle; }
 .gw-fb-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gw-fb-table thead th, .gw-fb-table thead th.num { text-align: center; }   /* 머리 칸은 가운데(11-26 부장님 — 수금 정산·스케줄 근무 표와 같게) */
+.gw-fb-table td.c { text-align: center; }   /* 짧은 칸(사업자·기록·계좌·계정)은 몸통도 가운데 */
 .gw-fb-table td.gw-fb-in { color: #1d4ed8; }
 .gw-fb-table td.gw-fb-out { color: #b91c1c; }
 .gw-fb-wrap { min-width: 120px; max-width: 320px; }
