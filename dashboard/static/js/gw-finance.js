@@ -136,6 +136,13 @@
     }).join('');
     $('fbAcct').value = keep;
     markChips();
+    // 입금·출금 칸은 기간 끝 날 하루치 — 머리 칸에 그 날을 적음('그날'은 어느 날인지 몰라서, 11-26 부장님)
+    var heads = document.querySelectorAll('#fbPaneAcct thead th');
+    if (heads.length >= 6 && S.end) {
+      var dl = S.end === iso(new Date()) ? '오늘' : dayLabel(S.end);
+      heads[4].textContent = dl + ' 입금';
+      heads[5].textContent = dl + ' 출금';
+    }
     var row = function (a) {
       var bal = a.balance == null ? '<span class="gw-badge gw-badge-wait">잔액 넣기</span>' : won(a.balance);
       return '<tr tabindex="0" role="button" data-acct="' + a.id + '" aria-label="' + esc(acctName(a) + ' 잔액 맞추기') + '"' +
