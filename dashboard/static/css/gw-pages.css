@@ -4408,3 +4408,9 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
   .gw-fe-tools .btn { min-height: 44px; }
   .gw-fe-table td.gw-fe-chk input { width: 22px; height: 22px; }
 }
+/* 이카운트 올리기: 짧은 칸(일자·구분·유형·거래처·금액·코드)과 머리 칸은 한 줄로, 줄바꿈은 적요만.
+   확인할 점은 꼬리표를 세로로 쌓아 폭을 줄임(11-26 부장님 '줄바꿈되는 열이 있네') */
+.gw-fe-table th, .gw-fe-table td { white-space: nowrap; }
+.gw-fe-table td.gw-fe-memo { white-space: normal; min-width: 180px; }
+.gw-fe-table td.gw-fe-check { width: 1%; }
+.gw-fe-table td.gw-fe-check .gw-badge { display: block; width: max-content; margin: 2px auto; }
