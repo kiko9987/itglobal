@@ -1959,3 +1959,6 @@ body.gw-shell .gw-notify-stale {
     display: none !important;
   }
 }
+
+/* 날짜·시각 칸은 어디를 눌러도 달력이 열림(groupware-shell.js, 11-26) — 손가락 모양으로 알려 줌 */
+body.gw-shell input:is([type="date"], [type="month"], [type="week"], [type="datetime-local"], [type="time"]):not(:disabled):not([readonly]) { cursor: pointer; }

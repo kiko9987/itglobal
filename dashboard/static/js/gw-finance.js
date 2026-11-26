@@ -581,19 +581,6 @@
   })();
   load();
 
-  // 날짜 칸은 달력 아이콘만이 아니라 칸 어디를 눌러도 달력이 열림(11-26 부장님 — 차량 배정·방문 계획과 같게)
-  ['fbStart', 'fbEnd'].forEach(function (id) {
-    var inp = $(id);
-    if (!inp) return;
-    inp.style.cursor = 'pointer';
-    // 마우스로 누를 땐 칸 안 글자(연·월·일)에 커서가 들어가 파랗게 선택되지 않게 — 달력만 열림. 키보드로는 그대로 고칠 수 있음
-    inp.addEventListener('mousedown', function (e) {
-      if (typeof inp.showPicker !== 'function') return;
-      e.preventDefault();
-      try { inp.showPicker(); } catch (er) { /* 지원 안 하는 브라우저는 원래대로 */ }
-    });
-  });
-
   // ── 자동 갱신(11-26 부장님 '서버 무리 가지 않는 선에서') ─────────────
   // 화면이 보일 때만 2분마다, 다른 창에서 돌아오면 1분 넘었을 때 한 번.
   // 오른쪽 창을 열었거나 입력·선택 중이면 건너뜀(쓰던 것 안 날아가게).

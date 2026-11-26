@@ -234,3 +234,19 @@
     });
   }
 })();
+
+/* 날짜·시각 칸(11-26 부장님 '그룹웨어 안에 캘린더 다 점검') — 마우스로 칸 어디를 눌러도 달력이 열리고,
+   칸 안 글자(연·월·일)가 파랗게 선택되지 않게. 키보드로 고치는 건 그대로, 휴대폰(터치)은 원래 달력 그대로.
+   모든 그룹웨어 화면에 한 번에 — 새 화면에 날짜 칸을 넣어도 따로 할 일 없음 */
+(function () {
+  'use strict';
+  if (!document.body || !document.body.classList.contains('gw-shell')) return;
+  var TYPES = { date: 1, month: 1, week: 1, 'datetime-local': 1, time: 1 };
+  document.addEventListener('mousedown', function (e) {
+    var el = e.target;
+    if (e.button !== 0 || !el || el.tagName !== 'INPUT' || !TYPES[el.type]) return;
+    if (el.disabled || el.readOnly || typeof el.showPicker !== 'function') return;
+    e.preventDefault();
+    try { el.showPicker(); } catch (err) { el.focus(); }   // 못 열면 예전처럼 칸에 들어감
+  }, true);
+})();
