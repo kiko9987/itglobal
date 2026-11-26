@@ -533,7 +533,12 @@
     var inp = $(id);
     if (!inp) return;
     inp.style.cursor = 'pointer';
-    inp.addEventListener('click', function () { try { inp.showPicker(); } catch (e) { /* 지원 안 하는 브라우저는 원래대로 */ } });
+    // 마우스로 누를 땐 칸 안 글자(연·월·일)에 커서가 들어가 파랗게 선택되지 않게 — 달력만 열림. 키보드로는 그대로 고칠 수 있음
+    inp.addEventListener('mousedown', function (e) {
+      if (typeof inp.showPicker !== 'function') return;
+      e.preventDefault();
+      try { inp.showPicker(); } catch (er) { /* 지원 안 하는 브라우저는 원래대로 */ }
+    });
   });
 
   // ── 자동 갱신(11-26 부장님 '서버 무리 가지 않는 선에서') ─────────────
