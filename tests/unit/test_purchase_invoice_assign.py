@@ -446,6 +446,29 @@ def test_modal_toggle_shows_transfer_fields_with_remembered_account(sb):
     assert by_id['evidence']['element']['initial_option']['value'] == '전자계산서'
 
 
+def test_submit_before_transfer_fields_load_expands_instead_of_closing(sb):
+    """11-26 KiKO — 「이체 필요」 체크 뒤 칸이 열리기 전(1~2초)에 [지정]을 누르면 지정만 되고 결재가 안 올라갔다."""
+    import json as _j
+    from dashboard.services import purchase_invoice_assign as pinv
+    from dashboard.services import e_approval as ea
+    ea.remember_payee('강원포장', '김강원', '신한', '110-511-825643')
+    on = {'transfer_toggle': {pinv.ACTION_TRANSFER_TOGGLE: {'selected_options': [{'value': 'yes'}]}},
+          'project': {pinv.ACTION_PROJECT: {'selected_option': {'text': {'type': 'plain_text', 'text': 'G4049-JW'},
+                                                                'value': 'G4049-JW'}}},
+          'memo': {'memo': {'value': '실외기 크레인'}}}
+    view = {'state': {'values': on}, 'private_metadata': _j.dumps(META)}
+    new = sb._pinv_expand_if_loading(view)
+    by_id = {b.get('block_id'): b for b in new['blocks']}
+    assert 'payee_name' in by_id and by_id['account']['element']['initial_value'] == '110-511-825643'
+    assert by_id['project']['element']['initial_option']['value'] == 'G4049-JW'      # 고른 값 유지
+    assert by_id['memo']['element']['initial_value'] == '실외기 크레인'
+    assert '이체 칸이 열렸어요' in _j.dumps(new['blocks'][0], ensure_ascii=False)
+    on['payee_name'] = {}                                                          # 칸이 이미 열렸으면 그대로 제출
+    assert sb._pinv_expand_if_loading(view) is None
+    off = {'project': on['project']}                                               # 체크 안 했으면 그대로 제출
+    assert sb._pinv_expand_if_loading({'state': {'values': off}, 'private_metadata': _j.dumps(META)}) is None
+
+
 def test_modal_shows_existing_approval_instead_of_toggle(sb):
     from dashboard.services import e_approval as ea
     row = ea.create(ea.FORM_FUND, 'U1', '박정우', {'amount': 533500, 'grn': 'G', 'partner': '강원포장',
