@@ -308,6 +308,8 @@ def apply_action(action: str, aid: int, uid: str, reason: str = '',
     if not row:
         return '결재를 찾지 못했어요.'
     w = ea.step2_word(row)
+    if action in ('approve', 'final') and uid == ea.edited_by(row):
+        return '금액이나 받는 곳을 직접 고친 결재는 다른 승인자가 승인해요.'
     if not ea.can_act(action, row, uid):
         return {
             'approve': (f'승인은 {ea.first_names()}만 할 수 있어요.' if uid != row.get('requester_id')
@@ -710,8 +712,8 @@ def open_edit_modal(client, trigger_id: str, aid: int, uid: str) -> Optional[str
     row = ea.get(aid)
     if not row or row['status'] not in ea.OPEN_STATUSES:
         return '이미 끝난 요청이라 고칠 수 없어요.'
-    if uid != row.get('requester_id'):
-        return '요청한 사람만 고칠 수 있어요.'
+    if uid != row.get('requester_id') and uid not in ea.edit_admin_ids():
+        return '요청한 사람과 경영지원만 고칠 수 있어요.'
     if not ea.can_act('edit', row, uid):   # 최종 승인이 끝나 이체·구매 대기 — 경영지원이 이미 보내는 중일 수 있다
         return '승인이 끝나 이제 직접 고칠 수 없어요. 카드 스레드에 고칠 내용을 남기고 경영지원에게 알려 주세요.'
     if row['form'] not in (ea.FORM_FUND, ea.FORM_SUPPLY) and row['form'] not in ea.forms.FORMS:
@@ -806,7 +808,10 @@ def process_edit(uid: str, aid: int, fields: dict, files: list, docs: Optional[l
         _st = ea.steps(aid)
         kept = bool(_st) and _st[-1]['step'] == 'edit'
         note = ' — 받은 승인 그대로예요 (받는 곳이 같고 금액이 늘지 않았어요)' if kept else ''
-        if prev == ea.REVISE:
+        if uid != row.get('requester_id'):   # 어드민이 요청자 대신 고침(11-26)
+            again = ' (승인은 처음부터 다시 받아요)' if not kept and prev in (ea.FINAL, ea.APPROVED) else ''
+            _thread_log(row, _changes_block(f'✏️ {ea.initial(name)} 수정 (요청자 대신){again}{note}', row['form'], changed))
+        elif prev == ea.REVISE:
             _thread_log(row, _changes_block(f'✏️ {ea.initial(name)} 수정해서 다시 올림{note}', row['form'], changed))
         else:   # 승인 전에 요청자가 직접 고침 — 받은 승인이 있었으면 처음부터 다시(11-11)
             again = ' (승인은 처음부터 다시 받아요)' if prev == ea.FINAL and row['status'] == ea.PENDING else ''
@@ -823,6 +828,10 @@ def process_edit(uid: str, aid: int, fields: dict, files: list, docs: Optional[l
                 _send_dm(client, aid, u, role)
 
     _after_commit(aid, '수정 스레드 기록', _edit_log)
+    if uid != row.get('requester_id'):
+        _after_commit(aid, '요청자에게 알림', lambda: _notify(
+            client, row.get('requester_id'), f'✏️ {ea.initial(name)}님이 {ea.title(row)}을 고쳤어요.'
+            + (f' <{_card_link(row)}|카드 보기>' if _card_link(row) else '')))
     _after_commit(aid, '카드·DM 새로 그리기', lambda: refresh(row))
     _after_commit(aid, '승인자·경영지원 다시 알림', _tell_approvers)
     _after_commit(aid, '감사 로그', lambda: _audit(row, 'resubmit', name, _changes_text(row['form'], changed)))
@@ -1865,13 +1874,20 @@ def process_form_submit(uid: str, form_key: str, vals: dict) -> dict:
         'urgency': '일반',
         'extra': {'f': vals, 'title': ea.forms.doc_title(form_key, vals, name)},
     }
+    # 어드민이 남의 결재를 고칠 때(11-26) — 받는 사람·제목은 요청자 이름 그대로, 고친 사람 계좌·카드로 기억하지 않는다
+    owner = (ea.get(int(edit_aid)) or {}) if edit_aid else {}
+    proxy = bool(owner) and owner.get('requester_id') != uid
+    if proxy:
+        fields['extra']['title'] = ea.forms.doc_title(form_key, vals, owner.get('requester_name') or name)
     if form_key == ea.forms.FORM_EXPENSE:
         cost = {label: v for v, label in COST_CATEGORIES}.get(vals.get('cost'), vals.get('cost'))
         acct = ea.normalize_account(vals.get('account'))
         vals['account'] = acct
-        fields.update(cost_category=cost, payee_name=name, bank=vals.get('bank'), account=acct)
-        ea.remember_personal('staff', uid, name, vals.get('bank', ''), acct)
-    if form_key == ea.forms.FORM_CARDEXP:
+        fields.update(cost_category=cost, payee_name=owner.get('requester_name') if proxy else name,
+                      bank=vals.get('bank'), account=acct)
+        if not proxy:
+            ea.remember_personal('staff', uid, name, vals.get('bank', ''), acct)
+    if form_key == ea.forms.FORM_CARDEXP and not proxy:
         ea.remember_personal('card', uid, name, '', vals.get('card_no', ''))
     if edit_aid:
         return process_edit(uid, edit_aid, fields, files, docs)

@@ -1575,7 +1575,7 @@ def test_revise_then_edit_fund_same_card(se):
     assert row['status'] == ea.REVISE and ea.status_label(row) == ('🟠', '보완 요청')
     dm = [m for m in se._fake.of('chat_postMessage') if m['channel'] == 'D-' + MGR][-1]
     assert ea.A_EDIT in json.dumps(dm['blocks']) and '계좌번호가 계산서와 달라요' in json.dumps(dm['blocks'], ensure_ascii=False)
-    assert not ea.can_act('edit', row, SB) and ea.can_act('edit', row, MGR)
+    assert ea.can_act('edit', row, SB) and ea.can_act('edit', row, MGR) and not ea.can_act('edit', row, 'UOTHER')   # 11-26 어드민
     text = ea.card_text(row, ea.steps(row['id']), 'G4049-JW')
     assert '🔁 경영지원 (SB) 보완 요청' in text
     # 수정 창 — 올린 값이 채워져 있다
@@ -2012,6 +2012,30 @@ def test_site_change_after_final_approval(se, monkeypatch):
     assert ea.change_site(row['id'], 'G1', '자재비') is None                  # 이체 끝나면 못 바꿈
 
 
+def test_admin_can_edit_others_and_cannot_approve_own_money_edit(se, monkeypatch):
+    """11-26 KiKO — KiKO·SB·JW·YG 는 남의 결재도 [✏️ 수정하기]. 금액·받는 곳을 고친 사람은 그 회차를 승인 못 한다."""
+    monkeypatch.setenv('EAPPROVAL_FINAL_ENABLED', 'true')
+    row = se.process_new_submit(MGR, dict(FIELDS))
+    for u in (KIKO, SB, JW, YG):
+        assert ea.can_act('edit', row, u)
+    assert ea.resubmit(row['id'], 'UOTHER', '남', {'amount': 1}) is None
+    # SB 가 분류만 고침 — 요청자 대신 기록, 요청자에게 알림, 승인자는 그대로 승인 가능
+    f, errs = se.validate_new_submit(_state_from_view(se.edit_view(row), {'content': {'value': 'FCU 부품 교체'}}))
+    assert errs == {}
+    new = se.process_new_submit(SB, f)
+    assert new['status'] == ea.PENDING and new['content'] == 'FCU 부품 교체' and new['requester_id'] == MGR
+    logs = [m['text'] for m in se._fake.of('chat_postMessage') if m.get('thread_ts') == new['card_ts']]
+    assert any('수정 (요청자 대신)' in t for t in logs)
+    assert any(m['channel'] == 'D-' + MGR and '고쳤어요' in m.get('text', '') for m in se._fake.of('chat_postMessage'))
+    # KiKO 가 계좌를 고침 → KiKO 는 승인 못 하고 JW 는 한다
+    f, errs = se.validate_new_submit(_state_from_view(se.edit_view(ea.get(row['id'])), {'account': {'value': '110-511-000000'}}))
+    assert errs == {}
+    se.process_new_submit(KIKO, f)
+    assert ea.edited_by(ea.get(row['id'])) == KIKO
+    assert se.apply_action('approve', row['id'], KIKO) == '금액이나 받는 곳을 직접 고친 결재는 다른 승인자가 승인해요.'
+    assert se.apply_action('approve', row['id'], JW) is None
+
+
 def test_requester_self_edit_before_approval(se, monkeypatch):
     """11-11 KiKO: 올리고 나서 실수를 알아도 고칠 길이 없었다 — 최종 승인 전엔 요청자가 [✏️ 수정하기]."""
     monkeypatch.setenv('EAPPROVAL_FINAL_ENABLED', 'true')
@@ -2019,8 +2043,8 @@ def test_requester_self_edit_before_approval(se, monkeypatch):
     card_ts = row['card_ts']
     btns = [(b['action_id'], b['text']['text']) for b in ea.buttons(row)]
     assert (ea.A_EDIT, '✏️ 수정하기') in btns and ea.A_REVISE in [a for a, _ in btns]
-    assert ea.can_act('edit', row, MGR) and not ea.can_act('edit', row, KIKO)
-    assert se.open_edit_modal(se._fake, 'T', row['id'], KIKO) == '요청한 사람만 고칠 수 있어요.'
+    assert ea.can_act('edit', row, MGR) and not ea.can_act('edit', row, 'UOTHER')
+    assert se.open_edit_modal(se._fake, 'T', row['id'], 'UOTHER') == '요청한 사람과 경영지원만 고칠 수 있어요.'
     # ① 승인 뒤(최종 승인 대기)에 고침 → 승인 처음부터
     old_rev = ea.revision(row['id'])
     se.apply_action('approve', row['id'], KIKO)
@@ -2218,7 +2242,7 @@ def test_old_button_without_revision_still_works(se):
 
 def test_resubmit_only_by_requester(se):
     m = se.process_new_submit(MGR, dict(FIELDS))
-    assert ea.resubmit(m['id'], KIKO, '고광일', {'account': '999-999-999999'}) is None   # 요청자 아님
+    assert ea.resubmit(m['id'], 'UOTHER', '남', {'account': '999-999-999999'}) is None   # 요청자·어드민 아님
     assert ea.get(m['id'])['account'] == FIELDS['account'] and ea.revision(m['id']) == 0
     assert ea.resubmit(m['id'], MGR, '강성환', {'account': '999-999-999999'})[0]['account'] == '999-999-999999'
 
