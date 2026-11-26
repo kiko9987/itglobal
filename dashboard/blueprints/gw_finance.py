@@ -13,6 +13,8 @@ logger = get_logger(__name__)
 
 gw_finance_bp = Blueprint('gw_finance', __name__)
 
+HIDDEN_CODES = ('농협',)   # 입출금 화면에 안 보이는 계좌(장부엔 남음)
+
 
 def _admin() -> bool:
     return _is_admin() and not _is_field()
@@ -71,11 +73,14 @@ def api_list():
         acct = int(request.args.get('account') or 0) or None
         rows = bl.list_tx(start, end, acct, request.args.get('direction') or '',
                           request.args.get('unassigned') == '1', (request.args.get('q') or '').strip()[:40])
+        # 농협(N통장)은 SB 가 관리하지 않는 계좌(11-26 부장님) — 화면·합계에서 뺀다.
+        # 장부엔 그대로 남김: 자금일보 초안이 전자결재 N 출금과 짝지을 때 씀(services/fund_daily.py)
+        rows = [r for r in rows if r.get('acct_code') not in HIDDEN_CODES]
         tot = {'in': sum(r['amount'] for r in rows if r['direction'] == bl.IN),
                'out': sum(r['amount'] for r in rows if r['direction'] == bl.OUT),
                'unassigned': sum(1 for r in rows if r['direction'] in (bl.IN, bl.OUT) and not (r['memo'] or ''))}
         return jsonify({'success': True, 'start': start, 'end': end, 'rows': rows, 'total': tot,
-                        'accounts': bl.summary(end)})
+                        'accounts': [a for a in bl.summary(end) if a['code'] not in HIDDEN_CODES]})
     except Exception as e:
         return _err(e)
 
