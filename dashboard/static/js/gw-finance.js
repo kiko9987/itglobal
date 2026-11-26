@@ -144,8 +144,8 @@
         '<td class="c">' + esc(a.entity) + '</td>' +
         '<td class="num"><strong>' + bal + '</strong></td>' +
         '<td class="text-muted">' + esc(when(a.balance_at)) + '</td>' +
-        '<td class="num gw-fb-in">' + (a.day_in ? won(a.day_in) : '') + '</td>' +
-        '<td class="num gw-fb-out">' + (a.day_out ? won(a.day_out) : '') + '</td>' +
+        '<td class="num gw-fb-in">' + (a.day_in ? won(a.day_in) : '<span class="text-muted">-</span>') + '</td>' +
+        '<td class="num gw-fb-out">' + (a.day_out ? won(a.day_out) : '<span class="text-muted">-</span>') + '</td>' +
         '<td class="c">' + srcBadge(a) + '</td></tr>';
     };
     var rep = S.accounts.filter(function (a) { return a.in_report; });
@@ -190,8 +190,8 @@
         '<td class="text-nowrap">' + esc(when(r.at)) + (SRC_TAG[r.source] ? ' <span class="text-muted small">' + SRC_TAG[r.source] + '</span>' : '') + '</td>' +
         '<td class="text-nowrap c"><strong>' + esc(r.acct_code || '') + '</strong></td>' +
         '<td class="gw-fb-wrap">' + esc(r.counterparty || (r.direction === 'bal' ? '잔액 맞추기' : '')) + '</td>' +
-        '<td class="num gw-fb-in">' + (r.direction === 'in' ? won(r.amount) : '') + '</td>' +
-        '<td class="num gw-fb-out">' + (r.direction === 'out' ? won(r.amount) : '') + '</td>' +
+        '<td class="num gw-fb-in">' + (r.direction === 'in' ? won(r.amount) : '<span class="text-muted">-</span>') + '</td>' +
+        '<td class="num gw-fb-out">' + (r.direction === 'out' ? won(r.amount) : '<span class="text-muted">-</span>') + '</td>' +
         '<td class="num">' + won(r.balance) + '</td>' +
         '<td class="text-nowrap c">' + esc(r.title || '') + '</td>' +
         '<td class="gw-fb-wrap">' + memoCell + '</td></tr>';
