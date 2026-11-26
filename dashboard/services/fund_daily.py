@@ -157,7 +157,11 @@ def outflow_row(tx: dict, approval: Optional[dict], hints, initial_of) -> dict:
         head = pc if PROJECT_RE.match(pc) else f"0 {initial_of(approval.get('requester_name') or '')}".strip()
         partner = approval.get('partner') or approval.get('payee_name') or tx.get('counterparty') or ''
         title = '외상매입' if cost in SUPPLIER_COSTS else (_hint(hints, partner)[0] or cost)
-        return {'I': tx['code'], 'J': title, 'K': f"{head} {approval.get('content') or ''}".strip(), 'N': partner,
+        content = (approval.get('content') or '').strip()
+        # 개인경비 결재는 내용에 공사 코드를 이미 적어 둠('R4294-JW 22M 스틸파이프 구매') — 앞에 또 붙이면 코드가 두 번(11-26)
+        if PROJECT_RE.match(pc) and content.startswith(pc):
+            content = content[len(pc):].strip(' -·/:')
+        return {'I': tx['code'], 'J': title, 'K': f"{head} {content}".strip(), 'N': partner,
                 'O': tx['amount'], 'check': not title}
     title, memo = _hint(hints, tx.get('counterparty') or '')
     return {'I': tx['code'], 'J': title, 'K': memo, 'N': tx.get('counterparty') or '', 'O': tx['amount'],

@@ -212,3 +212,13 @@ def test_match_combined_approvals_same_payee():
     # 받는 분이 다르면 더하지 않음
     ap2 = [dict(ap[0]), dict(ap[1], payee_name='다른사람')]
     assert fd.match_approvals(outs[:1], ap2) == {}
+
+
+def test_outflow_memo_no_double_project_code():
+    """개인경비 결재 내용에 공사 코드가 이미 있으면 적요에 한 번만(11-26 'R4294-JW R4294-JW 22M …')."""
+    tx = {'code': '9012', 'amount': 28_050, 'counterparty': '이종원'}
+    a = {'project_code': 'R4294-JW', 'content': 'R4294-JW 22M 스틸파이프 구매 외 1건', 'cost_category': '', 'partner': '',
+         'payee_name': '이종원', 'requester_name': ''}
+    assert fd.outflow_row(tx, a, HINTS, lambda n: '')['K'] == 'R4294-JW 22M 스틸파이프 구매 외 1건'
+    a2 = dict(a, content='앵글')
+    assert fd.outflow_row(tx, a2, HINTS, lambda n: '')['K'] == 'R4294-JW 앵글'
