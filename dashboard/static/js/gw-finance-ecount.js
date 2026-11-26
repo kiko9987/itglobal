@@ -408,7 +408,7 @@
       api('/api/finance/ecount/audit/' + b.getAttribute('data-aid'),
           { status: b.getAttribute('data-act'), memo: memoEl ? memoEl.value : '' }).then(function (j) {
         var code = tr && tr.querySelector('strong') ? tr.querySelector('strong').textContent : '';
-        msg(code + ' — ' + (j.status === 'open' ? '처리 전으로 되돌렸어요.' : j.status_label + '(으)로 남겼어요.'), 'ok');
+        msg(code + (j.status === 'open' ? ' — 처리 전으로 되돌렸어요.' : " — '" + j.status_label + "'으로 남겼어요."), 'ok');
         return loadAudit();
       }).catch(function (e) { msg(e.message, 'err'); b.disabled = false; });
     });
