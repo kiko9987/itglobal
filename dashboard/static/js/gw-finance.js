@@ -194,7 +194,7 @@
           '<td class="num gw-fb-out">' + (r.direction === 'out' ? won(r.amount) : '<span class="text-muted">-</span>') + '</td>' +
           '<td class="num">' + won(r.balance) + '</td>' +
           '<td class="text-nowrap">' + esc(r.title || '') + '</td>' +
-          '<td class="gw-fb-wrap">' + (r.memo ? esc(r.memo) : (r.direction === 'in' || r.direction === 'out' ? '<span class="gw-badge gw-badge-wait">적요 없음</span>' : '')) + '</td></tr>';
+          '<td class="gw-fb-wrap">' + memoHtml(r) + '</td></tr>';
       }).join('') + '</tbody></table>';
   }
   function paintDetail(id) {
@@ -243,6 +243,31 @@
       }).join('') + '</ul>';
   }
 
+  // 적요 칸 — 거래 내역 표와 계좌별 잔액 펼침이 같이 씀(11-26 부장님 '아코디언에도 반영')
+  function memoHtml(r) {
+    var memo = r.memo || '';
+    var need = (r.direction === 'in' || r.direction === 'out') && !memo;
+    var memoCell = need ? '<span class="gw-badge gw-badge-wait">적요 없음</span>' : esc(memo);
+    // 프로젝트 0번(= 회사 재고, 공사에 안 붙는 구매) — 자금일보 관례 '0 이니셜 내용'을 화면에서는 '[프로젝트 0번] 이름 · 내용'으로(사내에서 부르는 말).
+    //   장부·자금일보에 적는 글은 그대로 두고 보이는 것만 바꾼다(11-26 부장님 '0 JSH 라고만 하니 뭔가 싶다')
+    //   SB 자금일보(1~11월) '0 …' 150줄: 이니셜 붙은 것(0 TH·0 JSH·0 KIKO …)과 없는 것(0 소모품·0 운반비·0 중고매입 …)
+    var noProj = !need && /^0\s+(?:([A-Z]{2,4})(?:\s+|$))?(.*)$/.exec(memo);
+    if (noProj) {
+      var who = noProj[1] ? ((r.approval && r.approval.requester) || noProj[1]) : '';
+      noProj[2] = (noProj[2] || '').trim();
+      memoCell = '<span class="gw-badge gw-fb-noproj" title="프로젝트 0번 = 회사 재고(공사에 안 붙는 구매) — 자금일보에는 \'' + esc(memo) + '\'로 적어요">프로젝트 0번</span> ' +
+        esc(who) + (who && noProj[2] ? ' · ' : '') + esc(noProj[2]);
+    }
+    if (r.project_code && memo.indexOf(r.project_code) === -1) memoCell += ' <span class="text-muted small">' + esc(r.project_code) + '</span>';
+    // 결재 링크 — 여러 결재를 한 번에 보낸 출금은 건별로 '결재 #87 · #88'(11-26 부장님 '외 1건보다 건별로')
+    if (r.approval) memoCell += ' <span class="gw-fb-apprs">' + [r.approval.id].concat(r.approval.more || []).map(function (id, i) {
+      return '<a class="gw-fb-appr" href="/approval?id=' + id + '" target="_blank" rel="noopener" title="결재함에서 열기">' +
+        (i ? '#' : '결재 #') + id + '</a>';
+    }).join(' · ') + '</span>';
+    else if (r.no_approval) memoCell += ' <span class="gw-badge gw-fb-hand" title="같은 금액·날짜의 이체 완료 결재가 없어요">결재 없음</span>';
+    return memoCell;
+  }
+
   function renderRows() {
     renderNoOut();
     $('fbCntTx').textContent = S.rows.length;
@@ -254,26 +279,7 @@
       return;
     }
     $('fbRows').innerHTML = S.rows.map(function (r) {
-      var memo = r.memo || '';
-      var need = (r.direction === 'in' || r.direction === 'out') && !memo;
-      var memoCell = need ? '<span class="gw-badge gw-badge-wait">적요 없음</span>' : esc(memo);
-      // 프로젝트 0번(= 회사 재고, 공사에 안 붙는 구매) — 자금일보 관례 '0 이니셜 내용'을 화면에서는 '[프로젝트 0번] 이름 · 내용'으로(사내에서 부르는 말).
-      //   장부·자금일보에 적는 글은 그대로 두고 보이는 것만 바꾼다(11-26 부장님 '0 JSH 라고만 하니 뭔가 싶다')
-      //   SB 자금일보(1~11월) '0 …' 150줄: 이니셜 붙은 것(0 TH·0 JSH·0 KIKO …)과 없는 것(0 소모품·0 운반비·0 중고매입 …)
-      var noProj = !need && /^0\s+(?:([A-Z]{2,4})(?:\s+|$))?(.*)$/.exec(memo);
-      if (noProj) {
-        var who = noProj[1] ? ((r.approval && r.approval.requester) || noProj[1]) : '';
-        noProj[2] = (noProj[2] || '').trim();
-        memoCell = '<span class="gw-badge gw-fb-noproj" title="프로젝트 0번 = 회사 재고(공사에 안 붙는 구매) — 자금일보에는 \'' + esc(memo) + '\'로 적어요">프로젝트 0번</span> ' +
-          esc(who) + (who && noProj[2] ? ' · ' : '') + esc(noProj[2]);
-      }
-      if (r.project_code && memo.indexOf(r.project_code) === -1) memoCell += ' <span class="text-muted small">' + esc(r.project_code) + '</span>';
-      // 결재 링크 — 여러 결재를 한 번에 보낸 출금은 건별로 '결재 #87 · #88'(11-26 부장님 '외 1건보다 건별로')
-      if (r.approval) memoCell += ' <span class="gw-fb-apprs">' + [r.approval.id].concat(r.approval.more || []).map(function (id, i) {
-        return '<a class="gw-fb-appr" href="/approval?id=' + id + '" target="_blank" rel="noopener" title="결재함에서 열기">' +
-          (i ? '#' : '결재 #') + id + '</a>';
-      }).join(' · ') + '</span>';
-      else if (r.no_approval) memoCell += ' <span class="gw-badge gw-fb-hand" title="같은 금액·날짜의 이체 완료 결재가 없어요">결재 없음</span>';
+      var memoCell = memoHtml(r);
       return '<tr tabindex="0" role="button" data-id="' + r.id + '" aria-label="' + esc(when(r.at) + ' ' + (r.counterparty || '') + ' 고치기') + '">' +
         '<td class="text-nowrap">' + esc(when(r.at)) + (SRC_TAG[r.source] ? ' <span class="text-muted small">' + SRC_TAG[r.source] + '</span>' : '') + '</td>' +
         '<td class="text-nowrap c"><strong>' + esc(r.acct_code || '') + '</strong></td>' +
