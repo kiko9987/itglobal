@@ -3904,11 +3904,14 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
   box-shadow: 0 1px 4px rgba(15, 23, 42, 0.28); cursor: pointer; }
 .gw-vn-pin.moving { background: #166534; color: #fff; }
 .gw-vn-pin.crew { border: 1px solid #94a3b8; }
+.gw-vn-pin.on { background: #1a1c20; color: #fff; box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(15, 23, 42, 0.4); }   /* 목록에서 고른 차(11-27) */
+.gw-vn-car.on { background: #f1f5f9; box-shadow: inset 3px 0 0 #1a1c20; }
 @media (max-width: 767.98px) {
   .gw-vn .gw-page-head { flex-wrap: wrap; gap: 8px; }
   .gw-vn-near { flex-wrap: wrap; }
   .gw-vn-near .form-control { font-size: 16px; min-height: 44px; flex-basis: 100%; }
   .gw-vn-near .btn, .gw-vn .gw-page-actions .btn { min-height: 44px; }
+  .gw-vn-near .btn-primary { flex: 1 1 auto; }   /* 혼자 왼쪽에 떠 보이던 단추 — 줄을 채움(11-27) */
   .gw-vn-body { grid-template-columns: 1fr; }
   .gw-vn-map { order: -1; min-height: 0; height: 46vh; }
   .gw-vn-list { max-height: none; }

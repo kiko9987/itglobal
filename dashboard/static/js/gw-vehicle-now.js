@@ -46,7 +46,10 @@
   }
 
   var page = $('vnPage');
-  var S = { cars: [], filter: 'all', near: null, loadMsg: false, map: null, kakao: null, overlays: {}, target: null, timer: null, key: page.getAttribute('data-kakao') || '' };
+  var S = { cars: [], filter: 'all', near: null, loadMsg: false, map: null, kakao: null, overlays: {}, target: null, timer: null, sel: null, key: page.getAttribute('data-kakao') || '' };
+  // 휴대폰(목록이 지도 아래) — 확대 단추는 손가락으로 대신하고, 주소 칸 안내는 짧게(11-27 부장님 '모바일 UI 이상')
+  var narrow = window.matchMedia ? window.matchMedia('(max-width: 767.98px)') : { matches: false };
+  if (narrow.matches) $('vnAddr').placeholder = '방문 주소 (예: 공항대로 247)';
 
   function isStop(c) { return c.lat != null && !c.moving; }     // 위치를 모르는 차는 정지로 세지 않는다(11-24)
   function counts() {
@@ -62,7 +65,7 @@
     var state = c.lat == null ? '<span class="gw-vn-state none">위치 없음</span>'
       : (c.moving ? '<span class="gw-vn-state moving">운행 중</span>' : '<span class="gw-vn-state stop">정지</span>');
     var who = (c.riders || []).length ? esc(c.riders.join(', ')) : '<span class="text-muted">오늘 배정 없음</span>';
-    return '<li><button type="button" class="gw-vn-car" data-plate="' + esc(c.plate) + '"' + (c.lat == null ? ' disabled' : '') + '>' +
+    return '<li><button type="button" class="gw-vn-car' + (S.sel === c.plate ? ' on' : '') + '" data-plate="' + esc(c.plate) + '"' + (c.lat == null ? ' disabled' : '') + '>' +
       '<span class="gw-vn-top"><strong>' + esc(c.label) + '</strong> <span class="gw-vn-plate">' + esc(c.plate) + '</span>' +
       (c.km != null ? '<span class="gw-vn-km">' + esc(c.km) + ' km</span>' : '') + '</span>' +
       '<span class="gw-vn-mid">' + state + ' <span class="gw-vn-who">' + who + '</span></span>' +
@@ -86,24 +89,50 @@
       S.kakao = kakao;
       $('vnMap').innerHTML = '';
       S.map = new kakao.maps.Map($('vnMap'), { center: new kakao.maps.LatLng(37.62, 126.72), level: 9 });
-      S.map.addControl(new kakao.maps.ZoomControl(), kakao.maps.ControlPosition.RIGHT);
+      if (!narrow.matches) S.map.addControl(new kakao.maps.ZoomControl(), kakao.maps.ControlPosition.RIGHT);
+      kakao.maps.event.addListener(S.map, 'zoom_changed', function () { drawMarkers(false); });
     }).catch(function () { mapMsg('지도를 불러오지 못했어요. 차 위치는 왼쪽 목록에서 볼 수 있어요.'); });
+  }
+  // 화면에서 꼬리표가 겹치는 차는 하나로 묶는다 — 전체 지도에선 김포·고양 차들이 겹쳐 읽을 수 없었다(11-27 부장님 '모바일 UI').
+  //   확대할 때마다 다시 묶어서, 가까이 보면 다시 한 대씩 나온다. 꼬리표 크기(가로 약 90px·세로 26px) 안이면 겹침.
+  function px(c) {
+    var pt = S.map.getProjection().containerPointFromCoords(new S.kakao.maps.LatLng(c.lat, c.lon));
+    return { x: pt.x, y: pt.y };
+  }
+  function groups() {
+    var out = [];
+    S.cars.filter(function (c) { return c.lat != null; })
+      .sort(function (a, b) { return (b.moving ? 1 : 0) - (a.moving ? 1 : 0); })     // 운행 중인 차가 꼬리표 이름
+      .forEach(function (c) {
+        var p = px(c);
+        var g = out.filter(function (g) { return Math.abs(g.p.x - p.x) < 90 && Math.abs(g.p.y - p.y) < 26; })[0];
+        if (g) g.cars.push(c); else out.push({ cars: [c], p: p });
+      });
+    return out;
   }
   function drawMarkers(fit) {
     if (!S.map) return;
     var kakao = S.kakao, seen = {}, bounds = new kakao.maps.LatLngBounds(), any = false;
-    S.cars.forEach(function (c) {
-      if (c.lat == null) return;
+    groups().forEach(function (g) {
+      var c = g.cars[0], plates = g.cars.map(function (x) { return x.plate; });
+      var key = plates.slice().sort().join('|');
+      var on = S.sel && plates.indexOf(S.sel) >= 0;
       var pos = new kakao.maps.LatLng(c.lat, c.lon);
-      seen[c.plate] = 1;
+      seen[key] = 1;
       var el = document.createElement('button');
       el.type = 'button';
-      el.className = 'gw-vn-pin' + (c.moving ? ' moving' : '') + (c.crew ? ' crew' : '');
-      el.setAttribute('data-plate', c.plate);
-      el.textContent = c.label;
-      var o = S.overlays[c.plate];
-      if (o) { o.setPosition(pos); o.setContent(el); }
-      else S.overlays[c.plate] = new kakao.maps.CustomOverlay({ map: S.map, position: pos, content: el, yAnchor: 1.3, clickable: true });
+      el.className = 'gw-vn-pin' + (c.moving ? ' moving' : '') + (c.crew ? ' crew' : '') + (g.cars.length > 1 ? ' group' : '') + (on ? ' on' : '');
+      el.setAttribute('data-plate', on ? S.sel : c.plate);
+      el.setAttribute('data-plates', plates.join(','));
+      el.setAttribute('data-lat', c.lat);
+      el.setAttribute('data-lon', c.lon);
+      var name = on ? g.cars.filter(function (x) { return x.plate === S.sel; })[0].label : c.label;
+      el.textContent = g.cars.length > 1 ? name + ' 외 ' + (g.cars.length - 1) + '대' : name;
+      if (g.cars.length > 1) el.title = g.cars.map(function (x) { return x.label; }).join(', ');
+      var z = on ? 30 : (c.moving ? 20 : 10);
+      var o = S.overlays[key];
+      if (o) { o.setPosition(pos); o.setContent(el); o.setZIndex(z); }
+      else S.overlays[key] = new kakao.maps.CustomOverlay({ map: S.map, position: pos, content: el, yAnchor: 1.3, clickable: true, zIndex: z });
       bounds.extend(pos);
       any = true;
     });
@@ -114,8 +143,20 @@
   function focusCar(plate) {
     var c = S.cars.filter(function (x) { return x.plate === plate; })[0];
     if (!c || c.lat == null || !S.map) return;
+    S.sel = plate;
+    Array.prototype.forEach.call($('vnCars').querySelectorAll('.gw-vn-car'), function (b) {
+      b.classList.toggle('on', b.getAttribute('data-plate') === plate);
+    });
+    drawMarkers(false);
     S.map.setLevel(5);
     S.map.panTo(new S.kakao.maps.LatLng(c.lat, c.lon));
+    // 휴대폰은 지도가 목록 위 — 아래쪽 차를 누르면 지도가 화면 밖이라 아무 일도 없어 보였다(11-27). 지도가 보이게 올린다.
+    var box = $('vnMap').getBoundingClientRect();
+    if (narrow.matches && box.top < 0) {
+      var head = document.querySelector('.gw-topbar');
+      var off = head ? Math.max(0, head.getBoundingClientRect().bottom) + 8 : 120;
+      window.scrollTo({ top: window.pageYOffset + box.top - off, behavior: 'smooth' });
+    }
   }
 
   // ── 불러오기 ──
@@ -221,6 +262,23 @@
   $('vnMap').addEventListener('click', function (e) {     // 지도 꼬리표를 누르면 목록의 그 차로
     var b = e.target.closest('.gw-vn-pin[data-plate]');
     if (!b) return;
+    // 여러 대가 한 꼬리표면 그 자리로 크게 — 300m 안이라 크게 해도 하나로 남으니 목록을 그 차들로 표시만
+    var many = (b.getAttribute('data-plates') || '').split(',').filter(Boolean);
+    if (many.length > 1) {
+      // 묶인 꼬리표 — 그 차들이 다 보이게 크게. 한자리(주차장)라 더 커져도 묶여 있으면 목록에서 그 차들을 표시
+      Array.prototype.forEach.call($('vnCars').querySelectorAll('.gw-vn-car'), function (x) {
+        x.classList.toggle('on', many.indexOf(x.getAttribute('data-plate')) >= 0);
+      });
+      var bd = new S.kakao.maps.LatLngBounds();
+      S.cars.forEach(function (c) { if (many.indexOf(c.plate) >= 0) bd.extend(new S.kakao.maps.LatLng(c.lat, c.lon)); });
+      var lv = S.map.getLevel();
+      if (lv > 3) {
+        // 묶인 차들이 넓게 퍼져 있으면 '다 보이게'가 오히려 작아진다(휴대폰 지도는 좁음) — 그땐 그 자리로 한 단계씩 크게
+        S.map.setBounds(bd, 30, 30, 30, 30);
+        if (S.map.getLevel() >= lv) S.map.setLevel(lv - 1, { anchor: new S.kakao.maps.LatLng(+b.dataset.lat, +b.dataset.lon) });
+        return;
+      }
+    }
     var li = $('vnCars').querySelector('[data-plate="' + b.getAttribute('data-plate').replace(/"/g, '') + '"]');
     if (li) { li.scrollIntoView({ block: 'nearest' }); li.focus(); }
   });
