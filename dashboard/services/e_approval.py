@@ -810,6 +810,11 @@ def resubmit(aid: int, actor_id: str, actor_name: str, fields: Dict) -> Optional
         if kept:   # 'edit' 줄 — 승인 줄은 그대로 보이고(step_line 은 마지막 'resubmit' 뒤만 봄) 수정 회차는 올라간다
             conn.execute('INSERT INTO approval_steps (approval_id, step, actor_id, actor_name, result, reason, at) '
                          'VALUES (?,?,?,?,?,?,?)', (aid, 'edit', actor_id, actor_name, 'kept', '받은 승인 유지', now))
+            if 'amount' in changed:   # 승인받은 금액을 남긴다 — 카드에 '승인 … → … (할인 …)'(11-27 #100)
+                cur_x = extra(_row(conn, aid))
+                if not cur_x.get('requested_amount'):
+                    cur_x['requested_amount'] = int(changed['amount'][0] or 0)
+                    conn.execute('UPDATE approvals SET extra=? WHERE id=?', (json.dumps(cur_x, ensure_ascii=False), aid))
             conn.commit()
             return _row(conn, aid), changed
         conn.execute('INSERT INTO approval_steps (approval_id, step, actor_id, actor_name, result, at) '
@@ -1390,9 +1395,10 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
         if x.get('reason'):
             lines.append(f"사유: {x['reason']}")
         req = int(x.get('requested_amount') or 0)
-        if req and req != int(row.get('amount') or 0):   # 구매 완료 때 실제 결제 금액(11-27)
+        if req and req > int(row.get('amount') or 0):   # 할인으로 줄어든 금액 — 구매 완료 창·수정하기 둘 다(11-27)
             paid = int(row.get('amount') or 0)
-            lines.append(f'실제 결제: {paid:,}원 (요청 {req:,}원 · 할인 {req - paid:,}원)')
+            word = '실제 결제' if row.get('status') == DONE else '할인 반영'
+            lines.append(f'{word}: {paid:,}원 (요청 {req:,}원 · 할인 {req - paid:,}원)')
         if x.get('purchase_memo'):
             lines.append(f"구매 메모: {x['purchase_memo']}")
     else:
