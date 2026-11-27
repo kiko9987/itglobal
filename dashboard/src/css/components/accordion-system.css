@@ -2095,14 +2095,15 @@ tr.accordion-row:hover .row-details,
    날짜가 '11. / 27 / 접 / 수'처럼 쪼개졌음. 넓은 PC(1920 초과)는 칸이 넉넉해 그대로 두고,
    그 아래 폭에서만 이름을 위·값을 아래로. 수금·금액 카드는 자기 배치(단계·뱃지 열)가 있어 제외. */
 @media (min-width: 768px) and (max-width: 1919.98px) {
+  /* main.css 의 .compact-item { flex-direction: row !important } 를 이기려면 !important 필요 */
   .info-card.compact-card:not([data-card-type]) .card-grid .compact-item {
-    flex-direction: column;
-    align-items: flex-start;
+    flex-direction: column !important;
+    align-items: flex-start !important;
     justify-content: center;
-    gap: 2px;
+    gap: 2px !important;
   }
   .info-card.compact-card:not([data-card-type]) .compact-item small {
-    min-width: 0;
+    min-width: 0 !important;
   }
   .info-card.compact-card:not([data-card-type]) .compact-item small::after {
     content: none;
