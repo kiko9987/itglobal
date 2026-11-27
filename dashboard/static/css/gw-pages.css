@@ -20,6 +20,7 @@
 
 .gw-page-head {
   display: flex;
+  flex-wrap: wrap;   /* 좁으면 버튼 줄이 다음 줄로(제목·버튼이 찌그러지지 않게, 11-28) */
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -991,6 +992,7 @@ td .gw-badge { vertical-align: 1px; line-height: 1.3; }
 .gw-seg-btn {
   border: 0;
   background: transparent;
+  white-space: nowrap;   /* 휴대폰에서 '달/력'처럼 한 글자씩 쪼개지던 것(11-28 점검) */
   padding: 4px 14px;
   border-radius: 6px;
   font-size: 0.88rem;
@@ -1094,7 +1096,7 @@ td .gw-badge { vertical-align: 1px; line-height: 1.3; }
 
 .gw-cal-chip.ok { background: #ffedd5; color: #7c2d12; }
 .gw-cal-chip.wait { background: #fff; color: #9a3412; border: 1px dashed #fb923c; }
-.gw-cal-chip small { color: #9a3412; opacity: 0.85; }
+.gw-cal-chip small { color: #9a3412; opacity: 0.85; font-size: inherit; }   /* 사유 10.6px → 칩 글자 크기(11-28) */
 
 @media (max-width: 767.98px) {
   .gw-cal-day { min-height: 64px; }
@@ -1487,6 +1489,9 @@ td .gw-badge { vertical-align: 1px; line-height: 1.3; }
 .gw-ap-table {
   min-width: 860px;
 }
+/* 플렉스 보관함: 양식(198px)·거래처(362px)가 한 줄로 늘어나 1440에서 넘쳤음 — 줄바꿈 허용·최대 폭(11-28 점검) */
+.gw-ap-table:has(#arRows) td:nth-child(2), .gw-ap-table:has(#arRows) td:nth-child(5) { white-space: normal; max-width: 200px; }
+.gw-ap-table:has(#arRows) td.main { min-width: 200px; }
 
 .gw-ap-table th {
   padding: 10px 12px;
@@ -1674,6 +1679,8 @@ td .gw-badge { vertical-align: 1px; line-height: 1.3; }
 .gw-dl-1col {
   grid-template-columns: 1fr;
 }
+/* 창 안 한 줄 목록은 이름 칸을 넓게 — '계약금 입금 일/자'처럼 꺾이던 것(플렉스 보관함, 11-28) */
+.gw-dl-1col dt { flex-basis: 132px; }
 
 .gw-ap-section {
   margin: 10px 0 2px;
@@ -2849,7 +2856,7 @@ html:has(#bdPage) {
   margin-right: 6px;
   padding: 0 6px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 12px;   /* 11px → 12px(11-28 점검) */
   font-weight: 600;
   line-height: 18px;
   vertical-align: 1px;
@@ -3198,7 +3205,7 @@ html:has(#bdPage) {
 .gw-va-stext { color: #475569; margin-top: 2px; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .gw-va-sempty { color: #64748b; margin: 0; font-size: 0.86rem; }
 /* 명단 — 휴가 꼬리표, 휴무 묶음은 흐리게(넣을 수는 있음) */
-.gw-va-leave { color: #475569; background: #f2f3f6; border-radius: 999px; padding: 0 6px; font-size: 0.72rem; }
+.gw-va-leave { color: #475569; background: #f2f3f6; border-radius: 999px; padding: 0 6px; font-size: 0.75rem; }
 .gw-va-group.off .gw-va-person { color: #475569; background: #f8fafc; border-style: dashed; }
 .gw-va-person.picked .gw-va-leave { background: #ffffff; color: #2a3038; }
 .gw-va-bar { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 10px 0; margin-top: 16px; background: linear-gradient(to top, #f8fafc 70%, rgba(248,250,252,0)); }
@@ -4092,7 +4099,7 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-hd-mcal-n { font-size: 0.7rem; font-weight: 500; color: #b91c1c; font-variant-numeric: tabular-nums; }
 .gw-hd-mcal.past .gw-hd-mcal-n { color: #94a3b8; }
 .gw-hd-mgrid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 1px; font-variant-numeric: tabular-nums; }
-.gw-hd-wd { font-size: 0.62rem; color: #94a3b8; text-align: center; line-height: 1.6; }
+.gw-hd-wd { font-size: 0.72rem; color: #94a3b8; text-align: center; line-height: 1.6; }
 .gw-hd-wd.we { color: #cbd5e1; }
 .gw-hd-c { display: flex; align-items: center; justify-content: center; aspect-ratio: 1; font-size: 0.68rem; color: #334155; border-radius: 6px; border: 0; background: none; padding: 0; line-height: 1; }
 .gw-hd-c.we { color: #94a3b8; }
@@ -4310,8 +4317,10 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-home-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
 .gw-home-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 @media (max-width: 991.98px) {
-  .gw-home-cols { display: flex; flex-direction: column; }
+  /* align-items:start(넓은 화면 격자용)가 남아 카드가 글 길이만큼 늘어났음 — 휴대폰 메일 칸 1169px(11-28 점검) */
+  .gw-home-cols { display: flex; flex-direction: column; align-items: stretch; }
   .gw-home-col { display: contents; }
+  .gw-home-cols .gw-home-card { min-width: 0; max-width: 100%; }
   .gw-home-o1 { order: 1; } .gw-home-o2 { order: 2; } .gw-home-o3 { order: 3; } .gw-home-o4 { order: 4; } .gw-home-o5 { order: 5; }
 }
 .gw-nt-body .gw-nt-slack { color: #4a154b; font-size: 1.05em; }   /* 슬랙 로고(:slack:) — 슬랙 보라 */
@@ -4384,6 +4393,9 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-fb-facts dd { margin: 0; color: #0f172a; font-variant-numeric: tabular-nums; }
 .gw-fb-help { font-size: 0.82rem; color: #64748b; margin: 0 0 14px; }
 .gw-fb-panel .gw-vm-form input[data-num] { text-align: right; font-variant-numeric: tabular-nums; }
+/* 직접 입력 창: 칸 이름이 두 줄로 꺾여 입력칸 줄이 어긋나고 날짜·시각이 잘렸음 → 두 칸씩, 날짜·시각은 한 줄 전체(11-28 점검) */
+.gw-fb-panel #fbForm.gw-vm-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.gw-fb-opt { color: #64748b; font-size: 0.72rem; margin-left: 4px; }
 @media (min-width: 768px) { .gw-fb #fbAcct { max-width: 190px; text-overflow: ellipsis; } }
 
 /* ── 재무 > 수금 정산(11-26 점검으로 공통 틀) — 제목·칩·gw-stats·gw-panel·맨 아래 설명은 공통.
@@ -4406,6 +4418,9 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .cr-tbl th, .cr-tbl td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; text-align: center;
                          white-space: normal; word-break: keep-all; overflow-wrap: anywhere; }
 .cr-tbl th { background: #f8fafc; color: #64748b; font-weight: 600; }
+/* 1440 폭에선 18칸이 다 안 들어가 옆으로 넘김 — 넘겨도 어느 공사인지 보이게 첫 칸 고정(11-28 점검) */
+.cr-tbl thead th:first-child, .cr-tbl tbody td:first-child:not(.cr-owner):not([colspan]) { position: sticky; left: 0; z-index: 1; background: #fff; box-shadow: 1px 0 0 #e2e8f0; }
+.cr-tbl thead th:first-child { background: #f8fafc; }
 .cr-tbl td.n, .cr-tbl th.n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .cr-tbl td.lbl { text-align: left; }
 .cr-tbl td.nw { white-space: nowrap; }

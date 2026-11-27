@@ -429,13 +429,13 @@
     h += '<section class="gw-vm-sec"><form class="gw-vm-form" id="fbForm" novalidate>';
     if (!sms) {
       h += '<label>계좌<select class="form-select form-select-sm" name="account_id" required><option value="">고르기</option>' + acctOpts + '</select></label>' +
-        '<label>날짜·시각<input type="datetime-local" class="form-control form-control-sm" name="at" required value="' +
+        '<label class="wide">날짜·시각<input type="datetime-local" class="form-control form-control-sm" name="at" required value="' +
           esc(row ? row.at.replace(' ', 'T').slice(0, 16) : nowLocal()) + '"></label>';
       if (!isBal) {
         h += '<label>구분<select class="form-select form-select-sm" name="direction">' +
             '<option value="in"' + (dir === 'in' ? ' selected' : '') + '>입금</option><option value="out"' + (dir === 'out' ? ' selected' : '') + '>출금</option></select></label>' +
           inp('amount', '금액(원)', row ? won(row.amount) : '', ' inputmode="numeric" data-num') +
-          inp('balance', '거래 후 잔액(원) 모르면 비워 두세요', row ? won(row.balance) : '', ' inputmode="numeric" data-num') +
+          inp('balance', '거래 후 잔액(원) <span class="gw-fb-opt">모르면 비워 두기</span>', row ? won(row.balance) : '', ' inputmode="numeric" data-num') +
           inp('counterparty', '상대방', row ? row.counterparty : '', ' maxlength="60"');
       } else {
         h += '<input type="hidden" name="direction" value="bal">' +

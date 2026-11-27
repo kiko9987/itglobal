@@ -500,6 +500,20 @@
       ['arForm', 'arFrom', 'arTo', 'arQ'].forEach(function (id) { $(id).value = ''; });
       ar.page = 1; arLoad();
     });
+    // 플렉스에서 옮긴 금액 칸은 '5900000'처럼 숫자만 — 금액 칸이면 쉼표를 넣어 보여 줌(값은 그대로, 11-28 점검)
+    var MONEY_LABEL = /(금액|금\(|금$|대금|비용|합계|단가|공급가|부가세|VAT|원\))/;
+    var NOT_MONEY = /(번호|코드|연락처|전화|계좌|사업자|일자|날짜)/;
+    function archiveMoney(fields) {
+      return (fields || []).map(function (f) {
+        var v = String(f.value == null ? '' : f.value).trim();
+        if (f.label && MONEY_LABEL.test(f.label) && !NOT_MONEY.test(f.label) && /^-?\d{4,}$/.test(v)) {
+          var o = {}; Object.keys(f).forEach(function (k) { o[k] = f[k]; });
+          o.value = Number(v).toLocaleString('ko-KR');
+          return o;
+        }
+        return f;
+      });
+    }
     function openArchive(no) {
       openDrawer('문서 ' + no, '<div class="gw-empty">불러오는 중…</div>');
       api('/api/approval/archive/' + encodeURIComponent(no)).then(function (j) {
@@ -507,7 +521,7 @@
         $('apDocTitle').textContent = d.title;
         var h = '<div class="gw-ap-doc-top"><span class="gw-ap-st flex-' + esc(d.status) + '">' + esc(d.status) + '</span>' +
           '<span class="gw-ap-doc-meta">' + esc(d.form) + ' · ' + esc(d.writer) + ' · ' + esc((d.created_at || '').slice(0, 16)) + '</span></div>';
-        h += '<div class="gw-sec-title">내용</div>' + fieldsHtml(d.fields);
+        h += '<div class="gw-sec-title">내용</div>' + fieldsHtml(archiveMoney(d.fields));
         if (d.memo) h += '<div class="gw-sec-title">메모</div><div class="gw-ap-memo">' + esc(d.memo).replace(/\n/g, '<br>') + '</div>';
         if (d.attachments) h += '<div class="gw-log mt-2">플렉스 첨부 파일 ' + d.attachments + '개 — 파일은 옮기지 않았어요(목록·내용만 보관).</div>';
         $('apDoc').innerHTML = h;
