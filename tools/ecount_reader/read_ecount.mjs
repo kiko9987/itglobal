@@ -40,7 +40,8 @@ const stamp = (() => { const d = new Date(); const p = n => String(n).padStart(2
 const JSON_OUT = path.join(OUT, `ecount_read_${stamp}.json`);
 const LOGF = path.join(OUT, `ecount_read_${stamp}.log`);
 fs.writeFileSync(LOGF, '');
-const mask = s => String(s).replace(/[A-Za-z0-9+/=_-]{24,}/g, '[가림]');
+// 긴 토큰(세션 값 등)은 가림 — 우리 파일 이름(ecount_read_…)은 그대로
+const mask = s => String(s).replace(/[A-Za-z0-9+/=_-]{24,}/g, m => /ecount_read_\d{8}_\d{6}/.test(m) ? m : '[가림]');
 const log = (...a) => {
   const line = new Date().toTimeString().slice(0, 8) + ' ' + a.map(x => typeof x === 'string' ? x : JSON.stringify(x)).join(' ');
   console.log(mask(line)); fs.appendFileSync(LOGF, mask(line) + '\n');
@@ -126,14 +127,23 @@ async function waitFor(expr, ms, step = 300) {
 
 // ── 화면 읽기(회계거래조회) ──
 const VIS = 'e => e && e.offsetParent !== null';
+// 이카운트 화면은 배열의 JSON 바꾸기를 고쳐 놓아(11-28 첫 실행: range 가 배열이 아니라 글자로 옴) 화면 안에서는
+// JSON.stringify 를 쓰지 않고 구분 글자(\u0001 칸, \u0002 줄, \u0003 항목)로 이은 글자 하나를 받아 여기서 나눈다.
 const STATE_JS = `(() => { const t = document.body.innerText;
-  const rows = [...document.querySelectorAll('tr')].map(tr => [...tr.querySelectorAll('td')].map(td => td.innerText.trim().replace(/\\s+/g, ' ')))
-    .filter(c => c.length >= 9 && /^\\d+$/.test(c[0]));
+  const rows = []; document.querySelectorAll('tr').forEach(tr => { const c = []; tr.querySelectorAll('td').forEach(td => c.push(td.innerText.trim().replace(/\\s+/g, ' ')));
+    if (c.length >= 9 && /^\\d+$/.test(c[0])) rows.push(c.join('\\u0001')); });
+  const m = t.match(/(\\d{4}\\/\\d{2}\\/\\d{2}) ~ (\\d{4}\\/\\d{2}\\/\\d{2})/) || ['', '', ''];
   const a = document.querySelector('ul.pagination li.active');
-  return JSON.stringify({ title: document.title, hash: location.hash, range: (t.match(/(\\d{4}\\/\\d{2}\\/\\d{2}) ~ (\\d{4}\\/\\d{2}\\/\\d{2})/) || []).slice(1, 3),
-    last: +((t.match(/\\/ (\\d+)/) || [0, 0])[1]), active: a ? +a.textContent.trim() : 0,
-    pager: !!document.querySelector('ul.pagination'), rows }); })()`;
-async function state() { return JSON.parse(await js(STATE_JS)); }
+  return [document.title, location.hash, m[1], m[2], (t.match(/\\/ (\\d+)/) || [0, 0])[1], a ? a.textContent.trim() : '0',
+    document.querySelector('ul.pagination') ? '1' : '', rows.join('\\u0002')].join('\\u0003'); })()`;
+async function state() {
+  const raw = await js(STATE_JS);
+  if (typeof raw !== 'string') throw new Error('화면 상태를 읽지 못했어요.');
+  const [title, hash, r0, r1, last, active, pager, rows] = raw.split('\u0003');
+  return { title, hash, range: r0 ? [r0, r1] : [], last: +last || 0, active: +active || 0, pager: !!pager,
+           rows: rows ? rows.split('\u0002').map(r => r.split('\u0001')) : [] };
+}
+const firstKey = st => (st.rows[0] || []).join('|');
 
 // 쪽 이동 — ul.pagination 안의 a 만 누른다(밖의 a 를 누르면 ERP 첫 화면으로 튐, 11-26)
 const GOTO_JS = p => `(() => { const u = document.querySelector('ul.pagination'); if (!u) return 'nopager';
@@ -176,16 +186,42 @@ async function pick(kind, index, value) {
   if (now !== value) throw new Error(`${kind} 가 ${value} 로 바뀌지 않았어요(지금 ${now}).`);
 }
 
-async function setStart() {
-  const [y, m, d] = FROM.split('-');
-  await pick('year', 0, y);
-  await pick('month', 0, m);
-  if (!await clickWhere(`document.querySelectorAll('input#day')[0]`, 3)) throw new Error('시작 일 칸을 찾지 못했어요.');
-  await js(`(() => { const e = document.querySelectorAll('input#day')[0]; e.select && e.select(); return 1; })()`);
+async function setDay(index, d) {
+  if (!await clickWhere(`document.querySelectorAll('input#day')[${index}]`, 3)) throw new Error('일 칸을 찾지 못했어요.');
+  await js(`(() => { const e = document.querySelectorAll('input#day')[${index}]; e.select && e.select(); return 1; })()`);
   await send('Input.insertText', { text: d });
   await sleep(300);
-  const v = await js(`document.querySelectorAll('input#day')[0].value`);
-  if (String(v).padStart(2, '0') !== d) throw new Error(`시작 일이 ${d} 로 들어가지 않았어요(지금 ${v}).`);
+  const v = await js(`document.querySelectorAll('input#day')[${index}].value`);
+  if (String(v).padStart(2, '0') !== d) throw new Error(`일이 ${d} 로 들어가지 않았어요(지금 ${v}).`);
+}
+
+// 앞으로 갈 때(endFirst)는 끝 날짜부터 바꿔 잠깐이라도 시작 > 끝이 되지 않게
+async function setRange(from, to, endFirst = false) {
+  const [y1, m1, d1] = from.split('-'), [y2, m2, d2] = to.split('-');
+  await openSearchForm();
+  const start = async () => { await pick('year', 0, y1); await pick('month', 0, m1); await setDay(0, d1); };
+  const end = async () => { await pick('year', 1, y2); await pick('month', 1, m2); await setDay(1, d2); };
+  if (endFirst) { await end(); await start(); } else { await start(); await end(); }
+}
+
+// 분기마다 한 구간. 마지막 구간 끝은 다음 달 말일(미리 날짜로 넣은 전표까지)
+function chunks() {
+  const out = [], p = n => String(n).padStart(2, '0');
+  const now = new Date(), endAll = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+  let [y, m] = FROM.split('-').map(Number), first = true;
+  while (true) {
+    const start = first ? FROM : `${y}-${p(m)}-01`;
+    first = false;
+    let ey = y, em = m + 2;
+    if (em > 12) { em -= 12; ey++; }
+    let end = new Date(ey, em, 0);
+    if (end >= endAll || new Date(ey, em, 1) > now) end = endAll;
+    out.push([start, `${end.getFullYear()}-${p(end.getMonth() + 1)}-${p(end.getDate())}`]);
+    if (end >= endAll) break;
+    m = em + 1; y = ey;
+    if (m > 12) { m = 1; y++; }
+  }
+  return out;
 }
 
 async function setAccount(code) {
@@ -201,25 +237,30 @@ async function setAccount(code) {
   log('계정 걸림:', (chip.match(/[^ ]*제품매출[^ ]*/) || [code])[0]);
 }
 
-async function runSearch() {
-  const before = JSON.stringify((await state()).rows[0] || []);
+async function runSearch(from, to) {
+  const before = firstKey(await state());
   const ok = await clickWhere(`[...document.querySelectorAll('button')].find(e => e.offsetParent !== null && /^검색\\(F8\\)$/.test(e.textContent.trim()))`);
   if (!ok) throw new Error('검색(F8) 단추를 찾지 못했어요.');
-  const want = FROM.replace(/-/g, '/');
+  const w0 = from.replace(/-/g, '/'), w1 = to.replace(/-/g, '/');
+  let empty = 0;
   for (let t = 0; t < 60000; t += 500) {
     await sleep(500);
     const s = await state().catch(() => null);
-    if (s && s.range[0] === want && s.pager && s.rows.length && JSON.stringify(s.rows[0]) !== before) { await sleep(1500); return await state(); }
+    if (!s || s.range[0] !== w0 || s.range[1] !== w1) continue;
+    if (s.pager && s.rows.length && firstKey(s) !== before) { await sleep(1500); return await state(); }
+    if (!s.rows.length && ++empty >= 10) return s;          // 그 기간에 전표가 없음(5초 동안 빈 표)
   }
-  const s = await state().catch(() => ({}));
-  throw new Error(`검색 결과 기간이 맞지 않아요(지금 ${(s.range || []).join(' ~ ')}).`);
+  const s = await state().catch(() => ({ range: [] }));
+  throw new Error(`검색 결과 기간이 맞지 않아요(원하는 ${w0} ~ ${w1}, 지금 ${s.range.join(' ~ ') || '없음'}).`);
 }
 
 // 지금 검색 결과를 첫 쪽부터 끝까지 — 쪽마다 행 수를 남기고, 하나라도 못 읽으면 실패
-async function readAll(label) {
+async function readAll(label, from, to) {
   let s = await state();
-  if (!s.range.length || s.range[0] !== FROM.replace(/-/g, '/')) throw new Error(`${label}: 기간이 ${FROM} 부터가 아니에요.`);
-  if (s.range[1] < today()) throw new Error(`${label}: 기간 끝(${s.range[1]})이 오늘보다 앞이에요.`);
+  if (s.range[0] !== from.replace(/-/g, '/') || s.range[1] !== to.replace(/-/g, '/'))
+    throw new Error(`${label}: 기간이 ${from} ~ ${to} 가 아니에요(${s.range.join(' ~ ')}).`);
+  if (!s.rows.length) { log(`${label}: 전표 없음`); return { rows: [], pages: 0, page_size: 0, range: s.range }; }
+  if (s.last >= 100) throw new Error(`${label}: 100쪽 한도에 닿았어요(잘렸을 수 있음) — 기간을 더 쪼개야 해요.`);
   if (s.active !== 1) {   // 첫 쪽으로
     await js(GOTO_JS(1)); await waitFor(`(document.querySelector('ul.pagination li.active') || {}).textContent === '1'`, 15000); await sleep(800);
     s = await state();
@@ -232,14 +273,14 @@ async function readAll(label) {
   while (p <= last) {
     if (overtime()) throw new Error(`${label}: 시간 초과(${p}쪽에서 멈춤)`);
     if (++guard > last * 4 + 20) throw new Error(`${label}: 쪽 넘기기가 끝나지 않아요(${p}쪽).`);
-    const firstBefore = JSON.stringify((await state()).rows[0] || []);
+    const firstBefore = firstKey(await state());
     const how = await js(GOTO_JS(p));
     if (how === 'nopager' || how === 'nonext') throw new Error(`${label}: ${p}쪽으로 갈 단추가 없어요(${how}).`);
     let moved = false;
     for (let t = 0; t < 20000; t += 300) {
       await sleep(300);
       const n = await state().catch(() => null);
-      if (n && n.pager && JSON.stringify(n.rows[0] || []) !== firstBefore && n.active) { moved = true; break; }
+      if (n && n.pager && firstKey(n) !== firstBefore && n.active) { moved = true; break; }
     }
     if (!moved) throw new Error(`${label}: ${p}쪽이 열리지 않았어요.`);
     await sleep(400);
@@ -323,25 +364,34 @@ try {
   log('로그인 됨:', (url.match(/^https:\/\/[^/]+/) || [''])[0]);
 
   await openSlipList();
-  await openSearchForm();
-  await setStart();
+  const parts = chunks();
+  log('읽을 구간:', parts.map(x => x.join('~')).join(', '));
+  async function readChunks(label, keep) {
+    const rows = [], info = [];
+    for (const [i, [from, to]] of parts.entries()) {
+      await setRange(from, to, i > 0);
+      await runSearch(from, to);
+      const r = await readAll(`${label} ${from}~${to}`, from, to);
+      rows.push(...r.rows.filter(keep));
+      info.push({ from, to, pages: r.pages, rows: r.rows.length });
+    }
+    return { rows, chunks: info, total_rows: info.reduce((a, x) => a + x.rows, 0) };
+  }
   if (ONLY !== 'sales') {
     // 1) 계정 없이 — 매입·지출 전표(매출전표도 섞여 나오지만 매출은 2)에서 계정을 걸어 따로 읽음)
+    await openSearchForm();
     if (await js(`(() => { const i = document.querySelector('input[placeholder="계정"]'); let b = i; for (let k = 0; k < 6 && b; k++) b = b.parentElement; return /제품매출/.test(b ? b.innerText : ''); })()`))
       throw new Error('계정 칸에 이미 계정이 걸려 있어요. 매입을 읽으려면 계정이 비어 있어야 해요.');
-    await runSearch();
-    const all = await readAll('전체 전표');
-    result.buy = { ...all, rows: all.rows.filter(r => r.typ !== '매출전표 I'), total_rows: all.rows.length };
-    log(`매입·지출 전표 ${result.buy.rows.length}줄(매출전표 뺌)`);
+    result.buy = await readChunks('전체 전표', r => r.typ !== '매출전표 I');
+    log(`매입·지출 전표 ${result.buy.rows.length}줄(전체 ${result.buy.total_rows}줄에서 매출전표 뺌)`);
   }
   if (ONLY !== 'buy') {
     await openSearchForm();
     await setAccount(SALES_ACCOUNT);
-    await runSearch();
-    result.sales = await readAll('매출(4049)');
+    result.sales = await readChunks('매출(4049)', () => true);
     const kinds = {};
     result.sales.rows.forEach(r => { kinds[r.typ] = (kinds[r.typ] || 0) + 1; });
-    log('매출 전표 종류:', kinds);
+    log(`매출 전표 ${result.sales.rows.length}줄, 종류:`, kinds);
   }
   result.ok = true;
 } catch (e) {
