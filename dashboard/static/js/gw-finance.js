@@ -304,7 +304,7 @@
   }
   function grpHead(g) {
     var shut = !!S.fold[g.key], a = g.acct;
-    var endLabel = S.end ? (S.end === iso(new Date()) ? '오늘' : dayLabel(S.end)) + ' 끝 잔액' : '끝 잔액';
+    var balTip = S.end ? dayLabel(S.end) + ' 기준 계좌 잔액' : '계좌 잔액';   // 머리줄 글은 그냥 '잔액'(11-27 부장님), 기준 날짜는 마우스를 올리면
     var bal = a && a.balance != null ? won(a.balance) : '<span class="text-muted">-</span>';
     return '<tr class="gw-fb-grp" tabindex="0" role="button" data-grp="' + esc(g.key) + '" aria-expanded="' + !shut + '"' +
       ' aria-label="' + esc(g.name + ' 거래 ' + g.rows.length + '건 ' + (shut ? '펼치기' : '접기')) + '">' +
@@ -316,7 +316,7 @@
           (a && a.balance != null ? ' · 잔액 ' + won(a.balance) : '') + '</div></td>' +
       '<td class="num gw-fb-in"><span class="gw-fb-grp-k">입금</span>' + (g.inSum ? won(g.inSum) : '-') + '</td>' +
       '<td class="num gw-fb-out"><span class="gw-fb-grp-k">출금</span>' + (g.outSum ? won(g.outSum) : '-') + '</td>' +
-      '<td class="num" title="' + esc(endLabel) + ' — 거르기와 관계없이 계좌 잔액"><span class="gw-fb-grp-k">' + esc(endLabel) + '</span><strong>' + bal + '</strong></td>' +
+      '<td class="num" title="' + esc(balTip) + '"><span class="gw-fb-grp-k">잔액</span><strong>' + bal + '</strong></td>' +
       '<td colspan="2" class="gw-fb-grp-src">' + (a ? srcBadge(a) : '') + '</td></tr>';
   }
 
