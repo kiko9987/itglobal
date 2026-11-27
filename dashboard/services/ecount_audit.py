@@ -71,6 +71,37 @@ def _conn():
 def _ensure(conn) -> None:
     conn.execute(_DDL)
     conn.execute('CREATE INDEX IF NOT EXISTS idx_ecount_audit_batch ON ecount_audit_items(batch)')
+    # 처리 기록(11-27 부장님 '근거는 기존 거 밑에 히스토리') — 되돌릴 때 앞 처리·메모를 여기로 옮기고, 다시 대조한 결과도 한 줄씩 쌓음.
+    cols = {r[1] for r in conn.execute('PRAGMA table_info(ecount_audit_items)').fetchall()}
+    if 'history' not in cols:
+        conn.execute('ALTER TABLE ecount_audit_items ADD COLUMN history TEXT')
+
+
+def _md(ts) -> str:
+    """resolved_at(UTC 'YYYY-MM-DD HH:MM:SS') → 한국 시각 'M/D'. 못 읽으면 오늘."""
+    from datetime import datetime, timedelta
+    try:
+        d = datetime.strptime(str(ts)[:19], '%Y-%m-%d %H:%M:%S') + timedelta(hours=9)
+    except (TypeError, ValueError):
+        d = datetime.now()
+    return f'{d.month}/{d.day}'
+
+
+def _append_history(conn, item_id: int, line: str) -> None:
+    row = conn.execute('SELECT history FROM ecount_audit_items WHERE id = ?', (item_id,)).fetchone()
+    old = (row[0] if row else '') or ''
+    conn.execute('UPDATE ecount_audit_items SET history = ? WHERE id = ?',
+                 ((old + '\n' if old else '') + line.strip(), item_id))
+
+
+def add_history(item_id: int, line: str) -> None:
+    """근거 칸 아래 기록에 한 줄 더함(다시 대조한 결과 등). 상태·메모는 그대로."""
+    with _conn() as conn:
+        _ensure(conn)
+        if not conn.execute('SELECT 1 FROM ecount_audit_items WHERE id = ?', (item_id,)).fetchone():
+            raise LookupError('대조 항목을 찾지 못했어요.')
+        _append_history(conn, item_id, line)
+        conn.commit()
 
 
 def import_items(batch: str, items: List[Dict]) -> int:
@@ -132,9 +163,13 @@ def set_status(item_id: int, status: str, memo: str, by: str) -> Dict:
     memo = (memo or '').strip()[:200]
     with _conn() as conn:
         _ensure(conn)
-        row = conn.execute('SELECT id, code FROM ecount_audit_items WHERE id = ?', (item_id,)).fetchone()
+        row = conn.execute('SELECT id, code, status, memo, resolved_by, resolved_at FROM ecount_audit_items WHERE id = ?',
+                           (item_id,)).fetchone()
         if not row:
             raise LookupError('대조 항목을 찾지 못했어요. 새로 고쳐 주세요.')
+        if row[2] != 'open':                    # 앞 처리는 기록으로 남김(되돌려도 누가 무엇을 했는지 보이게)
+            _append_history(conn, item_id, f'{_md(row[5])} {row[4] or ""} {STATUSES.get(row[2], row[2])}'
+                                           + (f' — {row[3]}' if row[3] else ''))
         if status == 'open':
             conn.execute("UPDATE ecount_audit_items SET status='open', memo=?, resolved_by=NULL, resolved_at=NULL "
                          'WHERE id = ?', (memo or None, item_id))

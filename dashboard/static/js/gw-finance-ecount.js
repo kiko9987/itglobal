@@ -389,6 +389,12 @@
       }).join('') : '<span class="text-muted">기록 없음</span>') + '</div>';
     }
     if (tags.length) html += '<div class="gw-fa-tags">' + tags.map(function (t) { return '<span class="gw-fa-tag">' + esc(t) + '</span>'; }).join('') + '</div>';
+    // 처리 기록(11-27) — 되돌린 앞 처리·메모, 다시 대조한 결과가 날짜순으로 쌓임
+    var hist = String(r.history || '').split('\n').filter(function (x) { return x.trim(); });
+    if (hist.length) {
+      html += '<div class="gw-fa-sub">기록</div><ul class="gw-fa-hist">' +
+        hist.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>';
+    }
     return html;
   }
   function auditRow(r) {

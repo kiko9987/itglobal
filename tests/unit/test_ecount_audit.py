@@ -51,6 +51,14 @@ def test_set_status_moves_done_down_and_can_undo(db):
     ea.set_status(first['id'], 'open', '', by='황샛별')                       # 되돌리기
     back = [i for i in ea.list_items()['groups'][0]['items'] if i['id'] == first['id']][0]
     assert back['status'] == 'open' and back['resolved_by'] is None and back['memo'] is None
+    # 되돌려도 앞 처리·메모는 근거 칸 아래 기록으로 남음, 다시 대조 결과도 한 줄 더함(11-27)
+    assert back['history'].endswith('황샛별 이카운트 고침 — 한 장 지움')
+    ea.add_history(first['id'], '11/27 다시 대조 — 아직 3장')
+    ea.set_status(first['id'], 'keep', '', by='황샛별')
+    again = [i for i in ea.list_items()['groups'][0]['items'] if i['id'] == first['id']][0]
+    assert again['history'].split('\n')[1] == '11/27 다시 대조 — 아직 3장' and again['memo'] is None
+    with pytest.raises(LookupError):
+        ea.add_history(999, 'x')
 
 
 def test_bad_input(db):
