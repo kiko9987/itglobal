@@ -46,7 +46,7 @@
   }
 
   var page = $('vnPage');
-  var S = { cars: [], filter: 'all', near: null, loadMsg: false, map: null, kakao: null, overlays: {}, target: null, timer: null, sel: null, key: page.getAttribute('data-kakao') || '' };
+  var S = { cars: [], filter: 'all', near: null, loadMsg: false, map: null, kakao: null, overlays: {}, target: null, timer: null, sel: null, canRoute: false, route: null, routeOn: false, routeMsg: '', key: page.getAttribute('data-kakao') || '' };
   // 휴대폰(목록이 지도 아래) — 확대 단추는 손가락으로 대신하고, 주소 칸 안내는 짧게(11-27 부장님 '모바일 UI 이상')
   var narrow = window.matchMedia ? window.matchMedia('(max-width: 767.98px)') : { matches: false };
   if (narrow.matches) $('vnAddr').placeholder = '방문 주소 (예: 공항대로 247)';
@@ -91,6 +91,7 @@
       S.map = new kakao.maps.Map($('vnMap'), { center: new kakao.maps.LatLng(37.62, 126.72), level: 9 });
       if (!narrow.matches) S.map.addControl(new kakao.maps.ZoomControl(), kakao.maps.ControlPosition.RIGHT);
       kakao.maps.event.addListener(S.map, 'zoom_changed', function () { drawMarkers(false); });
+      buildMapUi();
       // 창 크기가 바뀌면 지도 틀만 줄고 안의 지도는 큰 창에 맞춘 그대로라 차가 잘렸다(11-27 부장님) — 틀에 맞춰 다시 그리고,
       //   고른 차가 있으면 그 차를 가운데에, 없으면 모든 차(가까운 차 찾기 중이면 방문지까지)가 보이게.
       if (window.ResizeObserver) {
@@ -158,19 +159,132 @@
     if (S.target) bounds.extend(S.target.getPosition());
     if (fit && any) S.map.setBounds(bounds, 40, 40, 40, 40);
   }
-  function focusCar(plate) {
+  // ── 고른 차 카드(11-27 부장님 'U+ 지도 기능을 우리 사이트에 맞게') ──
+  //   U+ 는 차를 누르면 왼쪽 목록이 상세로 바뀌고 지도에 말풍선이 떴다. 우리는 목록·지도를 그대로 두고 지도 아래쪽에
+  //   카드 하나 — 휴대폰에서도 지도와 함께 보이고, 30초마다 새로 받은 값으로 같이 바뀐다.
+  function stopMap(el) {      // 카드·단추를 누르거나 끌 때 지도가 따라 움직이지 않게
+    ['mousedown', 'touchstart', 'pointerdown', 'dblclick', 'wheel'].forEach(function (ev) {
+      el.addEventListener(ev, function (e) { e.stopPropagation(); }, { passive: true });
+    });
+  }
+  function buildMapUi() {
+    var box = $('vnMap');
+    var type = document.createElement('div');
+    type.className = 'gw-vn-maptype';
+    type.setAttribute('role', 'group');
+    type.setAttribute('aria-label', '지도 종류');
+    type.innerHTML = '<button type="button" data-t="road" aria-pressed="true">지도</button>' +
+      '<button type="button" data-t="sky" aria-pressed="false">위성</button>';
+    stopMap(type);
+    box.appendChild(type);
+    type.addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-t]');
+      if (b) setMapType(b.getAttribute('data-t'));
+    });
+    var card = document.createElement('section');
+    card.className = 'gw-vn-card';
+    card.id = 'vnCard';
+    card.hidden = true;
+    card.setAttribute('aria-label', '고른 차');
+    stopMap(card);
+    box.appendChild(card);
+    card.addEventListener('click', function (e) {
+      if (e.target.closest('[data-act=close]')) { clearSel(); return; }
+      if (e.target.closest('[data-act=route]')) toggleRoute();
+    });
+    var saved = null;
+    try { saved = localStorage.getItem('gw.vn.maptype'); } catch (err) { /* 저장 못 해도 지도는 기본 */ }
+    if (saved === 'sky') setMapType('sky');
+  }
+  function setMapType(t) {
+    if (!S.map) return;
+    var k = S.kakao.maps.MapTypeId;
+    S.map.setMapTypeId(t === 'sky' ? k.HYBRID : k.ROADMAP);      // 위성 + 도로·지명 이름
+    Array.prototype.forEach.call(document.querySelectorAll('.gw-vn-maptype button'), function (b) {
+      b.setAttribute('aria-pressed', b.getAttribute('data-t') === t ? 'true' : 'false');
+    });
+    try { localStorage.setItem('gw.vn.maptype', t); } catch (err) { /* 무시 */ }
+  }
+  function num(v, unit) { return v == null || v === '' ? '-' : esc(Math.round(v)) + unit; }
+  function renderCard() {
+    var card = $('vnCard');
+    if (!card) return;
+    var c = S.sel && S.cars.filter(function (x) { return x.plate === S.sel; })[0];
+    if (!c) { card.hidden = true; return; }
+    var state = c.lat == null ? '<span class="gw-vn-state none">위치 없음</span>'
+      : (c.moving ? '<span class="gw-vn-state moving">운행 중</span>' : '<span class="gw-vn-state stop">정지</span>');
+    var who = (c.riders || []).length ? esc(c.riders.join(', ')) : '<span class="text-muted">오늘 배정 없음</span>';
+    // 연료 0 은 센서 값이 안 오는 차(스파크 등) — '0%'로 보이면 기름이 없는 줄 앎. 전기차는 배터리.
+    var energy = c.electric ? (c.soc ? ['배터리', num(c.soc, '%')] : null) : (c.fuel ? ['연료', num(c.fuel, '%')] : null);
+    var nums = '<div><dt>속도</dt><dd>' + (c.moving ? num(c.speed, ' km/h') : '서 있음') + '</dd></div>' +
+      (energy ? '<div><dt>' + energy[0] + '</dt><dd>' + energy[1] + '</dd></div>' : '') +
+      '<div><dt>위치 받은 시각</dt><dd>' + esc(c.at ? c.at.slice(6) : '-') + (c.mins != null ? ' · ' + esc(ago(c.mins)) : '') + '</dd></div>';
+    var routeBtn = S.canRoute && c.lat != null
+      ? '<button type="button" class="btn btn-sm ' + (S.routeOn ? 'btn-dark' : 'btn-outline-secondary') + '" data-act="route" aria-pressed="' + S.routeOn + '">' +
+        '<i class="fas fa-route me-1" aria-hidden="true"></i>' + (S.routeOn ? '오늘 경로 끄기' : '오늘 경로') + '</button>' : '';
+    card.innerHTML =
+      '<div class="gw-vn-card-head"><strong>' + esc(c.label) + '</strong><span class="gw-vn-plate">' + esc(c.plate) + '</span>' + state +
+        '<button type="button" class="gw-vn-card-x" data-act="close" aria-label="닫기"><i class="fas fa-xmark" aria-hidden="true"></i></button></div>' +
+      '<div class="gw-vn-card-who">' + who + '</div>' +
+      '<div class="gw-vn-card-addr">' + esc(c.addr || '-') + (c.pos_stale ? ' · 새 위치 안 들어옴' : '') + '</div>' +
+      '<dl class="gw-vn-card-nums">' + nums + '</dl>' +
+      (routeBtn || S.routeMsg ? '<div class="gw-vn-card-act">' + routeBtn +
+        (S.routeMsg ? '<span class="gw-vn-card-note" role="status">' + esc(S.routeMsg) + '</span>' : '') + '</div>' : '');
+    card.hidden = false;
+  }
+  function clearRoute() {
+    if (S.route) { S.route.forEach(function (o) { o.setMap(null); }); S.route = null; }
+    S.routeOn = false; S.routeMsg = '';
+  }
+  function clearSel() {
+    S.sel = null;
+    clearRoute();
+    Array.prototype.forEach.call($('vnCars').querySelectorAll('.gw-vn-car.on'), function (b) { b.classList.remove('on'); });
+    renderCard();
+    drawMarkers(false);
+  }
+  // 오늘 경로 — 고른 차가 오늘 다닌 길(U+ 하루 경로). 위치 기록이라 운행일지를 볼 수 있는 사람(경영지원)에게만 단추가 보인다.
+  function toggleRoute() {
+    if (S.routeOn) { clearRoute(); renderCard(); return; }
+    var plate = S.sel;
+    if (!plate || !S.map) return;
+    var d = new Date(), day = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+    S.routeMsg = '경로를 받는 중…';
+    renderCard();
+    api('/api/vehicles/route?plate=' + encodeURIComponent(plate) + '&day=' + day).then(function (j) {
+      if (S.sel !== plate) return;                      // 받는 사이 다른 차를 골랐으면 버림
+      clearRoute();
+      var pts = j.points || [];
+      if (pts.length < 2) { S.routeMsg = '오늘은 아직 움직인 기록이 없어요.'; renderCard(); return; }
+      var kakao = S.kakao, path = pts.map(function (p) { return new kakao.maps.LatLng(p[0], p[1]); });
+      var line = new kakao.maps.Polyline({ map: S.map, path: path, strokeWeight: 4, strokeColor: '#2563eb', strokeOpacity: 0.85 });
+      var start = document.createElement('div');
+      start.className = 'gw-kmap-pin';
+      start.textContent = '출발';
+      var o = new kakao.maps.CustomOverlay({ map: S.map, position: path[0], content: start, yAnchor: 1.4, zIndex: 5 });
+      S.route = [line, o]; S.routeOn = true;
+      var b = new kakao.maps.LatLngBounds();
+      path.forEach(function (p) { b.extend(p); });
+      S.map.setBounds(b, 40, 40, 40, 40);
+      renderCard();
+    }).catch(function (e) { if (S.sel === plate) { S.routeMsg = e.message; renderCard(); } });
+  }
+
+  function focusCar(plate, fromMap) {
     var c = S.cars.filter(function (x) { return x.plate === plate; })[0];
     if (!c || c.lat == null || !S.map) return;
+    if (S.sel !== plate) clearRoute();
     S.sel = plate;
     Array.prototype.forEach.call($('vnCars').querySelectorAll('.gw-vn-car'), function (b) {
       b.classList.toggle('on', b.getAttribute('data-plate') === plate);
     });
+    renderCard();
     drawMarkers(false);
     S.map.setLevel(5);
     S.map.panTo(new S.kakao.maps.LatLng(c.lat, c.lon));
     // 휴대폰은 지도가 목록 위 — 아래쪽 차를 누르면 지도가 화면 밖이라 아무 일도 없어 보였다(11-27). 지도가 보이게 올린다.
     var box = $('vnMap').getBoundingClientRect();
-    if (narrow.matches && box.top < 0) {
+    if (!fromMap && narrow.matches && box.top < 0) {
       var head = document.querySelector('.gw-topbar');
       var off = head ? Math.max(0, head.getBoundingClientRect().bottom) + 8 : 120;
       window.scrollTo({ top: window.pageYOffset + box.top - off, behavior: 'smooth' });
@@ -183,6 +297,7 @@
     if (!quiet) $('vnWhen').textContent = '불러오는 중…';
     return api('/api/vehicles/now').then(function (j) {
       S.cars = j.cars || [];
+      S.canRoute = !!j.can_route;
       if (S.near) {           // 가까운 차 순서를 보고 있으면 거리만 남기고 위치는 새 값으로
         var km = {};
         S.near.forEach(function (c) { km[c.plate] = c.km; });
@@ -204,6 +319,7 @@
         : (j.enabled && j.config_error ? 'U+ 설정 일부가 잘못 적혀 있어요 — 관리자 확인 필요' : ''));
       renderList();
       drawMarkers(first);
+      renderCard();
       first = false;
     }).catch(function (e) { $('vnWhen').textContent = ''; $('vnWhen').classList.remove('warn'); loadMsg(e.message); });
   }
@@ -297,8 +413,11 @@
         return;
       }
     }
-    var li = $('vnCars').querySelector('[data-plate="' + b.getAttribute('data-plate').replace(/"/g, '') + '"]');
-    if (li) { li.scrollIntoView({ block: 'nearest' }); li.focus(); }
+    // 한 대짜리 꼬리표 — 그 차를 골라 카드를 띄운다(목록에서 누른 것과 같음). PC 는 목록도 그 줄이 보이게.
+    var plate = b.getAttribute('data-plate');
+    focusCar(plate, true);
+    var li = $('vnCars').querySelector('[data-plate="' + plate.replace(/"/g, '') + '"]');
+    if (li && !narrow.matches) li.scrollIntoView({ block: 'nearest' });
   });
   $('vnReload').addEventListener('click', function () { load(); });
   document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') load(true); });

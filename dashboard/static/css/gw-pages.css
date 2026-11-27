@@ -3906,12 +3906,37 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-vn-pin.crew { border: 1px solid #94a3b8; }
 .gw-vn-pin.on { background: #1a1c20; color: #fff; box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(15, 23, 42, 0.4); }   /* 목록에서 고른 차(11-27) */
 .gw-vn-car.on { background: #f1f5f9; box-shadow: inset 3px 0 0 #1a1c20; }
+/* 지도 위 — 지도·위성 전환(왼쪽 위)과 고른 차 카드(왼쪽 아래). 카카오 지도 칸 위에 얹는다(11-27) */
+.gw-vn-maptype { position: absolute; top: 10px; left: 10px; z-index: 3; display: inline-flex; background: #fff; border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.22); overflow: hidden; }
+.gw-vn-maptype button { border: 0; background: transparent; padding: 6px 12px; font-size: 0.82rem; font-weight: 600; color: #475569; }
+.gw-vn-maptype button + button { border-left: 1px solid #e2e8f0; }
+.gw-vn-maptype button[aria-pressed="true"] { background: #1a1c20; color: #fff; }
+.gw-vn-maptype button:focus-visible { outline: 2px solid #2a3038; outline-offset: -2px; }
+.gw-vn-card { position: absolute; left: 10px; bottom: 10px; z-index: 3; width: 320px; max-width: calc(100% - 20px);
+  background: #fff; border-radius: 10px; box-shadow: 0 4px 16px rgba(15, 23, 42, 0.22); padding: 12px 14px; }
+.gw-vn-card[hidden] { display: none; }
+.gw-vn-card-head { display: flex; align-items: center; gap: 6px; }
+.gw-vn-card-head strong { font-size: 1rem; }
+.gw-vn-card-x { margin-left: auto; border: 0; background: transparent; color: #64748b; width: 32px; height: 32px; border-radius: 6px; }
+.gw-vn-card-x:hover { background: #f1f5f9; color: #1a1c20; }
+.gw-vn-card-x:focus-visible { outline: 2px solid #2a3038; outline-offset: -2px; }
+.gw-vn-card-who { font-size: 0.86rem; color: #334155; margin-top: 2px; }
+.gw-vn-card-addr { font-size: 0.82rem; color: #64748b; }
+.gw-vn-card-nums { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 8px 0 0; }
+.gw-vn-card-nums dt { font-size: 0.72rem; font-weight: 400; color: #64748b; }
+.gw-vn-card-nums dd { margin: 0; font-size: 0.86rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.gw-vn-card-act { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.gw-vn-card-note { font-size: 0.8rem; color: #64748b; }
 @media (max-width: 767.98px) {
   .gw-vn .gw-page-head { flex-wrap: wrap; gap: 8px; }
   .gw-vn-near { flex-wrap: wrap; }
   .gw-vn-near .form-control { font-size: 16px; min-height: 44px; flex-basis: 100%; }
   .gw-vn-near .btn, .gw-vn .gw-page-actions .btn { min-height: 44px; }
-  .gw-vn-near .btn-primary { flex: 1 1 auto; }   /* 혼자 왼쪽에 떠 보이던 단추 — 줄을 채움(11-27) */
+  .gw-vn-near .btn-primary { flex: 1 1 auto; }
+  .gw-vn-card { left: 8px; right: 8px; bottom: 8px; width: auto; max-width: none; padding: 10px 12px; }
+  .gw-vn-card-x { width: 44px; height: 44px; margin: -8px -8px -8px auto; }
+  .gw-vn-card-act .btn, .gw-vn-maptype button { min-height: 44px; }   /* 혼자 왼쪽에 떠 보이던 단추 — 줄을 채움(11-27) */
   .gw-vn-body { grid-template-columns: 1fr; }
   .gw-vn-map { order: -1; min-height: 0; height: 46vh; }
   .gw-vn-list { max-height: none; }

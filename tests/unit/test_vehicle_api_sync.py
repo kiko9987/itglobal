@@ -160,6 +160,10 @@ def test_now_view_and_nearest(db, monkeypatch):
     assert [c['plate'] for c in n['cars'][:2]] == [RAY, SPARK] and n['cars'][0]['km'] < 2
     with pytest.raises(ValueError):
         vas.nearest('없는 주소')
+    # 차 정보 카드(11-27): 전기차는 연료 대신 배터리
+    vas.save_state([{'plate': '90머9131', 'lat': CO[0], 'lon': CO[1], 'at': datetime.now(), 'speed': 0.0, 'fuel': 0.0, 'soc': 71.0}])
+    ev = next(c for c in vas.now_view()['cars'] if c['plate'] == '90머9131')
+    assert ev['electric'] and ev['soc'] == 71.0 and not ray['electric']
 
 
 def test_route_filter(db, monkeypatch):
@@ -261,10 +265,13 @@ def test_now_page_open_to_all_and_field(db, monkeypatch):
             s['user'] = {'email': 'staff@example.com', 'permission_level': 'user'}
         j = cl.get('/api/vehicles/now').get_json()
         assert j['success'] and 'cars' in j
+        assert j['can_route'] is False                                         # 오늘 경로 단추는 경영지원만(11-27)
+        assert cl.get('/api/vehicles/route?plate=231%ED%97%886854&day=2026-11-27').status_code == 403
         assert cl.get('/api/vehicles/insights').status_code == 403            # 운전 습관은 경영지원만
         assert cl.get('/api/vehicles/logbook.xlsx').status_code == 403
         monkeypatch.setattr(bp, '_hr_admin', lambda: True)                    # 경영지원은 개발 중 명단 밖이어도 들어옴(11-24)
         assert cl.get("/api/vehicles/insights").get_json()["success"]   # 운행 표가 없는 새 DB 에서도(11-24)
+        assert cl.get('/api/vehicles/now').get_json()['can_route'] is True
         assert cl.get('/api/vehicles/manage').status_code != 403              # 개발 중 문을 통과
         assert cl.get('/api/vehicles/assign').status_code == 403              # 차량 배정은 그대로(배정 담당)
     # 현장 세션은 차량 화면·API 를 못 연다(11-25)

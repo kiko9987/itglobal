@@ -689,7 +689,8 @@ def page_now():
 def api_now():
     from dashboard.services import vehicle_api_sync as vas
     try:
-        return jsonify({'success': True, **vas.now_view(), 'kakao_js': _kakao_js()})
+        # can_route: 차 정보 카드의 [오늘 경로] — 경로는 위치 기록이라 운행일지와 같은 사람(경영지원)만(11-27)
+        return jsonify({'success': True, **vas.now_view(), 'kakao_js': _kakao_js(), 'can_route': bool(_hr_admin())})
     except Exception as e:
         logger.error(f'[차량위치] 불러오기 실패: {e}', exc_info=True)
         return jsonify({'success': False, 'message': '불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요.'}), 500

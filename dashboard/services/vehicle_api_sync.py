@@ -777,7 +777,9 @@ def route(plate: str, day: str, start: str = '', end: str = '') -> List[List[flo
         raise ValueError('U+ 경로 API 승인 전이에요.')
     k = (plate, day)
     hit = _route_cache.get(k)
-    if hit and time.time() - hit[0] < 600:
+    # 오늘 경로는 아직 쌓이는 중 — 실시간 위치 카드의 [오늘 경로]가 10분 전 선을 보이지 않게 2분만 기억(11-27)
+    ttl = 120 if day == date.today().isoformat() else 600
+    if hit and time.time() - hit[0] < ttl:
         pts = hit[1]
     else:
         pts = up.route_day(plate, day)
@@ -822,7 +824,8 @@ def now_view() -> Dict:
                     'addr': reverse(s['lat'], s['lon']) if s.get('lat') is not None else '',
                     'at': at[5:16].replace('-', '/') if at else '', 'mins': mins, 'moving': moving,
                     'pos_stale': pos_stale,
-                    'speed': s.get('speed'), 'fuel': s.get('fuel'),
+                    'speed': s.get('speed'), 'fuel': s.get('fuel'), 'soc': s.get('soc'),
+                    'electric': '전기' in (c.get('fuel') or '') or '일렉' in c['label'],   # 차 정보 카드: 연료 대신 배터리(11-27)
                     'riders': [va.display(x, who) for x in (va.riders(r) if r else [])],
                     'ended': bool(a.get('ended_at'))})
     # U+ 조회가 실패했으면 화면이 옛 위치를 '지금 기준'으로 보이지 않게 — error 와 마지막으로 받은 시각을 같이(11-24
