@@ -4495,6 +4495,26 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-fa-table .gw-fa-eco { font-size: 11px; color: #9a3412; margin-top: 2px; }
 .gw-fa-table td.gw-fa-why { min-width: 220px; font-size: 12px; }
 .gw-fa-table .gw-fa-ev { color: #64748b; margin-top: 2px; }
+/* 근거 칸 나눔(11-27) — 차이 한 줄 · 안내 · 이카운트 전표 목록 · 계산서 꼬리표 · 덧붙임 */
+.gw-fa-table td.gw-fa-why { min-width: 260px; font-size: 13px; line-height: 1.5; }
+.gw-fa-diff { color: #1a1c20; }
+.gw-fa-diff b { font-weight: 700; color: #9a3412; }
+.gw-fa-note { color: #334155; margin-top: 2px; }
+.gw-fa-sub { display: block; font-size: 11px; color: #64748b; margin-top: 6px; }
+.gw-fa-vlist { list-style: none; margin: 2px 0 0; padding: 0; display: inline-grid; grid-template-columns: auto auto; column-gap: 14px; }
+.gw-fa-vlist li { display: contents; font-variant-numeric: tabular-nums; }
+.gw-fa-vlist li span { color: #64748b; }
+.gw-fa-vlist li b { font-weight: 600; text-align: right; }
+.gw-fa-vlist li.neg b { color: #b91c1c; }
+.gw-fa-inv { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
+.gw-fa-inv .gw-fa-sub { display: inline; margin: 0 2px 0 0; }
+.gw-fa-chip { display: inline-block; border-radius: 4px; padding: 0 6px; font-size: 11.5px; line-height: 1.7; background: #f1f5f9; color: #475569; }
+.gw-fa-chip.ok { background: #dcfce7; color: #166534; }
+.gw-fa-chip.warn { background: #fef3c7; color: #92400e; }
+.gw-fa-chip.cash { background: #e0f2fe; color: #075985; }
+.gw-fa-chip.card { background: #ede9fe; color: #5b21b6; }
+.gw-fa-tags { margin-top: 6px; display: flex; gap: 4px; flex-wrap: wrap; }
+.gw-fa-tag { display: inline-block; border: 1px solid #cbd5e1; border-radius: 4px; padding: 0 6px; font-size: 11px; color: #475569; }
 .gw-fa-table td.gw-fa-act { min-width: 250px; text-align: left; }
 .gw-fa-btns { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
 .gw-fa-memo { font-size: 13px; }

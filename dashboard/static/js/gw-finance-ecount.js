@@ -340,12 +340,63 @@
     if (s == null && v == null) return '<span class="text-muted">-</span>';
     return won(s || 0) + '<div class="gw-fa-vat">부가세 ' + (v ? won(v) : '없음') + '</div>';
   }
+  // 근거 칸(11-27 부장님 '근거가 눈에 딱 안 들어와') — 한 문단이던 것을 나눈다:
+  //   ① 차이 한 줄(무엇이 얼마나) ② 안내 문장 ③ 이카운트 전표(날짜·금액 한 줄씩, 빼는 전표는 빨강) ④ 계산서 단계 꼬리표 ⑤ 덧붙임 꼬리표.
+  //   대조 결과는 글로 저장돼 있어(ecount_audit_items.note·evidence) 화면에서 나눠 읽는다.
+  var FA_TAGS = [['SH 정산 공사예요.', 'SH 정산'], ['이카운트 업로드 ② 매출전표 목록에도 있어요.', '② 매출전표에도 있음']];
+  var FA_INV = { '발행': 'ok', '미발행': 'warn', 'N입금': 'cash', '카드': 'card' };
+  var FA_INV_LABEL = { 'N입금': '현금(계산서 없음)' };
+  function faDiff(r) {
+    if (r.eco_supply == null || r.sheet_supply == null) return '';
+    var es = r.eco_supply || 0, ss = r.sheet_supply || 0, ev = r.eco_vat || 0, sv = r.sheet_vat || 0;
+    var d = es - ss, out = [];
+    if (Math.abs((es + ev) - (ss + sv)) <= 2 && Math.abs(d) >= 1) {
+      out.push('<b>합계는 같아요</b> — 공급가·부가세 나눔만 달라요');          // 나눔만 다름: 공급가 차이로 보이면 오해
+    } else {
+      if (Math.abs(d) >= 1) out.push('이카운트 공급가가 <b>' + won(Math.abs(d)) + '원 ' + (d > 0 ? '많아요' : '적어요') + '</b>');
+      if (!!ev !== !!sv) out.push('부가세가 <b>' + (ev ? '이카운트에만' : '공사 현황에만') + ' 있어요</b>');
+      else if (ev && Math.abs(ev - sv) >= 1 && Math.abs(d) < 1) out.push('부가세가 <b>' + won(Math.abs(ev - sv)) + '원 달라요</b>');
+    }
+    return out.length ? '<div class="gw-fa-diff">' + out.join(' · ') + '</div>' : '';
+  }
+  function faWhy(r) {
+    var note = String(r.note || ''), tags = [], vouchers = [];
+    FA_TAGS.forEach(function (t) { if (note.indexOf(t[0]) !== -1) { tags.push(t[1]); note = note.replace(t[0], ''); } });
+    var m = note.match(/이카운트 공급가 전표:\s*([^]*)$/);
+    if (m) {
+      note = note.slice(0, m.index);
+      m[1].split(' · ').forEach(function (v) {
+        var p = v.trim().match(/^(\d{2}\.\d{2}\.\d{2})\s+([−-]?[\d,]+)$/);
+        if (p) vouchers.push({ day: p[1], amt: p[2], neg: /^[−-]/.test(p[2]) });
+      });
+    }
+    note = note.trim();
+    var inv = [];
+    var e = String(r.evidence || '').replace(/^계산서:\s*/, '');
+    if (e) e.split(' · ').forEach(function (x) {
+      var q = x.trim().match(/^(\S+)\s+(.+)$/);
+      if (q && q[2] !== '-') inv.push([q[1], q[2]]);
+    });
+    var html = faDiff(r) + (note ? '<div class="gw-fa-note">' + esc(note) + '</div>' : '');
+    if (vouchers.length) {
+      html += '<div class="gw-fa-sub">이카운트 전표 ' + vouchers.length + '장</div><ul class="gw-fa-vlist">' + vouchers.map(function (v) {
+        return '<li' + (v.neg ? ' class="neg"' : '') + '><span>' + esc(v.day) + '</span><b>' + esc(v.amt.replace('-', '−')) + '</b></li>';
+      }).join('') + '</ul>';
+    }
+    if (r.evidence) {
+      html += '<div class="gw-fa-inv"><span class="gw-fa-sub">계산서</span>' + (inv.length ? inv.map(function (x) {
+        return '<span class="gw-fa-chip ' + (FA_INV[x[1]] || '') + '">' + esc(x[0]) + ' ' + esc(FA_INV_LABEL[x[1]] || x[1]) + '</span>';
+      }).join('') : '<span class="text-muted">기록 없음</span>') + '</div>';
+    }
+    if (tags.length) html += '<div class="gw-fa-tags">' + tags.map(function (t) { return '<span class="gw-fa-tag">' + esc(t) + '</span>'; }).join('') + '</div>';
+    return html;
+  }
   function auditRow(r) {
     var done = r.status !== 'open';
     var codeCell = '<strong>' + esc(r.code) + '</strong>' + copyBtn('code', r.code, '코드 복사') +
       (r.ecount_code && r.ecount_code !== r.code ? '<div class="gw-fa-eco">이카운트 <span>' + esc(r.ecount_code) + '</span>' +
         copyBtn('code', r.ecount_code, '이카운트 코드 복사') + '</div>' : '');
-    var why = (r.note ? '<div>' + esc(r.note) + '</div>' : '') + (r.evidence ? '<div class="gw-fa-ev">' + esc(r.evidence) + '</div>' : '');
+    var why = faWhy(r);
     var act = done
       ? '<span class="gw-badge ' + (r.status === 'sheet_wrong' ? 'gw-badge-reject' : 'gw-badge-active') + '">' + esc(r.status_label) + '</span>' +
         '<div class="gw-fa-by">' + esc(r.resolved_by || '') + (r.memo ? ' · ' + esc(r.memo) : '') + '</div>' +
