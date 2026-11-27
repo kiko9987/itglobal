@@ -841,6 +841,26 @@ def process_edit(uid: str, aid: int, fields: dict, files: list, docs: Optional[l
     return row
 
 
+def process_purchase(uid: str, aid: int, paid: int, memo: str = '', rev: Optional[int] = None) -> Optional[str]:
+    """구매 완료 + 실제 결제 금액·메모 기록(11-27). 실패면 사용자에게 보낸 문구."""
+    msg = apply_action('transfer', aid, uid, memo, expected_rev=rev)
+    if msg:
+        _notify(eap_client(), uid, f'🔒 {msg}')
+        return msg
+    before = ea.get(aid) or {}
+    row = ea.record_purchase(aid, paid, memo)
+    if row:
+        req = int(before.get('amount') or 0)
+        if paid and paid < req:
+            _thread_log(row, f'🛒 실제 결제 {paid:,}원 (요청 {req:,}원 · 할인 {req - paid:,}원)'
+                             + (f'\n{memo}' if memo else ''))
+        elif memo:
+            _thread_log(row, f'🛒 구매 메모: {memo}')
+        _after_commit(aid, '카드·DM 새로 그리기', lambda: refresh(row))
+        _audit(row, 'purchase', _name(uid), f'실제 결제 {paid:,}원 / 요청 {req:,}원')
+    return None
+
+
 def _revise_view(aid: int) -> dict:
     row = ea.get(aid) or {}
     return {
@@ -2531,6 +2551,42 @@ def register_eapproval_handlers(app) -> None:
     app.action(ea.A_FINAL)(_bg_action('final'))
     app.action(ea.A_TRANSFER)(_bg_action('transfer'))
     app.action(ea.A_CANCEL)(_bg_action('cancel'))
+
+    @app.action(ea.A_PURCHASE)
+    def handle_purchase_open(ack, body, client):
+        """비품 [🛒 구매 완료] — 실제 결제 금액·구매 메모 창(11-27 KiKO, 할인으로 덜 내면 보완 요청 없이)."""
+        ack()
+        aid, rev = ea.parse_button_value(body['actions'][0]['value'])
+        uid = (body.get('user') or {}).get('id', '')
+        row = ea.get(aid)
+        if not row or not ea.can_act('transfer', row, uid):
+            _ephemeral(client, body, '🔒 구매 완료는 경영지원 담당만 누를 수 있어요.')
+            return
+        if row['status'] != ea.APPROVED:
+            _ephemeral(client, body, f"🔒 이미 처리된 결재예요 (지금: {ea.status_label(row)[1]}).")
+            return
+        try:
+            client.views_open(trigger_id=body['trigger_id'], view=ea.purchase_view(row, rev))
+        except Exception as exc:
+            logger.error(f'{_LOG} 구매 완료 창 열기 실패 (#{aid}): {exc}', exc_info=True)
+            _ephemeral(client, body, ':warning: 구매 완료 창을 열지 못했어요. 잠시 뒤 다시 눌러 주세요.')
+
+    @app.view(ea.CB_PURCHASE)
+    def handle_purchase_submit(ack, body, view):
+        f, errs = ea.read_purchase_view(view)
+        if errs:
+            ack(response_action='errors', errors=errs)
+            return
+        ack()
+        uid = (body.get('user') or {}).get('id', '')
+
+        def _bg():
+            try:
+                process_purchase(uid, f['aid'], f['paid'], f['memo'], f.get('rev'))
+            except Exception as exc:
+                logger.error(f'{_LOG} 구매 완료 실패 (#{f["aid"]}): {exc}', exc_info=True, extra={'force_alert': True})
+                _notify(eap_client(), uid, f':warning: #{f["aid"]} 구매 완료 처리 중 오류가 났어요. 카드에서 다시 눌러 주세요.')
+        threading.Thread(target=_bg, daemon=True).start()
 
     @app.action(ea.A_REVISE)
     def handle_revise_open(ack, body, client):

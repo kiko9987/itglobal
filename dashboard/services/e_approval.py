@@ -71,6 +71,7 @@ A_BRANCH = 'eap_branch'               # 계산서로 거래처가 정해졌을 �
 A_COST = 'eap_cost'                   # 자금집행 「원가 분류」 — '법인 간 이체'를 고르면 창이 바뀐다(11-16)
 A_MOVE_PICK = 'eap_move_pick'         # 법인 간 이체 — 옮길 입금(대기 중인 자금 이동 요청) 고르기
 A_MOVE_OPEN = 'eap_move_open'         # 매니저 DM [📝 결재 올리기] — 채워진 법인 간 이체 창 열기
+A_PURCHASE, CB_PURCHASE = 'eap_purchase', 'eap_purchase_submit'   # 비품 [🛒 구매 완료] → 실제 결제 금액 창(11-27)
 A_SITE, CB_SITE = 'eap_site', 'eap_site_submit'   # 이체 대기 자금집행 [📍 현장 바꾸기] — 경영지원, 현장·분류만(11-17)
 CB_NEW, CB_REJECT = 'eap_new_submit', 'eap_reject_submit'
 A_REVISE, CB_REVISE = 'eap_revise', 'eap_revise_submit'   # [✏️ 수정 요청] → 무엇을 고칠지 적는 창(11-05)
@@ -732,7 +733,7 @@ def requester_can_cancel(row: dict) -> bool:
 
 # extra 중 시스템이 붙이는 표시 칸 — 수정 기록('바뀐 칸')에 넣지 않는다
 _SYSTEM_EXTRA = ('f', 'payee_saved', 'payee_changed', 'payee_known', 'payee_unlisted', 'dup_of', 'old_prepaid', 'inv_by', 'inv_by_other', 'job',
-                 'fund_move', 'inv_preview')
+                 'fund_move', 'inv_preview', 'requested_amount', 'purchase_memo')
 
 # 다시 올릴 때 고칠 수 있는 장부 칸(양식 값 전부는 extra 에)
 EDIT_COLUMNS = ('project_code', 'cost_category', 'content', 'evidence', 'grn', 'partner', 'payee_name',
@@ -828,9 +829,14 @@ def resubmit(aid: int, actor_id: str, actor_name: str, fields: Dict) -> Optional
 KEEP_APPROVAL_FIELDS = frozenset({'project_code', 'cost_category', 'content', 'evidence', 'memo', 'urgency', 'amount'})
 
 
+# 비품 신청(11-27 KiKO) — 같은 상품(품명·상품 링크 그대로)이고 금액이 같거나 줄면. 할인·수량 줄임·메모 고침
+KEEP_APPROVAL_FIELDS_SUPPLY = frozenset({'amount', 'qty', 'unit_price', 'memo', 'reason', 'urgency'})
+
+
 def keeps_approvals(old: dict, changed: Dict) -> bool:
-    """이 수정이면 받은 승인을 그대로 둬도 되나 — 자금집행만."""
-    if old.get('form') != FORM_FUND or not changed or not set(changed) <= KEEP_APPROVAL_FIELDS:
+    """이 수정이면 받은 승인을 그대로 둬도 되나 — 자금집행·비품 신청."""
+    allowed = {FORM_FUND: KEEP_APPROVAL_FIELDS, FORM_SUPPLY: KEEP_APPROVAL_FIELDS_SUPPLY}.get(old.get('form'))
+    if not allowed or not changed or not set(changed) <= allowed:
         return False
     if 'amount' in changed:
         a, b = changed['amount']
@@ -851,6 +857,62 @@ def _reached_status(conn, old: dict) -> Optional[str]:
     if (by.get('approve') or {}).get('result') in ok:
         return FINAL if needs_final(old['form']) else APPROVED
     return None
+
+
+def purchase_view(row: dict, rev: Optional[int]) -> dict:
+    """[🛒 구매 완료] 창 — 실제 결제 금액(요청 금액이 채워짐)·구매 메모(11-27 KiKO)."""
+    amt = int(row.get('amount') or 0)
+    return {
+        'type': 'modal', 'callback_id': CB_PURCHASE,
+        'title': {'type': 'plain_text', 'text': '구매 완료'},
+        'submit': {'type': 'plain_text', 'text': '구매 완료'},
+        'close': {'type': 'plain_text', 'text': '취소'},
+        'private_metadata': json.dumps({'aid': row['id'], 'rev': rev}),
+        'blocks': [
+            {'type': 'section', 'text': {'type': 'mrkdwn',
+                                         'text': f"*{title(row)}* · {row.get('content') or '비품'}\n요청 금액 {amt:,}원"}},
+            {'type': 'input', 'block_id': 'paid', 'label': {'type': 'plain_text', 'text': '실제 결제 금액 (원)'},
+             'hint': {'type': 'plain_text',
+                      'text': '할인·쿠폰으로 덜 냈으면 낸 금액으로 고쳐 주세요. 요청 금액보다 많으면 구매 완료할 수 없어요.'},
+             'element': {'type': 'plain_text_input', 'action_id': 'paid', 'initial_value': f'{amt:,}', 'max_length': 20}},
+            {'type': 'input', 'block_id': 'pmemo', 'optional': True, 'label': {'type': 'plain_text', 'text': '구매 메모'},
+             'element': {'type': 'plain_text_input', 'action_id': 'pmemo', 'multiline': True, 'max_length': 300,
+                         'placeholder': {'type': 'plain_text', 'text': '예: 배송 예정일 12월 1일'}}},
+        ],
+    }
+
+
+def read_purchase_view(view: dict) -> Tuple[dict, Dict[str, str]]:
+    """구매 완료 창 값 → ({aid, rev, paid, memo}, 오류)."""
+    v = view['state']['values']
+    meta = json.loads(view.get('private_metadata') or '{}')
+    raw = ((v.get('paid') or {}).get('paid') or {}).get('value') or ''
+    memo = (((v.get('pmemo') or {}).get('pmemo') or {}).get('value') or '').strip()
+    out = {'aid': int(meta.get('aid') or 0), 'rev': meta.get('rev'), 'paid': parse_amount(raw), 'memo': memo}
+    req = int((get(out['aid']) or {}).get('amount') or 0)
+    if out['paid'] <= 0:
+        return out, {'paid': '금액을 숫자로 넣어 주세요.'}
+    if out['paid'] > req:
+        return out, {'paid': f'요청 금액({req:,}원)보다 많아요. 더 내야 하면 [🔁 보완 요청]으로 돌려보내 승인을 다시 받아 주세요.'}
+    return out, {}
+
+
+def record_purchase(aid: int, paid: int, memo: str = '') -> Optional[dict]:
+    """구매 완료 뒤 실제 결제 금액·메모 기록. 금액이 줄었으면 장부 금액을 실제로, 요청 금액은 extra 에."""
+    with _EXTRA_LOCK, _db()._get_connection() as conn:
+        _ensure_tables(conn)
+        r = _row(conn, aid)
+        if not r:
+            return None
+        x = extra(r)
+        if paid and paid != int(r.get('amount') or 0):
+            x['requested_amount'] = int(x.get('requested_amount') or r.get('amount') or 0)
+        if memo:
+            x['purchase_memo'] = memo
+        conn.execute('UPDATE approvals SET amount=?, extra=? WHERE id=?',
+                     (int(paid or r.get('amount') or 0), json.dumps(x, ensure_ascii=False), aid))
+        conn.commit()
+        return _row(conn, aid)
 
 
 def revision(aid: int) -> int:
@@ -1327,6 +1389,12 @@ def card_text(row: dict, step_rows: List[dict], project_line: str, quote_amount:
             lines.append(f"상품: <{x['link']}|상품 보기>")
         if x.get('reason'):
             lines.append(f"사유: {x['reason']}")
+        req = int(x.get('requested_amount') or 0)
+        if req and req != int(row.get('amount') or 0):   # 구매 완료 때 실제 결제 금액(11-27)
+            paid = int(row.get('amount') or 0)
+            lines.append(f'실제 결제: {paid:,}원 (요청 {req:,}원 · 할인 {req - paid:,}원)')
+        if x.get('purchase_memo'):
+            lines.append(f"구매 메모: {x['purchase_memo']}")
     else:
         cost = _short_cost(row)
         if cost:
@@ -1488,8 +1556,8 @@ def buttons(row: dict, role: str = 'all') -> List[dict]:
             '이체 완료', f"{row.get('requester_name')} 개인경비 {amt}\n본인 계좌(경영지원 DM)로 이체를 마쳤나요?",
             '이체 완료')))
     elif st == APPROVED and role in ('all', 'executor') and form == FORM_SUPPLY:
-        out.append(_btn('🛒 구매 완료', A_TRANSFER, rv, 'primary', _confirm(
-            '구매 완료', f"{row.get('content') or '비품'} ({amt})\n구매를 마쳤나요?", '구매 완료')))
+        # 확인 대신 실제 결제 금액 창(11-27 KiKO) — 할인으로 덜 냈을 때 보완 요청 없이 실제 금액으로 끝낸다
+        out.append(_btn('🛒 구매 완료', A_PURCHASE, rv, 'primary'))
     elif st == APPROVED and role in ('all', 'executor'):
         _x = extra(row) if form == FORM_FUND else {}
         _chg, _known = _x.get('payee_changed'), str(_x.get('payee_known') or '')
@@ -1514,7 +1582,7 @@ def buttons(row: dict, role: str = 'all') -> List[dict]:
     return out
 
 
-_ACTION_OF_BUTTON = {A_APPROVE: 'approve', A_FINAL: 'final', A_TRANSFER: 'transfer', A_REJECT: 'reject',
+_ACTION_OF_BUTTON = {A_APPROVE: 'approve', A_FINAL: 'final', A_TRANSFER: 'transfer', A_PURCHASE: 'transfer', A_REJECT: 'reject',
                      A_REVISE: 'revise', A_CANCEL: 'cancel'}
 
 
