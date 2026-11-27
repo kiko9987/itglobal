@@ -4544,3 +4544,10 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-fa-hist li { color: #334155; font-size: 12.5px; }
 .gw-fa-hist li + li { margin-top: 2px; }
 @media (max-width: 767.98px) { .gw-fa-memo { font-size: 16px; } }
+/* 이카운트 밤 자동 대조(11-28) — ③ 매출·매입 고르기, 매입 전표 거래처 칸, 실행 실패 안내, 더 보기, 오늘 건 안내 */
+.gw-fa-filters { margin: 0 0 14px; }
+.gw-fa-vlist3 { grid-template-columns: auto auto auto; }
+.gw-fa-vlist li i { font-style: normal; color: #64748b; font-size: 11.5px; }
+.gw-fa-runwarn { color: #9a3412; font-weight: 600; margin-bottom: 4px; }
+.gw-fa-more { text-align: center; margin: 4px 0 20px; }
+.gw-fe-table tr.gw-fe-later td { background: #f8fafc; color: #475569; font-weight: 500; }

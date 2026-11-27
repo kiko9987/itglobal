@@ -490,15 +490,30 @@ def vat_edit_plan(e: dict) -> Optional[Tuple[str, Optional[Tuple[str, int, int]]
             (VAT_TYPE if v1 else VAT_TYPE_NONE, ds, dv if v1 else 0))
 
 
-def upload_rows(items: List[dict], today: Optional[date] = None) -> Dict[str, List[dict]]:
+def split_today(items: List[dict], today: Optional[date] = None) -> Tuple[List[dict], List[dict]]:
+    """(보일 줄, 내일로 미룰 줄). 경영지원(SB)은 전날 것을 다음 날 넣고 당일 건은 손대지 않는다(11-28 부장님) —
+    오늘 확정됐거나 오늘 금액·부가세가 바뀐 공사는 내일 목록에 나온다."""
+    t = (today or date.today()).isoformat()
+    shown = [e for e in items if (e.get('date') or '')[:10] != t]
+    return shown, [e for e in items if (e.get('date') or '')[:10] == t]
+
+
+def upload_rows(items: List[dict], today: Optional[date] = None,
+                eco_seen: Optional[Dict[str, List[int]]] = None) -> Dict[str, List[dict]]:
     """넣을 전표 목록 → 이카운트 웹자료올리기 줄. {'sales': [...], 'projects': [...]}.
-    줄마다 'cells'(칸 순서 그대로, 복사용)와 화면용 값·'warn'(확인 필요 사유)을 담는다."""
+    줄마다 'cells'(칸 순서 그대로, 복사용)와 화면용 값·'warn'(확인 필요 사유)을 담는다.
+    eco_seen = 밤 대조에서 이카운트 금액이 장부와 달랐던 공사(ecount_recon.eco_mismatch) — 이 줄을 그대로 넣으면
+    이중 입력이 될 수 있어 '확인 필요'로 돌린다."""
     today = today or date.today()
+    eco_seen = eco_seen or {}
     sales, projects = [], []
     for e in items:
         partner = e.get('partner') or ''
         pcode = PARTNER_CODES.get(partner, '')
         warn = []
+        if e['code'] in eco_seen:
+            es_, ev = (list(eco_seen[e['code']]) + [0, 0])[:2]
+            warn.append(f"이카운트에 이미 {es_ + ev:,}원 있음(③ 대조 확인)")
         if not pcode:
             warn.append(f"거래처 없음('{partner or '빈칸'}')")
         if e.get('split'):
@@ -526,7 +541,7 @@ def upload_rows(items: List[dict], today: Optional[date] = None) -> Dict[str, Li
                       'partner': partner, 'supply': sup, 'vat': vv, 'memo': memo, 'vat_type': vt,
                       'sent': list(e['sent']), 'target': list(e['target']), 'warn': warn, 'trace': trace,
                       'guide': guide, 'cells': cells})
-        if e['kind'] == '공사 확정':
+        if e['kind'] == '공사 확정' and e['code'] not in eco_seen:   # 이카운트에 전표가 있으면 프로젝트는 이미 등록됨
             projects.append({'key': e['key'], 'code': e['code'], 'name': e.get('addr') or '',
                              'warn': [] if e.get('addr') else ['현장 주소가 비어 있어요'],
                              'cells': [e['code'], e.get('addr') or '', '', '', '', '']})

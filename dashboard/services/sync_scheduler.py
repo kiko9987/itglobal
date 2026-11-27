@@ -604,6 +604,17 @@ def start_scheduler():
         _scheduler.add_job(_safe_fund_daily, 'cron', day_of_week='mon-sat', hour=7, minute=0, id='fund_daily',
                            replace_existing=True)
         jobs.append('자금일보 자동 초안 07:00')
+    # 2026-11-28 이카운트 밤 자동 대조(services/ecount_recon) — 자정에 이카운트 회계거래조회를 읽어 공사 현황·장부와 맞춤
+    #   (이카운트 = 시트일 때만 장부 맞춤, ③ 대조 매출·매입, 지난밤 알린 건 자동 완료). 아침 07:50 경영지원(SB) DM.
+    #   .env ECOUNT_RECON_ENABLED=true(밤 대조) · ECOUNT_RECON_DM_ENABLED=true(아침 DM) — 부장님 승인 뒤에 켬
+    if os.getenv('ECOUNT_RECON_ENABLED', '').strip().lower() in ('1', 'true', 'yes'):
+        _scheduler.add_job(_safe_ecount_recon, 'cron', hour=0, minute=10, id='ecount_recon_nightly',
+                           misfire_grace_time=3600, replace_existing=True)
+        jobs.append('이카운트 밤 대조 00:10')
+        if os.getenv('ECOUNT_RECON_DM_ENABLED', '').strip().lower() in ('1', 'true', 'yes'):
+            _scheduler.add_job(_safe_ecount_recon_dm, 'cron', day_of_week='mon-fri', hour=7, minute=50,
+                               id='ecount_recon_dm', replace_existing=True)
+            jobs.append('이카운트 대조 경영지원 DM 07:50')
     # 2026-11-26 차량 유류비·하이패스 ← SB 법인카드 월 지출결의서(services/vehicle_card_costs). 매일 아침 한 번 읽어
     #   차량 관리 비용에 넣음(SB 가 청구서 나온 뒤 채우는 파일이라 하루 한 번이면 충분)
     _scheduler.add_job(_safe_vehicle_card_costs, 'cron', day_of_week='mon-sat', hour=7, minute=20, id='vehicle_card_costs',
@@ -1256,6 +1267,24 @@ def _safe_fund_daily():
             logger.error(f"[SCHED] 자금일보 자동 초안을 못 만듦: {res}", extra={'force_alert': True})
     except Exception as exc:
         logger.error(f'[SCHED] 자금일보 자동 초안 실패: {exc}', exc_info=True)
+
+
+def _safe_ecount_recon():
+    try:
+        from dashboard.services import ecount_recon
+        ecount_recon.run_nightly()          # 실패는 안에서 force_alert 로 알림
+    except Exception as exc:
+        logger.error(f'[SCHED] 이카운트 밤 대조 실패: {exc}', exc_info=True, extra={'force_alert': True})
+
+
+def _safe_ecount_recon_dm():
+    try:
+        from dashboard.services import ecount_recon
+        res = ecount_recon.send_morning_dm()
+        if not res.get('ok'):
+            logger.error(f'[SCHED] 이카운트 대조 아침 DM 못 보냄: {res}', extra={'force_alert': True})
+    except Exception as exc:
+        logger.error(f'[SCHED] 이카운트 대조 아침 DM 실패: {exc}', exc_info=True, extra={'force_alert': True})
 
 
 def _safe_vehicle_card_costs():

@@ -8,7 +8,8 @@
   var page = document.getElementById('fePage');
   if (!page || !document.getElementById('feSales')) return;
   var $ = function (id) { return document.getElementById(id); };
-  var S = { sales: [], projects: [], tab: 'sales', pick: { sales: {}, projects: {} }, edit: {}, first: true };
+  var S = { sales: [], projects: [], tab: 'sales', pick: { sales: {}, projects: {} }, edit: {}, first: true, later: 0,
+            af: { side: 'sales', cat: '', st: 'open', q: '', more: 0 } };
   var MEMO_COL = 8;   // 매출전표 칸 중 적요 — 화면에서 고친 글로 복사(11-26 부장님 '수정 사유를 적을 수 없다')
   // 재시작 전 옛 템플릿이어도 '확인할 점' 칸·[제외] 버튼이 있게(11-26 추가)
   (function () {
@@ -72,6 +73,7 @@
         return (ready(a) ? 0 : 1) - (ready(b) ? 0 : 1) || a._i - b._i;
       });
       S.excludeOk = !!j.exclude_ok;
+      S.later = j.later || 0;   // 오늘 확정·변경분 — SB 는 전날 것을 다음 날 넣음(11-28), 내일 목록에 나옴
       S.projects = j.projects || [];
       // 처음 열 때 새 프로젝트가 있으면 ① 프로젝트 등록부터, 없으면 ② 매출전표
       if (S.first) { S.first = false; setTab(S.projects.length ? 'projects' : 'sales'); }
@@ -135,6 +137,10 @@
         '<td class="gw-fe-check">' + (warn || (r.trace ? '' : '<span class="text-muted">-</span>')) +
           (r.trace ? '<div class="gw-fe-trace">' + esc(r.trace) + '</div>' : '') + '</td></tr>';
     }).join('') : '<tr><td colspan="10" class="gw-empty">이카운트에 넣을 매출전표가 없어요.</td></tr>';
+    if (S.later) {
+      $('feSales').insertAdjacentHTML('beforeend', '<tr class="gw-fe-divider gw-fe-later"><td colspan="10">' +
+        '<i class="fas fa-clock me-1" aria-hidden="true"></i>오늘 확정되거나 금액이 바뀐 ' + S.later + '건은 내일 목록에 나와요.</td></tr>');
+    }
 
     $('feProjects').innerHTML = S.projects.length ? S.projects.map(function (r) {
       var on = !!S.pick.projects[r.key];
@@ -336,8 +342,9 @@
   //   규칙은 services/ecount_audit.py. 이카운트를 읽어 맞춘 결과(대조 날짜)를 보여 주고, [이카운트 고침]·[시트가 틀림]·[그대로 둠]을 남긴다.
   var ACTS = [['ecount_fixed', '이카운트 고침', 'btn-outline-primary'], ['sheet_wrong', '시트가 틀림', 'btn-outline-danger'],
               ['keep', '그대로 둠', 'btn-outline-secondary']];
-  function amt(s, v) {
+  function amt(s, v, buy) {
     if (s == null && v == null) return '<span class="text-muted">-</span>';
+    if (buy) return s == null ? '<span class="text-muted">-</span>' : won(s);
     return won(s || 0) + '<div class="gw-fa-vat">부가세 ' + (v ? won(v) : '없음') + '</div>';
   }
   // 근거 칸(11-27 부장님 '근거가 눈에 딱 안 들어와') — 한 문단이던 것을 나눈다:
@@ -348,6 +355,10 @@
   var FA_INV_LABEL = { 'N입금': '현금(계산서 없음)' };
   function faDiff(r) {
     if (r.eco_supply == null || r.sheet_supply == null) return '';
+    if (r.side === 'buy') {
+      var bd = (r.eco_supply || 0) - (r.sheet_supply || 0);
+      return Math.abs(bd) > 10 ? '<div class="gw-fa-diff">이카운트 매입이 <b>' + won(Math.abs(bd)) + '원 ' + (bd > 0 ? '많아요' : '적어요') + '</b></div>' : '';
+    }
     var es = r.eco_supply || 0, ss = r.sheet_supply || 0, ev = r.eco_vat || 0, sv = r.sheet_vat || 0;
     var d = es - ss, out = [];
     if (Math.abs((es + ev) - (ss + sv)) <= 2 && Math.abs(d) >= 1) {
@@ -362,12 +373,15 @@
   function faWhy(r) {
     var note = String(r.note || ''), tags = [], vouchers = [];
     FA_TAGS.forEach(function (t) { if (note.indexOf(t[0]) !== -1) { tags.push(t[1]); note = note.replace(t[0], ''); } });
-    var m = note.match(/이카운트 공급가 전표:\s*([^]*)$/);
+    // '이카운트 공급가 전표: 26.05.11 6,000,000 · …' / 매입은 '이카운트 매입 전표: 26.11.20 80,000 지급운반비 · …'(11-28)
+    var m = note.match(/이카운트 (?:공급가|매입) 전표:\s*([^]*?)(?=\s(?:SH 정산 공사예요\.|이카운트 업로드 ②)|$)/);
+    var vmore = '';
     if (m) {
-      note = note.slice(0, m.index);
+      note = note.slice(0, m.index) + note.slice(m.index + m[0].length);
       m[1].split(' · ').forEach(function (v) {
-        var p = v.trim().match(/^(\d{2}\.\d{2}\.\d{2})\s+([−-]?[\d,]+)$/);
-        if (p) vouchers.push({ day: p[1], amt: p[2], neg: /^[−-]/.test(p[2]) });
+        var p = v.trim().match(/^(\d{2}\.\d{2}\.\d{2})\s+([−-]?[\d,]+)(?:\s+(.+))?$/);
+        if (p) vouchers.push({ day: p[1], amt: p[2], who: p[3] || '', neg: /^[−-]/.test(p[2]) });
+        else if (/^외 \d+장$/.test(v.trim())) vmore = v.trim();
       });
     }
     note = note.trim();
@@ -379,11 +393,15 @@
     });
     var html = faDiff(r) + (note ? '<div class="gw-fa-note">' + esc(note) + '</div>' : '');
     if (vouchers.length) {
-      html += '<div class="gw-fa-sub">이카운트 전표 ' + vouchers.length + '장</div><ul class="gw-fa-vlist">' + vouchers.map(function (v) {
-        return '<li' + (v.neg ? ' class="neg"' : '') + '><span>' + esc(v.day) + '</span><b>' + esc(v.amt.replace('-', '−')) + '</b></li>';
-      }).join('') + '</ul>';
+      html += '<div class="gw-fa-sub">이카운트 전표 ' + vouchers.length + '장</div><ul class="gw-fa-vlist' + (vouchers.some(function (v) { return v.who; }) ? ' gw-fa-vlist3' : '') + '">' + vouchers.map(function (v) {
+        return '<li' + (v.neg ? ' class="neg"' : '') + '><span>' + esc(v.day) + '</span><b>' + esc(v.amt.replace('-', '−')) + '</b>' +
+          (v.who ? '<i>' + esc(v.who) + '</i>' : '') + '</li>';
+      }).join('') + '</ul>' + (vmore ? '<div class="gw-fa-sub">' + esc(vmore) + '</div>' : '');
     }
-    if (r.evidence) {
+    if (/^원가:/.test(r.evidence || '')) {          // 매입 — 공사 현황 원가 칸 나눔
+      html += '<div class="gw-fa-inv"><span class="gw-fa-sub">공사 현황 원가</span>' + r.evidence.replace(/^원가:\s*/, '').split(' · ')
+        .map(function (x) { return '<span class="gw-fa-chip">' + esc(x) + '</span>'; }).join('') + '</div>';
+    } else if (r.evidence) {
       html += '<div class="gw-fa-inv"><span class="gw-fa-sub">계산서</span>' + (inv.length ? inv.map(function (x) {
         return '<span class="gw-fa-chip ' + (FA_INV[x[1]] || '') + '">' + esc(x[0]) + ' ' + esc(FA_INV_LABEL[x[1]] || x[1]) + '</span>';
       }).join('') : '<span class="text-muted">기록 없음</span>') + '</div>';
@@ -406,7 +424,8 @@
     var act = done
       ? '<span class="gw-badge ' + (r.status === 'sheet_wrong' ? 'gw-badge-reject' : 'gw-badge-active') + '">' + esc(r.status_label) + '</span>' +
         '<div class="gw-fa-by">' + esc(r.resolved_by || '') + (r.memo ? ' · ' + esc(r.memo) : '') + '</div>' +
-        '<button type="button" class="btn btn-link btn-sm p-0 gw-fa-undo" data-aid="' + r.id + '" data-act="open">되돌리기</button>'
+        (r.status === 'resolved' ? '' :     // '맞음'은 밤 자동 대조가 붙인 것 — 다시 다르면 자동으로 처리 전이 됨
+          '<button type="button" class="btn btn-link btn-sm p-0 gw-fa-undo" data-aid="' + r.id + '" data-act="open">되돌리기</button>')
       : '<input type="text" class="form-control form-control-sm gw-fa-memo" maxlength="200" placeholder="메모(선택)" aria-label="' + esc(r.code + ' 메모') + '">' +
         '<div class="gw-fa-btns">' + ACTS.map(function (a) {
           return '<button type="button" class="btn btn-sm ' + a[2] + '" data-aid="' + r.id + '" data-act="' + a[0] + '">' + a[1] + '</button>';
@@ -414,31 +433,92 @@
     return '<tr data-aid="' + r.id + '"' + (done ? ' class="gw-fa-done"' : '') + '>' +
       '<td class="text-nowrap">' + codeCell + '</td>' +
       '<td class="gw-fe-memo">' + esc(r.site || '') + '</td>' +
-      '<td class="num">' + amt(r.eco_supply, r.eco_vat) + '</td>' +
-      '<td class="num">' + amt(r.sheet_supply, r.sheet_vat) + '</td>' +
+      '<td class="num">' + amt(r.eco_supply, r.eco_vat, r.side === 'buy') + '</td>' +
+      '<td class="num">' + amt(r.sheet_supply, r.sheet_vat, r.side === 'buy') + '</td>' +
       '<td class="gw-fe-memo gw-fa-why">' + (why || '<span class="text-muted">-</span>') + '</td>' +
       '<td class="gw-fa-act">' + act + '</td></tr>';
   }
+  var AUDIT_PAGE = 150;     // 매입은 지난 차이가 많아(11-28 첫 대조 약 1,100건) 나눠 그림
+  function auditHead(A) {
+    var R = A.run;
+    if (A.batch !== 'auto' || !R) {
+      var b = Number(A.batch.slice(5, 7)) + '/' + Number(A.batch.slice(8, 10));
+      return '<div class="gw-callout gw-fa-head"><b>' + esc(b) + ' 대조</b> — 이카운트 매출전표(2025년~)를 공사별로 합산해 공사 현황과 맞춰 본 결과예요. ' +
+        '처리 전 <b>' + A.counts.open + '</b>건 · 처리함 ' + A.counts.done + '건.<br>' +
+        '이카운트를 고쳤으면 [이카운트 고침], 공사 현황(시트)이 틀렸으면 [시트가 틀림], 차이가 맞으면 [그대로 둠]을 눌러 주세요.</div>';
+    }
+    var warn = R.status === 'failed'
+      ? '<div class="gw-fa-runwarn"><i class="fas fa-triangle-exclamation me-1" aria-hidden="true"></i>' + esc(R.at) +
+        ' 대조는 이카운트를 읽지 못했어요. 아래는 ' + esc(R.ok_at || '이전') + ' 대조 결과예요.</div>' : '';
+    return '<div class="gw-callout gw-fa-head">' + warn + '<b>' + esc(R.ok_at || R.at) + ' 자동 대조</b> — 매일 자정 이카운트(2025년~)를 읽어 ' +
+      '공사 현황과 공사별로 맞춰 본 결과예요. 이카운트와 공사 현황이 같아지면 다음 대조 때 자동으로 <b>맞음</b>이 돼요.<br>' +
+      '[이카운트 고침]을 눌러도 다음 대조에서 아직 다르면 <b>처리 전</b>으로 돌아오고, 그 내용이 기록에 남아요. ' +
+      '차이가 맞으면 [그대로 둠], 공사 현황이 틀렸으면 [시트가 틀림]을 눌러 주세요.</div>';
+  }
+  function auditFilters(A) {
+    var F = S.af, sides = A.sides && A.sides.length ? A.sides : [{ key: 'sales', label: '매출', open: A.counts.open, total: A.counts.total }];
+    var cats = A.groups.filter(function (g) { return g.side === F.side; });
+    if (F.cat && !cats.some(function (g) { return g.key === F.cat; })) F.cat = '';
+    return '<div class="gw-ap-filters gw-fa-filters">' +
+      '<select class="gw-chip-select on" data-af="side" aria-label="매출·매입">' + sides.map(function (x) {
+        return '<option value="' + x.key + '"' + (x.key === F.side ? ' selected' : '') + '>' + esc(x.label) + ' · 처리 전 ' + won(x.open) + '</option>';
+      }).join('') + '</select>' +
+      '<select class="gw-chip-select' + (F.cat ? ' on' : '') + '" data-af="cat" aria-label="묶음"><option value="">묶음 전체</option>' +
+        cats.map(function (g) { return '<option value="' + g.key + '"' + (g.key === F.cat ? ' selected' : '') + '>' + esc(g.label) + ' ' + won(g.items.length) + '</option>'; }).join('') +
+      '</select>' +
+      '<select class="gw-chip-select' + (F.st !== 'open' ? ' on' : '') + '" data-af="st" aria-label="처리 상태">' +
+        '<option value="open"' + (F.st === 'open' ? ' selected' : '') + '>처리 전만</option>' +
+        '<option value=""' + (F.st === '' ? ' selected' : '') + '>처리한 것도</option></select>' +
+      '<input type="search" class="gw-chip-search" data-af="q" placeholder="공사 코드·현장" aria-label="찾기" maxlength="40" autocomplete="off" value="' + esc(F.q) + '">' +
+      '<span class="gw-ap-count" id="feAuditCount" aria-live="polite"></span></div>';
+  }
+  function auditMatch(r) {
+    var F = S.af, q = F.q.trim().toUpperCase();
+    if (F.st === 'open' && r.status !== 'open') return false;
+    return !q || String(r.code).toUpperCase().indexOf(q) !== -1 || String(r.ecount_code || '').toUpperCase().indexOf(q) !== -1 ||
+      String(r.site || '').toUpperCase().indexOf(q) !== -1;
+  }
+  function renderAuditBody() {
+    var A = S.audit, F = S.af, budget = AUDIT_PAGE * (F.more + 1), shown = 0, total = 0, html = '';
+    A.groups.forEach(function (g) {
+      if (g.side !== F.side || (F.cat && g.key !== F.cat)) return;
+      var rows = g.items.filter(auditMatch);
+      total += rows.length;
+      if (!rows.length) return;
+      var take = rows.slice(0, Math.max(0, budget - shown));
+      shown += take.length;
+      if (!take.length) return;
+      var buy = g.side === 'buy';
+      html += '<section class="gw-fa-group"><h3 class="gw-fa-title">' + esc(g.label) +
+          ' <span>' + (g.open ? '처리 전 ' + won(g.open) + ' / ' : '') + won(g.items.length) + '건</span></h3>' +
+        '<p class="gw-fa-desc">' + esc(g.desc) + '</p>' +
+        '<div class="gw-panel gw-ap-tablewrap"><table class="gw-table gw-fe-table gw-fa-table"><thead><tr>' +
+        '<th>프로젝트코드</th><th>현장</th><th class="num">' + (buy ? '이카운트 매입' : '이카운트') + '</th>' +
+        '<th class="num">' + (buy ? '공사 현황 원가' : '공사 현황') + '</th><th>근거</th><th>처리</th>' +
+        '</tr></thead><tbody>' + take.map(auditRow).join('') + '</tbody></table></div></section>';
+    });
+    if (shown < total) {
+      html += '<div class="gw-fa-more"><button type="button" class="btn btn-sm btn-outline-secondary" data-af-more="1">' +
+        '더 보기 (남은 ' + won(total - shown) + '건)</button></div>';
+    }
+    $('feAuditBody').innerHTML = html || '<p class="gw-empty">' + (F.st === 'open' ? '처리할 것이 없어요.' : '맞는 줄이 없어요.') + '</p>';
+    $('feAuditCount').textContent = won(total) + '건';
+  }
   function renderAudit() {
     var A = S.audit || { groups: [], counts: { open: 0, done: 0, total: 0 } };
-    if ($('feCntAudit')) $('feCntAudit').textContent = A.counts.open;
+    // 재시작 전 옛 서버 응답엔 side 가 없음(11-28) — 매출로 봄. 줄에도 붙여 매입 칸 모양이 섞이지 않게
+    (A.groups || []).forEach(function (g) {
+      g.side = g.side || 'sales';
+      g.items.forEach(function (r) { r.side = r.side || g.side; });
+    });
+    // 탭 옆 숫자 = 매출 처리 전(매입은 지난 차이가 많아 고르기 칸에서 따로 보여 줌, 11-28)
+    var salesSide = (A.sides || []).filter(function (x) { return x.key === 'sales'; })[0];
+    if ($('feCntAudit')) $('feCntAudit').textContent = salesSide ? salesSide.open : A.counts.open;
     var box = $('feAudit');
     if (!box) return;
     if (!A.batch) { box.innerHTML = '<p class="gw-empty">아직 대조한 결과가 없어요.</p>'; return; }
-    var b = Number(A.batch.slice(5, 7)) + '/' + Number(A.batch.slice(8, 10));
-    box.innerHTML =
-      '<div class="gw-callout gw-fa-head"><b>' + esc(b) + ' 대조</b> — 이카운트 매출전표(2025년~)를 공사별로 합산해 공사 현황과 맞춰 본 결과예요. ' +
-        '처리 전 <b>' + A.counts.open + '</b>건 · 처리함 ' + A.counts.done + '건.<br>' +
-        '이카운트를 고쳤으면 [이카운트 고침], 공사 현황(시트)이 틀렸으면 [시트가 틀림], 차이가 맞으면 [그대로 둠]을 눌러 주세요. ' +
-        '이카운트는 자동으로 다시 읽지 않아요. 새로 맞춰 보려면 다시 대조해야 해요.</div>' +
-      A.groups.map(function (g) {
-        return '<section class="gw-fa-group"><h3 class="gw-fa-title">' + esc(g.label) +
-            ' <span>' + (g.open ? '처리 전 ' + g.open + ' / ' : '') + g.items.length + '건</span></h3>' +
-          '<p class="gw-fa-desc">' + esc(g.desc) + '</p>' +
-          '<div class="gw-panel gw-ap-tablewrap"><table class="gw-table gw-fe-table gw-fa-table"><thead><tr>' +
-          '<th>프로젝트코드</th><th>현장</th><th class="num">이카운트</th><th class="num">공사 현황</th><th>근거</th><th>처리</th>' +
-          '</tr></thead><tbody>' + g.items.map(auditRow).join('') + '</tbody></table></div></section>';
-      }).join('');
+    box.innerHTML = auditHead(A) + auditFilters(A) + '<div id="feAuditBody"></div>';
+    renderAuditBody();
   }
   function loadAudit() {
     return api('/api/finance/ecount/audit').then(function (j) {
@@ -448,7 +528,20 @@
     });
   }
   if ($('feAudit')) {
+    $('feAudit').addEventListener('change', function (ev) {
+      var k = ev.target.getAttribute && ev.target.getAttribute('data-af');
+      if (!k || k === 'q') return;
+      S.af[k] = ev.target.value; S.af.more = 0;
+      if (k === 'side') S.af.cat = '';
+      renderAudit();
+    });
+    $('feAudit').addEventListener('input', function (ev) {
+      if (!ev.target.getAttribute || ev.target.getAttribute('data-af') !== 'q') return;
+      S.af.q = ev.target.value; S.af.more = 0;
+      renderAuditBody();
+    });
     $('feAudit').addEventListener('click', function (ev) {
+      if (ev.target.closest('[data-af-more]')) { S.af.more++; renderAuditBody(); return; }
       var cp = ev.target.closest('.gw-fe-copy');
       if (cp) {
         var v = cp.getAttribute('data-copy'), icon = cp.innerHTML;

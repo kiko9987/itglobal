@@ -72,7 +72,7 @@ def test_bad_input(db):
 
 
 def test_empty_db(db):
-    assert ea.list_items() == {'batch': None, 'groups': [], 'counts': {'open': 0, 'done': 0, 'total': 0}}
+    assert ea.list_items() == {'batch': None, 'sides': [], 'groups': [], 'counts': {'open': 0, 'done': 0, 'total': 0}}
 
 
 def test_api(db, monkeypatch):

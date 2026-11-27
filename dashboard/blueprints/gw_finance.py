@@ -147,8 +147,17 @@ def api_ecount():
         items = es.collect_items(force_refresh=request.args.get('refresh') == '1')
         if items is None:
             return jsonify({'success': False, 'message': '장부 기준선이나 공사 현황을 읽지 못했어요. 잠시 뒤 다시 해 주세요.'}), 503
-        rows = es.upload_rows(items)
+        # 오늘 확정·변경분은 내일 목록으로(11-28 SB 원칙), 밤 대조에서 이카운트에 이미 전표가 보인 공사는 확인 필요로
+        shown, later = es.split_today(items)
+        try:
+            from dashboard.services import ecount_recon
+            eco_seen = ecount_recon.eco_mismatch()
+        except Exception as exc:
+            logger.warning(f'[ECOUNT] 밤 대조 결과 읽기 실패(목록은 그대로): {exc}')
+            eco_seen = {}
+        rows = es.upload_rows(shown, eco_seen=eco_seen)
         return jsonify({'success': True, **rows, 'sales_cols': list(es.SALES_COLS), 'project_cols': list(es.PROJECT_COLS),
+                        'later': len(later),
                         'exclude_ok': True})   # 화면은 이 값이 있을 때만 [제외]를 보임(재시작 전 옛 서버는 제외를 넣음으로 적음)
     except Exception as e:
         return _err(e)
@@ -176,7 +185,13 @@ def api_ecount_done():
 def api_ecount_audit():
     from dashboard.services import ecount_audit as ea
     try:
-        return jsonify({'success': True, **ea.list_items()})
+        try:
+            from dashboard.services import ecount_recon
+            run = ecount_recon.run_info()
+        except Exception as exc:
+            logger.warning(f'[ECOUNT] 밤 대조 실행 기록 읽기 실패: {exc}')
+            run = None
+        return jsonify({'success': True, **ea.list_items(), 'run': run})
     except Exception as e:
         return _err(e)
 
