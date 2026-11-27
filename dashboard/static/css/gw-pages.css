@@ -4459,6 +4459,28 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-fe-table td.gw-fe-check .gw-badge { display: block; width: max-content; margin: 2px auto; }
 .gw-fe-table .gw-fe-trace { font-size: 0.75rem; color: #64748b; margin-top: 2px; }
 
+/* 입출금 — 거래 내역 계좌별 묶음(11-27 SB '보기 힘들다'). 머리줄: 계좌·건수 | 입금 합 | 출금 합 | 끝 잔액 | 기록 방식 */
+.gw-fb-table tr.gw-fb-grp > td { background: #eef2f6; border-top: 2px solid #cbd5e1; padding-top: 10px; padding-bottom: 10px; }
+.gw-fb-table tbody tr.gw-fb-grp:hover > td { background: #e2e8f0; }
+.gw-fb-table tbody tr.gw-fb-grp:first-child > td { border-top: 0; }
+.gw-fb-table tr.gw-fb-grp:focus-visible { outline: 2px solid #2a3038; outline-offset: -2px; }
+.gw-fb-table td.gw-fb-grp-name { position: relative; padding-left: 30px; text-align: left; white-space: nowrap; }
+.gw-fb-grp .gw-fb-chev { position: absolute; left: 12px; top: 50%; margin-top: -0.35rem; font-size: 0.7rem; line-height: 0.7rem; color: #64748b; transition: transform 0.15s ease; }
+.gw-fb-grp[aria-expanded="true"] .gw-fb-chev { transform: rotate(90deg); }
+.gw-fb-grp-bank { color: #475569; }
+.gw-fb-grp-n { display: inline-block; margin-left: 4px; font-size: 0.78rem; color: #475569; background: #fff; border: 1px solid #cbd5e1; border-radius: 999px; padding: 0 8px; }
+.gw-fb-grp-k { display: block; font-size: 0.72rem; font-weight: 500; color: #64748b; line-height: 1.2; }
+.gw-fb-grp td.num { font-weight: 600; }
+.gw-fb-txtable td.gw-fb-grp-src { text-align: left; }
+.gw-fb-grp-m { display: none; }
+@media (max-width: 767.98px) {
+  .gw-fb-grp-m { display: block; margin-top: 4px; font-size: 0.78rem; font-weight: 600; white-space: normal; color: #334155; font-variant-numeric: tabular-nums; }
+  .gw-fb-grp-m .gw-fb-in { color: #1d4ed8; }
+  .gw-fb-grp-m .gw-fb-out { color: #b91c1c; }
+  .gw-fb-grp .gw-fb-chev { top: 15px; margin-top: 0; }   /* 합계 줄이 붙어 칸이 높아짐 — 화살표는 계좌 이름 줄에 */
+}
+@media (prefers-reduced-motion: reduce) { .gw-fb-grp .gw-fb-chev { transition: none; } }
+
 /* 입출금 — 묶음 결재 링크는 한 줄로(결재 #87 · #88, 11-26) */
 .gw-fb-apprs { white-space: nowrap; }
 

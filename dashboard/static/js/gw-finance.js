@@ -11,9 +11,13 @@
   var page = document.getElementById('fbPage');
   if (!page || !document.getElementById('fbRows')) return;
   var $ = function (id) { return document.getElementById(id); };
-  var S = { accounts: [], rows: [], tab: 'tx', end: '', noOut: [], open: {}, detail: {} };   // open·detail: 계좌별 잔액에서 펼친 계좌와 그 날 거래
+  var S = { accounts: [], rows: [], tab: 'tx', end: '', noOut: [], open: {}, detail: {}, fold: {} };   // open·detail: 계좌별 잔액에서 펼친 계좌와 그 날 거래 · fold: 거래 내역에서 접은 계좌 묶음
   // 거르기 칩 — 결재 칩(fbAppr)은 11-26 추가라 재시작 전 옛 템플릿엔 없을 수 있음
   var CHIPS = ['fbAcct', 'fbDir', 'fbUn', 'fbAppr'].filter(function (id) { return document.getElementById(id); });
+  // 거래 내역은 계좌별 묶음이라 '계좌' 칸이 없음(11-27) — 재시작 전 옛 템플릿엔 남아 있어 여기서 뺌
+  Array.prototype.forEach.call(document.querySelectorAll('#fbPaneTx thead th'), function (th) {
+    if (th.textContent.trim() === '계좌') th.remove();
+  });
 
   function esc(v) {
     return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
@@ -110,6 +114,7 @@
       var fa = document.activeElement, fkey = '';
       if (fa && fa.getAttribute) {
         if (fa.getAttribute('data-acct')) fkey = '[data-acct="' + fa.getAttribute('data-acct') + '"]';
+        else if (fa.getAttribute('data-grp')) fkey = '[data-grp="' + fa.getAttribute('data-grp') + '"]';
         else if (fa.getAttribute('data-id')) fkey = '[data-id="' + fa.getAttribute('data-id') + '"]';
       }
       renderStats(j.total || {});
@@ -118,7 +123,7 @@
       if (fkey) { var nf = document.querySelector('.gw-fb-table tr' + fkey); if (nf) nf.focus({ preventScroll: true }); }   // 다시 그린 뒤에도 보던 줄에 그대로
     }).catch(function (e) {
       if (my !== seq || quiet) return;   // 자동 갱신 실패는 조용히 — 보던 목록 그대로 두고 다음 차례에 다시
-      $('fbRows').innerHTML = '<tr><td colspan="8" class="gw-empty">' + esc(e.message) + '</td></tr>';
+      $('fbRows').innerHTML = '<tr><td colspan="' + TX_COLS + '" class="gw-empty">' + esc(e.message) + '</td></tr>';
       msg(e.message, 'err');
     });
   }
@@ -268,28 +273,73 @@
     return memoCell;
   }
 
+  // 거래 내역은 계좌별 묶음으로(11-27 SB '보기 힘들다') — 묶음 머리줄에 계좌·건수·기간 입금/출금 합·기간 끝 잔액,
+  // 머리줄을 누르면 그 계좌 거래를 접고 펼침. 계좌 순서는 계좌별 잔액 탭과 같게(자금일보 표 순서 → 그 밖 계좌).
+  var TX_COLS = 7;
+  function txGroups() {
+    var by = {}, order = [];
+    S.rows.forEach(function (r) {
+      var k = String(r.account_id || 0);
+      if (!by[k]) { by[k] = []; order.push(k); }
+      by[k].push(r);
+    });
+    var known = S.accounts.map(function (a) { return String(a.id); }).filter(function (k) { return by[k]; });
+    order.forEach(function (k) { if (known.indexOf(k) === -1) known.push(k); });   // 계좌 목록에 없는 줄도 빠뜨리지 않음
+    return known.map(function (k) {
+      var a = S.accounts.filter(function (x) { return String(x.id) === k; })[0] || null, rows = by[k];
+      var sum = function (d) { return rows.reduce(function (s, r) { return s + (r.direction === d ? Number(r.amount) || 0 : 0); }, 0); };
+      return { key: k, acct: a, rows: rows, inSum: sum('in'), outSum: sum('out'),
+        name: a ? acctName(a) : ((rows[0].acct_code || '계좌 없음') + (rows[0].acct_bank ? ' ' + rows[0].acct_bank : '')) };
+    });
+  }
+  function txRow(r) {
+    return '<tr tabindex="0" role="button" data-id="' + r.id + '" aria-label="' + esc(when(r.at) + ' ' + (r.counterparty || '') + ' 고치기') + '">' +
+      '<td class="text-nowrap">' + esc(when(r.at)) + (SRC_TAG[r.source] ? ' <span class="text-muted small">' + SRC_TAG[r.source] + '</span>' : '') + '</td>' +
+      '<td class="gw-fb-wrap">' + esc(r.counterparty || (r.direction === 'bal' ? '잔액 맞추기' : '')) + '</td>' +
+      '<td class="num gw-fb-in">' + (r.direction === 'in' ? won(r.amount) : '<span class="text-muted">-</span>') + '</td>' +
+      '<td class="num gw-fb-out">' + (r.direction === 'out' ? won(r.amount) : '<span class="text-muted">-</span>') + '</td>' +
+      '<td class="num">' + won(r.balance) + '</td>' +
+      '<td class="text-nowrap c">' + esc(r.title || '') + '</td>' +
+      '<td class="gw-fb-wrap">' + memoHtml(r) + '</td></tr>';
+  }
+  function grpHead(g) {
+    var shut = !!S.fold[g.key], a = g.acct;
+    var endLabel = S.end ? (S.end === iso(new Date()) ? '오늘' : dayLabel(S.end)) + ' 끝 잔액' : '끝 잔액';
+    var bal = a && a.balance != null ? won(a.balance) : '<span class="text-muted">-</span>';
+    return '<tr class="gw-fb-grp" tabindex="0" role="button" data-grp="' + esc(g.key) + '" aria-expanded="' + !shut + '"' +
+      ' aria-label="' + esc(g.name + ' 거래 ' + g.rows.length + '건 ' + (shut ? '펼치기' : '접기')) + '">' +
+      '<td colspan="2" class="gw-fb-grp-name"><i class="fas fa-chevron-right gw-fb-chev" aria-hidden="true"></i>' +
+        '<strong>' + esc(a ? a.code : g.name) + '</strong>' + (a ? ' <span class="gw-fb-grp-bank">' + esc(a.bank) + '</span>' : '') +
+        ' <span class="gw-fb-grp-n">' + g.rows.length + '건</span>' +
+        // 휴대폰은 표가 옆으로 밀려 합계 칸이 안 보임 — 이름 아래 한 줄로(넓은 화면에선 CSS 가 숨김)
+        '<div class="gw-fb-grp-m" aria-hidden="true"><span class="gw-fb-in">입금 ' + won(g.inSum) + '</span> · <span class="gw-fb-out">출금 ' + won(g.outSum) + '</span>' +
+          (a && a.balance != null ? ' · 잔액 ' + won(a.balance) : '') + '</div></td>' +
+      '<td class="num gw-fb-in"><span class="gw-fb-grp-k">입금</span>' + (g.inSum ? won(g.inSum) : '-') + '</td>' +
+      '<td class="num gw-fb-out"><span class="gw-fb-grp-k">출금</span>' + (g.outSum ? won(g.outSum) : '-') + '</td>' +
+      '<td class="num" title="' + esc(endLabel) + ' — 거르기와 관계없이 계좌 잔액"><span class="gw-fb-grp-k">' + esc(endLabel) + '</span><strong>' + bal + '</strong></td>' +
+      '<td colspan="2" class="gw-fb-grp-src">' + (a ? srcBadge(a) : '') + '</td></tr>';
+  }
+
   function renderRows() {
     renderNoOut();
     $('fbCntTx').textContent = S.rows.length;
     $('fbCount').textContent = S.tab === 'tx' ? '' : (S.end ? dayLabel(S.end) + ' 끝 기준 잔액' : '');   // 거래 건수는 탭에 있음
     if (!S.rows.length) {
       var filtered = $('fbUn').value || $('fbQ').value.trim() || $('fbAcct').value || $('fbDir').value || ($('fbAppr') && $('fbAppr').value);
-      $('fbRows').innerHTML = '<tr><td colspan="8" class="gw-empty">' +
+      $('fbRows').innerHTML = '<tr><td colspan="' + TX_COLS + '" class="gw-empty">' +
         ($('fbUn').value ? '이 기간에 적요 없는 거래가 없어요.' : filtered ? '조건에 맞는 거래가 없어요.' : '이 기간에 거래가 없어요.') + '</td></tr>';
       return;
     }
-    $('fbRows').innerHTML = S.rows.map(function (r) {
-      var memoCell = memoHtml(r);
-      return '<tr tabindex="0" role="button" data-id="' + r.id + '" aria-label="' + esc(when(r.at) + ' ' + (r.counterparty || '') + ' 고치기') + '">' +
-        '<td class="text-nowrap">' + esc(when(r.at)) + (SRC_TAG[r.source] ? ' <span class="text-muted small">' + SRC_TAG[r.source] + '</span>' : '') + '</td>' +
-        '<td class="text-nowrap c"><strong>' + esc(r.acct_code || '') + '</strong></td>' +
-        '<td class="gw-fb-wrap">' + esc(r.counterparty || (r.direction === 'bal' ? '잔액 맞추기' : '')) + '</td>' +
-        '<td class="num gw-fb-in">' + (r.direction === 'in' ? won(r.amount) : '<span class="text-muted">-</span>') + '</td>' +
-        '<td class="num gw-fb-out">' + (r.direction === 'out' ? won(r.amount) : '<span class="text-muted">-</span>') + '</td>' +
-        '<td class="num">' + won(r.balance) + '</td>' +
-        '<td class="text-nowrap c">' + esc(r.title || '') + '</td>' +
-        '<td class="gw-fb-wrap">' + memoCell + '</td></tr>';
+    $('fbRows').innerHTML = txGroups().map(function (g) {
+      return grpHead(g) + (S.fold[g.key] ? '' : g.rows.map(txRow).join(''));
     }).join('');
+  }
+  function toggleGrp(tr) {
+    var k = tr.getAttribute('data-grp');
+    if (S.fold[k]) delete S.fold[k]; else S.fold[k] = true;
+    renderRows();
+    var nf = $('fbRows').querySelector('tr[data-grp="' + k + '"]');
+    if (nf) nf.focus({ preventScroll: true });
   }
 
   // ── 탭 ────────────────────────────────────────────────────────────
@@ -458,10 +508,11 @@
     if (ev.target.closest('a')) return;            // 결재 #번호 링크는 그대로 열림
     var bb = ev.target.closest('[data-balacct]');
     if (bb) { if (ev.type === 'click') openDrawer('bal', null, Number(bb.getAttribute('data-balacct')), bb); return; }
-    var tr = ev.target.closest('tr[data-id], tr[data-acct], tr[data-did]');
+    var tr = ev.target.closest('tr[data-id], tr[data-acct], tr[data-did], tr[data-grp]');
     if (!tr || (ev.type === 'keydown' && ev.key !== 'Enter' && ev.key !== ' ')) return;
     ev.preventDefault();
     if (tr.hasAttribute('data-acct')) { toggleAcct(tr); return; }
+    if (tr.hasAttribute('data-grp')) { toggleGrp(tr); return; }
     if (tr.hasAttribute('data-did')) {
       var did = Number(tr.getAttribute('data-did')), det = S.detail[Number(tr.getAttribute('data-dacct'))];
       var drow = det && det.rows.filter(function (r) { return r.id === did; })[0];

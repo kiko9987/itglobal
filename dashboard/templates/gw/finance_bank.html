@@ -60,12 +60,13 @@
   <div id="fbPaneTx" role="tabpanel" aria-label="거래 내역">
     {# 이체 완료했는데 출금 문자가 없는 전자결재(11-26) — 서버가 짝지어 보고 남은 것만 #}
     <div class="gw-callout gw-fb-noout" id="fbNoOut" role="note" hidden></div>
+    {# 계좌별 묶음(11-27 SB) — 묶음 머리줄(계좌·건수·입금/출금 합·끝 잔액)은 JS 가 그림. 머리줄을 누르면 접고 펼침 #}
     <div class="gw-panel gw-ap-tablewrap">
-      <table class="gw-table gw-table-click gw-fb-table">
+      <table class="gw-table gw-table-click gw-fb-table gw-fb-txtable">
         <thead><tr>
-          <th>일시</th><th>계좌</th><th>상대방</th><th class="num">입금</th><th class="num">출금</th><th class="num">잔액</th><th>계정</th><th>적요</th>
+          <th>일시</th><th>상대방</th><th class="num">입금</th><th class="num">출금</th><th class="num">잔액</th><th>계정</th><th>적요</th>
         </tr></thead>
-        <tbody id="fbRows"><tr><td colspan="8" class="gw-empty">불러오는 중…</td></tr></tbody>
+        <tbody id="fbRows"><tr><td colspan="7" class="gw-empty">불러오는 중…</td></tr></tbody>
       </table>
     </div>
   </div>
