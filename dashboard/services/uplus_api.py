@@ -192,8 +192,9 @@ def _num(x) -> Optional[float]:
 
 
 KST = timedelta(hours=9)
-# 시각이 세계 표준시로 오는 API(11-25 개발기 확인). 운영에서 다르면 .env UPLUS_UTC_APIS=status,eco,safe 처럼 바꾼다.
-UTC_APIS_DEFAULT = ('status', 'eco', 'safe')
+# 시각이 세계 표준시로 오는 API. 11-27 운영 확인: 경제·안전 운전만 세계 표준시(22:34 UTC 시작 = 경로 07:34),
+#   차량 상태는 한국 시각(11:03 에 11:03:46 으로 옴 — 개발기 11-25 엔 세계 표준시였음). 바뀌면 .env UPLUS_UTC_APIS=eco,safe 처럼.
+UTC_APIS_DEFAULT = ('eco', 'safe')
 
 
 def _utc(api: str) -> bool:

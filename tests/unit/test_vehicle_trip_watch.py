@@ -193,8 +193,8 @@ def test_uplus_parse_and_token_retry(monkeypatch):
     out = up.car_status()
     assert [p for p, _ in sent] == ['/v1/session', up.APIS['status'], '/v1/session', up.APIS['status']]   # 토큰 다시 받고 한 번 더
     assert sent[1][1]['application_id'] == 12 and sent[3][1]['token'] == 'tok3'
-    assert out[0]['plate'] == RAY and out[0]['lat'] == pytest.approx(37.559848) and out[0]['at'] == datetime(2026, 11, 26, 1, 2)
-    assert out[1]['lat'] is None and out[1]['at'] == datetime(2026, 11, 26, 0, 20)        # 위치 0 → 없음, 상태 시각은 세계 표준시 → +9시간
+    assert out[0]['plate'] == RAY and out[0]['lat'] == pytest.approx(37.559848) and out[0]['at'] == datetime(2026, 11, 25, 16, 2)
+    assert out[1]['lat'] is None and out[1]['at'] == datetime(2026, 11, 25, 15, 20)       # 위치 0 → 없음, 상태 시각은 운영에서 한국 시각 → 그대로(11-27)
     assert up.parse_time('') is None and up.parse_time('2026-11-25 16:02') == datetime(2026, 11, 25, 16, 2)
 
 
@@ -224,7 +224,7 @@ def test_car_status_takes_location_api(monkeypatch):
     monkeypatch.setattr(up, '_post', fake_post)
     out = {s['plate']: s for s in up.car_status()}
     assert (out[RAY]['lat'], out[RAY]['lon']) == (pytest.approx(37.583532), pytest.approx(126.887128))
-    assert out[RAY]['at'] == datetime(2026, 11, 25, 12, 53, 53) and out[RAY]['fuel'] == 20.0
+    assert out[RAY]['at'] == datetime(2026, 11, 25, 3, 53, 53) and out[RAY]['fuel'] == 20.0
     assert out[SPARK]['lat'] is None and '12가3456' not in out                       # 상태에 없는 차는 만들지 않음
     assert [loc['plate'] for loc in up.locations()] == [RAY]
     state['loc_fail'] = True

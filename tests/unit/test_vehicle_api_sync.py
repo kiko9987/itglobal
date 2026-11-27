@@ -199,11 +199,12 @@ def test_uplus_trips_merge(monkeypatch):
 
 
 def test_uplus_time_zone_per_api(monkeypatch):
-    """11-25 개발기: 표기는 모두 +00:00 인데 상태·경제·안전 운전은 세계 표준시, 경로는 한국 시각."""
+    """11-27 운영: 표기는 +00:00 인데 경제·안전 운전만 세계 표준시, 차량 상태·경로는 한국 시각."""
     monkeypatch.delenv('UPLUS_UTC_APIS', raising=False)
     s = '2026-11-24T09:05:16.000+00:00'
     assert up.parse_time(s, 'eco') == datetime(2026, 11, 24, 18, 5, 16)
-    assert up.parse_time(s, 'status') == datetime(2026, 11, 24, 18, 5, 16)
+    assert up.parse_time(s, 'safe') == datetime(2026, 11, 24, 18, 5, 16)
+    assert up.parse_time('2026-11-27 11:03:46.0', 'status') == datetime(2026, 11, 27, 11, 3, 46)
     assert up.parse_time('2026-11-24 18:05:16', 'route_day') == datetime(2026, 11, 24, 18, 5, 16)
     assert up.parse_time(s) == datetime(2026, 11, 24, 9, 5, 16)                   # API 를 안 밝히면 그대로
     monkeypatch.setenv('UPLUS_UTC_APIS', 'status')                                  # 운영에서 다르면 .env 로
