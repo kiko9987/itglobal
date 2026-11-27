@@ -120,6 +120,7 @@ function ensureCalendar() {
     plugins: [dayGridPlugin, timeGridPlugin],
     initialView: 'dayGridMonth',
     locale: koLocale,
+    firstDay: 1,   // 월요일 시작 — 전사 휴가·스케줄 근무·쉬는 날 달력과 같게(11-28 점검)
     headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek' },
     editable: false,
     dayMaxEvents: 5,   // 하루 20건 가까이 몰려 칸이 길어지는 것 방지 → '+N개' 접기

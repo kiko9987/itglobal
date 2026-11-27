@@ -30,6 +30,7 @@
 .gw-page-title {
   font-size: 1.3rem;
   font-weight: 600;
+  white-space: nowrap;   /* 버튼에 밀려 '입찰 / 공고'처럼 꺾이던 것 — 머리가 줄을 바꿔 버튼을 아래로(11-28) */
   margin: 0;
   color: #0f172a;
 }
@@ -4605,3 +4606,80 @@ ul.gw-fe-notes li + li { margin-top: 2px; }
   .gw-ap-filters.gw-fa-filters .gw-chip-select { display: block; flex: 1 1 40%; height: 40px; font-size: 16px; }
   .gw-ap-filters.gw-fa-filters .gw-ap-count { order: 1; flex: 1 1 100%; text-align: right; }
 }
+
+/* ── 11-28 전체 점검 2차: 휴대폰 표 → 카드(플렉스 보관함과 같은 방식) ─────────────────────
+   입출금(860px)·입찰 공고(760px) 표를 옆으로 밀어야 했음 → 한 건을 한 카드로. 넓은 화면은 그대로 */
+@media (max-width: 767.98px) {
+  /* 입출금 거래 내역 — 1줄: 일시 / 2줄: 상대방 · 오른쪽 금액 / 3줄: 계정 · 오른쪽 잔액 / 4줄: 적요 */
+  .gw-ap-tablewrap:has(#fbRows) { overflow-x: visible; }
+  .gw-fb-txtable:has(#fbRows) { display: block; width: 100%; min-width: 0; }
+  .gw-fb-txtable:has(#fbRows) thead { display: none; }
+  #fbRows, #fbRows tr { display: block; }
+  #fbRows tr.gw-fb-grp { padding: 10px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
+  #fbRows tr.gw-fb-grp td { display: none; }
+  #fbRows tr.gw-fb-grp td.gw-fb-grp-name { display: block; padding: 0; border: 0; }
+  #fbRows tr[data-id] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2px 12px;
+    padding: 10px 14px;
+    border-bottom: 1px solid #eeeff1;
+  }
+  #fbRows tr[data-id] td { display: block; padding: 0; border: 0; white-space: normal; text-align: left; min-width: 0; }
+  #fbRows tr[data-id] td:nth-child(1) { grid-column: 1; grid-row: 1; font-size: 0.78rem; color: #64748b; }
+  #fbRows tr[data-id] td:nth-child(2) { grid-column: 1; grid-row: 2; font-weight: 600; overflow-wrap: anywhere; }
+  #fbRows tr[data-id] td:nth-child(3),
+  #fbRows tr[data-id] td:nth-child(4) { grid-column: 2; grid-row: 1 / span 2; align-self: center; text-align: right; font-weight: 700; white-space: nowrap; }
+  #fbRows tr[data-id] td:nth-child(3):has(> .text-muted:only-child),
+  #fbRows tr[data-id] td:nth-child(4):has(> .text-muted:only-child) { display: none; }
+  #fbRows tr[data-id] td:nth-child(5) { grid-column: 2; grid-row: 3; text-align: right; font-size: 0.78rem; color: #64748b; white-space: nowrap; }
+  #fbRows tr[data-id] td:nth-child(5)::before { content: '잔액 '; }
+  #fbRows tr[data-id] td:nth-child(6) { grid-column: 1; grid-row: 3; font-size: 0.8rem; color: #475569; }
+  #fbRows tr[data-id] td:nth-child(7) { grid-column: 1 / -1; grid-row: 4; font-size: 0.8rem; }
+  #fbRows tr[data-id] td:nth-child(7):empty { display: none; }
+  #fbRows tr:not([data-id]):not(.gw-fb-grp) td { display: block; }
+
+  /* 입찰 공고 — 1줄: 마감 · 오른쪽 표시 / 2줄: 공고 제목 / 3줄: 방식·추정가격 / 4줄: 참가 지역·면허 */
+  .gw-ap-tablewrap:has(#bdRows) { overflow-x: visible; }
+  .gw-bd-table:has(#bdRows) { display: block; width: 100%; min-width: 0; }
+  .gw-bd-table:has(#bdRows) thead { display: none; }
+  #bdRows, #bdRows tr { display: block; }
+  #bdRows tr.gw-bd-grp td { display: block; }
+  #bdRows tr.gw-bd-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid #eeeff1;
+  }
+  #bdRows tr.gw-bd-row td { display: block; padding: 0; border: 0; white-space: normal; min-width: 0; }
+  #bdRows tr.gw-bd-row td:nth-child(1) { order: 0; font-size: 0.8rem; color: #475569; }
+  #bdRows tr.gw-bd-row td:nth-child(6) { order: 1; margin-left: auto; }
+  #bdRows tr.gw-bd-row td:nth-child(2) { order: 2; flex-basis: 100%; }
+  #bdRows tr.gw-bd-row td:nth-child(3),
+  #bdRows tr.gw-bd-row td:nth-child(4) { order: 3; font-size: 0.82rem; color: #475569; }
+  #bdRows tr.gw-bd-row td:nth-child(4):empty,
+  #bdRows tr.gw-bd-row td:nth-child(3):empty { display: none; }
+  #bdRows tr.gw-bd-row td:nth-child(5) { order: 4; flex-basis: 100%; font-size: 0.82rem; }
+  #bdRows tr.gw-bd-detail td { display: block; }
+  /* '안 함' 공고도 보기 같은 체크 줄 — 누를 자리 44px */
+  .gw-bd-closed { min-height: 44px; display: inline-flex; align-items: center; gap: 6px; }
+}
+
+/* ── 11-28 전체 점검 2차: 빈 화면·진행 단계(Tabler 의 empty·timeline 을 우리 틀로) ─────────── */
+.gw-empty-cell { padding: 0 !important; }
+.gw-empty-state { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; padding: 36px 16px; color: #64748b; }
+.gw-empty-state .ic { width: 44px; height: 44px; border-radius: 50%; background: #f1f5f9; color: #64748b; display: grid; place-items: center; font-size: 18px; margin-bottom: 4px; }
+.gw-empty-state .t { color: #1a1c20; font-weight: 600; font-size: 0.95rem; }
+.gw-empty-state .d { font-size: 0.85rem; max-width: 36em; }
+.gw-ap-steps.gw-tl { list-style: none; padding-left: 0; }
+.gw-tl li { position: relative; padding: 4px 0 12px 22px; }
+.gw-tl li::before { content: ''; position: absolute; left: 3px; top: 10px; width: 10px; height: 10px; border-radius: 50%; background: #16a34a; box-shadow: 0 0 0 3px #fff; }
+.gw-tl li::after { content: ''; position: absolute; left: 7px; top: 22px; bottom: -6px; width: 2px; background: #e2e8f0; }
+.gw-tl li:last-child::after { display: none; }
+.gw-tl li.gw-tl-bad::before { background: #dc2626; }
+.gw-tl li.gw-tl-warn::before { background: #ea580c; }
+.gw-tl li.gw-tl-mute::before { background: #94a3b8; }
+.gw-tl li.gw-tl-next { color: #64748b; }
+.gw-tl li.gw-tl-next::before { background: #fff; border: 2px solid #94a3b8; width: 10px; height: 10px; box-sizing: border-box; }

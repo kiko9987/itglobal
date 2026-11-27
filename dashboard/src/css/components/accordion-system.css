@@ -2089,3 +2089,25 @@ tr.accordion-row:hover .row-details,
     background: #f7f8f9 !important;
   }
 }
+
+/* ===== 리드·프로젝트 줄 펼침 상세 — 이름·값을 위아래로(2026-11-28 전체 점검) =====
+   1440 폭에서 카드 칸(~130px)에 이름(최소 70px)과 값을 나란히 두니 전화번호가 '010- / 7417- / 2107',
+   날짜가 '11. / 27 / 접 / 수'처럼 쪼개졌음. 넓은 PC(1920 초과)는 칸이 넉넉해 그대로 두고,
+   그 아래 폭에서만 이름을 위·값을 아래로. 수금·금액 카드는 자기 배치(단계·뱃지 열)가 있어 제외. */
+@media (min-width: 768px) and (max-width: 1919.98px) {
+  .info-card.compact-card:not([data-card-type]) .card-grid .compact-item {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 2px;
+  }
+  .info-card.compact-card:not([data-card-type]) .compact-item small {
+    min-width: 0;
+  }
+  .info-card.compact-card:not([data-card-type]) .compact-item small::after {
+    content: none;
+  }
+  .info-card.compact-card:not([data-card-type]) .compact-item .editable-value {
+    width: 100%;
+  }
+}

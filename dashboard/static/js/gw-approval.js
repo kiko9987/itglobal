@@ -128,6 +128,11 @@
     }).join('<br>');
   }
 
+  function emptyState(icon, title, desc) {
+    return '<div class="gw-empty-state"><span class="ic" aria-hidden="true"><i class="fas ' + icon + '"></i></span>' +
+      '<div class="t">' + esc(title) + '</div>' + (desc ? '<div class="d">' + esc(desc) + '</div>' : '') + '</div>';
+  }
+
   function fieldsHtml(fields) {
     if (!fields || !fields.length) return '<div class="gw-log">적힌 칸이 없어요.</div>';
     var h = '<dl class="gw-dl gw-dl-1col">';
@@ -233,8 +238,11 @@
     function renderRows(items) {
       $('apCount').textContent = items.length.toLocaleString('ko-KR') + '건';
       if (!items.length) {
-        var msg = state.box === 'todo' ? '지금 내 차례인 결재가 없어요.' : '맞는 결재가 없어요.';
-        $('apRows').innerHTML = '<tr><td colspan="8" class="gw-empty">' + msg + '</td></tr>';
+        // 빈 화면 — 글 한 줄 대신 무엇을 하면 되는지까지(11-28 점검)
+        var es = state.box === 'todo'
+          ? emptyState('fa-check', '지금 내 차례인 결재가 없어요', '새 결재가 오면 슬랙과 위쪽 알림 종으로 알려 드려요.')
+          : emptyState('fa-filter', '맞는 결재가 없어요', '거르기 조건을 바꾸거나 [초기화]를 눌러 보세요.');
+        $('apRows').innerHTML = '<tr><td colspan="8" class="gw-empty-cell">' + es + '</td></tr>';
         return;
       }
       $('apRows').innerHTML = items.map(function (it) {
@@ -331,12 +339,18 @@
 
       h += '<div class="gw-sec-title">진행</div>';
       if (d.steps.length) {
-        h += '<ol class="gw-ap-steps">' + d.steps.map(function (s) {
-          return '<li><span class="who">' + esc(s.actor || '-') + '</span> ' + esc(s.step) +
+        // 단계 줄(점과 선) — 반려 빨강·보완 주황·취소 회색·그 밖 초록, 끝나지 않았으면 맨 아래 '다음' 칸(11-28 점검)
+        var STEP_OPEN = { pending: 1, final: 1, approved: 1, revise: 1 };
+        var stepKind = function (s) {
+          var r = String(s.result || s.step || '');
+          return /반려/.test(r) ? 'bad' : /보완|수정/.test(r) ? 'warn' : /취소/.test(r) ? 'mute' : 'ok';
+        };
+        h += '<ol class="gw-ap-steps gw-tl">' + d.steps.map(function (s) {
+          return '<li class="gw-tl-' + stepKind(s) + '"><span class="who">' + esc(s.actor || '-') + '</span> ' + esc(s.step) +
             (s.result && s.result !== s.step ? ' · ' + esc(s.result) : '') +
             (s.reason ? '<div class="why">' + esc(s.reason) + '</div>' : '') +
             '<span class="at">' + esc(when(s.at)) + '</span></li>';
-        }).join('') + '</ol>';
+        }).join('') + (STEP_OPEN[d.status] ? '<li class="gw-tl-next"><span class="who">다음</span> ' + esc(d.status_label) + '</li>' : '') + '</ol>';
       } else {
         h += '<div class="gw-log">아직 처리한 사람이 없어요.</div>';
       }
