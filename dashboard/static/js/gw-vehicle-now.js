@@ -91,6 +91,24 @@
       S.map = new kakao.maps.Map($('vnMap'), { center: new kakao.maps.LatLng(37.62, 126.72), level: 9 });
       if (!narrow.matches) S.map.addControl(new kakao.maps.ZoomControl(), kakao.maps.ControlPosition.RIGHT);
       kakao.maps.event.addListener(S.map, 'zoom_changed', function () { drawMarkers(false); });
+      // 창 크기가 바뀌면 지도 틀만 줄고 안의 지도는 큰 창에 맞춘 그대로라 차가 잘렸다(11-27 부장님) — 틀에 맞춰 다시 그리고,
+      //   고른 차가 있으면 그 차를 가운데에, 없으면 모든 차(가까운 차 찾기 중이면 방문지까지)가 보이게.
+      if (window.ResizeObserver) {
+        var rt = null, last = '';
+        new ResizeObserver(function () {
+          var box = $('vnMap'), sz = box.clientWidth + 'x' + box.clientHeight;
+          if (sz === last) return;
+          last = sz;
+          clearTimeout(rt);
+          rt = setTimeout(function () {
+            if (!S.map) return;
+            S.map.relayout();
+            var c = S.sel && S.cars.filter(function (x) { return x.plate === S.sel; })[0];
+            if (c && c.lat != null) S.map.setCenter(new kakao.maps.LatLng(c.lat, c.lon));
+            else drawMarkers(true);
+          }, 150);
+        }).observe($('vnMap'));
+      }
     }).catch(function () { mapMsg('지도를 불러오지 못했어요. 차 위치는 왼쪽 목록에서 볼 수 있어요.'); });
   }
   // 화면에서 꼬리표가 겹치는 차는 하나로 묶는다 — 전체 지도에선 김포·고양 차들이 겹쳐 읽을 수 없었다(11-27 부장님 '모바일 UI').
