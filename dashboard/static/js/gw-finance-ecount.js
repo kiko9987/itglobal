@@ -20,6 +20,9 @@
     // 탭 순서 ① 프로젝트 등록 → ② 매출전표 I — 새 프로젝트를 먼저 저장해야 매출전표가 들어감(11-26 부장님)
     var tabs = $('feTabs'), pb = tabs && tabs.querySelector('[data-tab="projects"]'), sb = tabs && tabs.querySelector('[data-tab="sales"]');
     if (pb && sb && sb.compareDocumentPosition(pb) & Node.DOCUMENT_POSITION_FOLLOWING) tabs.insertBefore(pb, sb);
+    // 탭 줄은 숫자 상자·안내보다 위 — ③ 에서 그 둘을 숨겨도 탭 줄이 제자리(11-28, 재시작 전 옛 템플릿도)
+    var stats = $('feStats');
+    if (tabs && stats && (tabs.compareDocumentPosition(stats) & Node.DOCUMENT_POSITION_PRECEDING)) stats.parentNode.insertBefore(tabs, stats);
     if (pb && pb.firstChild && pb.firstChild.nodeType === 3 && pb.firstChild.nodeValue.indexOf('①') < 0) pb.firstChild.nodeValue = '① ' + pb.firstChild.nodeValue;
     if (sb && sb.firstChild && sb.firstChild.nodeType === 3 && sb.firstChild.nodeValue.indexOf('②') < 0) sb.firstChild.nodeValue = '② ' + sb.firstChild.nodeValue;
     // ③ 이카운트 대조 탭(11-27) — 재시작 전 옛 템플릿이면 탭·칸을 만들어 둠

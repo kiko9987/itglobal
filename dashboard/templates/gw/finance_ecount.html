@@ -20,6 +20,13 @@
   </div>
 
   <div class="gw-vh-msg" id="feMsg" role="status" aria-live="polite"></div>
+  {# 탭 줄은 제목 바로 아래 고정 — 숫자 상자·안내는 ①·② 탭에만 있어 ③ 에서 숨기면 탭 줄이 위로 튀었음(11-28 부장님) #}
+  <div class="gw-ap-tabs" role="tablist" id="feTabs" aria-label="이카운트 업로드">
+    <button type="button" role="tab" data-tab="projects" aria-selected="false" tabindex="-1" aria-controls="fePaneProjects">① 프로젝트 등록 <b id="feCntProjects">-</b></button>
+    <button type="button" role="tab" data-tab="sales" class="active" aria-selected="true" aria-controls="fePaneSales">② 매출전표 I <b id="feCntSales">-</b></button>
+    <button type="button" role="tab" data-tab="audit" aria-selected="false" tabindex="-1" aria-controls="fePaneAudit">③ 이카운트 대조 <b id="feCntAudit">-</b></button>
+  </div>
+
   <div class="gw-stats" id="feStats"></div>
 
   <ol class="gw-callout gw-fe-steps">
@@ -28,11 +35,6 @@
     <li>이카운트에 들어간 줄을 골라 [넣음 표시] — 목록에서 빠져요. 넣지 않기로 한 줄은 [제외]</li>
   </ol>
 
-  <div class="gw-ap-tabs" role="tablist" id="feTabs" aria-label="이카운트 업로드">
-    <button type="button" role="tab" data-tab="projects" aria-selected="false" tabindex="-1" aria-controls="fePaneProjects">① 프로젝트 등록 <b id="feCntProjects">-</b></button>
-    <button type="button" role="tab" data-tab="sales" class="active" aria-selected="true" aria-controls="fePaneSales">② 매출전표 I <b id="feCntSales">-</b></button>
-    <button type="button" role="tab" data-tab="audit" aria-selected="false" tabindex="-1" aria-controls="fePaneAudit">③ 이카운트 대조 <b id="feCntAudit">-</b></button>
-  </div>
 
   <div class="gw-fe-tools">
     <button type="button" class="btn btn-sm btn-primary" id="feCopy"><i class="fas fa-copy me-1" aria-hidden="true"></i>표 복사</button>
