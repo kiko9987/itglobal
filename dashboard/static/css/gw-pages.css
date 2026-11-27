@@ -4469,7 +4469,6 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-fb-grp[aria-expanded="true"] .gw-fb-chev { transform: rotate(90deg); }
 .gw-fb-grp-bank { color: #475569; }
 .gw-fb-grp-n { display: inline-block; margin-left: 4px; font-size: 0.78rem; color: #475569; background: #fff; border: 1px solid #cbd5e1; border-radius: 999px; padding: 0 8px; }
-.gw-fb-grp-k { display: block; font-size: 0.72rem; font-weight: 500; color: #64748b; line-height: 1.2; }
 .gw-fb-grp td.num { font-weight: 600; }
 .gw-fb-txtable td.gw-fb-grp-src { text-align: left; }
 .gw-fb-grp-m { display: none; }

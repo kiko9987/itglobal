@@ -314,9 +314,9 @@
         // 휴대폰은 표가 옆으로 밀려 합계 칸이 안 보임 — 이름 아래 한 줄로(넓은 화면에선 CSS 가 숨김)
         '<div class="gw-fb-grp-m" aria-hidden="true"><span class="gw-fb-in">입금 ' + won(g.inSum) + '</span> · <span class="gw-fb-out">출금 ' + won(g.outSum) + '</span>' +
           (a && a.balance != null ? ' · 잔액 ' + won(a.balance) : '') + '</div></td>' +
-      '<td class="num gw-fb-in"><span class="gw-fb-grp-k">입금</span>' + (g.inSum ? won(g.inSum) : '-') + '</td>' +
-      '<td class="num gw-fb-out"><span class="gw-fb-grp-k">출금</span>' + (g.outSum ? won(g.outSum) : '-') + '</td>' +
-      '<td class="num" title="' + esc(balTip) + '"><span class="gw-fb-grp-k">잔액</span><strong>' + bal + '</strong></td>' +
+      '<td class="num gw-fb-in">' + (g.inSum ? won(g.inSum) : '-') + '</td>' +
+      '<td class="num gw-fb-out">' + (g.outSum ? won(g.outSum) : '-') + '</td>' +
+      '<td class="num" title="' + esc(balTip) + '"><strong>' + bal + '</strong></td>' +
       '<td colspan="2" class="gw-fb-grp-src">' + (a ? srcBadge(a) : '') + '</td></tr>';
   }
 
