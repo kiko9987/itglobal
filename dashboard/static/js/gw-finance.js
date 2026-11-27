@@ -317,7 +317,7 @@
       '<td class="num gw-fb-in">' + (g.inSum ? won(g.inSum) : '-') + '</td>' +
       '<td class="num gw-fb-out">' + (g.outSum ? won(g.outSum) : '-') + '</td>' +
       '<td class="num" title="' + esc(balTip) + '"><strong>' + bal + '</strong></td>' +
-      '<td colspan="2" class="gw-fb-grp-src">' + (a ? srcBadge(a) : '') + '</td></tr>';
+      '<td class="gw-fb-grp-src">' + (a ? srcBadge(a) : '') + '</td><td></td></tr>';   // 꼬리표는 계정 칸 아래 가운데(11-27 부장님)
   }
 
   function renderRows() {
