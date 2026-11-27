@@ -41,6 +41,7 @@ KIND_RECON = '이카운트 대조'
 BY_RECON = 'auto:recon'
 COST_FIELDS = ('제품대', '도급비', '자재비', '기타비')
 SALES_TYPE = '매출전표 I'
+NOT_BUY_TYPES = (SALES_TYPE, '입금보고서')   # 계정 없이 읽으면 섞여 나옴(11-28 실제 읽기: 입금보고서 451줄, 코드 붙은 것 8줄)
 CODE_RE = re.compile(r'^([GRN])(\d{4})-([A-Z]{2,3})$')
 KEEP_FILES_DAYS = 14
 MIN_SALES_ROWS = 1000              # 이보다 적게 읽혔으면 읽기가 잘못된 것(11-27 3,138장)
@@ -130,7 +131,7 @@ def aggregate(rows: List[dict], buy: bool = False) -> Dict[str, dict]:
         code = str(r.get('code') or '').strip()
         if not code:
             continue
-        if buy and r.get('typ') == SALES_TYPE:
+        if buy and r.get('typ') in NOT_BUY_TYPES:     # 매출전표·입금보고서(받은 돈)는 매입이 아님
             continue
         a = out.setdefault(code, {'s': 0, 'v': 0, 'n': 0, 'first': '', 'vouchers': [], 'site': ''})
         s, v, d = int(r.get('s') or 0), int(r.get('v') or 0), _ymd(r.get('d') or '')

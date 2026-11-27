@@ -43,9 +43,10 @@ def _row(d, code, s, v, typ='매출전표 I', partner='거래처'):
 
 def test_aggregate_sums_by_code_and_skips_sales_in_buy():
     rows = [_row('2026/10/02 -1', 'G9001-AA', 1_000_000, 100_000), _row('2026/10/09 -4', 'G9001-AA', -200_000, -20_000),
-            _row('2026/10/03 -2', 'G9001-AA', 500_000, 0, typ='매입전표 I')]
+            _row('2026/10/03 -2', 'G9001-AA', 500_000, 0, typ='매입전표 I'),
+            _row('2026/10/04 -1', 'G9001-AA', 9_000_000, 0, typ='입금보고서')]
     a = er.aggregate(rows)
-    assert (a['G9001-AA']['s'], a['G9001-AA']['v'], a['G9001-AA']['n'], a['G9001-AA']['first']) == (1_300_000, 80_000, 3, '2026-10-02')
+    assert (a['G9001-AA']['s'], a['G9001-AA']['v'], a['G9001-AA']['n'], a['G9001-AA']['first']) == (10_300_000, 80_000, 4, '2026-10-02')
     b = er.aggregate(rows, buy=True)
     assert b['G9001-AA']['s'] == 500_000 and b['G9001-AA']['n'] == 1
 
