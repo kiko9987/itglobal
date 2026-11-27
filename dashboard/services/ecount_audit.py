@@ -55,13 +55,16 @@ CATEGORIES = (
     # 매입(11-28) — 이카운트 매입전표(공급가) 공사별 합 ↔ 공사 현황 원가(제품대·도급비·자재비·기타비 합)
     ('buy_code', '공사 현황에 없는 코드', '이카운트 매입전표의 프로젝트 코드가 공사 현황에 없어요. 같은 번호의 공사로 옮겨야 할 수 있어요.'),
     ('buy_cancel', '취소된 공사에 남은 매입', '공사 현황에서 취소된 공사인데 이카운트에 매입이 남아 있어요.'),
-    ('buy_diff', '원가가 다름', '이카운트 매입 합계(공급가)와 공사 현황 원가 합계가 달라요.'),
-    ('buy_nocost', '공사 현황 원가가 비어 있음', '이카운트에는 매입이 있는데 공사 현황 원가 칸이 비어 있어요.'),
     ('buy_noeco', '이카운트 매입이 없음', '공사 현황에는 원가가 있는데 이카운트에 매입전표가 없어요.'),
+    # 시트 원가(11-28 부장님 'SB 할 일은 30건만') — 이카운트는 맞고 공사 현황 원가 칸을 채우거나 고칠 일. 보기만, DM 에 안 넣음
+    ('buy_nocost', '공사 현황 원가가 비어 있음', '이카운트에는 매입이 있는데 공사 현황 원가 칸(제품대·도급비·자재비·기타비)이 모두 비어 있어요. 시트에 원가를 넣을 일이에요.'),
+    ('buy_diff', '원가가 다름', '이카운트 매입 합계(공급가)와 공사 현황 원가 합계가 달라요. 어느 쪽이 맞는지 보고 시트 원가를 고칠 일이에요.'),
 )
 CATEGORY_KEYS = tuple(c[0] for c in CATEGORIES)
-BUY_CATEGORIES = ('buy_code', 'buy_cancel', 'buy_diff', 'buy_nocost', 'buy_noeco')
-SIDES = (('sales', '매출'), ('buy', '매입'))
+BUY_CATEGORIES = ('buy_code', 'buy_cancel', 'buy_noeco')          # 매입 — 이카운트를 고칠 일(SB)
+COST_CATEGORIES = ('buy_nocost', 'buy_diff')                     # 시트 원가 — 공사 현황 원가 칸을 채우거나 고칠 일
+SIDES = (('sales', '매출'), ('buy', '매입'), ('cost', '시트 원가'))
+WORK_SIDES = ('sales', 'buy')                                   # SB 할 일(탭 숫자·아침 DM)
 AUTO_BATCH = 'auto'              # 밤 자동 대조 묶음(계속 고쳐 씀). 손으로 넣은 대조는 날짜 이름 batch('2026-11-26')
 AUTO_BY = '자동 대조'
 RESOLVED_SHOW_DAYS = 7           # '맞음'으로 끝난 줄은 이 기간만 화면 아래에 남김
@@ -184,7 +187,8 @@ def list_items(batch: Optional[str] = None) -> Dict:
         its.sort(key=lambda r: (r['status'] != 'open', r['code']))
         for r in its:
             r['status_label'] = STATUSES.get(r['status'], r['status'])
-        groups.append({'key': key, 'side': 'buy' if key in BUY_CATEGORIES else 'sales', 'label': label, 'desc': desc,
+        side = 'buy' if key in BUY_CATEGORIES else 'cost' if key in COST_CATEGORIES else 'sales'
+        groups.append({'key': key, 'side': side, 'label': label, 'desc': desc,
                        'items': its, 'open': sum(1 for r in its if r['status'] == 'open')})
     sides = []
     for sk, sl in SIDES:

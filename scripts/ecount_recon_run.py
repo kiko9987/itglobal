@@ -48,7 +48,7 @@ def main() -> int:
     print(f"장부 맞춤: {s['ledger_fixed'] if a.apply else len(res['fixes'])}건" + (' (한도 넘어 보류)' if s['ledger_held'] else ''))
     for f in res['fixes'][:60]:
         print(f"   {f['code']}: 장부 {f['cur'][0]:,}/{f['cur'][1]:,} → 이카운트 {f['eco'][0]:,}/{f['eco'][1]:,}")
-    for side, found in (('매출', res['sales_found']), ('매입', res['buy_found'])):
+    for side, found in (('매출', res['sales_found']), ('매입', res['buy_found']), ('시트 원가', res['cost_found'])):
         print(f'{side} 차이 {len(found)}건:', dict(Counter(i["category"] for i in found.values())))
     for c, i in sorted(res['sales_found'].items()):
         eco = f"{i['eco_supply']:,}/{i['eco_vat']:,}"
@@ -56,7 +56,7 @@ def main() -> int:
         print(f"   {i['category']:8} {c}{'(이카운트 ' + i['ecount_code'] + ')' if i['ecount_code'] != c else ''} 이카운트 {eco} · 공사 현황 {sheet}")
     print(f"②에 '이카운트에 이미 있음' 경고가 붙을 공사: {len(res['mismatch'])}건")
     if a.apply:
-        for side in ('sales', 'buy'):
+        for side in ('sales', 'buy', 'cost'):
             r = s[side]
             print(f"{side}: 새로 {len(r.get('new') or [])} · 다시 처리 전 {len(r.get('reopened') or [])} · 맞음(완료) {len(r.get('resolved') or [])}")
     if a.dm_preview and a.apply:

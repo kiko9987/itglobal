@@ -355,7 +355,7 @@
   var FA_INV_LABEL = { 'N입금': '현금(계산서 없음)' };
   function faDiff(r) {
     if (r.eco_supply == null || r.sheet_supply == null) return '';
-    if (r.side === 'buy') {
+    if (r.side === 'buy' || r.side === 'cost') {
       var bd = (r.eco_supply || 0) - (r.sheet_supply || 0);
       return Math.abs(bd) > 10 ? '<div class="gw-fa-diff">이카운트 매입이 <b>' + won(Math.abs(bd)) + '원 ' + (bd > 0 ? '많아요' : '적어요') + '</b></div>' : '';
     }
@@ -426,6 +426,8 @@
         '<div class="gw-fa-by">' + esc(r.resolved_by || '') + (r.memo ? ' · ' + esc(r.memo) : '') + '</div>' +
         (r.status === 'resolved' ? '' :     // '맞음'은 밤 자동 대조가 붙인 것 — 다시 다르면 자동으로 처리 전이 됨
           '<button type="button" class="btn btn-link btn-sm p-0 gw-fa-undo" data-aid="' + r.id + '" data-act="open">되돌리기</button>')
+      : r.side === 'cost'     // 시트 원가 — SB 가 누를 일 없음(11-28), 시트 원가를 고치면 다음 대조에서 자동으로 맞음
+      ? '<div class="gw-fa-by">공사 현황 원가를 채우거나 고치면 다음 대조에서 자동으로 맞음이 돼요.</div>'
       : '<input type="text" class="form-control form-control-sm gw-fa-memo" maxlength="200" placeholder="메모(선택)" aria-label="' + esc(r.code + ' 메모') + '">' +
         '<div class="gw-fa-btns">' + ACTS.map(function (a) {
           return '<button type="button" class="btn btn-sm ' + a[2] + '" data-aid="' + r.id + '" data-act="' + a[0] + '">' + a[1] + '</button>';
@@ -433,8 +435,8 @@
     return '<tr data-aid="' + r.id + '"' + (done ? ' class="gw-fa-done"' : '') + '>' +
       '<td class="text-nowrap">' + codeCell + '</td>' +
       '<td class="gw-fe-memo">' + esc(r.site || '') + '</td>' +
-      '<td class="num">' + amt(r.eco_supply, r.eco_vat, r.side === 'buy') + '</td>' +
-      '<td class="num">' + amt(r.sheet_supply, r.sheet_vat, r.side === 'buy') + '</td>' +
+      '<td class="num">' + amt(r.eco_supply, r.eco_vat, r.side !== 'sales') + '</td>' +
+      '<td class="num">' + amt(r.sheet_supply, r.sheet_vat, r.side !== 'sales') + '</td>' +
       '<td class="gw-fe-memo gw-fa-why">' + (why || '<span class="text-muted">-</span>') + '</td>' +
       '<td class="gw-fa-act">' + act + '</td></tr>';
   }
@@ -488,7 +490,7 @@
       var take = rows.slice(0, Math.max(0, budget - shown));
       shown += take.length;
       if (!take.length) return;
-      var buy = g.side === 'buy';
+      var buy = g.side === 'buy' || g.side === 'cost';
       html += '<section class="gw-fa-group"><h3 class="gw-fa-title">' + esc(g.label) +
           ' <span>' + (g.open ? '처리 전 ' + won(g.open) + ' / ' : '') + won(g.items.length) + '건</span></h3>' +
         '<p class="gw-fa-desc">' + esc(g.desc) + '</p>' +
@@ -511,9 +513,9 @@
       g.side = g.side || 'sales';
       g.items.forEach(function (r) { r.side = r.side || g.side; });
     });
-    // 탭 옆 숫자 = 매출 처리 전(매입은 지난 차이가 많아 고르기 칸에서 따로 보여 줌, 11-28)
-    var salesSide = (A.sides || []).filter(function (x) { return x.key === 'sales'; })[0];
-    if ($('feCntAudit')) $('feCntAudit').textContent = salesSide ? salesSide.open : A.counts.open;
+    // 탭 옆 숫자 = SB 할 일(매출·매입 처리 전). 시트 원가 확인은 보기만이라 뺌(11-28 부장님)
+    var work = (A.sides || []).filter(function (x) { return x.key === 'sales' || x.key === 'buy'; });
+    if ($('feCntAudit')) $('feCntAudit').textContent = work.length ? work.reduce(function (n, x) { return n + x.open; }, 0) : A.counts.open;
     var box = $('feAudit');
     if (!box) return;
     if (!A.batch) { box.innerHTML = '<p class="gw-empty">아직 대조한 결과가 없어요.</p>'; return; }

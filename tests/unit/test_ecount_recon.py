@@ -177,18 +177,20 @@ def test_list_items_prefers_auto_and_splits_sides(db):
     ea.import_items('2026-11-26', [_it('supply', 'G9301-AA', 1, 0, 2, 0)])
     assert ea.list_items()['batch'] == '2026-11-26'
     ea.apply_nightly('sales', {'G9301-AA': _it('supply', 'G9301-AA', 1, 0, 2, 0)}, '11/28')
-    ea.apply_nightly('buy', {'G9302-BB': _it('buy_nocost', 'G9302-BB', 700, 0, 0, 0),
-                             'G9303-CC': _it('buy_diff', 'G9303-CC', 700, 0, 600, 0)}, '11/28')
+    ea.apply_nightly('buy', {'G9304-DD': _it('buy_code', 'G9304-DD', 80, 0, 0, 0)}, '11/28')
+    ea.apply_nightly('cost', {'G9302-BB': _it('buy_nocost', 'G9302-BB', 700, 0, 0, 0),
+                              'G9303-CC': _it('buy_diff', 'G9303-CC', 700, 0, 600, 0)}, '11/28')
     out = ea.list_items()
     assert out['batch'] == 'auto'
-    assert {s['key']: (s['open'], s['total']) for s in out['sides']} == {'sales': (1, 1), 'buy': (2, 2)}
-    assert [(g['key'], g['side']) for g in out['groups']] == [('supply', 'sales'), ('buy_diff', 'buy'), ('buy_nocost', 'buy')]
+    assert {s['key']: (s['open'], s['total']) for s in out['sides']} == {'sales': (1, 1), 'buy': (1, 1), 'cost': (2, 2)}
+    assert [(g['key'], g['side']) for g in out['groups']] == [
+        ('supply', 'sales'), ('buy_code', 'buy'), ('buy_nocost', 'cost'), ('buy_diff', 'cost')]
     # 오래된 '맞음'은 화면에서 빠짐
-    ea.apply_nightly('buy', {'G9302-BB': _it('buy_nocost', 'G9302-BB', 700, 0, 0, 0)}, '11/29')
+    ea.apply_nightly('cost', {'G9302-BB': _it('buy_nocost', 'G9302-BB', 700, 0, 0, 0)}, '11/29')
     with ea._conn() as conn:
         conn.execute("UPDATE ecount_audit_items SET resolved_at = datetime('now', '-30 days') WHERE code = 'G9303-CC'")
         conn.commit()
-    assert {s['key']: s['total'] for s in ea.list_items()['sides']}['buy'] == 1
+    assert {s['key']: s['total'] for s in ea.list_items()['sides']}['cost'] == 1
     with pytest.raises(ValueError):
         ea.set_status(_row_of('G9301-AA')['id'], 'resolved', '', by='황샛별')   # '맞음'은 사람이 못 누름
 
@@ -291,17 +293,37 @@ def test_split_today_and_api_later(db, monkeypatch):
 
 def test_build_dm_variants():
     ok = {'status': 'ok', 'summary': {'md': '11/29', 'sales': {'resolved': ['G1']}, 'buy': {'resolved': []}}}
-    text, blocks = er.build_dm(ok, {'projects': 0, 'sales': 0}, [], [{'code': 'G2', 'side': 'buy', '_fresh': False}])
-    assert text.startswith('수정할 것 없음')
+    text, blocks = er.build_dm(ok, {'projects': 0, 'sales': 0}, [], [])
+    assert text == '수정할 것 없음 — 이카운트·공사 현황·장부가 모두 맞아요.'
     flat = json.dumps(blocks, ensure_ascii=False)
-    assert '1건은 이카운트와 공사 현황이 같아져 완료로' in flat and '지난 차이 1건' in flat
+    assert '1건은 이카운트와 공사 현황이 같아져 완료로' in flat
     sales_open = [{'code': 'G3', 'side': 'sales', 'eco_supply': 100, 'eco_vat': 10, 'sheet_supply': 200, 'sheet_vat': 20,
                    'ecount_code': 'G3', '_fresh': True}]
-    buy = [{'code': 'G4', 'side': 'buy', 'eco_supply': 700, 'sheet_supply': 0, 'ecount_code': 'G4', '_fresh': True}]
+    buy = [{'code': 'G4', 'side': 'buy', 'category': 'buy_code', 'eco_supply': 700, 'sheet_supply': 0, 'ecount_code': 'G4', '_fresh': False},
+           {'code': 'G5', 'side': 'buy', 'category': 'buy_cancel', 'eco_supply': 980, 'ecount_code': 'G5'},
+           {'code': 'G6', 'side': 'buy', 'category': 'buy_noeco', 'eco_supply': 0, 'sheet_supply': 300, 'ecount_code': 'G6'}]
     text, blocks = er.build_dm(ok, {'projects': 1, 'sales': 2}, sales_open, buy)
     flat = json.dumps(blocks, ensure_ascii=False)
-    assert text == '이카운트 대조 — 고칠 것 5건'
+    assert text == '이카운트 대조 — 고칠 것 7건'
     assert '① 프로젝트 등록 1건 · ② 매출전표 2건' in flat and '`G3` 이카운트 110원 · 공사 현황 220원' in flat
-    assert '`G4` 이카운트 매입 700원 · 공사 현황 원가 0원' in flat
+    assert '`G4` 이카운트 매입 700원 · 공사 현황 원가 0원' in flat and '`G5` 취소된 공사에 이카운트 매입 980원 남음' in flat
+    assert '`G6` 이카운트 매입 없음 · 공사 현황 원가 300원' in flat
     text, _ = er.build_dm({'status': 'failed'}, {}, [], [])
     assert '읽지 못해 쉬어요' in text
+
+
+def test_run_nightly_splits_buy_work_from_sheet_cost(db, tmp_path, monkeypatch):
+    """매입은 SB 가 이카운트를 고칠 것(매입)과 시트 원가 확인(원가 빈칸·다름)으로 나뉨 — 11-28 부장님 'SB 할 일은 30건만'."""
+    import dashboard.services.project_service as ps
+    monkeypatch.setattr(er, 'MIN_SALES_ROWS', 1)
+    monkeypatch.setattr(er, 'MIN_SHEET_ROWS', 1)
+    recs = [_rec('G9801-AA', 1_000_000, confirmed='2026-08-01'), _rec('R9802-BB', 1_000_000, confirmed='2026-08-01')]
+    monkeypatch.setattr(ps, 'get_project_records', lambda force_refresh=False: recs)
+    sales = [_row('2026/08/01 -1', 'G9801-AA', 1_000_000, 100_000), _row('2026/08/01 -2', 'R9802-BB', 1_000_000, 100_000)]
+    buy = [_row('2026/08/05 -1', 'G9801-AA', 400_000, 40_000, typ='매입전표 I'),       # 원가 빈칸 → 시트 원가
+           _row('2026/08/05 -2', 'G9802-BB', 300_000, 30_000, typ='매입전표 I')]       # 코드 다름 → 매입(SB)
+    res = er.run_nightly(read_path=_read_file(tmp_path, sales, buy), today=date(2026, 11, 28))
+    assert set(res['buy_found']) == {'R9802-BB'} and set(res['cost_found']) == {'G9801-AA'}
+    sides = {s['key']: s['open'] for s in ea.list_items()['sides']}
+    assert sides == {'sales': 0, 'buy': 1, 'cost': 1}
+    assert [r['code'] for r in ea.open_items('buy')] == ['R9802-BB']

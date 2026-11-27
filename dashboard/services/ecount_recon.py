@@ -594,16 +594,21 @@ def run_nightly(read_path: Optional[str] = None, apply: bool = True, today: Opti
             watch = _watch_codes(ensure=apply)
             s_found, mismatch = sales_diffs(eco_sales, recs, ledger, watch)
             b_found = buy_diffs(eco_buy, recs, today)
+            # 매입은 SB 가 이카운트를 고칠 것(코드·취소·없음)과 시트 원가 확인(빈칸·다름)으로 나눔(11-28 부장님)
+            c_found = {c: i for c, i in b_found.items() if i['category'] in ea.COST_CATEGORIES}
+            b_found = {c: i for c, i in b_found.items() if i['category'] not in ea.COST_CATEGORIES}
             if apply:
                 s_res = ea.apply_nightly('sales', s_found, md)
                 b_res = ea.apply_nightly('buy', b_found, md)
+                c_res = ea.apply_nightly('cost', c_found, md)
             else:
-                s_res = b_res = {}
+                s_res = b_res = c_res = {}
             summary = {
                 'md': md, 'read_file': str(path), 'ledger_fixes': len(fixes), 'ledger_fixed': fixed,
                 'ledger_held': held, 'ledger_backup': backup, 'ledger_fix_codes': [f['code'] for f in fixes][:200],
                 'sales': {'found': len(s_found), **{k: v for k, v in s_res.items()}},
                 'buy': {'found': len(b_found), **{k: v for k, v in b_res.items()}},
+                'cost': {'found': len(c_found), **{k: v for k, v in c_res.items()}},
                 'eco_codes': len(eco_sales), 'buy_codes': len(eco_buy), 'sheet_rows': len(recs_list),
             }
             if apply:
@@ -611,7 +616,8 @@ def run_nightly(read_path: Optional[str] = None, apply: bool = True, today: Opti
                             summary=summary, eco_mismatch=mismatch)
                 _cleanup_files()
             logger.info(f"[ECOUNT_RECON] 대조 끝 — 장부 맞춤 {fixed}/{len(fixes)}, 매출 차이 {len(s_found)}, 매입 차이 {len(b_found)}")
-            return {'ok': True, 'summary': summary, 'sales_found': s_found, 'buy_found': b_found, 'mismatch': mismatch,
+            return {'ok': True, 'summary': summary, 'sales_found': s_found, 'buy_found': b_found, 'cost_found': c_found,
+                    'mismatch': mismatch,
                     'fixes': fixes}
         except Exception as exc:
             if apply:
@@ -635,9 +641,12 @@ def _dm_line(r: dict) -> str:
     es_, ev, ss, sv = (int(r.get(k) or 0) for k in ('eco_supply', 'eco_vat', 'sheet_supply', 'sheet_vat'))
     if r.get('ecount_code') and r['ecount_code'] != r['code']:
         what = f"이카운트 코드 {r['ecount_code']}"
-    elif side == 'buy':
-        what = f'이카운트 매입 {_won(es_)} · 공사 현황 원가 {_won(ss)}' if r.get('sheet_supply') is not None \
-            else f'이카운트 매입 {_won(es_)}'
+    elif r.get('category') == 'buy_cancel':
+        what = f'취소된 공사에 이카운트 매입 {_won(es_)} 남음'
+    elif r.get('category') == 'buy_noeco':
+        what = f'이카운트 매입 없음 · 공사 현황 원가 {_won(ss)}'
+    elif side != 'sales':
+        what = f'이카운트 매입 {_won(es_)} · 공사 현황 원가 {_won(ss)}'
     else:
         what = f'이카운트 {_won(es_ + ev)} · 공사 현황 {_won(ss + sv)}'
     return f"• `{r['code']}` {what}"
@@ -646,8 +655,8 @@ def _dm_line(r: dict) -> str:
 def build_dm(run: Optional[dict], upload: Dict[str, int], sales_open: List[dict], buy_open: List[dict]) -> Tuple[str, List[dict]]:
     """(알림 글, 블록). upload = {'projects': ①, 'sales': ②}.
 
-    고칠 것 = ①·② 건수 + ③ 매출 처리 전 + ③ 매입 중 이번에 새로 생기거나 다시 열린 것. 매입은 지난 차이가 많아
-    (11-28 첫 대조 약 1,100건, 대부분 공사 현황 원가 빈칸) 날마다 다 보내지 않고 건수만 한 줄로 적는다."""
+    고칠 것 = ①·② 건수 + ③ 매출·매입(이카운트를 고칠 것) 처리 전. 시트 원가 확인(원가 빈칸·원가 다름)은 SB 할 일이
+    아니라 넣지 않는다(11-28 부장님 'SB 할 일은 30건만')."""
     base = ((os.getenv('GW_PUBLIC_URL') or '').strip() or 'https://pm.itg-aircon.com').rstrip('/')
     link = f'{base}/finance/ecount'
     if not run or run.get('status') != 'ok':
@@ -656,31 +665,26 @@ def build_dm(run: Optional[dict], upload: Dict[str, int], sales_open: List[dict]
         return text, [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': f':warning: {text}\n<{link}|이카운트 업로드 열기>'}}]
     summ = run.get('summary') or {}
     resolved = len((summ.get('sales') or {}).get('resolved') or []) + len((summ.get('buy') or {}).get('resolved') or [])
-    buy_fresh = [r for r in buy_open if r.get('_fresh')]
-    buy_old = len(buy_open) - len(buy_fresh)
-    total = upload.get('projects', 0) + upload.get('sales', 0) + len(sales_open) + len(buy_fresh)
+    total = upload.get('projects', 0) + upload.get('sales', 0) + len(sales_open) + len(buy_open)
     head = f":ledger: *이카운트 대조 · {summ.get('md', '')} 자정 기준*"
     tail = []
     if resolved:
         tail.append(f'어제 알려 드린 것 중 {resolved}건은 이카운트와 공사 현황이 같아져 완료로 바꿨어요.')
-    if buy_old:
-        tail.append(f'매입은 지난 차이 {buy_old:,}건이 ③ 이카운트 대조에 남아 있어요.')
     tail.append(f'<{link}|이카운트 업로드 열기>')
     if not total:
-        text = '수정할 것 없음 — ' + ('매출은 ' if buy_old else '') + '이카운트·공사 현황·장부가 모두 맞아요.'
+        text = '수정할 것 없음 — 이카운트·공사 현황·장부가 모두 맞아요.'
         return text, [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': f'{head}\n{text}'}},
                       {'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': ' '.join(tail)}]}]
     lines = [head, f'고칠 것이 {total}건 있어요.']
     if upload.get('projects') or upload.get('sales'):
         lines.append(f"• 이카운트 업로드 — ① 프로젝트 등록 {upload.get('projects', 0)}건 · ② 매출전표 {upload.get('sales', 0)}건")
     blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': '\n'.join(lines)}}]
-    for label, rows in (('매출', sales_open), ('매입', buy_fresh)):
+    for label, rows in (('매출', sales_open), ('매입', buy_open)):
         if not rows:
             continue
         fresh = [r for r in rows if r.get('_fresh')]
         show = (fresh + [r for r in rows if not r.get('_fresh')])[:DM_LIST_MAX]
-        t = [f'*③ 이카운트 대조 · {label} {len(rows)}건*'
-             + (f' (새로 생긴 것 {len(fresh)}건)' if label == '매출' and fresh else ' (새로 생긴 것)' if label == '매입' else '')]
+        t = [f'*③ 이카운트 대조 · {label} {len(rows)}건*' + (f' (새로 생긴 것 {len(fresh)}건)' if fresh else '')]
         t += [_dm_line(r) for r in show]
         if len(rows) > len(show):
             t.append(f'그 밖에 {len(rows) - len(show)}건은 그룹웨어에서 볼 수 있어요.')
