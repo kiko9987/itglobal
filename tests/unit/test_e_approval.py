@@ -696,6 +696,13 @@ def test_supply_revise_cheaper_keeps_approval(se):
     assert ea.complete_supply_request(f) == {}
     new = se.process_supply_submit(SB, f)                     # 어드민(SB)이 요청자 대신
     assert new['status'] == ea.APPROVED and new['amount'] == 180600
+    assert ea.extra(new)['requested_amount'] == 190000         # 할인 정보가 카드에(11-27 #100)
+    assert '180,600원 (요청 190,000원 · 할인 9,400원)' in ea.card_text(new, ea.steps(new['id']), '공통비')
+    v = ea.purchase_view(new, ea.revision(new['id']))           # 구매 완료 때 그대로 끝내도 할인 정보 유지
+    se.process_purchase(SB, new['id'], 180600, '', json.loads(v['private_metadata'])['rev'])
+    done = ea.get(new['id'])
+    assert done['status'] == ea.DONE and ea.extra(done)['requested_amount'] == 190000
+    assert '실제 결제' in ea.card_text(done, ea.steps(done['id']), '공통비')
     row2 = _approved_supply(se)                               # 다른 상품(품명)으로 바꾸면 처음부터
     assert se.apply_action('revise', row2['id'], SB, 'x') is None
     g = ea.read_supply_request(dict(_supply_view(item='B4 용지', qty='2', unit_price='95,000'),
