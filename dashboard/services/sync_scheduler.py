@@ -608,9 +608,10 @@ def start_scheduler():
     #   (이카운트 = 시트일 때만 장부 맞춤, ③ 대조 매출·매입, 지난밤 알린 건 자동 완료). 아침 07:50 경영지원(SB) DM.
     #   .env ECOUNT_RECON_ENABLED=true(밤 대조) · ECOUNT_RECON_DM_ENABLED=true(아침 DM) — 부장님 승인 뒤에 켬
     if os.getenv('ECOUNT_RECON_ENABLED', '').strip().lower() in ('1', 'true', 'yes'):
-        _scheduler.add_job(_safe_ecount_recon, 'cron', hour=0, minute=10, id='ecount_recon_nightly',
+        # 주말엔 안 돌림(11-28 부장님) — 화~토 00:10 = 월~금 밤. 금요일 밤(토 00:10) 대조를 월요일 아침 DM 이 씀
+        _scheduler.add_job(_safe_ecount_recon, 'cron', day_of_week='tue-sat', hour=0, minute=10, id='ecount_recon_nightly',
                            misfire_grace_time=3600, replace_existing=True)
-        jobs.append('이카운트 밤 대조 00:10')
+        jobs.append('이카운트 밤 대조 화~토 00:10')
         if os.getenv('ECOUNT_RECON_DM_ENABLED', '').strip().lower() in ('1', 'true', 'yes'):
             _scheduler.add_job(_safe_ecount_recon_dm, 'cron', day_of_week='mon-fri', hour=7, minute=50,
                                id='ecount_recon_dm', replace_existing=True)

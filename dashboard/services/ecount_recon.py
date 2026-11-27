@@ -605,7 +605,7 @@ def run_nightly(read_path: Optional[str] = None, apply: bool = True, today: Opti
             else:
                 s_res = b_res = c_res = {}
             summary = {
-                'md': md, 'read_file': str(path), 'ledger_fixes': len(fixes), 'ledger_fixed': fixed,
+                'md': md, 'upto': upto_label(today), 'read_file': str(path), 'ledger_fixes': len(fixes), 'ledger_fixed': fixed,
                 'ledger_held': held, 'ledger_backup': backup, 'ledger_fix_codes': [f['code'] for f in fixes][:200],
                 'sales': {'found': len(s_found), **{k: v for k, v in s_res.items()}},
                 'buy': {'found': len(b_found), **{k: v for k, v in b_res.items()}},
@@ -667,7 +667,8 @@ def build_dm(run: Optional[dict], upload: Dict[str, int], sales_open: List[dict]
     summ = run.get('summary') or {}
     resolved = len((summ.get('sales') or {}).get('resolved') or []) + len((summ.get('buy') or {}).get('resolved') or [])
     total = upload.get('projects', 0) + upload.get('sales', 0) + len(sales_open) + len(buy_open)
-    head = f":ledger: *이카운트 대조 · {summ.get('md', '')} 자정 기준*"
+    head = (f":ledger: *이카운트 대조 · {summ['upto']}까지 기준*" if summ.get('upto')
+            else f":ledger: *이카운트 대조 · {summ.get('md', '')} 자정 기준*")
     tail = []
     if resolved:
         tail.append(f'어제 알려 드린 것 중 {resolved}건은 이카운트와 공사 현황이 같아져 완료로 바꿨어요.')
@@ -703,6 +704,44 @@ def upload_counts() -> Dict[str, int]:
     return {'projects': len(rows['projects']), 'sales': len(rows['sales'])}
 
 
+def _is_bd(d: date) -> bool:
+    try:
+        from dashboard.services.absent_remind import _is_business_day
+        return _is_business_day(d)
+    except Exception:
+        return d.weekday() < 5
+
+
+def prev_business_day(today: date) -> date:
+    d = today - timedelta(days=1)
+    for _ in range(14):
+        if _is_bd(d):
+            return d
+        d -= timedelta(days=1)
+    return today - timedelta(days=1)
+
+
+def fresh_for(run: Optional[dict], today: date) -> bool:
+    """오늘 아침 DM 에 쓸 대조인지 — 직전 영업일 다음 날 이후(한국 날짜)에 돈 것.
+    주말엔 대조를 안 돌려(화~토 00:10, 11-28 부장님) 월요일엔 토요일 00:10(금요일 밤) 대조를 쓴다."""
+    if not run or not run.get('started_at'):
+        return False
+    try:
+        ran = (datetime.strptime(str(run['started_at'])[:19], '%Y-%m-%d %H:%M:%S') + timedelta(hours=9)).date()
+    except ValueError:
+        return False
+    return prev_business_day(today) < ran <= today
+
+
+_WD = '월화수목금토일'
+
+
+def upto_label(run_day: date) -> str:
+    """자정 대조가 담은 마지막 날 — 00:10 에 돌면 전날까지. 'M/D(요일)'"""
+    d = run_day - timedelta(days=1)
+    return f'{d.month}/{d.day}({_WD[d.weekday()]})'
+
+
 def send_morning_dm(today: Optional[date] = None) -> dict:
     """경영지원(SB) 아침 DM(스케줄러 07:50, 영업일). 고칠 것 목록 또는 '수정할 것 없음'."""
     from dashboard.services import ecount_audit as ea
@@ -714,9 +753,7 @@ def send_morning_dm(today: Optional[date] = None) -> dict:
     except Exception:
         pass
     run = last_run()
-    fresh_run = bool(run and run.get('started_at') and
-                     (datetime.strptime(str(run['started_at'])[:19], '%Y-%m-%d %H:%M:%S') + timedelta(hours=9)).date() == today)
-    if not fresh_run:
+    if not fresh_for(run, today):
         run = None
     if run and run.get('status') == 'ok':
         summ = run.get('summary') or {}

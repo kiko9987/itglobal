@@ -328,3 +328,27 @@ def test_run_nightly_splits_buy_work_from_sheet_cost(db, tmp_path, monkeypatch):
     sides = {s['key']: s['open'] for s in ea.list_items()['sides']}
     assert sides == {'sales': 0, 'buy': 1, 'cost': 1}
     assert [r['code'] for r in ea.open_items('buy')] == ['R9802-BB']
+
+
+def test_weekend_skip_monday_uses_friday_night(monkeypatch):
+    """주말엔 대조를 안 돌림(화~토 00:10) — 월요일 아침 DM 은 토요일 00:10(금요일 밤) 대조를 씀(11-28 부장님)."""
+    monkeypatch.setattr(er, '_is_bd', lambda d: d.weekday() < 5)
+    run = lambda kst: {'started_at': (kst - __import__('datetime').timedelta(hours=9)).strftime('%Y-%m-%d %H:%M:%S')}
+    from datetime import datetime as dt
+    mon, tue = date(2026, 11, 30), date(2026, 12, 1)
+    assert er.fresh_for(run(dt(2026, 11, 28, 0, 10)), mon)          # 토 00:10 → 월요일에 씀
+    assert not er.fresh_for(run(dt(2026, 11, 27, 0, 10)), mon)      # 금 00:10(목요일 밤) → 낡음
+    assert er.fresh_for(run(dt(2026, 12, 1, 0, 10)), tue)
+    assert not er.fresh_for(run(dt(2026, 11, 28, 0, 10)), tue)      # 화요일인데 토요일 것 → 낡음(월요일 밤 대조 실패)
+    assert not er.fresh_for(None, mon)
+    assert er.upto_label(date(2026, 11, 28)) == '11/27(금)'
+    ok = {'status': 'ok', 'summary': {'md': '11/28', 'upto': '11/27(금)', 'sales': {}, 'buy': {}}}
+    assert '11/27(금)까지 기준' in json.dumps(er.build_dm(ok, {}, [], [])[1], ensure_ascii=False)
+
+
+def test_scheduler_skips_weekend():
+    import inspect as _i
+    from dashboard.services import sync_scheduler as ss
+    src = _i.getsource(ss.start_scheduler)
+    assert "_safe_ecount_recon, 'cron', day_of_week='tue-sat', hour=0, minute=10" in src
+    assert "_safe_ecount_recon_dm, 'cron', day_of_week='mon-fri', hour=7, minute=50" in src
