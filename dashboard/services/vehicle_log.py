@@ -208,6 +208,12 @@ def import_upload(file_name: str, data: bytes, by: str) -> Dict:
                          'ON CONFLICT(plate) DO UPDATE SET model=excluded.model, updated_at=excluded.updated_at',
                          (s['plate'], s['model'], _now()))
             for t in s['trips']:
+                # U+ API 로 먼저 받은 같은 운행(출발 시각 'HH:MM', 분까지 같음)이 있으면 건너뜀 — 두 줄이면 거리가 두 배(11-27)
+                if conn.execute("SELECT 1 FROM vehicle_trips WHERE plate = ? AND day = ? AND substr(start_time, 1, 5) = ? "
+                                "AND upload_id IS NULL AND note = 'U+ API' LIMIT 1",
+                                (s['plate'], t['day'], str(t['start_time'] or '')[:5])).fetchone():
+                    skipped += 1
+                    continue
                 cur = conn.execute(
                     'INSERT OR IGNORE INTO vehicle_trips (plate, day, start_time, end_time, odo_start, odo_end, km, '
                     'from_addr, to_addr, commute_km, business_km, note, upload_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',

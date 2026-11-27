@@ -95,6 +95,29 @@ def test_sync_day_commute_and_logbook(db, monkeypatch):
     assert t9['route'] and t9['max_speed'] == 131 and t9['events']['rapid_acc'] == 2
 
 
+def test_sync_day_skips_trips_already_uploaded_and_upload_skips_uplus(db, monkeypatch):
+    """11-27 운영: 운행일지 zip(출발 '07:40:12' 초까지)과 U+ API('07:40')가 같은 운행을 두 줄로 넣어 거리가 두 배였다."""
+    _fake_api(monkeypatch)
+    with vl._conn() as conn:
+        conn.execute("INSERT INTO vehicle_trips (plate, day, start_time, end_time, km, note, upload_id) "
+                     "VALUES (?, ?, '07:40:12', '08:20:30', 25.0, '', 1)", (RAY, DAY))
+    va.save_day(DAY, [{'plate': RAY, 'people': ['YM', 'LSH']}], ASSIGNER, confirm=True)
+    r = vas.sync_day(DAY)
+    assert (r['trips'], r['added']) == (3, 2)
+    with vl._conn() as conn:
+        starts = [x[0] for x in conn.execute('SELECT start_time FROM vehicle_trips WHERE plate = ? ORDER BY start_time', (RAY,))]
+    assert starts == ['07:40:12', '09:00', '16:00']
+    assert vas.metrics(DAY, DAY, RAY)[(RAY, DAY, '07:40')]['commute'] == 1      # 지표(출퇴근·운전 습관)는 그대로 남김
+    # 반대로 U+ 가 먼저 넣은 운행은 나중에 올린 운행일지에서 건너뜀
+    monkeypatch.setattr(vl, 'parse_upload', lambda name, data: [{'plate': RAY, 'model': '레이', 'period': '2026-11', 'trips': [
+        {'day': DAY, 'start_time': '09:00:41', 'end_time': '10:00:02', 'odo_start': 1, 'odo_end': 31, 'km': 30.0,
+         'from_addr': 'a', 'to_addr': 'b', 'commute_km': 0, 'business_km': 30.0, 'note': ''},
+        {'day': DAY, 'start_time': '18:00:00', 'end_time': '18:30:00', 'odo_start': 1, 'odo_end': 11, 'km': 10.0,
+         'from_addr': 'a', 'to_addr': 'b', 'commute_km': 0, 'business_km': 10.0, 'note': ''}]}])
+    up_r = vl.import_upload('운행일지.zip', b'x', 'admin@example.com')
+    assert (up_r['added'], up_r['skipped']) == (1, 1)
+
+
 def test_habits_util_and_alerts(db, monkeypatch):
     _fake_api(monkeypatch)
     va.save_day(DAY, [{'plate': RAY, 'people': ['YM', 'LSH']}], ASSIGNER, confirm=True)

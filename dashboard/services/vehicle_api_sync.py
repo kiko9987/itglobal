@@ -342,14 +342,21 @@ def sync_day(day: str, plates: Optional[Iterable[str]] = None) -> Dict:
             end_hm = t['end'].strftime('%H:%M') if t['end'] else ''
             commute_km, business_km = (t['km'], 0) if commute else (0, t['km'])
             with vl._conn() as conn:
-                cur = conn.execute(
+                # 운행일지 zip 으로 이미 올린 운행(출발 시각이 초까지 '07:29:29')은 같은 운행 — 분까지 같으면 넣지 않는다.
+                #   예전엔 'HH:MM' 과 'HH:MM:SS' 가 달라 같은 운행이 두 줄로 들어가 거리가 두 배가 됐다(11-27 11-24 분).
+                if conn.execute("SELECT 1 FROM vehicle_trips WHERE plate = ? AND day = ? AND substr(start_time, 1, 5) = ? "
+                                "AND upload_id IS NOT NULL LIMIT 1", (plate, day, st)).fetchone():
+                    seen += 1
+                    cur = None
+                else:
+                    cur = conn.execute(
                     'INSERT OR IGNORE INTO vehicle_trips (plate, day, start_time, end_time, odo_start, odo_end, km, '
                     'from_addr, to_addr, commute_km, business_km, note, upload_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,NULL)',
                     (plate, day, st, end_hm, t['odo_start'], t['odo_end'], t['km'],
                      from_addr, to_addr, commute_km, business_km, 'U+ API'))
-                added += cur.rowcount
-                seen += 1
-                if not cur.rowcount:
+                    added += cur.rowcount
+                    seen += 1
+                if cur is not None and not cur.rowcount:
                     # 이미 있는 줄 — U+ 로 넣은 줄(upload_id 없음)만 다시 맞춘다. 처음 받을 때 주소를 못 구했거나
                     # 배정·집 주소를 몰라 출퇴근이 0 으로 들어간 것이 그대로 굳어 운행기록부에 남던 것(11-24 조용한
                     # 실패 점검). 주소는 새로 구한 것이 있을 때만, 출퇴근은 양 끝 좌표가 있을 때만(경로를 이번에
