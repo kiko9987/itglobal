@@ -3290,7 +3290,7 @@ body.gw-va-dragging, body.gw-va-dragging * { cursor: grabbing !important; }
 .gw-vm-table tr.gw-vm-warn td:first-child { box-shadow: inset 3px 0 0 #dc2626; }
 .gw-vm-own { display: inline-block; font-size: 0.74rem; color: #475569; background: #f1f5f9; border-radius: 4px; padding: 0 5px; }
 .gw-vm-kinds { margin-top: 4px; font-size: 0.78rem; color: #64748b; }
-.gw-vm-panel { width: min(720px, 100vw); }
+.gw-vm-panel { width: min(760px, 100vw); }   /* 오른쪽 창 폭은 두 가지로 — 기본 520, 넓게 760(운행일지와 같게, 11-28 점검) */
 .gw-vm-panel .gw-drawer-head h2:focus, .gw-vm-panel .gw-drawer-head h2:focus-visible { outline: none; box-shadow: none; }
 .gw-vm-sec + .gw-vm-sec { margin-top: 20px; padding-top: 16px; border-top: 1px solid #e2e8f0; }
 .gw-vm-sec h3 { font-size: 0.95rem; font-weight: 700; margin: 0 0 10px; }
@@ -4683,3 +4683,45 @@ ul.gw-fe-notes li + li { margin-top: 2px; }
 .gw-tl li.gw-tl-mute::before { background: #94a3b8; }
 .gw-tl li.gw-tl-next { color: #64748b; }
 .gw-tl li.gw-tl-next::before { background: #fff; border: 2px solid #94a3b8; width: 10px; height: 10px; box-sizing: border-box; }
+
+/* ── 매출 통계(11-28 전체 점검 3차) — 표 화면 틀(gw-page-head·gw-stats·gw-panel) + 그래프 4칸 ─────────── */
+.gw-st-stats { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) !important; }
+.gw-st-stats .gw-stat .s { margin-top: 4px; font-size: 0.8rem; color: #64748b; }
+.gw-st-stats .gw-st-main { background: #fff7ed; border-color: #fed7aa; }
+.gw-st-stats .gw-st-main .v { color: #c2410c; }
+.gw-st-d { font-weight: 700; font-variant-numeric: tabular-nums; }
+.gw-st-d.up { color: #15803d; }
+.gw-st-d.down { color: #b91c1c; }
+.gw-st-d.flat { color: #475569; }
+.gw-st-vs { color: #64748b; }
+.gw-st-err { font-size: 0.95rem; color: #b91c1c; }
+.gw-st-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 14px; margin-top: 14px; }
+.gw-st-card { padding: 14px 16px 12px; min-width: 0; }
+.gw-st-wide { grid-column: auto; }
+.gw-st-grid > .gw-st-card:nth-child(3) { grid-column: 1 / 2; }
+.gw-st-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; margin-bottom: 8px; }
+.gw-st-title { font-size: 1rem; font-weight: 700; margin: 0; color: #0f172a; }
+.gw-st-legend { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; color: #475569; }
+.gw-st-legend > span:not([data-y]) { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.gw-st-legend .cur, .gw-st-legend .g { background: #ea580c; }
+.gw-st-legend .prev { background: #cbd5e1; margin-left: 6px; }
+.gw-st-legend .r { background: #334155; margin-left: 6px; }
+.gw-st-chart { position: relative; height: 280px; }
+.gw-st-tall { height: 320px; }
+@media (max-width: 991.98px) {
+  .gw-st-grid { grid-template-columns: minmax(0, 1fr); }
+  .gw-st-grid > .gw-st-card:nth-child(3) { grid-column: auto; }
+  .gw-st-chart { height: 240px; }
+}
+
+/* ── 창 모양 통일(11-28 전체 점검 3차) — 줄을 눌러 여는 상세는 오른쪽 창으로.
+   부트스트랩 창(.modal)을 쓰는 화면은 동작(포커스·Esc·뒤 배경)은 그대로 두고 모양만 오른쪽 창(gw-drawer, 넓게 760)과 같게 */
+.modal.gw-modal-right .modal-dialog {
+  position: fixed; top: 0; right: 0; bottom: 0; margin: 0;
+  width: min(760px, 100vw); max-width: none; height: 100%;
+  transform: translateX(24px); transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.modal.gw-modal-right.show .modal-dialog { transform: none; }
+.modal.gw-modal-right .modal-content { height: 100%; border: 0; border-radius: 0; box-shadow: -8px 0 24px rgba(15, 23, 42, 0.12); }
+.modal.gw-modal-right .modal-body { overflow-y: auto; }
+@media (prefers-reduced-motion: reduce) { .modal.gw-modal-right .modal-dialog { transition: none; transform: none; } }

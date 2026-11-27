@@ -40,7 +40,8 @@ def stats_page():
         user_role = get_user_role()
         user_email = session.get('user', {}).get('email', '')
 
-        return render_template('modern_stats.html',
+        # 11-28 전체 점검 3차: 그룹웨어 표 화면 틀의 새 화면(gw/stats.html + gw-stats.js). 옛 modern_stats.html 은 되돌리기용으로 남김
+        return render_template('gw/stats.html',
                                user_role=user_role,
                                user_email=user_email,
                                user=session.get('user', {}))

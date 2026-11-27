@@ -1,12 +1,14 @@
 {% extends "modern_base.html" %}
 
-{% block title %}시공사례 접수{% endblock %}
+{% block title %}시공 사례 - 아이티글로벌그룹{% endblock %}
 
 {% block additional_css %}
+<link rel="stylesheet" href="{{ gw_asset('css/gw-pages.css') }}">
 <style>
-  .cp-wrap { max-width: 1100px; margin: 0 auto; padding: 12px 16px 60px; }
-  .cp-card { background: #fff; border: 1px solid #e3e6ea; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
-  .cp-card h5 { font-weight: 700; margin-bottom: 12px; }
+  /* 11-28 전체 점검 3차: 그룹웨어 글 화면 틀(gw-page-narrow 980·제목 줄·gw-panel)로 — 폭·여백은 공통 틀이 정함 */
+  .cp-wrap { padding-bottom: 60px; }
+  .cp-card { padding: 16px; margin-bottom: 14px; }
+  .cp-card h5, .cp-card .gw-panel-title { font-size: 1rem; font-weight: 700; margin-bottom: 12px; }
   .cp-step { font-size: .85rem; font-weight: 700; color: #495057; margin: 14px 0 6px; }
   .cp-results { border: 1px solid #e3e6ea; border-radius: 8px; max-height: 260px; overflow-y: auto; margin-top: 6px; }
   .cp-results button { display: block; width: 100%; text-align: left; border: 0; border-bottom: 1px solid #f1f3f5; background: #fff; padding: 8px 10px; font-size: .9rem; }
@@ -56,7 +58,6 @@
   .cp-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
   .cp-count { font-weight: 400; color: #6b7280; font-size: .75rem; }
   @media (max-width: 576px) {
-    .cp-wrap { padding: 8px 10px 60px; }
     .cp-jobs .cp-hide-sm { display: none; }
   }
   /* 휴대폰 누를 자리 44px — 검색칸·[접수하기]·목록 새로고침이 35~38px 이었음 (11-16 최종 점검) */
@@ -68,10 +69,11 @@
 {% endblock %}
 
 {% block content %}
-<div class="cp-wrap">
+<div class="gw-page gw-page-narrow cp-wrap" id="cpPage">
+  <div class="gw-page-head"><h1 class="gw-page-title">시공 사례</h1></div>
 
-  <div class="cp-card" id="cpUpload">
-    <h5><i class="fas fa-camera me-2"></i>시공사례 올리기</h5>
+  <div class="gw-panel cp-card" id="cpUpload">
+    <h2 class="gw-panel-title">사례 올리기</h2>
     <div class="cp-note">사진·작업지시서를 올려 두면 평일 아침 7시 반쯤 홈페이지·블로그 초안이 만들어집니다. 게시는 직접 합니다.</div>
 
     <label class="cp-step d-block" for="cpSearch">1. 프로젝트</label>
@@ -104,13 +106,13 @@
     <div class="cp-progress" id="cpProgress"></div>
   </div>
 
-  <div class="cp-card" id="cpDetail" style="display:none"></div>
+  <div class="gw-panel cp-card" id="cpDetail" style="display:none"></div>
 
-  <div class="cp-card">
-    <h5 class="d-flex justify-content-between align-items-center">
-      <span><i class="fas fa-list me-2"></i>접수 목록</span>
+  <div class="gw-panel cp-card">
+    <h2 class="gw-panel-title d-flex justify-content-between align-items-center">
+      <span>접수 목록</span>
       <button type="button" class="btn btn-sm btn-outline-secondary" id="cpReload" aria-label="접수 목록 새로고침" title="접수 목록 새로고침"><i class="fas fa-sync-alt" aria-hidden="true"></i></button>
-    </h5>
+    </h2>
     <table class="cp-jobs">
       <thead><tr><th>상태</th><th>코드</th><th class="cp-hide-sm">현장</th><th>사진</th><th class="cp-hide-sm">접수</th></tr></thead>
       <tbody id="cpJobs"><tr><td colspan="5" class="cp-note">불러오는 중…</td></tr></tbody>

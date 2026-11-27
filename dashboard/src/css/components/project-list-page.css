@@ -505,3 +505,21 @@
     padding: calc(var(--spacing-xs) - 0.05rem) calc(var(--spacing-sm) - 0.1rem);
   }
 }
+
+/* ===== 그룹웨어 틀과 맞추기(2026-11-28 전체 점검 3차) =====
+   프로젝트·고객 리드는 큰 흰 상자가 화면 전체를 감싸 그룹웨어 화면(결재함·입출금 등)과 모양이 달랐음.
+   안쪽 거르기 줄·표는 각자 흰 칸이라 바깥 상자만 없애고, 제목은 그룹웨어 제목(1.3rem·600)과 같게.
+   휴대폰은 pm-mobile.css 가 따로 맞춰 둬서 넓은 화면만. */
+@media (min-width: 768px) {
+  .content-container {
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+  .project-header h4 {
+    font-size: 1.3rem !important;
+    font-weight: 600 !important;
+    color: #0f172a;
+  }
+}
