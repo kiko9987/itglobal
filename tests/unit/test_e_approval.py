@@ -614,7 +614,7 @@ def test_supply_card_and_buttons(tmp_db):
     assert '상품 보기' in t and '*사유* : 용지 소진' in t and '계좌' not in t and '⏳ 구매' in t
     assert '사업자 구분' not in t and not row['grn']
     btn = ea.buttons(row, 'executor')[0]
-    assert btn['text']['text'] == '🛒 구매 완료' and btn['action_id'] == ea.A_TRANSFER
+    assert btn['text']['text'] == '🛒 구매 완료' and btn['action_id'] == ea.A_PURCHASE   # 11-27 실제 금액 창
     assert '구매하고 카드에서 [구매 완료]' in ea.dm_intro(row, 'executor')
     row = ea.create(ea.FORM_SUPPLY, KIKO, '고광일', {**f, 'memo': '배송 메시지에 직접 수령'})
     t = ea.card_text(row, ea.steps(row['id']), '프로젝트 0 · 회사 재고')
@@ -649,6 +649,59 @@ def test_supply_flow_purchase_done(se):
     assert any('구매 완료' in kw.get('text', '') and not kw.get('reply_broadcast') for kw in msgs)
     assert any('구매가 끝났어요' in kw.get('text', '') and kw['channel'] == 'D-' + MGR for kw in msgs)
     assert not se._inv.of('chat_postMessage')                     # 계산서 글 없음
+
+
+def _approved_supply(se):
+    f = ea.read_supply_request(_supply_view(qty='2', unit_price='95,000'))
+    ea.complete_supply_request(f)
+    row = se.process_supply_submit(MGR, f)
+    assert se.apply_action('approve', row['id'], KIKO) is None
+    if ea.get(row['id'])['status'] == ea.FINAL:
+        assert se.apply_action('final', row['id'], YG) is None
+    row = ea.get(row['id'])
+    assert row['status'] == ea.APPROVED and row['amount'] == 190000
+    return row
+
+
+def test_purchase_done_with_discounted_amount(se):
+    """11-27 KiKO #100 — 최종 승인 뒤 할인으로 덜 냈다. 보완 요청 없이 [🛒 구매 완료] 창에서 실제 금액으로 끝낸다."""
+    row = _approved_supply(se)
+    ids = [b['action_id'] for b in ea.buttons(row)]
+    assert ea.A_PURCHASE in ids and ea.A_TRANSFER not in ids
+    v = ea.purchase_view(row, ea.revision(row['id']))
+    sub = {'state': {'values': {'paid': {'paid': {'value': '200,000'}}, 'pmemo': {'pmemo': {'value': ''}}}},
+           'private_metadata': v['private_metadata']}
+    assert '요청 금액(190,000원)보다 많아요' in ea.read_purchase_view(sub)[1]['paid']
+    sub['state']['values'] = {'paid': {'paid': {'value': '180,600'}}, 'pmemo': {'pmemo': {'value': '배송 예정 12월 1일'}}}
+    f, errs = ea.read_purchase_view(sub)
+    assert errs == {} and f['paid'] == 180600
+    assert se.process_purchase(MGR, f['aid'], f['paid'], f['memo'], f['rev']) == '구매 완료는 경영지원 담당만 누를 수 있어요.'
+    assert se.process_purchase(SB, f['aid'], f['paid'], f['memo'], f['rev']) is None
+    done = ea.get(row['id'])
+    assert done['status'] == ea.DONE and done['amount'] == 180600
+    x = ea.extra(done)
+    assert x['requested_amount'] == 190000 and x['purchase_memo'] == '배송 예정 12월 1일'
+    text = ea.card_text(done, ea.steps(done['id']), '공통비')
+    assert '180,600원 (요청 190,000원 · 할인 9,400원)' in text and '배송 예정 12월 1일' in text
+    logs = [m['text'] for m in se._fake.of('chat_postMessage') if m.get('thread_ts') == done['card_ts']]
+    assert any('🛒 실제 결제 180,600원' in t for t in logs)
+
+
+def test_supply_revise_cheaper_keeps_approval(se):
+    """11-27 KiKO — 비품도 같은 상품이고 금액이 같거나 줄면 다시 올려도 받은 승인 그대로."""
+    row = _approved_supply(se)
+    assert se.apply_action('revise', row['id'], SB, '할인 포함 180,600원으로') is None
+    f = ea.read_supply_request(dict(_supply_view(qty='2', unit_price='95,000', amount='180,600'),
+                                    private_metadata=json.dumps({'edit': row['id']})))
+    assert ea.complete_supply_request(f) == {}
+    new = se.process_supply_submit(SB, f)                     # 어드민(SB)이 요청자 대신
+    assert new['status'] == ea.APPROVED and new['amount'] == 180600
+    row2 = _approved_supply(se)                               # 다른 상품(품명)으로 바꾸면 처음부터
+    assert se.apply_action('revise', row2['id'], SB, 'x') is None
+    g = ea.read_supply_request(dict(_supply_view(item='B4 용지', qty='2', unit_price='95,000'),
+                                    private_metadata=json.dumps({'edit': row2['id']})))
+    ea.complete_supply_request(g)
+    assert se.process_supply_submit(MGR, g)['status'] == ea.PENDING
 
 
 def test_handle_supply_submit_validation(se):
@@ -1640,7 +1693,8 @@ def test_keeps_approvals_rule():
     assert not ea.keeps_approvals(old, {'amount': (100, 101)})
     assert not ea.keeps_approvals(old, {'amount': (4466000, 2305050), 'partner': ('알만', '유엠테크')})
     assert not ea.keeps_approvals(old, {'grn': ('G', 'R')})
-    assert not ea.keeps_approvals({'form': 'supply'}, {'memo': ('a', 'b')})
+    assert ea.keeps_approvals({'form': 'supply'}, {'memo': ('a', 'b'), 'amount': (190000, 180600)})   # 11-27
+    assert not ea.keeps_approvals({'form': 'supply'}, {'link': ('a', 'b')})                            # 다른 상품
 
 
 def test_revise_task_form_and_resubmit_back_to_processing(se):
