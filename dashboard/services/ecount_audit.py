@@ -257,9 +257,8 @@ def apply_nightly(side: str, found: Dict[str, Dict], md: str) -> Dict:
                         status, memo, by, at = o['status'], o['memo'], o['resolved_by'], o['resolved_at']
                         hist.append(f"{md} 자동 대조 — {_batch_md(o['batch'])} 대조의 '{olabel}'을 이어받음(금액 그대로)")
                     elif o['status'] != 'open':
-                        hist.append(f"{md} 자동 대조 — {_batch_md(o['batch'])} 대조에서 '{olabel}'"
-                                    + (f" — {o['memo']}" if o.get('memo') else '')
-                                    + f" 표시가 있었지만 아직 달라요({_amt_text(side, new_a)}) → 처리 전")
+                        hist.append(f"{md} 자동 대조 — {_batch_md(o['batch'])} '{olabel}'"
+                                    + (f"({o['memo']})" if o.get('memo') else '') + ' 뒤에도 아직 달라 처리 전으로')
                 conn.execute(
                     'INSERT INTO ecount_audit_items (batch, item_key, side, category, code, ecount_code, site, eco_supply, '
                     'eco_vat, sheet_supply, sheet_vat, evidence, note, status, memo, resolved_by, resolved_at, history, '
@@ -272,17 +271,17 @@ def apply_nightly(side: str, found: Dict[str, Dict], md: str) -> Dict:
             st, changed = row['status'], _amts(row) != new_a
             reopen = False
             if st == 'ecount_fixed':
-                hist.append(f"{md} 자동 대조 — '이카운트 고침' 표시가 있었지만 아직 달라요({_amt_text(side, new_a)}) → 처리 전")
+                hist.append(f"{md} 자동 대조 — '이카운트 고침' 뒤에도 아직 달라 처리 전으로")
                 reopen = True
             elif st == 'resolved':
-                hist.append(f'{md} 자동 대조 — 다시 달라졌어요({_amt_text(side, new_a)}) → 처리 전')
+                hist.append(f'{md} 자동 대조 — 다시 달라져 처리 전으로({_amt_text(side, new_a)})')
                 reopen = True
             elif st in ('keep', 'sheet_wrong') and changed:
-                hist.append(f"{md} 자동 대조 — '{STATUSES[st]}'로 둔 뒤 금액이 바뀌었어요({_amt_text(side, _amts(row))} → "
-                            f'{_amt_text(side, new_a)}) → 처리 전')
+                hist.append(f"{md} 자동 대조 — '{STATUSES[st]}' 뒤 금액이 바뀌어 처리 전으로({_amt_text(side, _amts(row))} → "
+                            f'{_amt_text(side, new_a)})')
                 reopen = True
             elif st == 'open' and changed:
-                hist.append(f'{md} 자동 대조 — 금액이 바뀌었어요({_amt_text(side, _amts(row))} → {_amt_text(side, new_a)})')
+                hist.append(f'{md} 자동 대조 — 금액 바뀜({_amt_text(side, _amts(row))} → {_amt_text(side, new_a)})')
             if reopen and st in ('ecount_fixed', 'keep', 'sheet_wrong'):
                 # 사람이 남긴 처리·메모도 기록으로(되돌리기와 같은 모양)
                 hist.insert(0, f"{_md(row['resolved_at'])} {row['resolved_by'] or ''} {STATUSES[st]}"
@@ -302,8 +301,8 @@ def apply_nightly(side: str, found: Dict[str, Dict], md: str) -> Dict:
             if code in found or row['status'] == 'resolved':
                 continue
             was = STATUSES.get(row['status'], row['status'])
-            _append_history(conn, row['id'], f'{md} 자동 대조 — 이카운트와 공사 현황이 같아졌어요'
-                                             + (f"('{was}' 표시 확인)" if row['status'] != 'open' else '') + ' → 맞음')
+            _append_history(conn, row['id'], f'{md} 자동 대조 — 이카운트와 공사 현황이 같아져 맞음'
+                                             + (f"('{was}' 확인)" if row['status'] != 'open' else ''))
             conn.execute("UPDATE ecount_audit_items SET status = 'resolved', resolved_by = ?, "
                          'resolved_at = CURRENT_TIMESTAMP, last_seen = CURRENT_TIMESTAMP WHERE id = ?', (AUTO_BY, row['id']))
             out['resolved'].append(code)

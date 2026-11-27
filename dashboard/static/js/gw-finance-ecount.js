@@ -211,7 +211,7 @@
   function syncPick() {
     // 대조 탭은 표 복사·넣음 표시와 상관없음 — 도구 줄·안내·통계를 숨김
     var audit = S.tab === 'audit';
-    ['.gw-fe-tools', '.gw-fe-steps', '#feStats'].forEach(function (q) { var el = document.querySelector(q); if (el) el.hidden = audit; });
+    ['.gw-fe-tools', '.gw-fe-steps', '#feStats', '.gw-vh-foot'].forEach(function (q) { var el = document.querySelector(q); if (el) el.hidden = audit; });
     if (audit) return;
     var t = S.tab, n = picked(t).length, all = S[t].length, can = defaults(t).length;
     $('fePick').textContent = n ? n + '줄 골랐어요'
@@ -410,8 +410,10 @@
     // 처리 기록(11-27) — 되돌린 앞 처리·메모, 다시 대조한 결과가 날짜순으로 쌓임
     var hist = String(r.history || '').split('\n').filter(function (x) { return x.trim(); });
     if (hist.length) {
-      html += '<div class="gw-fa-sub">기록</div><ul class="gw-fa-hist">' +
-        hist.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>';
+      var older = hist.slice(0, -1);
+      html += '<div class="gw-fa-sub">기록</div><ul class="gw-fa-hist"><li>' + esc(hist[hist.length - 1]) + '</li></ul>' +
+        (older.length ? '<details class="gw-fa-older"><summary>이전 기록 ' + older.length + '건</summary><ul class="gw-fa-hist">' +
+          older.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></details>' : '');
     }
     return html;
   }
@@ -452,10 +454,9 @@
     var warn = R.status === 'failed'
       ? '<div class="gw-fa-runwarn"><i class="fas fa-triangle-exclamation me-1" aria-hidden="true"></i>' + esc(R.at) +
         ' 대조는 이카운트를 읽지 못했어요. 아래는 ' + esc(R.ok_at || '이전') + ' 대조 결과예요.</div>' : '';
-    return '<div class="gw-callout gw-fa-head">' + warn + '<b>' + esc(R.ok_at || R.at) + ' 자동 대조</b> — 매일 자정 이카운트(2025년~)를 읽어 ' +
-      '공사 현황과 공사별로 맞춰 본 결과예요. 이카운트와 공사 현황이 같아지면 다음 대조 때 자동으로 <b>맞음</b>이 돼요.<br>' +
-      '[이카운트 고침]을 눌러도 다음 대조에서 아직 다르면 <b>처리 전</b>으로 돌아오고, 그 내용이 기록에 남아요. ' +
-      '차이가 맞으면 [그대로 둠], 공사 현황이 틀렸으면 [시트가 틀림]을 눌러 주세요.</div>';
+    return '<div class="gw-callout gw-fa-head">' + warn + '<b>' + esc(R.ok_at || R.at) + ' 자동 대조</b> · 평일 밤마다 이카운트를 읽어 공사 현황과 맞춰 봐요. ' +
+      '같아지면 다음 대조 때 자동으로 <b>맞음</b>이 돼요.<br>' +
+      '[이카운트 고침]을 눌러도 다음 대조에서 아직 다르면 <b>처리 전</b>으로 돌아와요.</div>';
   }
   function auditFilters(A) {
     var F = S.af, sides = A.sides && A.sides.length ? A.sides : [{ key: 'sales', label: '매출', open: A.counts.open, total: A.counts.total }];
@@ -494,7 +495,8 @@
       html += '<section class="gw-fa-group"><h3 class="gw-fa-title">' + esc(g.label) +
           ' <span>' + (g.open ? '처리 전 ' + won(g.open) + ' / ' : '') + won(g.items.length) + '건</span></h3>' +
         '<p class="gw-fa-desc">' + esc(g.desc) + '</p>' +
-        '<div class="gw-panel gw-ap-tablewrap"><table class="gw-table gw-fe-table gw-fa-table"><thead><tr>' +
+        '<div class="gw-panel gw-ap-tablewrap"><table class="gw-table gw-fe-table gw-fa-table">' +
+        '<colgroup><col class="c-code"><col class="c-site"><col class="c-amt"><col class="c-amt"><col><col class="c-act"></colgroup><thead><tr>' +
         '<th>프로젝트코드</th><th>현장</th><th class="num">' + (buy ? '이카운트 매입' : '이카운트') + '</th>' +
         '<th class="num">' + (buy ? '공사 현황 원가' : '공사 현황') + '</th><th>근거</th><th>처리</th>' +
         '</tr></thead><tbody>' + take.map(auditRow).join('') + '</tbody></table></div></section>';

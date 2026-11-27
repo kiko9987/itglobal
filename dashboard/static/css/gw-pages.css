@@ -4551,3 +4551,42 @@ button.gw-vc-pick:focus-visible { outline: 2px solid #2a3038; outline-offset: 2p
 .gw-fa-runwarn { color: #9a3412; font-weight: 600; margin-bottom: 4px; }
 .gw-fa-more { text-align: center; margin: 4px 0 20px; }
 .gw-fe-table tr.gw-fe-later td { background: #f8fafc; color: #475569; font-weight: 500; }
+/* ③ 이카운트 대조 표 정리(11-28 부장님 'UI 엉망') — 묶음마다 같은 칸 넓이, 줄은 위로 맞춤,
+   짧은 칸 가운데·금액 오른쪽·긴 글 왼쪽, 처리 칸은 버튼 한 줄 */
+.gw-fa-table { table-layout: fixed; width: 100%; min-width: 1040px; }
+.gw-fa-table col.c-code { width: 136px; }
+.gw-fa-table col.c-site { width: 190px; }
+.gw-fa-table col.c-amt { width: 116px; }
+.gw-fa-table col.c-act { width: 296px; }
+.gw-fa-table tbody td { vertical-align: top; padding: 12px 10px; }
+.gw-fa-table tbody td.gw-fe-memo, .gw-fa-table tbody td.gw-fa-why, .gw-fa-table tbody td.gw-fa-act { text-align: left; }
+.gw-fa-table tbody td.num { text-align: right; }
+.gw-fa-table td.gw-fe-memo { max-width: none; min-width: 0; overflow-wrap: anywhere; }
+.gw-fa-table td.gw-fa-why { min-width: 0; font-size: 13px; line-height: 1.55; }
+.gw-fa-table td.gw-fa-act { min-width: 0; }
+.gw-fa-act .gw-fa-memo { height: 32px; }
+.gw-fa-act .gw-fa-btns { flex-wrap: nowrap; }
+.gw-fa-act .gw-fa-btns { gap: 4px; }
+.gw-fa-act .gw-fa-btns .btn { padding: 4px 8px; font-size: 13px; white-space: nowrap; }
+.gw-fa-older { margin-top: 2px; }
+.gw-fa-older > summary { cursor: pointer; font-size: 12px; color: #475569; width: fit-content; }
+.gw-fa-older > summary:focus-visible { outline: 2px solid #2a3038; outline-offset: 2px; border-radius: 3px; }
+.gw-fa-older .gw-fa-hist { margin-top: 2px; }
+.gw-fa-head { font-size: 13.5px; }
+ul.gw-fe-notes { margin: 12px 0 0; padding-left: 18px; }
+ul.gw-fe-notes li + li { margin-top: 2px; }
+@media (max-width: 767.98px) { .gw-fa-act .gw-fa-memo { height: 40px; } .gw-fa-act .gw-fa-btns .btn { min-height: 44px; } }
+
+@media (max-width: 1279.98px) {
+  .gw-fa-table { min-width: 960px; }
+  .gw-fa-act .gw-fa-btns { flex-wrap: wrap; }
+  .gw-fa-table col.c-code { width: 120px; }
+  .gw-fa-table col.c-site { width: 140px; }
+  .gw-fa-table col.c-amt { width: 100px; }
+  .gw-fa-table col.c-act { width: 280px; }
+}
+/* 휴대폰: 공용 필터 줄은 [필터]를 눌러야 고르기 칸이 보이는데 ③ 탭엔 그 버튼이 없음 — 고르기 3개는 늘 보이게 */
+@media (max-width: 767.98px) {
+  .gw-ap-filters.gw-fa-filters .gw-chip-select { display: block; flex: 1 1 40%; height: 40px; font-size: 16px; }
+  .gw-ap-filters.gw-fa-filters .gw-ap-count { order: 1; flex: 1 1 100%; text-align: right; }
+}

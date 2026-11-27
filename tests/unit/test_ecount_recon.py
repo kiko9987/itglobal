@@ -153,7 +153,7 @@ def test_apply_nightly_resolves_reopens_and_carries_over(db):
     a = _row_of('G9201-AA')
     assert a['status'] == 'keep' and a['memo'] == '나눠 냄' and "'그대로 둠'을 이어받음" in a['history']
     b = _row_of('G9202-BB')
-    assert b['status'] == 'open' and "'이카운트 고침' 표시가 있었지만 아직 달라요" in b['history']
+    assert b['status'] == 'open' and "11/26 '이카운트 고침' 뒤에도 아직 달라 처리 전으로" in b['history']
 
     # SB 가 C 를 [이카운트 고침] → 다음 밤에도 다르면 처리 전으로, B 는 이번엔 맞음 → 완료
     ea.set_status(_row_of('G9203-CC')['id'], 'ecount_fixed', '고침', by='황샛별')
@@ -163,15 +163,15 @@ def test_apply_nightly_resolves_reopens_and_carries_over(db):
     c = _row_of('G9203-CC')
     assert c['status'] == 'open' and c['resolved_by'] is None
     assert c['history'].split('\n')[-2].endswith('황샛별 이카운트 고침 — 고침')
-    assert '11/29 자동 대조' in c['history'].split('\n')[-1] and '→ 처리 전' in c['history']
+    assert c['history'].split('\n')[-1] == "11/29 자동 대조 — '이카운트 고침' 뒤에도 아직 달라 처리 전으로"
     b = _row_of('G9202-BB')
-    assert b['status'] == 'resolved' and b['resolved_by'] == '자동 대조' and b['history'].endswith('→ 맞음')
+    assert b['status'] == 'resolved' and b['resolved_by'] == '자동 대조' and b['history'].endswith('같아져 맞음')
 
     # 그대로 둔 A 의 금액이 바뀌면 다시 처리 전, 맞음이던 B 가 다시 달라지면 처리 전
     r3 = ea.apply_nightly('sales', {'G9201-AA': _it('split', 'G9201-AA', 100, 10, 100, 0),
                                     'G9202-BB': _it('supply', 'G9202-BB', 5, 0, 6, 0)}, '11/30')
     assert sorted(r3['reopened']) == ['G9201-AA', 'G9202-BB'] and r3['resolved'] == ['G9203-CC']
-    assert _row_of('G9201-AA')['status'] == 'open' and '금액이 바뀌었어요' in _row_of('G9201-AA')['history']
+    assert _row_of('G9201-AA')['status'] == 'open' and "'그대로 둠' 뒤 금액이 바뀌어 처리 전으로" in _row_of('G9201-AA')['history']
 
 
 def test_list_items_prefers_auto_and_splits_sides(db):
