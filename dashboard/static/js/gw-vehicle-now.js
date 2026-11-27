@@ -188,6 +188,9 @@
     card.setAttribute('aria-label', '고른 차');
     stopMap(card);
     box.appendChild(card);
+    // 지도 칸은 overflow:hidden 이라도 안쪽 단추에 포커스가 가거나 scrollIntoView 가 불리면 안이 밀려 올라가
+    //   지도 아래가 빈 칸으로 보였다(11-27 확인) — 지도 칸은 늘 맨 위에 붙여 둔다.
+    box.addEventListener('scroll', function () { if (box.scrollTop || box.scrollLeft) { box.scrollTop = 0; box.scrollLeft = 0; } });
     card.addEventListener('click', function (e) {
       if (e.target.closest('[data-act=close]')) { clearSel(); return; }
       if (e.target.closest('[data-act=route]')) toggleRoute();
@@ -215,7 +218,9 @@
       : (c.moving ? '<span class="gw-vn-state moving">운행 중</span>' : '<span class="gw-vn-state stop">정지</span>');
     var who = (c.riders || []).length ? esc(c.riders.join(', ')) : '<span class="text-muted">오늘 배정 없음</span>';
     // 연료 0 은 센서 값이 안 오는 차(스파크 등) — '0%'로 보이면 기름이 없는 줄 앎. 전기차는 배터리.
-    var energy = c.electric ? (c.soc ? ['배터리', num(c.soc, '%')] : null) : (c.fuel ? ['연료', num(c.fuel, '%')] : null);
+    //   U+ 는 전기차 배터리를 soc 가 아니라 연료 칸에 보낸다(11-27 운영: 포터 일렉트릭 soc 0·연료 59) → 둘 중 있는 값.
+    var batt = c.soc || c.fuel;
+    var energy = c.electric ? (batt ? ['배터리', num(batt, '%')] : null) : (c.fuel ? ['연료', num(c.fuel, '%')] : null);
     var nums = '<div><dt>속도</dt><dd>' + (c.moving ? num(c.speed, ' km/h') : '서 있음') + '</dd></div>' +
       (energy ? '<div><dt>' + energy[0] + '</dt><dd>' + energy[1] + '</dd></div>' : '') +
       '<div><dt>위치 받은 시각</dt><dd>' + esc(c.at ? c.at.slice(6) : '-') + (c.mins != null ? ' · ' + esc(ago(c.mins)) : '') + '</dd></div>';
