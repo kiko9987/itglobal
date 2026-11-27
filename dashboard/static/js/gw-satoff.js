@@ -810,13 +810,17 @@
     document.getElementById('soPickHint').textContent = data.status === 'confirmed' || data.status === 'wait'
       ? (data.status === 'confirmed' ? '확정된 달이에요. 저장하면 바로 바뀌고 기록이 남아요.' : '결재 대기 중인 달이에요. 승인권자만 고칠 수 있어요.')
       : '휴무자를 고르세요. 이름 옆 숫자는 이번 달 휴무 횟수예요.';
+    // 전체 휴무 날은 관리자만 이름을 뺀다(11-27 — SJ 가 10명을 모두 빼서 실제 쉬는 사람이 0명이 됨). 들어 있는 이름은 잠금
+    var me = data.me || {};
+    var lockFull = fullOff(s) && !(me.approver || me.editor);
+    if (lockFull) document.getElementById('soPickHint').textContent = '전체 휴무 날이라 이름은 관리자만 뺄 수 있어요. 그날 나와야 하면 [휴무 출근]으로 남겨 주세요.';
     var counts = {};
     (data.members || []).forEach(function (m) { counts[m.name] = m.count; });
     var mmap = memoMap(data);
     document.getElementById('soPickList').innerHTML = (data.members || []).map(function (m, i) {
       var on = s.names.indexOf(m.name) !== -1;
       var mx = mmap[s.day + '|' + m.name];
-      return '<div class="form-check"><input class="form-check-input" type="checkbox" id="soPk' + i + '" value="' + esc(m.name) + '"' + (on ? ' checked' : '') + '>' +
+      return '<div class="form-check"><input class="form-check-input" type="checkbox" id="soPk' + i + '" value="' + esc(m.name) + '"' + (on ? ' checked' : '') + (on && lockFull ? ' disabled' : '') + '>' +
         '<label class="form-check-label" for="soPk' + i + '">' + esc(m.name) + ' <small class="text-muted">' + (counts[m.name] || 0) + '번</small>' +
         (mx ? ' <span class="gw-so-pmemo ' + mx.kind + '"><i class="fas ' + (mx.kind === 'must' ? 'fa-star gw-so-mi must' : 'fa-ban gw-so-mi cant') +
           '" aria-hidden="true"></i>' + esc(mx.kind_label + ' · ' + mx.reason) + '</span>' : '') +

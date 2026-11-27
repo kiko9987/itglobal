@@ -624,6 +624,10 @@ def toggle(day: Optional[date], target: str, on: bool, sid: str, actor_name: str
         raise SatOffError('결재 대기 중이거나 확정된 달이에요. 바꾸려면 [변경 신청]을 해 주세요.'
                           if st == CONFIRMED else '결재 대기 중인 달이라 지금은 바꿀 수 없어요.')
     key = day.isoformat()
+    # 전체 휴무 날은 관리자만 이름을 뺀다(11-27 부장님 — 12/26 전체 휴무를 SJ 가 선택 창에서 10명 모두 빼고 결재를 올려
+    # 달력엔 '전체 휴무'인데 실제 쉬는 사람은 0명이 됨). 그날 나와야 하면 [휴무 출근] 기록으로
+    if not on and not edit and key in full_days(month):
+        raise SatOffError(f'{kday(day)}는 전체 휴무라 이름을 뺄 수 없어요. 그날 나와야 하면 [휴무 출근]으로 남겨 주세요.')
     warn = ''
     with lv._conn() as conn:
         if on:

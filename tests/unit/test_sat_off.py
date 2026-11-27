@@ -520,6 +520,18 @@ def test_full_off_keeps_own_picks_when_undone(slack):
     assert so.picks(DEC)['2026-12-26'] == ['영업가']                    # 각자 고른 건 남음
 
 
+def test_full_off_names_only_admin_removes(slack):
+    """전체 휴무 날은 취합 담당·본인이 이름을 못 뺀다(11-27 — SJ 가 12/26 10명을 모두 빼 실제 쉬는 사람 0명). 관리자는 뺌."""
+    so.set_full_off(S26, True, '고광일')
+    with pytest.raises(so.SatOffError, match='전체 휴무라'):
+        so.toggle(S26, '영업나', False, CO, '빈대리', TODAY)              # 취합 담당
+    with pytest.raises(so.SatOffError, match='전체 휴무라'):
+        so.toggle(S26, '영업가', False, A, '영업가', TODAY)               # 본인
+    assert len(so.picks(DEC)['2026-12-26']) == 4
+    so.toggle(S26, '영업가', False, 'UMW', '박민우', TODAY, admin=True)   # 관리자는 뺄 수 있음
+    assert '영업가' not in so.picks(DEC)['2026-12-26']
+
+
 def test_full_off_api_admin_only(slack, monkeypatch):
     import inspect
     from flask import Flask, session
