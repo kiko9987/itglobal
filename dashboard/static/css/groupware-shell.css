@@ -1983,6 +1983,19 @@ html.gw-wco body.gw-shell .gw-topbar :is(a, button, input, select, .dropdown, .g
 html.gw-wco body.gw-shell .gw-topbar { padding-left: max(12px, calc(var(--wco-left, 0px) - var(--gw-rail-w) + 10px)); }
 html.gw-wco body.gw-shell .gw-rail { -webkit-app-region: no-drag; app-region: no-drag; }
 html.gw-wco body.gw-shell .gw-rail .gw-nav-top { margin-top: min(var(--wco-left, 0px), var(--wco-h, 0px)); }
+/* 스크립트 없이도 — 11-28 부장님 앱에서 html.gw-wco 가 안 붙어 창 버튼이 알림·이름 버튼을 덮었음.
+   제목 줄 합친 상태면 브라우저가 주는 env(titlebar-area-*) 로 바로 비킴 */
+@media (display-mode: window-controls-overlay) {
+  body.gw-shell .gw-topbar {
+    -webkit-app-region: drag;
+    app-region: drag;
+    padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 10px) !important;
+  }
+  body.gw-shell .gw-topbar :is(a, button, input, select, .dropdown, .gw-notify, .gw-notify-panel, .gw-find-trigger) {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+}
 
 /* ════════════════════════════════════════════════════════════════════
    나 안(도면) 테마 — 11-28 부장님: 나 안 바탕 + 위쪽 줄도 왼쪽 줄과 같은 남색.
