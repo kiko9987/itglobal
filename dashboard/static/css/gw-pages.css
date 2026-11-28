@@ -4693,8 +4693,8 @@ ul.gw-fe-notes li + li { margin-top: 2px; }
 /* ── 매출 통계(11-28 전체 점검 3차) — 표 화면 틀(gw-page-head·gw-stats·gw-panel) + 그래프 4칸 ─────────── */
 .gw-st-stats { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) !important; }
 .gw-st-stats .gw-stat .s { margin-top: 4px; font-size: 0.8rem; color: #64748b; }
-.gw-st-stats .gw-st-main { background: #fff7ed; border-color: #fed7aa; }
-.gw-st-stats .gw-st-main .v { color: #c2410c; }
+/* 강조 칸은 다른 화면(입출금·휴가)처럼 바탕만 옅은 주황, 숫자는 검정 — 주황 숫자가 파란 그래프 옆에서 튀었음(11-28) */
+.gw-st-stats .gw-st-main { background: #fff7ed; border-color: #fdba74; }
 .gw-st-d { font-weight: 700; font-variant-numeric: tabular-nums; }
 .gw-st-d.up { color: #15803d; }
 .gw-st-d.down { color: #b91c1c; }
