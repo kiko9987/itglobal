@@ -2,6 +2,9 @@
    기존 화면 CSS 는 건드리지 않고, 모든 규칙을 body.gw-shell 아래에 둔다.
    왼쪽 줄은 당근 비즈니스 광고 관리 화면을 본떴다(11-10 실측: 60px → 마우스 대면 200px,
    0.3s 펼침, 표 위에 겹침, 40px 줄, 지금 메뉴는 회색 바탕+굵게). */
+/* 나 안 테마 글꼴(Pretendard) — cdnjs 라 보안 설정(font-src) 안에 있음. @import 는 파일 맨 앞이어야 함(11-28) */
+@import url("https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/variable/pretendardvariable-dynamic-subset.min.css");
+
 
 body.gw-shell {
   --gw-rail-w: 60px;
@@ -1962,3 +1965,75 @@ body.gw-shell .gw-notify-stale {
 
 /* 날짜·시각 칸은 어디를 눌러도 달력이 열림(groupware-shell.js, 11-26) — 손가락 모양으로 알려 줌 */
 body.gw-shell input:is([type="date"], [type="month"], [type="week"], [type="datetime-local"], [type="time"]):not(:disabled):not([readonly]) { cursor: pointer; }
+
+/* ════════════════════════════════════════════════════════════════════
+   나 안(도면) 테마 — 11-28 부장님: 나 안 바탕 + 위쪽 줄도 왼쪽 줄과 같은 남색.
+   지금은 html.gw-tb 일 때만 켜짐(먼저 보기: 주소 끝 ?theme=b, 끄기 ?theme=off — groupware-shell.js).
+   프로젝트·리드 화면 안쪽은 맨 마지막에 바꿈 → 글꼴·바탕·부품은 그룹웨어 화면(.gw-page)에만.
+   ════════════════════════════════════════════════════════════════════ */
+html.gw-tb body.gw-shell {
+  --tb-navy: #0f1e36;       /* 메뉴 줄·위쪽 줄 */
+  --tb-navy-2: #1a2c4a;     /* 마우스 댄 칸 */
+  --tb-navy-3: #24395c;     /* 지금 칸 */
+  --tb-navy-line: #2b4166;
+  --tb-on-navy: #ffffff;
+  --tb-on-navy-2: #c3cddb;  /* 남색 위 보조 글자(9.6:1) */
+  --tb-on-navy-3: #8fa0b8;  /* 남색 위 아이콘(6.1:1) */
+  --tb-orange: #fb923c;     /* 남색 위 '지금 위치' 표시(주황 = 회사 색) */
+  --gw-rail-bg: var(--tb-navy);
+  --gw-rail-line: var(--tb-navy);
+  --gw-rail-fg: #ffffff;
+  --gw-rail-fg-sub: var(--tb-on-navy-2);
+  --gw-rail-hover: var(--tb-navy-2);
+  --gw-rail-active: var(--tb-navy-3);
+}
+
+/* 왼쪽 줄 */
+html.gw-tb body.gw-shell .gw-nav-icon { color: var(--tb-on-navy-3); }
+html.gw-tb body.gw-shell .gw-nav-area:hover .gw-nav-icon,
+html.gw-tb body.gw-shell .gw-nav-group.active .gw-nav-icon { color: #ffffff; }
+html.gw-tb body.gw-shell .gw-nav-caret,
+html.gw-tb body.gw-shell .gw-rail-toggle,
+html.gw-tb body.gw-shell .gw-rail-classic { color: var(--tb-on-navy-2); }
+html.gw-tb body.gw-shell .gw-nav-bottom { border-top-color: var(--tb-navy-2); }
+html.gw-tb body.gw-shell.gw-expand .gw-rail { box-shadow: 4px 0 16px rgba(15, 30, 54, 0.35); }
+html.gw-tb body.gw-shell .gw-rail-logo { box-shadow: none; }
+html.gw-tb body.gw-shell .gw-nav-area:focus-visible,
+html.gw-tb body.gw-shell .gw-nav-subitem:focus-visible,
+html.gw-tb body.gw-shell .gw-rail-logo:focus-visible,
+html.gw-tb body.gw-shell .gw-rail-toggle:focus-visible { outline-color: #ffffff; }
+
+/* 위쪽 줄 — 왼쪽 줄과 같은 남색 */
+html.gw-tb body.gw-shell .gw-topbar { background: var(--tb-navy); border-bottom-color: var(--tb-navy); }
+html.gw-tb body.gw-shell .gw-topbar-menu { color: var(--tb-on-navy-2); }
+html.gw-tb body.gw-shell .gw-topbar-menu:hover { background: var(--tb-navy-2); color: #ffffff; }
+html.gw-tb body.gw-shell .gw-subnav-item { color: var(--tb-on-navy-2); }
+html.gw-tb body.gw-shell .gw-subnav-item:hover { color: #ffffff; }
+html.gw-tb body.gw-shell .gw-subnav-item.active { color: #ffffff; border-bottom-color: var(--tb-orange); }
+html.gw-tb body.gw-shell .gw-subnav-item:focus-visible { outline: 2px solid #ffffff; outline-offset: -4px; }
+html.gw-tb body.gw-shell .gw-find-trigger { background: var(--tb-navy-2); border-color: var(--tb-navy-line); color: var(--tb-on-navy-2); }
+html.gw-tb body.gw-shell .gw-find-trigger:hover { background: var(--tb-navy-3); border-color: #3a5480; }
+html.gw-tb body.gw-shell .gw-find-trigger kbd { background: transparent; border-color: #3a5480; color: var(--tb-on-navy-2); }
+html.gw-tb body.gw-shell .gw-notify-btn { color: var(--tb-on-navy-2); }
+html.gw-tb body.gw-shell .gw-notify-btn:hover,
+html.gw-tb body.gw-shell .gw-notify-btn[aria-expanded="true"] { background: var(--tb-navy-2); color: #ffffff; }
+html.gw-tb body.gw-shell .gw-notify-dot { box-shadow: 0 0 0 2px var(--tb-navy); }
+html.gw-tb body.gw-shell .gw-topbar .btn-user-menu { background: var(--tb-navy-2); border: 1px solid var(--tb-navy-line); color: #ffffff; }
+html.gw-tb body.gw-shell .gw-topbar .btn-user-menu:hover,
+html.gw-tb body.gw-shell .gw-topbar .btn-user-menu[aria-expanded="true"] { background: var(--tb-navy-3); border-color: #3a5480; color: #ffffff; }
+html.gw-tb body.gw-shell .gw-topbar :is(.gw-find-trigger, .gw-notify-btn, .btn-user-menu, .gw-topbar-menu):focus-visible { outline: 2px solid #ffffff; outline-offset: 2px; box-shadow: none; }
+@media (max-width: 767.98px) {
+  html.gw-tb body.gw-shell .gw-topbar .gw-subnav:has(> .gw-subnav-item + .gw-subnav-item) { background: var(--tb-navy); border-top-color: var(--tb-navy-2); }
+}
+
+/* 글꼴·바탕 — 그룹웨어 화면만(프로젝트·리드는 나중) */
+html.gw-tb body.gw-shell:has(.gw-page),
+html.gw-tb body.gw-shell .gw-rail,
+html.gw-tb body.gw-shell .gw-topbar,
+html.gw-tb body.gw-shell .gw-find,
+html.gw-tb body.gw-shell .gw-notify-panel {
+  --bs-body-font-family: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", sans-serif;
+  font-family: var(--bs-body-font-family);
+}
+html.gw-tb body.gw-shell:has(.gw-page) { background: #eef1f5; color: #0f1e36; font-feature-settings: "tnum" 1; }
+html.gw-tb body.gw-shell:has(.gw-page) :is(button, input, select, textarea) { font-family: inherit; }

@@ -7,6 +7,17 @@
   var body = document.body;
   if (!body || !body.classList.contains('gw-shell')) return;
 
+  // 나 안 테마 먼저 보기(11-28) — 주소 끝 ?theme=b 로 켜고 ?theme=off 로 끔. 이 브라우저에만 기억
+  (function () {
+    var TKEY = 'gw.theme';
+    try {
+      var q = new URLSearchParams(location.search).get('theme');
+      if (q === 'b') localStorage.setItem(TKEY, 'b');
+      else if (q === 'off') localStorage.removeItem(TKEY);
+      if (localStorage.getItem(TKEY) === 'b') document.documentElement.classList.add('gw-tb');
+    } catch (e) { /* 저장소를 못 쓰면 지금 모양 그대로 */ }
+  })();
+
   var KEY = 'gw.rail.collapsed';
   var rail = document.getElementById('gwRail');
   var hotzone = document.getElementById('gwRailHotzone');
