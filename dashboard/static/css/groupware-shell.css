@@ -2093,3 +2093,101 @@ html.gw-tb body.gw-shell .gw-notify-panel {
 }
 html.gw-tb body.gw-shell:has(.gw-page) { background: #eef1f5; color: #0f1e36; font-feature-settings: "tnum" 1; }
 html.gw-tb body.gw-shell:has(.gw-page) :is(button, input, select, textarea) { font-family: inherit; }
+
+/* ════════════════════════════════════════════════════════════════════
+   부드러운 테마 세 안(먼저 보기) — 11-28 부장님 '나 안이 딱딱하다, 남색도 의도 아님'.
+   토스 원칙: 선 대신 여백·바탕색, 둥근 모서리, 강조색 하나. 모양 규칙은 하나, 색 값만 안마다 다름.
+   켜기: 주소 끝 ?theme=t1(밝은 틀+주황) · t2(먹색 메뉴+주황) · t3(남색 부드럽게), 되돌리기 ?theme=b.
+   html.gw-soft.gw-tN 일 때만 — 나 안(gw-tb) 규칙 위에 덮음(클래스 하나 더 붙여 우선).
+   ════════════════════════════════════════════════════════════════════ */
+html.gw-soft.gw-tb body.gw-shell {
+  --s-bg: #f2f4f6; --s-ink: #191f28; --s-ink-2: #4e5968; --s-ink-3: #6b7684;
+  --s-line: #e5e8eb; --s-line-soft: #f2f4f6; --s-input: #8b95a1; --s-hover: #f9fafb; --s-btn-line: #d1d6db;
+}
+html.gw-soft.gw-t1.gw-tb body.gw-shell {   /* 1안 밝은 틀 + 주황 */
+  --s-frame: #ffffff; --s-frame-fg: #191f28; --s-frame-fg2: #4e5968; --s-frame-icon: #8b95a1;
+  --s-frame-hover: #f2f4f6; --s-frame-active: #fff1e8; --s-frame-active-fg: #c2410c; --s-frame-line: #e5e8eb;
+  --s-mark: transparent; --s-mark-icon: #c2410c; --s-focus: #191f28;
+  --s-find-bg: #f2f4f6; --s-find-line: transparent; --s-find-fg: #6b7684;
+  --s-accent: #c2410c; --s-accent-hover: #9a3412; --s-accent-soft: #fff1e8; --s-accent-text: #c2410c; --s-accent-ring: rgba(194, 65, 12, 0.18);
+}
+html.gw-soft.gw-t2.gw-tb body.gw-shell {   /* 2안 먹색 메뉴 + 주황 */
+  --s-frame: #1a1c20; --s-frame-fg: #ffffff; --s-frame-fg2: #c9cdd2; --s-frame-icon: #9ea4ad;
+  --s-frame-hover: #2a2d33; --s-frame-active: #34383f; --s-frame-active-fg: #ffffff; --s-frame-line: #2a2d33;
+  --s-mark: #fb923c; --s-mark-icon: #fb923c; --s-focus: #ffffff;
+  --s-find-bg: #2a2d33; --s-find-line: #3a3e45; --s-find-fg: #c9cdd2;
+  --s-accent: #c2410c; --s-accent-hover: #9a3412; --s-accent-soft: #fff1e8; --s-accent-text: #c2410c; --s-accent-ring: rgba(194, 65, 12, 0.18);
+}
+html.gw-soft.gw-t3.gw-tb body.gw-shell {   /* 3안 남색 그대로, 모양만 부드럽게 — 남색 면적은 줄임 */
+  --s-frame: #0f1e36; --s-frame-fg: #ffffff; --s-frame-fg2: #c3cddb; --s-frame-icon: #8fa0b8;
+  --s-frame-hover: #1a2c4a; --s-frame-active: #24395c; --s-frame-active-fg: #ffffff; --s-frame-line: #1a2c4a;
+  --s-mark: #fb923c; --s-mark-icon: #fb923c; --s-focus: #ffffff;
+  --s-find-bg: #1a2c4a; --s-find-line: #2b4166; --s-find-fg: #c3cddb;
+  --s-accent: #1f3a68; --s-accent-hover: #0f1e36; --s-accent-soft: #e8eef7; --s-accent-text: #1f3a68; --s-accent-ring: rgba(31, 58, 104, 0.18);
+}
+html.gw-soft.gw-tb body.gw-shell {
+  --gw-rail-bg: var(--s-frame); --gw-rail-line: var(--s-frame-line); --gw-rail-fg: var(--s-frame-fg);
+  --gw-rail-fg-sub: var(--s-frame-fg2); --gw-rail-hover: var(--s-frame-hover); --gw-rail-active: var(--s-frame-active);
+}
+/* 왼쪽 줄 */
+html.gw-soft.gw-tb body.gw-shell .gw-nav-area { border-radius: 8px; }
+html.gw-soft.gw-tb body.gw-shell .gw-nav-icon { color: var(--s-frame-icon); }
+html.gw-soft.gw-tb body.gw-shell .gw-nav-area:hover .gw-nav-icon { color: var(--s-frame-fg); }
+html.gw-soft.gw-tb body.gw-shell .gw-nav-group.active > .gw-nav-area,
+html.gw-soft.gw-tb body.gw-shell .gw-nav-group.active .gw-nav-icon,
+html.gw-soft.gw-tb body.gw-shell .gw-nav-subitem.active { color: var(--s-frame-active-fg); }
+html.gw-soft.gw-tb body.gw-shell .gw-nav-subitem { border-radius: 8px; }
+html.gw-soft.gw-tb body.gw-shell :is(.gw-nav-caret, .gw-rail-toggle, .gw-rail-classic) { color: var(--s-frame-fg2); }
+html.gw-soft.gw-tb body.gw-shell .gw-nav-bottom { border-top-color: var(--s-frame-line); }
+html.gw-soft.gw-tb body.gw-shell.gw-expand .gw-rail { box-shadow: 4px 0 20px rgba(0, 0, 0, 0.12); }
+html.gw-soft.gw-tb body.gw-shell :is(.gw-nav-area, .gw-nav-subitem, .gw-rail-logo, .gw-rail-toggle):focus-visible { outline-color: var(--s-focus); }
+/* 위쪽 줄 */
+html.gw-soft.gw-tb body.gw-shell .gw-topbar { background: var(--s-frame); border-bottom-color: var(--s-frame); }
+html.gw-soft.gw-tb body.gw-shell .gw-topbar-menu { color: var(--s-frame-fg2); }
+html.gw-soft.gw-tb body.gw-shell .gw-topbar-menu:hover { background: var(--s-frame-hover); color: var(--s-frame-fg); }
+html.gw-soft.gw-tb body.gw-shell .gw-subnav-item { color: var(--s-frame-fg2); border-bottom-color: transparent; }
+html.gw-soft.gw-tb body.gw-shell .gw-subnav-item::before { border-radius: 8px; }
+html.gw-soft.gw-tb body.gw-shell .gw-subnav-item:hover { color: var(--s-frame-fg); }
+html.gw-soft.gw-tb body.gw-shell .gw-subnav-item:hover::before { background: var(--s-frame-hover); }
+html.gw-soft.gw-tb body.gw-shell .gw-subnav-item.active { color: var(--s-frame-active-fg); border-bottom-color: var(--s-mark); }
+html.gw-soft.gw-tb body.gw-shell .gw-subnav-item.active::before { background: var(--s-frame-active); }
+html.gw-soft.gw-tb body.gw-shell .gw-subnav-item.active i { color: var(--s-mark-icon); }
+html.gw-soft.gw-tb body.gw-shell .gw-subnav-item:focus-visible { outline-color: var(--s-focus); }
+html.gw-soft.gw-tb body.gw-shell .gw-find-trigger { background: var(--s-find-bg); border-color: var(--s-find-line); color: var(--s-find-fg); border-radius: 10px; }
+html.gw-soft.gw-tb body.gw-shell .gw-find-trigger:hover { background: var(--s-frame-active); }
+html.gw-soft.gw-tb body.gw-shell .gw-find-trigger kbd { border-color: var(--s-find-line); color: var(--s-find-fg); }
+html.gw-soft.gw-tb body.gw-shell .gw-notify-btn { color: var(--s-frame-fg2); }
+html.gw-soft.gw-tb body.gw-shell :is(.gw-notify-btn:hover, .gw-notify-btn[aria-expanded="true"]) { background: var(--s-frame-hover); color: var(--s-frame-fg); }
+html.gw-soft.gw-tb body.gw-shell .gw-notify-dot { box-shadow: 0 0 0 2px var(--s-frame); }
+html.gw-soft.gw-tb body.gw-shell .gw-topbar .btn-user-menu { background-color: var(--s-find-bg) !important; border: 1px solid var(--s-find-line) !important; color: var(--s-frame-fg) !important; border-radius: 10px !important; }
+html.gw-soft.gw-tb body.gw-shell .gw-topbar .btn-user-menu:is(:hover, :active, :focus, [aria-expanded="true"]) { background-color: var(--s-frame-active) !important; border-color: var(--s-find-line) !important; color: var(--s-frame-fg) !important; }
+html.gw-soft.gw-tb body.gw-shell .gw-topbar :is(.gw-find-trigger, .gw-notify-btn, .btn-user-menu, .gw-topbar-menu):focus-visible { outline-color: var(--s-focus); }
+@media (max-width: 767.98px) {
+  html.gw-soft.gw-tb body.gw-shell .gw-topbar .gw-subnav:has(> .gw-subnav-item + .gw-subnav-item) { background: var(--s-frame); border-top-color: var(--s-frame-line); }
+}
+@media (min-width: 768px) {
+  html.gw-soft.gw-tb body.gw-shell::after { width: 16px; height: 16px; background: radial-gradient(circle at 100% 100%, transparent 15.5px, var(--s-frame) 16px); }
+}
+html.gw-soft.gw-tb body.gw-shell :is(.gw-rail, .gw-topbar, .gw-find, .gw-notify-panel) { font-family: var(--bs-body-font-family); }
+
+/* 테마 비교 막대 — ?theme=t1·t2·t3·b 로 한 번이라도 연 브라우저에만(groupware-shell.js). [닫기]로 막대만 숨김 */
+.gw-theme-cmp { position: fixed; right: 16px; bottom: 16px; z-index: 1090; display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  padding: 6px; background: #ffffff; color: #191f28; border-radius: 14px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18); font-size: 13px; max-width: calc(100vw - 32px); }
+.gw-theme-cmp > span { padding: 0 6px 0 8px; font-weight: 700; }
+.gw-theme-cmp a { display: inline-flex; align-items: center; min-height: 32px; padding: 0 10px; border-radius: 8px; color: #4e5968; text-decoration: none; white-space: nowrap; }
+.gw-theme-cmp a:hover { background: #f2f4f6; color: #191f28; }
+.gw-theme-cmp a[aria-current="true"] { background: #191f28; color: #ffffff; font-weight: 700; }
+.gw-theme-cmp a:focus-visible { outline: 2px solid #191f28; outline-offset: 2px; }
+.gw-theme-cmp a.x { color: #6b7684; }
+@media (max-width: 767.98px) {
+  .gw-theme-cmp { left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); max-width: none; }
+  .gw-theme-cmp a { min-height: 44px; }
+}
+/* 휴대폰에선 비교 막대를 한 줄로 — 이름은 '1안'처럼 짧게, 본문 끝이 막대에 가리지 않게 아래 여백 */
+@media (max-width: 767.98px) {
+  .gw-theme-cmp { flex-wrap: nowrap; justify-content: space-between; padding: 4px; }
+  .gw-theme-cmp > span, .gw-theme-cmp .l { display: none; }
+  .gw-theme-cmp a { padding: 0 8px; }
+  body.gw-shell:has(.gw-theme-cmp) .main-content { padding-bottom: 72px; }
+}
+.gw-theme-cmp a .l { margin-left: 0.3em; }

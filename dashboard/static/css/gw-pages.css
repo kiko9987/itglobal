@@ -4956,3 +4956,131 @@ html.gw-tb body.gw-shell:has(.gw-page) .gw-help > summary { border-radius: 4px; 
 html.gw-tb body.gw-shell:has(.gw-page) .gw-help > summary:hover { background: var(--tb-head); color: var(--tb-ink); }
 html.gw-tb body.gw-shell:has(.gw-page) .gw-help > summary:focus-visible { outline-color: var(--tb-ink); }
 .gw-so-help { width: 100%; }
+
+/* ════════════════════════════════════════════════════════════════════
+   부드러운 테마 세 안 — 화면 부품(11-28 부장님). 색 값은 groupware-shell.css 의 --s-* (안마다 다름).
+   선 대신 흰 칸·회색 바탕, 칸 12px·버튼과 입력 8px, 강조색 하나(--s-accent), 표 세로줄 없음.
+   입력 칸 테두리는 3:1(#8b95a1) — 11-26 점검 기준(칸 경계가 보여야 함)이라 채운 칸 대신 테두리 유지.
+   ════════════════════════════════════════════════════════════════════ */
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) { background: var(--s-bg); color: var(--s-ink); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-page-title { font-size: 1.375rem; color: var(--s-ink); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-panel-title, .gw-sec-title, .gw-home-label, .gw-st-title, .gw-empty-state .t) { color: var(--s-ink); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-note, .gw-empty, .gw-panel-desc, .gw-vh-foot) { color: var(--s-ink-3); }
+
+/* 칸 — 테두리 없이 흰 칸, 12px */
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-panel, .gw-split-list, .gw-split-detail, .gw-card-wrap, .gw-empty-box, .cr-card, .gw-home-card, .gw-todo, .gw-ap-tablewrap, .gw-table-wrap) {
+  border-color: transparent !important; border-radius: 12px !important; box-shadow: none !important; background-color: #ffffff;
+}
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-callout { border-radius: 12px; background: #ffffff; color: var(--s-ink-2); border-color: transparent; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-panel, .gw-home-card, .gw-split-detail, .gw-drawer, .modal) .gw-callout { background: var(--s-bg); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-callout a { color: var(--s-accent-text); text-decoration-color: currentColor; }
+
+/* 요약 숫자 칸 — 모두 흰 칸, 주 칸은 이름표만 강조색(남색·주황으로 칠하지 않음) */
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-stats { gap: 12px; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-stats .gw-stat, .gw-stats .gw-stat-main, .gw-st-stats .gw-st-main, .gw-cr-stats .gw-stat:last-child) {
+  background: #ffffff !important; border-color: transparent !important; border-radius: 12px !important; box-shadow: none !important; padding: 16px 18px;
+}
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-stat .k,
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-stat-main, .gw-st-main, .gw-cr-stats .gw-stat:last-child) :is(.k, .s, .v small, .gw-st-vs, .gw-fb-stat-sub) { color: var(--s-ink-3) !important; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-stat .v,
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-stat-main, .gw-st-main, .gw-cr-stats .gw-stat:last-child) .v { color: var(--s-ink) !important; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-stats .gw-stat-main, .gw-st-stats .gw-st-main, .gw-cr-stats .gw-stat:last-child) .k { color: var(--s-accent-text) !important; font-weight: 600; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-stat-main, .gw-st-main) .gw-st-d.up { color: #047857; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-stat-main, .gw-st-main) .gw-st-d.down { color: #b91c1c; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-stat:hover { border-color: transparent !important; box-shadow: inset 0 0 0 1px var(--s-btn-line) !important; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-stat.active { box-shadow: inset 0 0 0 2px var(--s-accent) !important; }
+
+/* 표 — 머리 줄 바탕 없이 옅은 글자, 세로줄 없음, 가로줄 아주 옅게 */
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-page table:not(.gw-bd-kv) > thead > tr > th,
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-drawer table > thead > tr > th { background: #ffffff; color: var(--s-ink-3); border-bottom: 1px solid var(--s-line); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-page table:not(.gw-bd-kv) > tbody > tr > td { border-bottom-color: var(--s-line-soft); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-page :is(.gw-table, .gw-ap-table, .cr-tbl) > tbody > tr > td + td,
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-page :is(.gw-table, .gw-ap-table, .cr-tbl) > thead > tr > th + th { border-left: 0; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-page tbody > tr:is(.gw-table-click, [data-id], [role="button"]):hover > td { background: var(--s-hover); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .cr-tbl :is(thead th:first-child, tbody td:first-child:not(.cr-owner):not([colspan])) { box-shadow: 1px 0 0 var(--s-line); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .cr-tbl thead th:first-child { background: #ffffff; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .cr-tbl :is(tr.sub, tr.tot) td { background: var(--s-hover); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .cr-tbl tr.grand td { background: var(--s-bg); border-top: 1px solid var(--s-line); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .cr-tbl td.cr-owner { border-top-color: var(--s-line-soft); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .cr-tbl td.cr-owner:hover { background: var(--s-hover); }
+
+/* 버튼 — 주 동작만 강조색, 나머지는 흰 바탕 옅은 테두리. 8px */
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.btn-primary, .btn-success, .btn-dark) {
+  --bs-btn-bg: var(--s-accent); --bs-btn-border-color: var(--s-accent);
+  --bs-btn-hover-bg: var(--s-accent-hover); --bs-btn-hover-border-color: var(--s-accent-hover);
+  --bs-btn-active-bg: var(--s-accent-hover); --bs-btn-active-border-color: var(--s-accent-hover);
+  --bs-btn-disabled-bg: var(--s-accent); --bs-btn-disabled-border-color: var(--s-accent);
+  background-color: var(--bs-btn-bg); border-color: var(--bs-btn-border-color); color: #ffffff;
+}
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.btn-primary, .btn-success, .btn-dark):hover { background-color: var(--s-accent-hover); border-color: var(--s-accent-hover); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.btn-outline-primary, .btn-outline-secondary, .btn-secondary, .btn-light) {
+  --bs-btn-border-color: var(--s-btn-line); --bs-btn-active-bg: var(--s-accent-soft); --bs-btn-active-border-color: var(--s-accent); --bs-btn-active-color: var(--s-accent-text);
+  background-color: #ffffff; border-color: var(--s-btn-line); color: var(--s-ink-2);
+}
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.btn-outline-primary, .btn-outline-secondary, .btn-secondary, .btn-light):hover { background: var(--s-hover); border-color: var(--s-input); color: var(--s-ink); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-page, .gw-drawer, .modal) .btn { border-radius: 8px; }
+
+/* 거르기 줄·입력 칸 */
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-chip-select, .gw-chip-date, .gw-chip-search, .gw-chip-reset, .gw-chip-more) { border-radius: 8px; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-chip-select, .gw-chip-date, .gw-chip-search) { border-color: var(--s-input); color: var(--s-ink); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-chip-select.on { background-color: var(--s-accent); border-color: var(--s-accent); color: #ffffff; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-chip-select, .gw-chip-date, .gw-chip-search):focus-visible { border-color: var(--s-accent); box-shadow: 0 0 0 3px var(--s-accent-ring); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-chip-reset, .gw-chip-more) { border-color: var(--s-btn-line); color: var(--s-ink-2); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .has-active-filters .gw-chip-reset { border-color: var(--s-accent); color: var(--s-accent-text); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .has-active-filters .gw-chip-reset:hover,
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-chip-more.on { background: var(--s-accent); border-color: var(--s-accent); color: #ffffff; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-page, .gw-drawer, .modal) :is(.form-control, .form-select) { border-radius: 8px; border-color: var(--s-input); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-page, .gw-drawer, .modal) :is(.form-control, .form-select):focus { border-color: var(--s-accent); box-shadow: 0 0 0 3px var(--s-accent-ring); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-page, .gw-drawer, .modal) .form-check-input:checked { background-color: var(--s-accent); border-color: var(--s-accent); }
+
+/* 스위치 탭 — 흰 칸 안에서 고른 탭만 연한 강조색 바탕 */
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-ap-tabs, .gw-seg) { background: #ffffff; border: 1px solid var(--s-line); border-radius: 12px; padding: 4px; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-ap-tabs button, .gw-seg-btn) { border-radius: 8px; color: var(--s-ink-2); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-ap-tabs button, .gw-seg-btn):not(.active):not([aria-selected="true"]):not([aria-pressed="true"]):hover { background: var(--s-hover); color: var(--s-ink); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-ap-tabs button.active, .gw-seg-btn.active, .gw-seg-btn[aria-selected="true"], .gw-seg-btn[aria-pressed="true"]) {
+  background: var(--s-accent-soft); color: var(--s-accent-text); font-weight: 700; box-shadow: none;
+}
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-vtab[aria-current="page"] { border-bottom-color: var(--s-accent); }
+
+/* 오른쪽 창 — 머리 줄 흰 바탕, 왼쪽 모서리 둥글게 */
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-drawer-panel { border-radius: 16px 0 0 16px; overflow: hidden; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-drawer-head,
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .modal.gw-modal-right .modal-header { background: #ffffff; color: var(--s-ink); border-bottom-color: var(--s-line); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-drawer-head, .modal.gw-modal-right .modal-header) :is(h2, h3, h5, .modal-title) { color: var(--s-ink); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-drawer-head, .modal.gw-modal-right .modal-header) :is(p, small, .text-muted, .gw-drawer-sub) { color: var(--s-ink-3) !important; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-drawer-head, .modal.gw-modal-right .modal-header) .btn-close { filter: none; opacity: 0.6; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-drawer-head h2:focus-visible { outline-color: var(--s-ink); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .modal-content { border-radius: 16px; }
+
+/* 꼬리표·빈 화면·도움말·달력 */
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-badge { border-radius: 6px; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-empty-state .ic { background: var(--s-bg); color: var(--s-ink-3); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-help:not(.sm) { border-color: transparent; border-radius: 12px; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-help > summary { border-radius: 8px; color: var(--s-ink-2); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-help > summary:hover { background: var(--s-hover); color: var(--s-ink); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-cal-grid { border-radius: 12px; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-so-pslist li, .gw-so-status) { border-radius: 6px; }
+
+/* 홈 */
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-todo-ic { border-radius: 10px; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-todo-act, .gw-todo-close) { border-radius: 8px; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-todo-act { background: var(--s-accent); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-todo-act:hover { background: var(--s-accent-hover); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-todo-close { border-color: var(--s-btn-line); color: var(--s-ink-2); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-todo-close:hover { background: var(--s-hover); border-color: var(--s-input); color: var(--s-ink); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-sales-tile { background: var(--s-bg); border-color: transparent; border-radius: 12px; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-sales-tile:hover { background: #e9ecef; border-color: transparent; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-sales-tile.active { background: var(--s-accent-soft); border-color: transparent; box-shadow: inset 0 0 0 2px var(--s-accent); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-sales-tile .v { color: var(--s-ink); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-sales-chart { border-color: var(--s-line-soft); border-radius: 12px; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-home-list li > :is(a, div) { border-radius: 8px; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-home-list li > a:hover { background: var(--s-hover); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-home-chip { background: var(--s-bg); color: var(--s-ink); border-radius: 6px; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-home-chip small { color: var(--s-ink-3); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-home-label strong, .gw-home-big .v) { color: var(--s-ink); }
+/* 링크 — 강조색 글자, 밑줄은 마우스 댔을 때 */
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-home-more, .gw-ap-slack, .gw-lv-note a) { color: var(--s-accent-text); text-decoration: none; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-home-more, .gw-ap-slack, .gw-lv-note a):hover { color: var(--s-accent-hover); text-decoration: underline; text-underline-offset: 3px; }
+/* 휴가 [이번 달] 파란 글자(#1d4ed8) — 옆 ◀ ▶ 와 같은 테두리 버튼인데 글자만 파랑이라 튐 */
+html.gw-tb body.gw-shell:has(.gw-page) #lvToday { color: var(--tb-ink-2); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) #lvToday { color: var(--s-ink-2); }
