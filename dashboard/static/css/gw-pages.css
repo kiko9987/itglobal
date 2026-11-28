@@ -4731,3 +4731,100 @@ ul.gw-fe-notes li + li { margin-top: 2px; }
 .modal.gw-modal-right .modal-content { height: 100%; border: 0; border-radius: 0; box-shadow: -8px 0 24px rgba(15, 23, 42, 0.12); }
 .modal.gw-modal-right .modal-body { overflow-y: auto; }
 @media (prefers-reduced-motion: reduce) { .modal.gw-modal-right .modal-dialog { transition: none; transform: none; } }
+
+/* ════════════════════════════════════════════════════════════════════
+   나 안(도면) 테마 — 그룹웨어 화면 부품(11-28 부장님). html.gw-tb 일 때만.
+   범위: .gw-page 가 있는 화면(프로젝트·리드는 맨 마지막에 따로).
+   남색 #0f1e36 = 주 동작·지금 고른 것, 칸은 흰 바탕 + 가는 회청 선 + 둥글기 4px, 그림자 없음.
+   주황은 '새로 만들기' 같은 회사 색 자리에만(여기선 안 씀). 상태색(빨강·노랑·초록)은 뜻이라 그대로.
+   ════════════════════════════════════════════════════════════════════ */
+html.gw-tb body.gw-shell:has(.gw-page) {
+  --tb-ink: #0f1e36;
+  --tb-ink-2: #3c4a61;
+  --tb-ink-3: #5d6b82;     /* 흰 바탕 5.6:1 */
+  --tb-line: #d5dce6;
+  --tb-line-soft: #e6eaf0;
+  --tb-head: #f4f6f9;
+  --tb-hover: #f5f8fc;
+  --tb-sel: #eaf2fb;
+  --tb-ctl: #c4cdd9;       /* 칸·버튼 테두리 */
+}
+
+/* 제목·글 */
+html.gw-tb body.gw-shell:has(.gw-page) .gw-page-title { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.02em; color: var(--tb-ink); }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-panel-title, .gw-sec-title, .gw-home-label, .gw-st-title) { color: var(--tb-ink); }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-note, .gw-empty, .gw-panel-desc, .gw-vh-foot) { color: var(--tb-ink-3); }
+
+/* 칸(카드) — 둥글기 4px, 회청 선, 그림자 없음 */
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-panel, .gw-split-list, .gw-split-detail, .gw-card-wrap, .gw-empty-box, .cr-card, .gw-home-card) {
+  border: 1px solid var(--tb-line) !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+}
+html.gw-tb body.gw-shell:has(.gw-page) .gw-callout { border-radius: 4px; background: var(--tb-head); color: var(--tb-ink-2); }
+
+/* 요약 숫자 칸 — 첫 칸(주) 은 남색 */
+html.gw-tb body.gw-shell:has(.gw-page) .gw-stats .gw-stat { border-color: var(--tb-line) !important; border-radius: 4px !important; box-shadow: none; }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-stat .k { color: var(--tb-ink-3); }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-stat .v { color: var(--tb-ink); font-weight: 700; }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-stat:hover { border-color: #9fb0c6 !important; }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-stat.active { border-color: var(--tb-ink) !important; box-shadow: inset 0 -3px 0 var(--tb-ink) !important; }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-stats .gw-stat-main, .gw-st-stats .gw-st-main) { background: var(--tb-ink) !important; border-color: var(--tb-ink) !important; }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-stat-main, .gw-st-main) :is(.k, .s, .v small, .gw-st-vs) { color: #b4c1d3 !important; }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-stat-main, .gw-st-main) .v { color: #ffffff !important; }
+
+/* 표 — 머리 줄 회청 바탕, 가는 줄, 마우스 댄 줄 옅은 파랑 */
+html.gw-tb body.gw-shell:has(.gw-page) .gw-page table:not(.gw-bd-kv) > thead > tr > th,
+html.gw-tb body.gw-shell:has(.gw-page) .gw-drawer table > thead > tr > th {
+  background: var(--tb-head);
+  color: var(--tb-ink-2);
+  font-weight: 600;
+  border-bottom: 1px solid var(--tb-line);
+}
+html.gw-tb body.gw-shell:has(.gw-page) .gw-page table:not(.gw-bd-kv) > tbody > tr > td { border-bottom-color: var(--tb-line-soft); }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-page :is(.gw-table, .gw-ap-table, .cr-tbl) > tbody > tr > td + td,
+html.gw-tb body.gw-shell:has(.gw-page) .gw-page :is(.gw-table, .gw-ap-table, .cr-tbl) > thead > tr > th + th { border-left: 1px solid #edf0f4; }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-page tbody > tr:is(.gw-table-click, [data-id], [role="button"]):hover > td { background: var(--tb-hover); }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-page :is(.gw-ap-tablewrap, .gw-table-wrap) { border-color: var(--tb-line); border-radius: 4px; }
+
+/* 버튼 — 주 동작 남색, 나머지 흰 바탕 회청 테두리, 둥글기 4px */
+html.gw-tb body.gw-shell:has(.gw-page) :is(.btn-primary, .btn-success, .btn-dark) {
+  --bs-btn-bg: var(--tb-ink); --bs-btn-border-color: var(--tb-ink);
+  --bs-btn-hover-bg: #1f3253; --bs-btn-hover-border-color: #1f3253;
+  --bs-btn-active-bg: #1f3253; --bs-btn-active-border-color: #1f3253;
+  --bs-btn-disabled-bg: var(--tb-ink); --bs-btn-disabled-border-color: var(--tb-ink);
+  background-color: var(--bs-btn-bg); border-color: var(--bs-btn-border-color); color: #ffffff;
+}
+html.gw-tb body.gw-shell:has(.gw-page) :is(.btn-primary, .btn-success, .btn-dark):hover { background-color: #1f3253; border-color: #1f3253; }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.btn-outline-primary, .btn-outline-secondary, .btn-secondary, .btn-light) {
+  --bs-btn-border-color: var(--tb-ctl); --bs-btn-active-bg: var(--tb-ink); --bs-btn-active-border-color: var(--tb-ink);
+  border-color: var(--tb-ctl); color: var(--tb-ink-2);
+}
+html.gw-tb body.gw-shell:has(.gw-page) :is(.btn-outline-primary, .btn-outline-secondary, .btn-secondary, .btn-light):hover { background: var(--tb-head); border-color: #9fb0c6; color: var(--tb-ink); }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-page, .gw-drawer, .modal) .btn { border-radius: 4px; }
+
+/* 고르기 칩·나눔 버튼·탭 */
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-chip-select, .gw-chip-date) { border-radius: 4px; border-color: var(--tb-ctl); color: var(--tb-ink-2); }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-seg-btn { border-radius: 4px; }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-seg-btn.active, .gw-seg-btn[aria-pressed="true"], .gw-ap-tabs button.active) { background: var(--tb-ink); border-color: var(--tb-ink); color: #ffffff; }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-ap-tabs button { border-radius: 4px; }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-badge { border-radius: 3px; }
+
+/* 입력 칸 */
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-page, .gw-drawer, .modal) :is(.form-control, .form-select) { border-radius: 4px; border-color: var(--tb-ctl); }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-page, .gw-drawer, .modal) :is(.form-control, .form-select):focus { border-color: var(--tb-ink); box-shadow: 0 0 0 3px rgba(15, 30, 54, 0.14); }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-page, .gw-drawer, .modal) .form-check-input:checked { background-color: var(--tb-ink); border-color: var(--tb-ink); }
+
+/* 오른쪽 창 — 머리 줄 남색(메뉴 줄과 같은 색) */
+html.gw-tb body.gw-shell:has(.gw-page) .gw-drawer-panel { border-radius: 0; }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-drawer-head,
+html.gw-tb body.gw-shell:has(.gw-page) .modal.gw-modal-right .modal-header { background: var(--tb-ink); color: #ffffff; border-bottom-color: var(--tb-ink); }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-drawer-head, .modal.gw-modal-right .modal-header) :is(h2, h3, h5, .modal-title) { color: #ffffff; }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-drawer-head, .modal.gw-modal-right .modal-header) :is(p, small, .text-muted, .gw-drawer-sub) { color: #b4c1d3 !important; }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-drawer-head, .modal.gw-modal-right .modal-header) .btn-close { filter: invert(1) grayscale(1) brightness(2); opacity: 0.85; }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-drawer-head, .modal.gw-modal-right .modal-header) .btn-close:hover { background-color: rgba(0, 0, 0, 0.08); opacity: 1; }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-drawer-head h2:focus-visible { outline-color: #ffffff; }
+
+/* 빈 화면·진행 단계 */
+html.gw-tb body.gw-shell:has(.gw-page) .gw-empty-state .ic { background: #e8edf4; color: var(--tb-ink-3); }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-empty-state .t { color: var(--tb-ink); }
