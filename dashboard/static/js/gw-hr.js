@@ -821,7 +821,7 @@
     state.selectedId = id;
     renderList();
     try { history.replaceState(null, '', '#' + id); } catch (e) { /* 무시 */ }
-    loadCard(id);
+    return loadCard(id);
   }
 
   function loadList(keepId) {
@@ -959,11 +959,14 @@
     listEl.addEventListener('click', function (e) {
       var btn = e.target.closest('.gw-list-item');
       if (!btn) return;
-      select(parseInt(btn.getAttribute('data-id'), 10));
-      // 휴대폰은 목록 아래에 카드가 나오므로 카드로 내려 줌(고른 게 화면 밖이라 안 바뀐 것처럼 보였다, 11-15 점검)
+      var loaded = select(parseInt(btn.getAttribute('data-id'), 10));
+      // 휴대폰은 목록 아래에 카드가 나오므로 카드로 내려 줌(고른 게 화면 밖이라 안 바뀐 것처럼 보였다, 11-15 점검).
+      // 카드가 다 그려진 뒤에 내려야 함 — '불러오는 중…' 한 줄일 땐 페이지가 짧아 카드 위까지 못 내려갔음(11-28)
       if (window.matchMedia('(max-width: 767.98px)').matches) {
-        var card = document.getElementById('hrCard');
-        if (card) card.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        loaded.then(function () {
+          var card = document.getElementById('hrCard');
+          if (card) card.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        });
       }
     });
     document.getElementById('hrSearch').addEventListener('input', function (e) {
