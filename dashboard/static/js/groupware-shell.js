@@ -7,15 +7,18 @@
   var body = document.body;
   if (!body || !body.classList.contains('gw-shell')) return;
 
-  // 나 안 테마 먼저 보기(11-28) — 주소 끝 ?theme=b 로 켜고 ?theme=off 로 끔. 이 브라우저에만 기억
+  // 나 안 테마 — 11-28 전체 켬(기본값). 문제가 생기면 이 브라우저만 ?theme=off 로 옛 모양, ?theme=b 로 다시 켬.
+  // (템플릿 <html class="gw-tb"> 가 그리기 전부터 켜 둠 — 재시작 전 옛 템플릿이면 여기서 켬)
   (function () {
     var TKEY = 'gw.theme';
+    var on = true;
     try {
       var q = new URLSearchParams(location.search).get('theme');
-      if (q === 'b') localStorage.setItem(TKEY, 'b');
-      else if (q === 'off') localStorage.removeItem(TKEY);
-      if (localStorage.getItem(TKEY) === 'b') document.documentElement.classList.add('gw-tb');
-    } catch (e) { /* 저장소를 못 쓰면 지금 모양 그대로 */ }
+      if (q === 'off') localStorage.setItem(TKEY, 'off');
+      else if (q === 'b') localStorage.removeItem(TKEY);
+      on = localStorage.getItem(TKEY) !== 'off';
+    } catch (e) { /* 저장소를 못 쓰면 켜진 그대로 */ }
+    document.documentElement.classList.toggle('gw-tb', on);
   })();
 
   var KEY = 'gw.rail.collapsed';
