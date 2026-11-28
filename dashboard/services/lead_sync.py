@@ -2256,6 +2256,36 @@ def _append_workflow_consult(old, new: str, workflow_row) -> str:
     return f"{old}\n─────────\n[{datetime.now().strftime('%m.%d %H:%M')} {ini} · {status}] {new}"
 
 
+def _normalize_merged_visit_address(workflow_row, lead_no: str) -> Optional[Dict[str, str]]:
+    """기존 리드에 합쳐지는 워크플로 '방문 예약'의 방문 주소를 새 리드와 같은 방식으로 변환.
+
+    2026-11-28 L-04670: 전화 워크플로가 같은 번호의 기존 리드에 합쳐지는 경로는 주소 변환을
+    건너뛰어 매니저가 친 '검단 발산로5번길8 …'이 시트·방문 카드·캔버스1 에 그대로 들어갔다.
+    변환되면 workflow_row['방문 주소'] 를 바꾸고(시트 I열 반영) 카드용 addr_note 를 돌려준다.
+    여러 줄(특이사항 포함)은 손대지 않는다 — 분리 규칙은 새 리드 경로에만 있음.
+    """
+    addr_raw = str(workflow_row.get('방문 주소', '') or '').strip()
+    if not addr_raw or addr_raw == '-' or re.search(r'\r?\n', addr_raw):
+        return None
+    try:
+        from dashboard.services import address_resolver as _ar
+        from dashboard.services import lead_helpers as _lh
+        _regex = _lh.extract_korean_address(addr_raw)
+        _norm, _level = _ar.resolve_address(
+            addr_raw, _regex[0] if _regex else None, _regex[1] if _regex else '')
+    except Exception as exc:
+        logger.warning(f'[SYNC/전화WF/DEDUP] 주소 정규화 실패 ({lead_no}): {exc}')
+        return None
+    _orig = re.sub(r'\s+', ' ', addr_raw)
+    if _level in ('verified', 'jibun_poi') and _norm and _norm != addr_raw:
+        workflow_row['방문 주소'] = _norm
+        return {'kind': 'normalized' if _level == 'verified' else 'estimated',
+                'original': _orig, 'normalized': _norm}
+    if _level in ('verified', 'jibun_poi'):
+        return None
+    return {'kind': 'failed', 'original': _orig, 'normalized': ''}
+
+
 def _update_existing_lead_from_workflow(
     manager, cfg: dict, existing_sheet_row: int, workflow_row, existing_row=None,
 ) -> None:
@@ -2594,6 +2624,10 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                         existing = None
                 if existing is not None:
                     existing_lead_no, existing_sheet_row = existing
+                    _merged_addr_note = None
+                    if (str(row.get('상태', '') or '').strip() == '방문 예약'
+                            and _platform_this in {'거래처', '기타', '소개', '전화'}):
+                        _merged_addr_note = _normalize_merged_visit_address(row, existing_lead_no)
                     try:
                         _update_existing_lead_from_workflow(
                             manager, cfg, existing_sheet_row, row,
@@ -2661,6 +2695,7 @@ def sync_workflow_phone_leads() -> Dict[str, Any]:
                                     or _platform_this
                                 ),
                                 'is_dedup_update': True,
+                                'addr_note': _merged_addr_note,
                             })
                         continue
                     except Exception as exc:

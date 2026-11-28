@@ -126,3 +126,49 @@ def test_dedup_skips_done_or_confirmed_leads_source():
     block = src[i:j]
     assert "('공사 확정', '방문 완료')" in block and 'consult_visit_done' in block
     assert 'existing_row=main_df.loc[existing_sheet_row - 2]' in src[j:j + 300]
+
+
+# ── 기존 리드에 합쳐지는 방문 예약도 주소 변환 (2026-11-28 L-04670) ─────────────
+
+
+
+def test_merged_visit_address_normalized(monkeypatch):
+    import dashboard.services.address_resolver as ar
+    import dashboard.services.lead_helpers as lh
+    monkeypatch.setattr(lh, 'extract_korean_address', lambda t: None)
+    monkeypatch.setattr(ar, 'resolve_address', lambda *a, **k: (
+        '인천 검단구 발산로5번길 8 세종시그니처 2차 801호', 'verified'))
+    row = pd.Series({'방문 주소': '검단 발산로5번길8 세종시그니처 2차 801호'})
+    note = ls._normalize_merged_visit_address(row, 'L-04670')
+    assert row['방문 주소'] == '인천 검단구 발산로5번길 8 세종시그니처 2차 801호'
+    assert note == {'kind': 'normalized', 'original': '검단 발산로5번길8 세종시그니처 2차 801호',
+                    'normalized': '인천 검단구 발산로5번길 8 세종시그니처 2차 801호'}
+
+
+def test_merged_visit_address_failed_keeps_raw(monkeypatch):
+    import dashboard.services.address_resolver as ar
+    import dashboard.services.lead_helpers as lh
+    monkeypatch.setattr(lh, 'extract_korean_address', lambda t: None)
+    monkeypatch.setattr(ar, 'resolve_address', lambda *a, **k: ('아무데나 3층', 'raw'))
+    row = pd.Series({'방문 주소': '아무데나 3층'})
+    note = ls._normalize_merged_visit_address(row, 'L-1')
+    assert row['방문 주소'] == '아무데나 3층'
+    assert note['kind'] == 'failed'
+
+
+@pytest.mark.parametrize('addr', ['', '-', '검단 발산로5번길8\n방문 전 연락'])
+def test_merged_visit_address_skips(monkeypatch, addr):
+    import dashboard.services.address_resolver as ar
+    monkeypatch.setattr(ar, 'resolve_address', lambda *a, **k: pytest.fail('호출되면 안 됨'))
+    row = pd.Series({'방문 주소': addr})
+    assert ls._normalize_merged_visit_address(row, 'L-1') is None
+    assert row['방문 주소'] == addr
+
+
+def test_dedup_branch_calls_merged_normalize_source():
+    import inspect
+    src = inspect.getsource(ls)
+    i = src.index('existing_lead_no, existing_sheet_row = existing')
+    j = src.index('_update_existing_lead_from_workflow(', i)
+    assert '_normalize_merged_visit_address(row, existing_lead_no)' in src[i:j]
+    assert "'addr_note': _merged_addr_note" in src
