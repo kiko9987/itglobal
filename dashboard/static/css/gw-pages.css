@@ -4876,10 +4876,34 @@ html.gw-tb body.gw-shell:has(.gw-page) .has-active-filters .gw-chip-reset:hover 
 html.gw-tb body.gw-shell:has(.gw-page) .gw-chip-more.on { background: var(--tb-ink); border-color: var(--tb-ink); color: #ffffff; }
 
 /* B3 나눔 버튼 — 고른 칸 남색(aria-selected 로 고르는 화면도: 전사 휴가 관리 달력·직원별·연차 촉진) */
-html.gw-tb body.gw-shell:has(.gw-page) .gw-seg { border-radius: 4px; background: #e8edf4; }
 html.gw-tb body.gw-shell:has(.gw-page) .gw-seg-btn { border-radius: 3px; color: var(--tb-ink-2); }
 html.gw-tb body.gw-shell:has(.gw-page) .gw-seg-btn[aria-selected="true"] { background: var(--tb-ink); color: #ffffff; box-shadow: none; }
 
 /* B5 스케줄 근무 — 달력 틀·이름 칩·상태 꼬리표 둥글기 */
 html.gw-tb body.gw-shell:has(.gw-page) .gw-cal-grid { border-radius: 4px; }
 html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-so-pslist li, .gw-so-status) { border-radius: 3px; }
+
+/* ── 11-28 점검 C ─────────────────────────────────────────────────────── */
+/* 휴대폰 두 칸 요약 칸에서 '54,910,307 원'의 '원'이 다음 줄로 넘어감(칸 안 137px, 글자 139.5px) → 숫자 1.35 → 1.2rem.
+   큰 주 칸(한 줄 전체)은 그대로 */
+@media (max-width: 767.98px) {
+  html.gw-tb body.gw-shell:has(.gw-page) .gw-stats .gw-stat:not(.gw-stat-main) .v { font-size: 1.2rem; }
+}
+/* 전사 휴가 관리 표 — 머리 칸 가운데, 몸통도 가운데 — 일수는 짧은 값이라 오른쪽에 두니 가운데 머리 칸과 떨어져 보였음(표 머리 규칙 11-25·26, 애매하면 가운데).
+   휴대폰은 표가 카드로 바뀌므로(#lvTeamTable 휴대폰 규칙) PC 폭에서만 */
+@media (min-width: 768px) {
+  #lvTeamTable > thead > tr > th,
+  .gw-table.gw-lv-promo-table > thead > tr > th { text-align: center; }
+  #lvTeamTable > tbody > tr > td:not(.gw-empty) { text-align: center; }
+}
+
+/* 스위치 탭(.gw-ap-tabs·.gw-seg) — 묶음 바탕이 회색(#f2f3f6·#e8edf4)이라 화면 바탕(#eef1f5)과 같아 보여
+   안 고른 탭이 버튼으로 안 보였음(11-28 부장님). 묶음을 흰 바탕 + 회청 테두리 칸으로, 고른 탭은 남색 그대로 */
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-ap-tabs, .gw-seg) {
+  background: #ffffff;
+  border: 1px solid var(--tb-input);
+  border-radius: 4px;
+}
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-ap-tabs button, .gw-seg-btn) { border-radius: 3px; color: var(--tb-ink-2); }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-ap-tabs button, .gw-seg-btn):not(.active):not([aria-selected="true"]):not([aria-pressed="true"]):hover { background: var(--tb-head); color: var(--tb-ink); }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-ap-tabs button.active { background: var(--tb-ink); color: #ffffff; }
