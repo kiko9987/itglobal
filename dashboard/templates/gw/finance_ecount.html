@@ -20,14 +20,14 @@
   </div>
 
   <div class="gw-vh-msg" id="feMsg" role="status" aria-live="polite"></div>
-  {# 탭 줄은 제목 바로 아래 고정 — 숫자 상자·안내는 ①·② 탭에만 있어 ③ 에서 숨기면 탭 줄이 위로 튀었음(11-28 부장님) #}
+
+  <div class="gw-stats" id="feStats"></div>
+  {# 탭 줄은 숫자 상자 바로 아래(입출금과 같은 자리, 11-28 부장님). ③ 에선 숫자 상자를 대조 숫자로 채워 탭 줄이 제자리 #}
   <div class="gw-ap-tabs" role="tablist" id="feTabs" aria-label="이카운트 업로드">
     <button type="button" role="tab" data-tab="projects" aria-selected="false" tabindex="-1" aria-controls="fePaneProjects">① 프로젝트 등록 <b id="feCntProjects">-</b></button>
     <button type="button" role="tab" data-tab="sales" class="active" aria-selected="true" aria-controls="fePaneSales">② 매출전표 I <b id="feCntSales">-</b></button>
     <button type="button" role="tab" data-tab="audit" aria-selected="false" tabindex="-1" aria-controls="fePaneAudit">③ 이카운트 대조 <b id="feCntAudit">-</b></button>
   </div>
-
-  <div class="gw-stats" id="feStats"></div>
 
   <ol class="gw-callout gw-fe-steps">
     <li><b>프로젝트 등록</b> 탭에서 [표 복사] → 이카운트 <b>프로젝트등록 › 웹자료올리기</b> 표에 붙여넣고 저장</li>

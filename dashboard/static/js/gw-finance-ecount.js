@@ -20,9 +20,10 @@
     // 탭 순서 ① 프로젝트 등록 → ② 매출전표 I — 새 프로젝트를 먼저 저장해야 매출전표가 들어감(11-26 부장님)
     var tabs = $('feTabs'), pb = tabs && tabs.querySelector('[data-tab="projects"]'), sb = tabs && tabs.querySelector('[data-tab="sales"]');
     if (pb && sb && sb.compareDocumentPosition(pb) & Node.DOCUMENT_POSITION_FOLLOWING) tabs.insertBefore(pb, sb);
-    // 탭 줄은 숫자 상자·안내보다 위 — ③ 에서 그 둘을 숨겨도 탭 줄이 제자리(11-28, 재시작 전 옛 템플릿도)
+    // 탭 줄은 숫자 상자 바로 아래(입출금과 같은 자리, 11-28 부장님). ③ 에서도 숫자 상자를 대조 숫자로 채워 탭 줄이 튀지 않음.
+    // 재시작 전 옛 템플릿(탭이 맨 위)도 여기서 옮김
     var stats = $('feStats');
-    if (tabs && stats && (tabs.compareDocumentPosition(stats) & Node.DOCUMENT_POSITION_PRECEDING)) stats.parentNode.insertBefore(tabs, stats);
+    if (tabs && stats && stats.nextElementSibling !== tabs) stats.parentNode.insertBefore(tabs, stats.nextSibling);
     if (pb && pb.firstChild && pb.firstChild.nodeType === 3 && pb.firstChild.nodeValue.indexOf('①') < 0) pb.firstChild.nodeValue = '① ' + pb.firstChild.nodeValue;
     if (sb && sb.firstChild && sb.firstChild.nodeType === 3 && sb.firstChild.nodeValue.indexOf('②') < 0) sb.firstChild.nodeValue = '② ' + sb.firstChild.nodeValue;
     // ③ 이카운트 대조 탭(11-27) — 재시작 전 옛 템플릿이면 탭·칸을 만들어 둠
@@ -100,12 +101,13 @@
     var fresh = S.sales.filter(function (r) { return r.kind === '공사 확정'; }).length;
     var changed = {};   // 부가세 변경은 두 줄(11 감액 + 1Z) — 공사 수는 묶음으로 셈
     S.sales.forEach(function (r) { if (r.kind !== '공사 확정') changed[r.group || r.key] = 1; });
-    $('feStats').innerHTML =
+    S.salesStats =
       '<div class="gw-stat gw-stat-main"><div class="k">넣을 매출전표</div><div class="v">' + S.sales.length + '<small> 건</small></div>' +
         '<div class="gw-fb-stat-sub">공급가 합 ' + won(supply) + '원</div></div>' +
       '<div class="gw-stat"><div class="k">새로 확정된 공사</div><div class="v">' + fresh + '<small> 건</small></div></div>' +
       '<div class="gw-stat"><div class="k">금액·부가세 바뀐 공사</div><div class="v">' + Object.keys(changed).length + '<small> 건</small></div></div>' +
       '<div class="gw-stat' + (warns ? ' gw-fb-stat-warn' : '') + '"><div class="k">확인 필요</div><div class="v">' + warns + '<small> 건</small></div></div>';
+    paintStats();
     $('feCntSales').textContent = S.sales.length;
     $('feCntProjects').textContent = S.projects.length;
 
@@ -214,7 +216,7 @@
   function syncPick() {
     // 대조 탭은 표 복사·넣음 표시와 상관없음 — 도구 줄·안내·통계를 숨김
     var audit = S.tab === 'audit';
-    ['.gw-fe-tools', '.gw-fe-steps', '#feStats', '.gw-vh-foot'].forEach(function (q) { var el = document.querySelector(q); if (el) el.hidden = audit; });
+    ['.gw-fe-tools', '.gw-fe-steps', '.gw-vh-foot'].forEach(function (q) { var el = document.querySelector(q); if (el) el.hidden = audit; });
     if (audit) return;
     var t = S.tab, n = picked(t).length, all = S[t].length, can = defaults(t).length;
     $('fePick').textContent = n ? n + '줄 골랐어요'
@@ -243,6 +245,7 @@
     $('fePaneProjects').hidden = tab !== 'projects';
     if ($('fePaneAudit')) $('fePaneAudit').hidden = tab !== 'audit';
     if (tab === 'audit' && !S.auditLoaded) loadAudit();
+    paintStats();
     syncPick();
   }
   $('feTabs').addEventListener('click', function (ev) {
@@ -511,6 +514,28 @@
     $('feAuditBody').innerHTML = html || '<p class="gw-empty">' + (F.st === 'open' ? '처리할 것이 없어요.' : '맞는 줄이 없어요.') + '</p>';
     $('feAuditCount').textContent = won(total) + '건';
   }
+  // 숫자 상자 — ①·② 는 매출전표 숫자, ③ 은 대조 숫자. ③ 에서도 상자를 채워 두어 탭 줄 자리가 그대로(11-28 부장님)
+  function paintStats() {
+    var el = $('feStats');
+    if (!el) return;
+    el.hidden = false;   // 예전엔 ③ 에서 숨겼음
+    el.innerHTML = S.tab === 'audit' ? auditStats() : (S.salesStats || '');
+  }
+  function auditStats() {
+    var A = S.audit, box = function (k, v, main, sub) {
+      return '<div class="gw-stat' + (main ? ' gw-stat-main' : '') + '"><div class="k">' + k + '</div><div class="v">' + v +
+        (v === '-' ? '' : '<small> 건</small>') + '</div>' + (sub ? '<div class="gw-fb-stat-sub">' + sub + '</div>' : '') + '</div>';
+    };
+    if (!A || !A.batch) return box('처리할 것', '-', true) + box('매출 처리 전', '-') + box('매입 처리 전', '-') + box('처리함', '-');
+    var side = function (key) { return (A.sides || []).filter(function (x) { return x.key === key; })[0]; };
+    var sales = side('sales'), buy = side('buy');
+    var todo = sales || buy ? (sales ? sales.open : 0) + (buy ? buy.open : 0) : A.counts.open;
+    var when = A.run ? (A.run.ok_at || A.run.at) : '';
+    return box('처리할 것', won(todo), true, when ? esc(when) + ' 대조' : '') +
+      box('매출 처리 전', won(sales ? sales.open : A.counts.open)) +
+      box('매입 처리 전', buy ? won(buy.open) : '-') +
+      box('처리함', won(A.counts.done));
+  }
   function renderAudit() {
     var A = S.audit || { groups: [], counts: { open: 0, done: 0, total: 0 } };
     // 재시작 전 옛 서버 응답엔 side 가 없음(11-28) — 매출로 봄. 줄에도 붙여 매입 칸 모양이 섞이지 않게
@@ -526,6 +551,7 @@
     if (!A.batch) { box.innerHTML = '<p class="gw-empty">아직 대조한 결과가 없어요.</p>'; return; }
     box.innerHTML = auditHead(A) + auditFilters(A) + '<div id="feAuditBody"></div>';
     renderAuditBody();
+    if (S.tab === 'audit') paintStats();
   }
   function loadAudit() {
     return api('/api/finance/ecount/audit').then(function (j) {

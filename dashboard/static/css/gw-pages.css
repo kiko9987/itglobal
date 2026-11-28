@@ -4914,3 +4914,25 @@ html.gw-tb body.gw-shell:has(.gw-page) .gw-ap-tabs button.active { background: v
 @media (min-width: 768px) and (max-width: 1199.98px) {
   html.gw-tb body.gw-shell:has(.gw-page) .gw-stats:not(.gw-lv-stats) { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
 }
+
+/* 수금 정산(11-28 부장님 '테마 안 들어간 느낌') — 요약 칸 네 개라 다섯 칸 자리에 빈칸이 남았고, 남색 주 칸이 없고,
+   합계 줄이 연파랑(#dbeafe)이었음. 순익을 주 칸(남색)으로 맨 앞에, PC 넓은 화면은 네 칸, 합계·소계 줄은 회청 */
+html.gw-tb body.gw-shell:has(.gw-page) .gw-cr-stats .gw-stat:last-child {
+  order: -1; background: var(--tb-ink) !important; border-color: var(--tb-ink) !important;
+}
+html.gw-tb body.gw-shell:has(.gw-page) .gw-cr-stats .gw-stat:last-child .k,
+html.gw-tb body.gw-shell:has(.gw-page) .gw-cr-stats .gw-stat:last-child .v small { color: #b4c1d3 !important; }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-cr-stats .gw-stat:last-child .v { color: #ffffff !important; }
+@media (min-width: 1200px) {
+  html.gw-tb body.gw-shell:has(.gw-page) .gw-cr-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+html.gw-tb body.gw-shell:has(.gw-page) .cr-tbl tr.sub td { background: var(--tb-head); }
+html.gw-tb body.gw-shell:has(.gw-page) .cr-tbl tr.tot td { background: #eaeef4; }
+html.gw-tb body.gw-shell:has(.gw-page) .cr-tbl tr.grand td { background: #dfe5ee; border-top: 2px solid var(--tb-ink); }
+html.gw-tb body.gw-shell:has(.gw-page) .cr-tbl td.cr-owner { border-top-color: var(--tb-line); }
+html.gw-tb body.gw-shell:has(.gw-page) .cr-tbl td.cr-owner:hover { background: var(--tb-hover); }
+html.gw-tb body.gw-shell:has(.gw-page) .cr-tbl :is(thead th:first-child, tbody td:first-child:not(.cr-owner):not([colspan])) { box-shadow: 1px 0 0 var(--tb-line); }
+html.gw-tb body.gw-shell:has(.gw-page) .cr-tbl thead th:first-child { background: var(--tb-head); }
+@media (max-width: 767.98px) {
+  html.gw-tb body.gw-shell:has(.gw-page) .gw-cr-stats .gw-stat:last-child { grid-column: 1 / -1; }   /* 다른 화면 주 칸처럼 한 줄 전체 */
+}
