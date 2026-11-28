@@ -4907,3 +4907,10 @@ html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-ap-tabs, .gw-seg) {
 html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-ap-tabs button, .gw-seg-btn) { border-radius: 3px; color: var(--tb-ink-2); }
 html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-ap-tabs button, .gw-seg-btn):not(.active):not([aria-selected="true"]):not([aria-pressed="true"]):hover { background: var(--tb-head); color: var(--tb-ink); }
 html.gw-tb body.gw-shell:has(.gw-page) .gw-ap-tabs button.active { background: var(--tb-ink); color: #ffffff; }
+
+/* 요약 칸 — 셸이 768px 넘으면 늘 다섯 칸으로 고정(groupware-shell.css)해서, 좁은 PC 창·태블릿(800px 등)에선
+   칸이 132px 로 줄어 '854,462,244' 같은 금액이 칸 밖으로 잘렸음(11-28 확인). 1199px 까지는 칸 폭 190px 이상으로 줄 바꿈.
+   전사 휴가 요약(.gw-lv-stats, 네 칸)은 그대로 */
+@media (min-width: 768px) and (max-width: 1199.98px) {
+  html.gw-tb body.gw-shell:has(.gw-page) .gw-stats:not(.gw-lv-stats) { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+}
