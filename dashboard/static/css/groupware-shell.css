@@ -2018,9 +2018,9 @@ html.gw-tb body.gw-shell .gw-notify-btn { color: var(--tb-on-navy-2); }
 html.gw-tb body.gw-shell .gw-notify-btn:hover,
 html.gw-tb body.gw-shell .gw-notify-btn[aria-expanded="true"] { background: var(--tb-navy-2); color: #ffffff; }
 html.gw-tb body.gw-shell .gw-notify-dot { box-shadow: 0 0 0 2px var(--tb-navy); }
-html.gw-tb body.gw-shell .gw-topbar .btn-user-menu { background: var(--tb-navy-2); border: 1px solid var(--tb-navy-line); color: #ffffff; }
-html.gw-tb body.gw-shell .gw-topbar .btn-user-menu:hover,
-html.gw-tb body.gw-shell .gw-topbar .btn-user-menu[aria-expanded="true"] { background: var(--tb-navy-3); border-color: #3a5480; color: #ffffff; }
+/* 공용 user-dropdown.css 가 회색을 !important 로 박아 둠 → 여기도 !important */
+html.gw-tb body.gw-shell .gw-topbar .btn-user-menu { background-color: var(--tb-navy-2) !important; border: 1px solid var(--tb-navy-line) !important; color: #ffffff !important; }
+html.gw-tb body.gw-shell .gw-topbar .btn-user-menu:is(:hover, :active, :focus, [aria-expanded="true"]) { background-color: var(--tb-navy-3) !important; border-color: #3a5480 !important; color: #ffffff !important; box-shadow: none; transform: none; }
 html.gw-tb body.gw-shell .gw-topbar :is(.gw-find-trigger, .gw-notify-btn, .btn-user-menu, .gw-topbar-menu):focus-visible { outline: 2px solid #ffffff; outline-offset: 2px; box-shadow: none; }
 @media (max-width: 767.98px) {
   html.gw-tb body.gw-shell .gw-topbar .gw-subnav:has(> .gw-subnav-item + .gw-subnav-item) { background: var(--tb-navy); border-top-color: var(--tb-navy-2); }
