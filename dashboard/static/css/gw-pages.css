@@ -2175,6 +2175,8 @@ body.gw-shell .gw-stats.gw-lv-stats { grid-template-columns: repeat(4, minmax(0,
   /* 구성원: 목록이 320px 안쪽 스크롤 상자라 답답 → 목록은 그대로 펼치고, 고르면 카드로 내려감(gw-hr.js) */
   .gw-split-list { max-height: none; }
   .gw-split-detail { scroll-margin-top: calc(var(--header-height, 52px) + 8px); }
+  /* 아직 안 고른 빈 안내('왼쪽 명단에서…')는 휴대폰에선 명단 맨 아래라 안 보이고 방향도 틀림 → 숨김(11-28) */
+  .gw-split-detail:has(> .gw-empty-state:only-child) { display: none; }
 
   /* 연말정산 현황 설정 칸: 200·320px 고정이라 글자가 잘리던 것 → 폭 전체 */
   .gw-page .gw-ye-season-form .form-select-sm,
