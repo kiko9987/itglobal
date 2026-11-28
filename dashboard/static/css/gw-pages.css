@@ -4936,3 +4936,8 @@ html.gw-tb body.gw-shell:has(.gw-page) .cr-tbl thead th:first-child { background
 @media (max-width: 767.98px) {
   html.gw-tb body.gw-shell:has(.gw-page) .gw-cr-stats .gw-stat:last-child { grid-column: 1 / -1; }   /* 다른 화면 주 칸처럼 한 줄 전체 */
 }
+/* 요약 칸이 딱 네 개인 화면(이카운트 업로드·수금 정산 등)은 넓은 PC 에서 네 칸 — 셸의 다섯 칸 고정이면 오른쪽이 비었음(11-28) */
+@media (min-width: 1200px) {
+  html.gw-tb body.gw-shell:has(.gw-page) .gw-stats:has(> .gw-stat:nth-child(4):last-child) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+#feStats { margin-bottom: 12px; }   /* 탭 줄과 사이(입출금 14px 와 비슷하게) */
