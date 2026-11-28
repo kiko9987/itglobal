@@ -2057,6 +2057,23 @@ html.gw-tb body.gw-shell .gw-topbar :is(.gw-find-trigger, .gw-notify-btn, .btn-u
   html.gw-tb body.gw-shell .gw-topbar .gw-subnav:has(> .gw-subnav-item + .gw-subnav-item) { background: var(--tb-navy); border-top-color: var(--tb-navy-2); }
 }
 
+/* 본문 왼쪽 위 모서리 둥글게 — 남색 메뉴 줄·위쪽 줄 안에 본문이 끼워진 모양(슬랙처럼, 11-28 부장님).
+   본문은 위쪽 줄 아래로 스크롤되므로 본문 자체를 둥글리지 않고, 그 자리에 고정된 남색 '안쪽 모서리'를 덮음 */
+@media (min-width: 768px) {
+  html.gw-tb body.gw-shell::after {
+    content: '';
+    position: fixed;
+    top: var(--header-height);
+    left: var(--gw-rail-w);
+    width: 12px;
+    height: 12px;
+    z-index: 1029; /* 위쪽 줄(1030) 바로 아래, 본문·필터 띠(1020) 위 */
+    pointer-events: none;
+    background: radial-gradient(circle at 100% 100%, transparent 11.5px, var(--tb-navy) 12px);
+  }
+  html.gw-tb body.gw-shell.gw-collapsed::after { left: 0; display: none; } /* ☰로 메뉴 줄을 숨기면 왼쪽 남색이 없으니 모서리도 없음 */
+}
+
 /* 글꼴·바탕 — 그룹웨어 화면만(프로젝트·리드는 나중) */
 html.gw-tb body.gw-shell:has(.gw-page),
 html.gw-tb body.gw-shell .gw-rail,

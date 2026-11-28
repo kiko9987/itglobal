@@ -216,8 +216,10 @@ def web_app_manifest():
         'start_url': '/home',
         'scope': '/',
         'display': 'standalone',
-        # 제목 줄 합치기(window-controls-overlay)는 11-28 넣었다가 부장님 결정으로 뺌 — 남색 제목 줄(theme_color)만 유지.
-        # groupware-shell.js/.css 의 gw-wco 맞춤은 이미 바뀐 앱이 이 설정을 다시 읽을 때까지 남겨 둠(12월 초 정리)
+        # 설치 앱(크롬·엣지 PC)에서 제목 줄을 없애고 남색 메뉴 줄을 그 자리까지 올림 — 슬랙 앱처럼(11-28 부장님 확정).
+        # 창 버튼 자리 비키기·끌어 옮기기는 groupware-shell.css(@media display-mode: window-controls-overlay)·.js(gw-wco).
+        # 한때 뺐다가(창 버튼이 알림·이름을 덮어서) CSS env() 로 고친 뒤 유지로 결정. 못 쓰는 곳은 standalone 그대로
+        'display_override': ['window-controls-overlay', 'standalone'],
         'background_color': '#ffffff',
         'theme_color': '#0f1e36',   # 설치 앱 제목 줄 = 메뉴 줄 남색(11-28 나 안 테마, 슬랙 앱처럼)
         'icons': [
