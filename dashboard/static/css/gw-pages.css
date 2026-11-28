@@ -5091,3 +5091,27 @@ html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-st-legend .prev { background:
 html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-st-legend .r { background: var(--s-chart-2); }
 /* 홈 영업 칸 비율(문의량 대비 76%) 파랑 → 강조색 — 그래프와 같은 색 하나로 */
 html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-sales-tile .v .r { color: var(--s-accent-text); }
+
+/* ── 11-28 전체 점검 B·C(1안 적용 뒤) ─────────────────────────────────── */
+@media (max-width: 767.98px) {
+  /* B1 차량 배정 아래 버튼 줄 — 세 버튼이 한 줄에 끼여 [알리지 않고 저장] 두 줄·[저장하고 바뀐 사람에게 알리기] 세 줄로 쪼개짐.
+     주 버튼은 한 줄 전체(맨 아래, 엄지 닿는 곳), 나머지 둘은 그 위에 반씩 */
+  .gw-va-bar .btn { flex: 1 1 calc(50% - 4px); white-space: nowrap; }
+  .gw-va-bar .btn-primary { flex-basis: 100%; order: 9; }
+  /* B2 입찰 공고 줄마다 표시 고르기 칸 13px → 아이폰이 누를 때 화면 확대. 16px·누를 자리 44px */
+  .gw-bd-mark { font-size: 16px; height: 44px; }
+  /* B4 누를 자리 44px — 공지 분류 칩·[글쓰기]·[분류 관리], 방문 일정·차량 배정 [메모], 일정 안 전화번호 */
+  .gw-nt-chip, .gw-nt-head-acts .btn { min-height: 44px; }
+  .gw-va-tool { min-height: 44px; }
+  .gw-vc-sphone { display: inline-flex; align-items: center; min-height: 44px; }
+}
+/* 공지 분류 칩 — 고른 칩이 검정(#1a1c20)이라 1안 강조색과 따로 놂 */
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-nt-chip { border-radius: 999px; border-color: var(--s-btn-line); color: var(--s-ink-2); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-nt-chip[aria-pressed="true"] { background: var(--s-accent-soft); border-color: var(--s-accent); color: var(--s-accent-text); }
+/* C7 쉬는 날 12개월 작은 달력 날짜 0.68rem(10.9px) → 12px */
+.gw-hd-c { font-size: 0.75rem; }
+/* C9 표 안쪽 실선 — #e5e8eb 가 흰 바탕에서 너무 옅어 한 단계 진하게(머리 줄 아래는 더 진하게) */
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-page table:not(.gw-bd-kv) > tbody > tr > td { border-bottom-color: #dde2e8; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-page :is(.gw-table, .gw-ap-table, .cr-tbl) > tbody > tr > td + td,
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-page :is(.gw-table, .gw-ap-table, .cr-tbl) > thead > tr > th + th { border-left-color: #dde2e8; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-page table:not(.gw-bd-kv) > thead > tr > th { border-bottom-color: #cfd5dd; }

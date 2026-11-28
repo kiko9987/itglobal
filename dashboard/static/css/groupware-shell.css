@@ -2159,3 +2159,6 @@ html.gw-soft.gw-tb body.gw-shell :is(.gw-rail, .gw-topbar, .gw-find, .gw-notify-
 
 /* 프로젝트·리드 화면(옛 모양) 가볍게 맞추기 — 불러오기 회전 표시 보라(#6366f1)만 튀어서 강조색으로(11-28 1안 확정) */
 html.gw-soft.gw-tb body.gw-shell .custom-spinner { border-top-color: var(--s-accent); }
+/* C6 리드 화면(옛 모양) — 리드 번호 파랑·[테이블/목록] 고른 버튼 검정이 1안 주황과 따로 놂 */
+html.gw-soft.gw-tb body.gw-shell .lead-no-badge { color: var(--s-accent-text); }
+html.gw-soft.gw-tb body.gw-shell :is(#tableViewBtn, #calendarViewBtn).active { background: var(--s-accent-soft) !important; border-color: transparent !important; color: var(--s-accent-text) !important; }

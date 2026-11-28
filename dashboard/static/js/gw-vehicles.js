@@ -10,6 +10,18 @@
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
   var SESSION_ENDED = '로그인이 끝났어요. 새로 고친 뒤 다시 해 주세요.';
+  // 맨 위 설명 두 줄 → 첫 문장만 두고 zip 올리는 방법은 접힌 도움말로(11-28 부장님 점검 C5). 문구는 그대로
+  (function () {
+    var how = $('vhHow');
+    if (!how || how.querySelector('details')) return;
+    var t = how.textContent.replace(/\s+/g, ' ').trim();
+    var cut = t.indexOf('들어와요.');
+    if (cut < 0) return;
+    var head = t.slice(0, cut + 5), rest = t.slice(cut + 5).trim();
+    if (!rest) return;
+    how.innerHTML = esc(head) + '<details class="gw-help sm"><summary><i class="fas fa-circle-question" aria-hidden="true"></i> 연동 전 zip 파일로 올리는 방법' +
+      '<i class="fas fa-chevron-down gw-help-fold" aria-hidden="true"></i></summary><div class="gw-help-body"><p class="mb-0">' + esc(rest) + '</p></div></details>';
+  })();
   function api(url, init) {
     init = init || {};
     init.credentials = 'same-origin';

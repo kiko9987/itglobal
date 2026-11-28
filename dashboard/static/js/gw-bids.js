@@ -399,9 +399,17 @@
       if (my !== state.seq) return;
       $('bdCntEligible').textContent = j.counts.eligible;
       $('bdCntBlocked').textContent = j.counts.blocked;
-      $('bdRule').textContent = '나라장터·누리장터·공동주택(K-apt)의 냉난방 관련 공사 공고와 물품(구매·설치) 공고를 모았어요. 입찰 가능 기준: 참가가능지역 제한 없음(전국) 또는 경기도·김포시 포함, ' +
-        '지금 면허(' + (j.held || []).join(', ') + ')로 참가 가능, 실적제한·사전심사(PQ)·지명경쟁·4억 이상 적격심사 없음.' +
-        (j.planned && j.planned.length ? ' 준비 중인 면허: ' + j.planned.join(', ') + '.' : '');
+      // 맨 위 설명 석 줄 → 한 줄 + 접힌 [입찰 가능 기준](11-28 부장님 점검 C5). 문구는 그대로, 열어 둔 상태는 다시 그려도 유지
+      $('bdRule').innerHTML = '나라장터·누리장터·공동주택(K-apt)의 냉난방 관련 공사 공고와 물품(구매·설치) 공고를 모았어요.' +
+        '<details class="gw-help sm gw-bd-help"' + (state.ruleOpen ? ' open' : '') + '><summary><i class="fas fa-circle-question" aria-hidden="true"></i> 입찰 가능 기준' +
+        '<i class="fas fa-chevron-down gw-help-fold" aria-hidden="true"></i></summary><div class="gw-help-body"><ul>' +
+        '<li>참가가능지역 제한 없음(전국) 또는 경기도·김포시 포함</li>' +
+        '<li>지금 면허(' + esc((j.held || []).join(', ')) + ')로 참가 가능</li>' +
+        '<li>실적제한·사전심사(PQ)·지명경쟁·4억 이상 적격심사 없음</li>' +
+        (j.planned && j.planned.length ? '<li>준비 중인 면허: ' + esc(j.planned.join(', ')) + '</li>' : '') +
+        '</ul></div></details>';
+      var bh = $('bdRule').querySelector('.gw-bd-help');
+      if (bh) bh.addEventListener('toggle', function () { state.ruleOpen = bh.open; });
       state.held = j.held || [];
       state.enabled = !!j.enabled;
       state.rows = j.items || [];

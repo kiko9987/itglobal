@@ -7,7 +7,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="gw-page gw-home">
+<div class="gw-page gw-home" data-me="{{ (session.user.email if session.user else '')|e }}">{# 홈 칸 먼저 보여 주기 — 사용자별로 나눠 담는 열쇠(gw-home.js) #}
   <div class="gw-home-head">
     <h1 class="gw-page-title">{{ person_name or '' }}님, 안녕하세요</h1>
     <div class="gw-home-date" id="homeDate"></div>

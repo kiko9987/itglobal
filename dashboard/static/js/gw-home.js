@@ -36,6 +36,31 @@
     });
   }
 
+  // 홈 칸 먼저 보여 주기(11-28 부장님 점검 B3) — 결재·메일은 슬랙·지메일을 그때그때 읽어 3~8초 '불러오는 중'이었음.
+  // 이 탭에서 10분 안에 본 결과가 있으면 바로 그리고, 새 결과가 오면 바꿔 그림. 같은 PC 를 다른 사람이 쓰더라도
+  // 남지 않게 탭을 닫으면 지워지는 sessionStorage + 사용자 이메일로 나눠 둠. 새로 받기 실패 시엔 먼저 그린 것 유지
+  var HOME_CACHE_MS = 10 * 60 * 1000;
+  // 누구 자료인지 템플릿이 적어 준 이메일로 나눔. 재시작 전 옛 템플릿처럼 이메일이 없으면 먼저 보여 주기는 쓰지 않음
+  var ME = (document.querySelector('.gw-home[data-me]') || { getAttribute: function () { return ''; } }).getAttribute('data-me') || '';
+  function cacheKey(url) { return 'gw.home.' + ME + url; }
+  function cacheGet(url) {
+    if (!ME) return null;
+    try {
+      var v = JSON.parse(sessionStorage.getItem(cacheKey(url)) || 'null');
+      return v && Date.now() - v.t < HOME_CACHE_MS ? v.j : null;
+    } catch (e) { return null; }
+  }
+  function cacheSet(url, j) {
+    if (!ME) return;
+    try { sessionStorage.setItem(cacheKey(url), JSON.stringify({ t: Date.now(), j: j })); } catch (e) { /* 저장소가 차면 그냥 넘어감 */ }
+  }
+  function apiCached(url, draw) {
+    var c = cacheGet(url);
+    if (c) { try { draw(c); } catch (e) { /* 예전 모양 자료면 새 결과로 다시 그림 */ } }
+    return api(url).then(function (j) { cacheSet(url, j); draw(j); return j; })
+      .catch(function (e) { if (!c) throw e; });
+  }
+
   function el(id) { return document.getElementById(id); }
   function fail(id, msg) { var e = el(id); if (e) e.innerHTML = '<div class="gw-empty">' + esc(msg) + '</div>'; }
 
@@ -369,7 +394,7 @@
     });
   }
 
-  api('/api/home').then(function (j) {
+  apiCached('/api/home', function (j) {
     renderTodos(j.todos);
     renderLeave(j.leave, j.leave_error);
     if (!j.field) {
@@ -398,7 +423,7 @@
   }
 
   if (el('homeMail')) {
-    api('/api/home/mail').then(function (j) { renderMail(j.mail); })
+    apiCached('/api/home/mail', function (j) { renderMail(j.mail); })
       .catch(function () { renderMail(null); });
   }
 })();
