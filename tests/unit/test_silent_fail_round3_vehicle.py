@@ -204,9 +204,10 @@ def test_api_get_other_parts_fail(vdb, monkeypatch):
         with cl.session_transaction() as s:
             s['user'] = {'email': ASSIGNER, 'permission_level': 'user'}
         j = cl.get(f'/api/vehicles/assign?day={DAY}').get_json()
-    assert j['success'] and set(j['partial']) == {'schedule', 'online', 'plan'}
+    # 확정한 팀(vp.confirmed_teams, 11-22)도 confirmed_work 를 읽어 같이 실패 → 'teams' 도 알림
+    assert j['success'] and set(j['partial']) == {'schedule', 'online', 'plan', 'teams'}
     assert j['visitors'] and j['visitors'][0]['code'] == 'TH'      # 리드는 읽혔으니 방문 사람은 그대로
-    assert len(log.at('error')) == 3 and not log.at('warning')
+    assert len(log.at('error')) == 4 and not log.at('warning')
 
 
 # ── 23. 운행일지 배정·운전자 읽기 ─────────────────────────────────────────
