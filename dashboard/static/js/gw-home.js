@@ -266,7 +266,7 @@
     });
     days.forEach(function (d, i) {
       var v = d[m.key], x = L + i * slot + 1, top = y(v), h = T + ph - top;
-      var fill = d.workday ? '#2f6fde' : '#b9cdf4';
+      var fill = d.workday ? chartColor('--s-chart', '#2f6fde') : chartColor('--s-chart-light', '#b9cdf4');
       if (h > 0) {
         var r = Math.min(4, h, bw / 2);
         svg += '<path d="M' + x + ',' + (T + ph) + 'V' + (top + r) + 'Q' + x + ',' + top + ' ' + (x + r) + ',' + top +
@@ -328,6 +328,10 @@
     svgEl.addEventListener('blur', function () { tip.style.display = 'none'; });
   }
 
+  // 그래프 색 — 테마 색 값(--s-chart, 1안 주황)이 있으면 그걸, 없으면(옛 남색 ?theme=b 등) 예전 파랑
+  function chartColor(name, fallback) {
+    try { return getComputedStyle(document.body).getPropertyValue(name).trim() || fallback; } catch (e) { return fallback; }
+  }
   function renderSales() {
     renderSalesTiles();
     renderSalesChart();

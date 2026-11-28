@@ -9,10 +9,19 @@
   var SESSION_ENDED = '로그인이 끝났어요. 새로 고친 뒤 다시 해 주세요.';
   var CUR = new Date().getFullYear();
   var PREV = CUR - 1;
-  var C_CUR = '#2f6fde';      // 올해 — 홈 화면 매출 그래프와 같은 파랑(주황은 이 화면만 튀었음, 11-28)
+  // 그래프 색 — 홈 매출 그래프와 같은 색. 테마 색 값(--s-chart*, 1안 주황)이 있으면 그걸, 없으면(옛 남색 ?theme=b) 예전 파랑.
+  // 테마 클래스가 붙은 뒤 읽도록 그릴 때마다 다시 읽음(palette())
+  var C_CUR = '#2f6fde';      // 올해
   var C_PREV = '#cbd5e1';     // 작년 — 옅은 회색
   var C_G = '#2f6fde';        // 글로벌
   var C_R = '#334155';        // 글로벌그룹
+  function palette() {
+    var cs = getComputedStyle(document.body);
+    var v = function (n, fb) { return cs.getPropertyValue(n).trim() || fb; };
+    C_CUR = C_G = v('--s-chart', '#2f6fde');
+    C_PREV = v('--s-chart-prev', '#cbd5e1');
+    C_R = v('--s-chart-2', '#334155');
+  }
   var charts = {};
 
   function $(id) { return document.getElementById(id); }
@@ -126,6 +135,7 @@
   }
 
   function renderCharts(S) {
+    palette();
     var M = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
     var cm = new Date().getMonth();
     var e = function (v) { return Math.round(v / 1e6) / 100; };   // 억, 소수 둘째 자리

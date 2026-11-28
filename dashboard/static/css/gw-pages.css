@@ -4959,7 +4959,7 @@ html.gw-tb body.gw-shell:has(.gw-page) .gw-help > summary:focus-visible { outlin
 
 /* ════════════════════════════════════════════════════════════════════
    부드러운 테마 세 안 — 화면 부품(11-28 부장님). 색 값은 groupware-shell.css 의 --s-* (안마다 다름).
-   선 대신 흰 칸·회색 바탕, 칸 12px·버튼과 입력 8px, 강조색 하나(--s-accent), 표 세로줄 없음.
+   선 대신 흰 칸·회색 바탕, 칸 12px·버튼과 입력 8px, 강조색 하나(--s-accent). 표 안쪽 실선은 남김.
    입력 칸 테두리는 3:1(#8b95a1) — 11-26 점검 기준(칸 경계가 보여야 함)이라 채운 칸 대신 테두리 유지.
    ════════════════════════════════════════════════════════════════════ */
 html.gw-soft.gw-tb body.gw-shell:has(.gw-page) { background: var(--s-bg); color: var(--s-ink); }
@@ -4990,18 +4990,19 @@ html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-stat-main, .gw-st-main) .
 html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-stat:hover { border-color: transparent !important; box-shadow: inset 0 0 0 1px var(--s-btn-line) !important; }
 html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-stat.active { box-shadow: inset 0 0 0 2px var(--s-accent) !important; }
 
-/* 표 — 머리 줄 바탕 없이 옅은 글자, 세로줄 없음, 가로줄 아주 옅게 */
+/* 표 — 안쪽 가로·세로 실선은 나 안처럼 남김(11-28 부장님 '표 내부는 실선이 있는게 실무적으로 좋겠다').
+   칸 바깥 테두리만 없고, 머리 줄은 옅은 회색 바탕 */
 html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-page table:not(.gw-bd-kv) > thead > tr > th,
-html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-drawer table > thead > tr > th { background: #ffffff; color: var(--s-ink-3); border-bottom: 1px solid var(--s-line); }
-html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-page table:not(.gw-bd-kv) > tbody > tr > td { border-bottom-color: var(--s-line-soft); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-drawer table > thead > tr > th { background: var(--s-bg); color: var(--s-ink-2); border-bottom: 1px solid var(--s-line); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-page table:not(.gw-bd-kv) > tbody > tr > td { border-bottom-color: var(--s-line); }
 html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-page :is(.gw-table, .gw-ap-table, .cr-tbl) > tbody > tr > td + td,
-html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-page :is(.gw-table, .gw-ap-table, .cr-tbl) > thead > tr > th + th { border-left: 0; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-page :is(.gw-table, .gw-ap-table, .cr-tbl) > thead > tr > th + th { border-left: 1px solid var(--s-line); }
 html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-page tbody > tr:is(.gw-table-click, [data-id], [role="button"]):hover > td { background: var(--s-hover); }
 html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .cr-tbl :is(thead th:first-child, tbody td:first-child:not(.cr-owner):not([colspan])) { box-shadow: 1px 0 0 var(--s-line); }
-html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .cr-tbl thead th:first-child { background: #ffffff; }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .cr-tbl thead th:first-child { background: var(--s-bg); }
 html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .cr-tbl :is(tr.sub, tr.tot) td { background: var(--s-hover); }
 html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .cr-tbl tr.grand td { background: var(--s-bg); border-top: 1px solid var(--s-line); }
-html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .cr-tbl td.cr-owner { border-top-color: var(--s-line-soft); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .cr-tbl td.cr-owner { border-top-color: var(--s-line); }
 html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .cr-tbl td.cr-owner:hover { background: var(--s-hover); }
 
 /* 버튼 — 주 동작만 강조색, 나머지는 흰 바탕 옅은 테두리. 8px */
@@ -5084,3 +5085,9 @@ html.gw-soft.gw-tb body.gw-shell:has(.gw-page) :is(.gw-home-more, .gw-ap-slack, 
 /* 휴가 [이번 달] 파란 글자(#1d4ed8) — 옆 ◀ ▶ 와 같은 테두리 버튼인데 글자만 파랑이라 튐 */
 html.gw-tb body.gw-shell:has(.gw-page) #lvToday { color: var(--tb-ink-2); }
 html.gw-soft.gw-tb body.gw-shell:has(.gw-page) #lvToday { color: var(--s-ink-2); }
+/* 매출 통계 범례 — 그래프와 같은 테마 색 */
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-st-legend :is(.cur, .g) { background: var(--s-chart); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-st-legend .prev { background: var(--s-chart-prev); }
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-st-legend .r { background: var(--s-chart-2); }
+/* 홈 영업 칸 비율(문의량 대비 76%) 파랑 → 강조색 — 그래프와 같은 색 하나로 */
+html.gw-soft.gw-tb body.gw-shell:has(.gw-page) .gw-sales-tile .v .r { color: var(--s-accent-text); }

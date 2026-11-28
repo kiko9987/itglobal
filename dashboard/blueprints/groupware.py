@@ -221,7 +221,7 @@ def web_app_manifest():
         # 한때 뺐다가(창 버튼이 알림·이름을 덮어서) CSS env() 로 고친 뒤 유지로 결정. 못 쓰는 곳은 standalone 그대로
         'display_override': ['window-controls-overlay', 'standalone'],
         'background_color': '#ffffff',
-        'theme_color': '#0f1e36',   # 설치 앱 제목 줄 = 메뉴 줄 남색(11-28 나 안 테마, 슬랙 앱처럼)
+        'theme_color': '#ffffff',   # 설치 앱 제목 줄 = 메뉴 줄 색(11-28 1안 밝은 틀 확정, 슬랙 앱처럼 이어짐)
         'icons': [
             {'src': gw_asset('images/favicon-192.png'), 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any'},
             {'src': gw_asset('images/icon-512.png'), 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any'},

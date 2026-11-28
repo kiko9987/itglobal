@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="ko"{% if gw_layout %} class="gw-tb"{% endif %}>{# 나 안 테마(11-28 전체 켬) — 그리기 전부터 켜져 깜빡임 없음. 끄기는 ?theme=off(groupware-shell.js) #}
+<html lang="ko"{% if gw_layout %} class="gw-tb gw-soft gw-t1"{% endif %}>{# 1안 밝은 틀+주황(11-28 부장님 확정) — 그리기 전부터 켜져 깜빡임 없음. 옛 남색 ?theme=b, 끄기 ?theme=off(groupware-shell.js) #}
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="아이티글로벌 그룹웨어">
     {# 그룹웨어는 흰 위쪽 줄 — 홈 화면 앱(manifest theme_color #ffffff)과 같은 색으로(11-15 점검), 예전 화면은 주황 그대로 #}
-    <meta name="theme-color" content="{{ '#0f1e36' if gw_layout else '#FF6B35' }}">
+    <meta name="theme-color" content="{{ '#ffffff' if gw_layout else '#FF6B35' }}">
 
     <title>{% block title %}ITG 대시보드{% endblock %}</title>
 

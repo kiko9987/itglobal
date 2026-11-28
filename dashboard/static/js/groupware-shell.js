@@ -7,46 +7,26 @@
   var body = document.body;
   if (!body || !body.classList.contains('gw-shell')) return;
 
-  // 나 안 테마 — 11-28 전체 켬(기본값). 문제가 생기면 이 브라우저만 ?theme=off 로 옛 모양, ?theme=b 로 다시 켬.
-  // (템플릿 <html class="gw-tb"> 가 그리기 전부터 켜 둠 — 재시작 전 옛 템플릿이면 여기서 켬)
-  // 부드러운 테마 세 안 먼저 보기(11-28 부장님 '딱딱하다') — ?theme=t1·t2·t3. 이 브라우저에만 저장되고,
-  // 한 번이라도 고른 브라우저엔 오른쪽 아래 비교 막대가 뜸([닫기] = ?theme=done 으로 막대만 숨김).
+  // 테마 — 11-28 부장님 1안(밝은 틀+주황) 확정, 기본값. 템플릿 <html class="gw-tb gw-soft gw-t1"> 가 그리기 전부터 켜 둠
+  // (재시작 전 옛 템플릿이면 여기서 켬). 이 브라우저만 바꾸기: ?theme=b 옛 남색(나 안), ?theme=off 예전 회색, ?theme=t1 다시 1안.
   (function () {
-    var TKEY = 'gw.theme', CKEY = 'gw.theme.cmp';
-    var v = null, cmp = false;
+    var TKEY = 'gw.theme';
+    var v = null;
     try {
       var q = new URLSearchParams(location.search).get('theme');
-      if (q === 'off') localStorage.setItem(TKEY, 'off');
-      else if (q === 'b') localStorage.removeItem(TKEY);
-      else if (/^t[123]$/.test(q || '')) localStorage.setItem(TKEY, q);
-      if (q === 'b' || /^t[123]$/.test(q || '')) localStorage.setItem(CKEY, '1');
-      if (q === 'done') localStorage.removeItem(CKEY);
+      if (q === 'off' || q === 'b') localStorage.setItem(TKEY, q);
+      else if (q === 't1' || q === 'done') localStorage.removeItem(TKEY);
+      localStorage.removeItem('gw.theme.cmp');   // 세 안 비교 막대(11-28) 정리
       v = localStorage.getItem(TKEY);
-      cmp = localStorage.getItem(CKEY) === '1';
-    } catch (e) { /* 저장소를 못 쓰면 켜진 그대로(나 안) */ }
+    } catch (e) { /* 저장소를 못 쓰면 기본값(1안) */ }
     var root = document.documentElement;
-    var on = v !== 'off';
-    var soft = on && /^t[123]$/.test(v || '') ? v : '';
+    var on = v !== 'off', soft = on && v !== 'b';
     root.classList.toggle('gw-tb', on);
-    root.classList.toggle('gw-soft', !!soft);
-    ['t1', 't2', 't3'].forEach(function (t) { root.classList.toggle('gw-' + t, soft === t); });
-    // 설치 앱·휴대폰 브라우저 제목 줄 색 = 메뉴 줄 색(슬랙 앱처럼, 11-28). 끈 브라우저는 예전 흰색
+    root.classList.toggle('gw-soft', soft);
+    root.classList.toggle('gw-t1', soft);
+    // 설치 앱·휴대폰 브라우저 제목 줄 색 = 메뉴 줄 색(슬랙 앱처럼)
     var tc = document.querySelector('meta[name="theme-color"]');
-    if (tc) tc.setAttribute('content', !on ? '#ffffff' : soft === 't1' ? '#ffffff' : soft === 't2' ? '#1a1c20' : '#0f1e36');
-    if (!cmp || !on) return;
-    var cur = soft || 'b';
-    function link(t, label) {
-      var u = new URL(location.href);
-      u.searchParams.set('theme', t);
-      return '<a href="' + u.pathname + u.search + u.hash + '"' + (t === cur ? ' aria-current="true"' : '') + (t === 'done' ? ' class="x"' : '') + '>' + label + '</a>';
-    }
-    var bar = document.createElement('div');
-    bar.className = 'gw-theme-cmp';
-    bar.setAttribute('role', 'group');
-    bar.setAttribute('aria-label', '테마 비교');
-    bar.innerHTML = '<span>테마 비교</span>' + link('b', '지금<span class="l">(나 안)</span>') + link('t1', '1안<span class="l">밝은 틀</span>') +
-      link('t2', '2안<span class="l">먹색</span>') + link('t3', '3안<span class="l">남색</span>') + link('done', '닫기');
-    document.body.appendChild(bar);
+    if (tc) tc.setAttribute('content', soft || !on ? '#ffffff' : '#0f1e36');
   })();
 
   // 설치 앱 제목 줄 합치기(Window Controls Overlay, 11-28) — 창 버튼(최소화·최대화·닫기)이 차지한 자리를 재서
