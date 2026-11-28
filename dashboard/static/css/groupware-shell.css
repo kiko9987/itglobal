@@ -2038,9 +2038,18 @@ html.gw-tb body.gw-shell .gw-rail-toggle:focus-visible { outline-color: #ffffff;
 html.gw-tb body.gw-shell .gw-topbar { background: var(--tb-navy); border-bottom-color: var(--tb-navy); }
 html.gw-tb body.gw-shell .gw-topbar-menu { color: var(--tb-on-navy-2); }
 html.gw-tb body.gw-shell .gw-topbar-menu:hover { background: var(--tb-navy-2); color: #ffffff; }
-html.gw-tb body.gw-shell .gw-subnav-item { color: var(--tb-on-navy-2); }
+/* 위쪽 메뉴: 고른 메뉴 = 밝은 남색 칸 + 주황 밑줄 3px(11-28 부장님: 2px 밑줄만으론 고른 화면인지 안 보임).
+   칸은 ::before 로 그려 줄 높이·누를 자리는 그대로 */
+html.gw-tb body.gw-shell .gw-subnav-item { position: relative; isolation: isolate; color: #9fb0c6; border-bottom-width: 3px; margin-bottom: 0; }
+html.gw-tb body.gw-shell .gw-subnav-item::before {
+  content: ''; position: absolute; z-index: -1; left: 2px; right: 2px; top: 8px; bottom: 6px;
+  border-radius: 8px; background: transparent; transition: background-color 0.12s ease;
+}
 html.gw-tb body.gw-shell .gw-subnav-item:hover { color: #ffffff; }
-html.gw-tb body.gw-shell .gw-subnav-item.active { color: #ffffff; border-bottom-color: var(--tb-orange); }
+html.gw-tb body.gw-shell .gw-subnav-item:hover::before { background: rgba(255, 255, 255, 0.07); }
+html.gw-tb body.gw-shell .gw-subnav-item.active { color: #ffffff; font-weight: 700; border-bottom-color: var(--tb-orange); }
+html.gw-tb body.gw-shell .gw-subnav-item.active::before { background: #2b4166; }
+html.gw-tb body.gw-shell .gw-subnav-item.active i { opacity: 1; color: var(--tb-orange); }
 html.gw-tb body.gw-shell .gw-subnav-item:focus-visible { outline: 2px solid #ffffff; outline-offset: -4px; }
 html.gw-tb body.gw-shell .gw-find-trigger { background: var(--tb-navy-2); border-color: var(--tb-navy-line); color: var(--tb-on-navy-2); }
 html.gw-tb body.gw-shell .gw-find-trigger:hover { background: var(--tb-navy-3); border-color: #3a5480; }
