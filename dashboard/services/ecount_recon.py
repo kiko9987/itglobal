@@ -89,7 +89,14 @@ def _node() -> Optional[str]:
 
 
 def run_reader(timeout: int = 45 * 60) -> Tuple[Optional[Path], str]:
-    """이카운트 읽기 도구 실행 → (결과 JSON 경로, 실패 사유). 비밀번호는 도구가 .env 에서 직접 읽는다."""
+    """이카운트 읽기 도구 실행 → (결과 JSON 경로, 실패 사유). 비밀번호는 도구가 .env 에서 직접 읽는다.
+
+    서버 서비스(LocalSystem)에서는 Edge 가 뜨자마자 꺼진다(11-28 시험: 종료 코드 1002, 옵션 무관). 그래서
+    .env ECOUNT_READ_TASK 에 Windows 예약 작업 이름이 있으면 그 작업(부장님 계정·S4U, 비밀번호 저장 없음)을
+    실행시키고 결과 파일을 기다린다. 없으면 직접 실행(손 실행·부장님 계정)."""
+    task = os.getenv('ECOUNT_READ_TASK', '').strip()
+    if task:
+        return _run_reader_task(task, timeout)
     node = _node()
     if not node or not READER.exists():
         return None, f'읽기 도구 없음(node={node}, reader={READER.exists()})'
@@ -107,6 +114,52 @@ def run_reader(timeout: int = 45 * 60) -> Tuple[Optional[Path], str]:
         tail = ' / '.join(l for l in out.strip().splitlines()[-4:] if l and not l.startswith('RESULT'))
         return path if path and path.exists() else None, f'읽기 실패(코드 {proc.returncode}): {tail[:300]}'
     return path, ''
+
+
+def _task_running(task: str) -> Optional[bool]:
+    """예약 작업이 도는 중인지(모르면 None). schtasks 출력은 시스템 언어라 상태 글자 대신 '실행' 표시만 본다."""
+    try:
+        proc = subprocess.run(['schtasks', '/query', '/tn', task, '/fo', 'csv', '/nh'], capture_output=True,
+                              timeout=30, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    out = proc.stdout.decode('cp949', 'replace')
+    return ('Running' in out) or ('실행 중' in out)
+
+
+def _new_files(pattern: str, before: set) -> List[Path]:
+    return sorted((p for p in OUT_DIR.glob(pattern) if p.name not in before), key=lambda p: p.name)
+
+
+def _run_reader_task(task: str, timeout: int, poll: float = 5.0) -> Tuple[Optional[Path], str]:
+    """예약 작업으로 읽기 → 새 ecount_read_*.json 이 생길 때까지 기다림(도구가 .tmp 로 쓰고 이름을 바꿔 반쯤 쓴 파일은 없음)."""
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    before = {p.name for p in OUT_DIR.glob('ecount_read_*')}
+    try:
+        proc = subprocess.run(['schtasks', '/run', '/tn', task], capture_output=True, timeout=60,
+                              creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return None, f'읽기 예약 작업({task})을 실행하지 못함: {exc}'
+    if proc.returncode != 0:
+        msg = (proc.stdout + proc.stderr).decode('cp949', 'replace').strip()
+        return None, f'읽기 예약 작업({task})을 실행하지 못함(코드 {proc.returncode}): {msg[:200]}'
+    start, idle = time.time(), 0
+    while time.time() - start < timeout:
+        time.sleep(poll)
+        done = _new_files('ecount_read_*.json', before)
+        if done:
+            return done[-1], ''
+        # 작업이 끝났는데 결과 파일이 없으면(설정 오류로 일찍 끝남) 오래 기다리지 않는다 — 2번 연속 확인
+        idle = idle + 1 if (time.time() - start > 60 and _task_running(task) is False) else 0
+        if idle >= 2:
+            logs = _new_files('ecount_read_*.log', before)
+            tail = ''
+            if logs:
+                tail = ' / '.join(l for l in logs[-1].read_text(encoding='utf-8', errors='replace').strip().splitlines()[-3:])
+            return None, f'읽기 예약 작업({task})이 결과 없이 끝남: {tail[:300] or "로그 없음"}'
+    return None, f'읽기 예약 작업({task})이 {timeout // 60}분 안에 끝나지 않음'
 
 
 def load_read(path: Path) -> dict:

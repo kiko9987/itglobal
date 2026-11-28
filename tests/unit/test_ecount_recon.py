@@ -352,3 +352,54 @@ def test_scheduler_skips_weekend():
     src = _i.getsource(ss.start_scheduler)
     assert "_safe_ecount_recon, 'cron', day_of_week='tue-sat', hour=0, minute=10" in src
     assert "_safe_ecount_recon_dm, 'cron', day_of_week='mon-fri', hour=7, minute=50" in src
+
+
+class _Proc:
+    def __init__(self, code=0, out=b''):
+        self.returncode, self.stdout, self.stderr = code, out, b''
+
+
+def test_reader_via_scheduled_task_waits_for_new_result(tmp_path, monkeypatch):
+    """서버(LocalSystem)는 Edge 가 안 떠서(11-28) 부장님 계정 예약 작업에 맡기고 새 결과 파일을 기다린다."""
+    out = tmp_path / 'recon'
+    out.mkdir()
+    (out / 'ecount_read_20261127_001000.json').write_text('{}', encoding='utf-8')   # 지난 결과는 무시
+    monkeypatch.setattr(er, 'OUT_DIR', out)
+    monkeypatch.setenv('ECOUNT_READ_TASK', 'ITG_ecount_read')
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        if cmd[:2] == ['schtasks', '/run']:
+            (out / 'ecount_read_20261128_001000.json').write_text('{"ok": true}', encoding='utf-8')
+        return _Proc()
+    monkeypatch.setattr(er.subprocess, 'run', fake_run)
+    monkeypatch.setattr(er.time, 'sleep', lambda s: None)
+    path, err = er.run_reader()
+    assert err == '' and path.name == 'ecount_read_20261128_001000.json'
+    assert calls[0] == ['schtasks', '/run', '/tn', 'ITG_ecount_read']
+
+
+def test_reader_task_ended_without_result_fails_fast(tmp_path, monkeypatch):
+    out = tmp_path / 'recon'
+    out.mkdir()
+    monkeypatch.setattr(er, 'OUT_DIR', out)
+    clock = iter(range(0, 100000, 30))
+    monkeypatch.setattr(er.time, 'time', lambda: next(clock))
+    monkeypatch.setattr(er.time, 'sleep', lambda s: None)
+
+    def fake_run(cmd, **kw):
+        if cmd[:2] == ['schtasks', '/run']:
+            (out / 'ecount_read_20261128_001000.log').write_text('00:10:01 [실패] .env 빈 칸\n', encoding='utf-8')
+            return _Proc()
+        return _Proc(out='"\\ITG_ecount_read","N/A","준비"'.encode('cp949'))
+    monkeypatch.setattr(er.subprocess, 'run', fake_run)
+    path, err = er._run_reader_task('ITG_ecount_read', 45 * 60)
+    assert path is None and '결과 없이 끝남' in err and '.env 빈 칸' in err
+
+
+def test_reader_task_start_failure(tmp_path, monkeypatch):
+    monkeypatch.setattr(er, 'OUT_DIR', tmp_path / 'recon')
+    monkeypatch.setattr(er.subprocess, 'run', lambda cmd, **kw: _Proc(1, '오류: 작업 없음'.encode('cp949')))
+    path, err = er._run_reader_task('ITG_ecount_read', 60)
+    assert path is None and '실행하지 못함(코드 1)' in err
