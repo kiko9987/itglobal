@@ -391,6 +391,12 @@
             }
         }
     </style>
+<style>
+  /* 설치 앱에서 제목 줄을 합친 경우(11-28) — 로그인 화면엔 남색 메뉴 줄이 없어 창을 끌 자리가 없으므로 맨 위 띠를 끄는 자리로 */
+  @media (display-mode: window-controls-overlay) {
+    body::before { content: ''; position: fixed; top: 0; left: 0; right: 0; height: env(titlebar-area-height, 32px); z-index: 2147483000; -webkit-app-region: drag; app-region: drag; }
+  }
+</style>
 </head>
 <body>
     <!-- Login Container -->

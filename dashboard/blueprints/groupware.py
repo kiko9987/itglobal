@@ -216,6 +216,9 @@ def web_app_manifest():
         'start_url': '/home',
         'scope': '/',
         'display': 'standalone',
+        # 설치 앱(크롬·엣지 PC)에서 제목 줄을 없애고 남색 메뉴 줄을 그 자리까지 올림 — 슬랙 앱처럼(11-28 부장님).
+        # 창 버튼은 메뉴 줄 위에 겹쳐 뜨고, 자리 비키기·끌어 옮기기는 groupware-shell.js/.css(gw-wco). 못 쓰는 곳은 standalone 그대로
+        'display_override': ['window-controls-overlay', 'standalone'],
         'background_color': '#ffffff',
         'theme_color': '#0f1e36',   # 설치 앱 제목 줄 = 메뉴 줄 남색(11-28 나 안 테마, 슬랙 앱처럼)
         'icons': [

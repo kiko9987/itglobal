@@ -1966,6 +1966,24 @@ body.gw-shell .gw-notify-stale {
 /* 날짜·시각 칸은 어디를 눌러도 달력이 열림(groupware-shell.js, 11-26) — 손가락 모양으로 알려 줌 */
 body.gw-shell input:is([type="date"], [type="month"], [type="week"], [type="datetime-local"], [type="time"]):not(:disabled):not([readonly]) { cursor: pointer; }
 
+/* ── 설치 앱 제목 줄 합치기(Window Controls Overlay, 11-28 부장님: 슬랙 앱처럼) ─────────────
+   html.gw-wco = groupware-shell.js 가 창 버튼 자리를 재서 붙임. --wco-right(윈도: 오른쪽 창 버튼 폭),
+   --wco-left(맥: 왼쪽 신호등 폭), --wco-h(제목 줄 높이). 메뉴 줄 빈 곳 = 창 끌어 옮기는 자리,
+   누르는 것(링크·버튼·검색)은 끌기에서 뺌. */
+html.gw-wco body.gw-shell .gw-topbar {
+  -webkit-app-region: drag;
+  app-region: drag;
+  padding-right: calc(var(--wco-right, 0px) + 10px);
+}
+html.gw-wco body.gw-shell .gw-topbar :is(a, button, input, select, .dropdown, .gw-notify, .gw-notify-panel, .gw-find-trigger, #systemAlertContainer > *) {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+/* 맥: 신호등이 왼쪽 위 → 메뉴 줄 첫 칸을 그만큼 밀고, 왼쪽 줄 로고도 아래로 */
+html.gw-wco body.gw-shell .gw-topbar { padding-left: max(12px, calc(var(--wco-left, 0px) - var(--gw-rail-w) + 10px)); }
+html.gw-wco body.gw-shell .gw-rail { -webkit-app-region: no-drag; app-region: no-drag; }
+html.gw-wco body.gw-shell .gw-rail .gw-nav-top { margin-top: min(var(--wco-left, 0px), var(--wco-h, 0px)); }
+
 /* ════════════════════════════════════════════════════════════════════
    나 안(도면) 테마 — 11-28 부장님: 나 안 바탕 + 위쪽 줄도 왼쪽 줄과 같은 남색.
    지금은 html.gw-tb 일 때만 켜짐(먼저 보기: 주소 끝 ?theme=b, 끄기 ?theme=off — groupware-shell.js).

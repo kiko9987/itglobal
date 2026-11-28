@@ -24,6 +24,25 @@
     if (tc) tc.setAttribute('content', on ? '#0f1e36' : '#ffffff');
   })();
 
+  // 설치 앱 제목 줄 합치기(Window Controls Overlay, 11-28) — 창 버튼(최소화·최대화·닫기)이 차지한 자리를 재서
+  // 메뉴 줄 오른쪽(윈도)·왼쪽(맥)을 비켜 놓는다. 앱에서 제목 줄을 다시 펴면(크롬 ∨ 버튼) 원래대로.
+  (function () {
+    var wco = navigator.windowControlsOverlay;
+    if (!wco) return;
+    var root = document.documentElement;
+    function fit() {
+      var on = !!wco.visible;
+      root.classList.toggle('gw-wco', on);
+      if (!on) return;
+      var r = wco.getTitlebarAreaRect();
+      root.style.setProperty('--wco-left', Math.max(0, Math.round(r.x)) + 'px');
+      root.style.setProperty('--wco-right', Math.max(0, Math.round(window.innerWidth - r.x - r.width)) + 'px');
+      root.style.setProperty('--wco-h', Math.round(r.height) + 'px');
+    }
+    fit();
+    wco.addEventListener('geometrychange', fit);
+  })();
+
   var KEY = 'gw.rail.collapsed';
   var rail = document.getElementById('gwRail');
   var hotzone = document.getElementById('gwRailHotzone');
