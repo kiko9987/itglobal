@@ -332,11 +332,17 @@
     renderSalesTiles();
     renderSalesChart();
     // 집계 규칙은 services/gw_home.py _sales_counts 와 맞춤: 방문은 문의 행의 상태로 세서 문의 날짜에 들어간다
-    el('homeSalesNote').textContent = '문의는 리드 시트의 상담 날짜 기준이에요(모든 경로). ' +
-      '방문 예약은 그 문의 가운데 방문 예약까지 간 건이고, 문의한 날에 들어가요. ' +
-      '계약은 공사현황의 공사 확정 날짜 기준이며 취소된 공사는 빼요. ' +
-      '비율은 이번 달 건수끼리 나눈 값이라, 계약 비율은 이번 달 문의가 실제로 계약까지 간 비율과는 달라요. ' +
-      '흐린 막대는 주말·공휴일이고, 숫자는 5분마다 새로 계산해요.';
+    // 설명 다섯 줄이 늘 깔려 있던 것 → 접힌 도움말(11-28 부장님, 토스 원칙 '한 화면 하나'). 문구는 그대로
+    var note = el('homeSalesNote');
+    if (note && !note.querySelector('details')) {
+      note.innerHTML = '<details class="gw-help sm"><summary><i class="fas fa-circle-question" aria-hidden="true"></i> 숫자는 어떻게 세나요?' +
+        '<i class="fas fa-chevron-down gw-help-fold" aria-hidden="true"></i></summary><div class="gw-help-body"><ul>' +
+        '<li>문의는 리드 시트의 상담 날짜 기준이에요(모든 경로).</li>' +
+        '<li>방문 예약은 그 문의 가운데 방문 예약까지 간 건이고, 문의한 날에 들어가요.</li>' +
+        '<li>계약은 공사현황의 공사 확정 날짜 기준이며 취소된 공사는 빼요.</li>' +
+        '<li>비율은 이번 달 건수끼리 나눈 값이라, 계약 비율은 이번 달 문의가 실제로 계약까지 간 비율과는 달라요.</li>' +
+        '<li>흐린 막대는 주말·공휴일이고, 숫자는 5분마다 새로 계산해요.</li></ul></div></details>';
+    }
   }
 
   if (el('homeSalesTiles')) {

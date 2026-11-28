@@ -109,6 +109,10 @@
 
   // 취합 담당 — '빈승정 매니저가'(서버가 재시작 전이면 '취합 담당이')
   function coordName(d) { return (d.coordinators || []).length ? d.coordinators.join('·') + ' 매니저가' : '취합 담당이'; }
+  var soHelpOpen = false;   // 접힌 도움말을 열어 둔 채 다시 그려도 열린 그대로
+  document.addEventListener('toggle', function (e) {
+    if (e.target && e.target.classList && e.target.classList.contains('gw-so-help')) soHelpOpen = e.target.open;
+  }, true);
   function render() {
     var d = data;
     document.getElementById('soTitle').textContent = cur.y + '년 ' + cur.m + '월';
@@ -120,6 +124,7 @@
     var me = d.me || {};
     var h = '';
     var acts = '';   // 그달 결재 단추 — 달·상태 줄 오른쪽(actEl). 변경 신청 단추는 고른 내용 옆(bar)에 그대로
+    var tips = [];   // 확정 뒤 고치는 방법·버튼 안내 — 늘 깔지 않고 접힌 도움말로(11-28 부장님, 토스 원칙). 문구는 그대로
     if (d.why) h += '<div class="gw-so-note warn">' + esc(d.why) + '</div>';
     // 기술영업·취합 담당·승인권자가 아닌 직원 — 보기만(11-25 시공·미화 빼고 모두에게 엶)
     var viewer = !(me.member || me.manager || me.approver || me.editor);
@@ -167,11 +172,14 @@
           '<button type="button" class="btn btn-primary btn-sm" data-act="approve">승인</button>';
       }
     } else {
-      h += '<p class="gw-so-how">' + esc(d.decided_by) + ' 님이 승인해 확정됐어요(' + esc((d.decided_at || '').slice(5, 16)) + ').' +
-        (me.approver || me.editor ? (narrow() ? ' [휴무자 선택]으로 바로 고칠 수 있어요. 기록이 남아요.' : ' 토요일 칸을 눌러 바로 고칠 수 있어요. 기록이 남아요.') +
-          (me.approver ? '' : ' 변경은 본인이 [변경 신청]으로 하는 게 원칙이에요. 관리자 수정은 급할 때만 써 주세요.')
-          : d.can_request_change ? (narrow() ? ' 쉬는 날을 바꾸려면 취소할 내 휴무는 [휴무 취소], 새로 쉴 토요일은 [휴무 신청]으로 고른 뒤 [변경 신청]을 눌러 주세요.'
-            : ' 쉬는 날을 바꾸려면 취소할 내 휴무 칸과 새로 쉴 토요일 칸을 눌러 고른 뒤 [변경 신청]을 눌러 주세요.') : '') + '</p>';
+      h += '<p class="gw-so-how">' + esc(d.decided_by) + ' 님이 승인해 확정됐어요(' + esc((d.decided_at || '').slice(5, 16)) + ').</p>';
+      if (me.approver || me.editor) {
+        tips.push(narrow() ? '[휴무자 선택]으로 바로 고칠 수 있어요. 기록이 남아요.' : '토요일 칸을 눌러 바로 고칠 수 있어요. 기록이 남아요.');
+        if (!me.approver) tips.push('변경은 본인이 [변경 신청]으로 하는 게 원칙이에요. 관리자 수정은 급할 때만 써 주세요.');
+      } else if (d.can_request_change) {
+        tips.push(narrow() ? '쉬는 날을 바꾸려면 취소할 내 휴무는 [휴무 취소], 새로 쉴 토요일은 [휴무 신청]으로 고른 뒤 [변경 신청]을 눌러 주세요.'
+          : '쉬는 날을 바꾸려면 취소할 내 휴무 칸과 새로 쉴 토요일 칸을 눌러 고른 뒤 [변경 신청]을 눌러 주세요.');
+      }
       if (draft.add.length || draft.remove.length) {
         // 바꿀 내용 — 달력 칩과 같은 색 꼬리표(빼기 빨강·넣기 초록, 11-25 부장님 '잘 인식이 안돼')
         var parts = draft.remove.map(function (x) { return '<span class="gw-so-dtag gone">' + esc(md(x)) + '(토) 휴무 취소</span>'; })
@@ -184,16 +192,19 @@
     // 휴무 출근(11-24) — 결재 올린 뒤(대기·확정). 서버가 재시작 전이면 can_mark_worked 가 없어 안 보임
     if (d.can_mark_worked) {
       // 미리 변경 신청을 못 했을 때만 쓰는 기능이라는 걸 먼저(11-25 부장님 문구). 보통은 휴무 취소·신청으로 조절
-      h += '<p class="gw-so-how">휴무 토요일에 급한 업무로 출근을 하게 되어 미리 변경 신청을 하지 못했을 경우 ' +
-        '구두 보고 후 [휴무 출근 기록]을 눌러 주세요.</p>';
+      tips.push('휴무 토요일에 급한 업무로 출근을 하게 되어 미리 변경 신청을 하지 못했을 경우 구두 보고 후 [휴무 출근 기록]을 눌러 주세요.');
       acts = '<button type="button" class="btn btn-outline-secondary btn-sm" data-act="worked">휴무 출근 기록</button>' + acts;
     }
     // 전체 휴무 지정·풀기 — 관리자(11-25)
     if (d.can_full_off) {
       acts = '<button type="button" class="btn btn-outline-secondary btn-sm" data-act="full">전체 휴무</button>' + acts;
       // 관리자가 '나한테만 보이는 기능'인 줄 알게(11-25 부장님)
-      h += '<p class="gw-so-how gw-so-admin-note"><i class="fas fa-lock" aria-hidden="true"></i> ' +
-        '[전체 휴무] 버튼은 관리자에게만 보여요. 토요일 하루를 모두 쉬는 날로 정할 때 써요.</p>';
+      tips.push('<i class="fas fa-lock" aria-hidden="true"></i> [전체 휴무] 버튼은 관리자에게만 보여요. 토요일 하루를 모두 쉬는 날로 정할 때 써요.');
+    }
+    if (tips.length) {
+      h += '<details class="gw-help sm gw-so-help"' + (soHelpOpen ? ' open' : '') + '><summary><i class="fas fa-circle-question" aria-hidden="true"></i> 고치는 방법·버튼 안내' +
+        '<i class="fas fa-chevron-down gw-help-fold" aria-hidden="true"></i></summary><div class="gw-help-body"><ul>' +
+        tips.map(function (t) { return '<li>' + t + '</li>'; }).join('') + '</ul></div></details>';
     }
     barEl.innerHTML = h;
     actEl.innerHTML = acts;

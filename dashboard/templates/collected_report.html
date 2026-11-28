@@ -40,8 +40,15 @@
   <div class="gw-cr-tools"><button type="button" class="btn btn-sm btn-outline-secondary" id="crToggleAll">모두 펼치기</button></div>
   <div id="crDetail"></div>
 
-  <p class="gw-vh-foot">수금 확인에 체크했고 수금 날짜가 이 기간 안인 공사예요. 담당자 이름을 누르면 사업자별 목록과 소계가 펼쳐져요. 엑셀에는 모든 칸과 '담당자별 합계' 시트가 들어가요.
-    {% if can_edit_range %}명절 등으로 기준일이 바뀐 달은 기간을 고친 뒤 [이 기간으로 저장]을 눌러 주세요. 다음에도 그 기간으로 열리고, 다음 달은 바꾼 끝날 다음 날부터 시작해요.{% else %}정산 기간은 경영지원과 대표님이 정해요.{% endif %}</p>
+  {# 설명 석 줄 → 목록이 뭔지 한 줄만 두고 나머지는 접기(11-28 부장님, 토스 원칙). '담당자 이름을 누르면 펼쳐져요'는 화살표로 보여서 뺌 #}
+  <p class="gw-vh-foot">수금 확인에 체크했고 수금 날짜가 이 기간 안인 공사예요.</p>
+  <details class="gw-help sm">
+    <summary><i class="fas fa-circle-question" aria-hidden="true"></i> 정산 기간·엑셀<i class="fas fa-chevron-down gw-help-fold" aria-hidden="true"></i></summary>
+    <div class="gw-help-body"><ul>
+      <li>엑셀에는 모든 칸과 '담당자별 합계' 시트가 들어가요.</li>
+      {% if can_edit_range %}<li>명절 등으로 기준일이 바뀐 달은 기간을 고친 뒤 [이 기간으로 저장]을 눌러 주세요. 다음에도 그 기간으로 열리고, 다음 달은 바꾼 끝날 다음 날부터 시작해요.</li>{% else %}<li>정산 기간은 경영지원과 대표님이 정해요.</li>{% endif %}
+    </ul></div>
+  </details>
 </div>
 {% endblock %}
 

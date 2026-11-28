@@ -4941,3 +4941,18 @@ html.gw-tb body.gw-shell:has(.gw-page) .cr-tbl thead th:first-child { background
   html.gw-tb body.gw-shell:has(.gw-page) .gw-stats:has(> .gw-stat:nth-child(4):last-child) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 #feStats { margin-bottom: 12px; }   /* 탭 줄과 사이(입출금 14px 와 비슷하게) */
+
+/* 작은 접힌 도움말(.gw-help.sm) — 화면에 늘 깔리던 설명 글을 접어 둠(11-28 부장님, 토스 원칙 '한 화면 하나').
+   테두리 없이 글자 줄처럼, 누르면 아래로 펼침. 휴대폰은 누를 자리 44px */
+.gw-help.sm { border: 0; background: transparent; margin: 6px 0 0; }
+.gw-help.sm > summary { display: inline-flex; min-height: 32px; padding: 4px 6px; margin-left: -6px; font-size: 0.82rem; font-weight: 600; border-radius: 4px; }
+.gw-help.sm .gw-help-fold { margin-left: 4px; }
+.gw-help.sm .gw-help-body { padding: 2px 0 4px; font-size: 0.82rem; }
+.gw-help.sm .gw-help-body ul { margin: 0; padding-left: 18px; }
+.gw-help.sm .gw-help-body li { margin: 3px 0; line-height: 1.6; }
+@media (max-width: 767.98px) { .gw-help.sm > summary { min-height: 44px; } }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-help:not(.sm) { border-color: var(--tb-line); border-radius: 4px; }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-help > summary { border-radius: 4px; color: var(--tb-ink-2); }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-help > summary:hover { background: var(--tb-head); color: var(--tb-ink); }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-help > summary:focus-visible { outline-color: var(--tb-ink); }
+.gw-so-help { width: 100%; }

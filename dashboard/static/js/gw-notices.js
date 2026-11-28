@@ -402,7 +402,7 @@
               '<span class="form-check-label">저장하면 슬랙으로도 알리기</span></label>') +
         '</div>' +
         '<div class="gw-lv-err" id="ntErr" role="alert"></div>' +
-        '<div class="gw-nt-f-btns"><a class="btn btn-light" href="' + (edit ? BASE + '/' + NID : BASE) + '">취소</a>' +
+        '<div class="gw-nt-f-btns"><a class="btn btn-light" href="' + (edit ? BASE + '/' + NID : BASE) + '">닫기</a>' +
           '<button type="submit" class="btn btn-primary" id="ntSave">' + (edit ? '저장' : '올리기') + '</button></div>' +
         '</form>';
       root.innerHTML = h;

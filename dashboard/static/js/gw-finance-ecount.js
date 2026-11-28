@@ -453,17 +453,25 @@
     var R = A.run;
     if (A.batch !== 'auto' || !R) {
       var b = Number(A.batch.slice(5, 7)) + '/' + Number(A.batch.slice(8, 10));
-      return '<div class="gw-callout gw-fa-head"><b>' + esc(b) + ' 대조</b> — 이카운트 매출전표(2025년~)를 공사별로 합산해 공사 현황과 맞춰 본 결과예요. ' +
-        '처리 전 <b>' + A.counts.open + '</b>건 · 처리함 ' + A.counts.done + '건.<br>' +
-        '이카운트를 고쳤으면 [이카운트 고침], 공사 현황(시트)이 틀렸으면 [시트가 틀림], 차이가 맞으면 [그대로 둠]을 눌러 주세요.</div>';
+      // 건수는 위 숫자 상자에 있어 뺌, 버튼 설명은 접기(11-28 부장님, 토스 원칙)
+      return '<div class="gw-callout gw-fa-head"><b>' + esc(b) + ' 대조</b> — 이카운트 매출전표(2025년~)를 공사별로 합산해 공사 현황과 맞춰 본 결과예요.</div>' +
+        auditHelp('이카운트를 고쳤으면 [이카운트 고침], 공사 현황(시트)이 틀렸으면 [시트가 틀림], 차이가 맞으면 [그대로 둠]을 눌러 주세요.');
     }
     var warn = R.status === 'failed'
       ? '<div class="gw-fa-runwarn"><i class="fas fa-triangle-exclamation me-1" aria-hidden="true"></i>' + esc(R.at) +
         ' 대조는 이카운트를 읽지 못했어요. 아래는 ' + esc(R.ok_at || '이전') + ' 대조 결과예요.</div>' : '';
-    return '<div class="gw-callout gw-fa-head">' + warn + '<b>' + esc(R.ok_at || R.at) + ' 자동 대조</b> · 평일 밤마다 이카운트를 읽어 공사 현황과 맞춰 봐요. ' +
-      '같아지면 다음 대조 때 자동으로 <b>맞음</b>이 돼요.<br>' +
-      '[이카운트 고침]을 눌러도 다음 대조에서 아직 다르면 <b>처리 전</b>으로 돌아와요.</div>';
+    return '<div class="gw-callout gw-fa-head">' + warn + '<b>' + esc(R.ok_at || R.at) + ' 자동 대조</b> · 평일 밤마다 이카운트를 읽어 공사 현황과 맞춰 봐요.</div>' +
+      auditHelp('같아지면 다음 대조 때 자동으로 <b>맞음</b>이 돼요.', '[이카운트 고침]을 눌러도 다음 대조에서 아직 다르면 <b>처리 전</b>으로 돌아와요.');
   }
+  // ③ 처리 방법 — 접힌 도움말. 다시 그려도 열어 둔 상태 유지
+  function auditHelp() {
+    var li = Array.prototype.map.call(arguments, function (t) { return '<li>' + t + '</li>'; }).join('');
+    return '<details class="gw-help sm gw-fa-help"' + (S.auditHelpOpen ? ' open' : '') + '><summary><i class="fas fa-circle-question" aria-hidden="true"></i> 처리 방법' +
+      '<i class="fas fa-chevron-down gw-help-fold" aria-hidden="true"></i></summary><div class="gw-help-body"><ul>' + li + '</ul></div></details>';
+  }
+  document.addEventListener('toggle', function (e) {
+    if (e.target && e.target.classList && e.target.classList.contains('gw-fa-help')) S.auditHelpOpen = e.target.open;
+  }, true);
   function auditFilters(A) {
     var F = S.af, sides = A.sides && A.sides.length ? A.sides : [{ key: 'sales', label: '매출', open: A.counts.open, total: A.counts.total }];
     var cats = A.groups.filter(function (g) { return g.side === F.side; });
