@@ -19,6 +19,9 @@
       on = localStorage.getItem(TKEY) !== 'off';
     } catch (e) { /* 저장소를 못 쓰면 켜진 그대로 */ }
     document.documentElement.classList.toggle('gw-tb', on);
+    // 설치 앱·휴대폰 브라우저 제목 줄 색 = 메뉴 줄 남색(슬랙 앱처럼, 11-28). 끈 브라우저는 예전 흰색
+    var tc = document.querySelector('meta[name="theme-color"]');
+    if (tc) tc.setAttribute('content', on ? '#0f1e36' : '#ffffff');
   })();
 
   var KEY = 'gw.rail.collapsed';
