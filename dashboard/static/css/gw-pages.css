@@ -4709,7 +4709,7 @@ ul.gw-fe-notes li + li { margin-top: 2px; }
 .gw-st-title { font-size: 1rem; font-weight: 700; margin: 0; color: #0f172a; }
 .gw-st-legend { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; color: #475569; }
 .gw-st-legend > span:not([data-y]) { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
-.gw-st-legend .cur, .gw-st-legend .g { background: #ea580c; }
+.gw-st-legend .cur, .gw-st-legend .g { background: #2f6fde; }
 .gw-st-legend .prev { background: #cbd5e1; margin-left: 6px; }
 .gw-st-legend .r { background: #334155; margin-left: 6px; }
 .gw-st-chart { position: relative; height: 280px; }

@@ -9,9 +9,9 @@
   var SESSION_ENDED = '로그인이 끝났어요. 새로 고친 뒤 다시 해 주세요.';
   var CUR = new Date().getFullYear();
   var PREV = CUR - 1;
-  var C_CUR = '#ea580c';      // 올해 — 주황(강조색 계열, 흰 바탕 대비 3.6:1 이상)
+  var C_CUR = '#2f6fde';      // 올해 — 홈 화면 매출 그래프와 같은 파랑(주황은 이 화면만 튀었음, 11-28)
   var C_PREV = '#cbd5e1';     // 작년 — 옅은 회색
-  var C_G = '#ea580c';        // 글로벌
+  var C_G = '#2f6fde';        // 글로벌
   var C_R = '#334155';        // 글로벌그룹
   var charts = {};
 
