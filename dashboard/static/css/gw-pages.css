@@ -4747,7 +4747,8 @@ html.gw-tb body.gw-shell:has(.gw-page) {
   --tb-head: #f4f6f9;
   --tb-hover: #f5f8fc;
   --tb-sel: #eaf2fb;
-  --tb-ctl: #c4cdd9;       /* 칸·버튼 테두리 */
+  --tb-ctl: #c4cdd9;       /* 버튼 테두리 */
+  --tb-input: #8592a8;     /* 입력·고르기 칸 테두리 — 흰 바탕 3.1:1(칸 경계는 3:1 넘게, 11-26 점검 기준) */
 }
 
 /* 제목·글 */
@@ -4810,14 +4811,14 @@ html.gw-tb body.gw-shell:has(.gw-page) :is(.btn-outline-primary, .btn-outline-se
 html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-page, .gw-drawer, .modal) .btn { border-radius: 4px; }
 
 /* 고르기 칩·나눔 버튼·탭 */
-html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-chip-select, .gw-chip-date) { border-radius: 4px; border-color: var(--tb-ctl); color: var(--tb-ink-2); }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-chip-select, .gw-chip-date) { border-radius: 4px; border-color: var(--tb-input); color: var(--tb-ink-2); }
 html.gw-tb body.gw-shell:has(.gw-page) .gw-seg-btn { border-radius: 4px; }
 html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-seg-btn.active, .gw-seg-btn[aria-pressed="true"], .gw-ap-tabs button.active) { background: var(--tb-ink); border-color: var(--tb-ink); color: #ffffff; }
 html.gw-tb body.gw-shell:has(.gw-page) .gw-ap-tabs button { border-radius: 4px; }
 html.gw-tb body.gw-shell:has(.gw-page) .gw-badge { border-radius: 3px; }
 
 /* 입력 칸 */
-html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-page, .gw-drawer, .modal) :is(.form-control, .form-select) { border-radius: 4px; border-color: var(--tb-ctl); }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-page, .gw-drawer, .modal) :is(.form-control, .form-select) { border-radius: 4px; border-color: var(--tb-input); }
 html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-page, .gw-drawer, .modal) :is(.form-control, .form-select):focus { border-color: var(--tb-ink); box-shadow: 0 0 0 3px rgba(15, 30, 54, 0.14); }
 html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-page, .gw-drawer, .modal) .form-check-input:checked { background-color: var(--tb-ink); border-color: var(--tb-ink); }
 
@@ -4834,3 +4835,51 @@ html.gw-tb body.gw-shell:has(.gw-page) .gw-drawer-head h2:focus-visible { outlin
 /* 빈 화면·진행 단계 */
 html.gw-tb body.gw-shell:has(.gw-page) .gw-empty-state .ic { background: #e8edf4; color: var(--tb-ink-3); }
 html.gw-tb body.gw-shell:has(.gw-page) .gw-empty-state .t { color: var(--tb-ink); }
+
+/* ── 11-28 점검 A·B: 테마가 덜 들어간 곳 ───────────────────────────────── */
+/* A1 홈 — 입찰 알림·이번 달 영업 칸을 다른 화면 칸과 같게(4px·회청 선·고른 칸은 남색 선+밑줄) */
+html.gw-tb body.gw-shell:has(.gw-page) .gw-todo { border-color: var(--tb-line); border-radius: 4px; }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-todo-ic { border-radius: 4px; }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-todo-act, .gw-todo-close) { border-radius: 4px; }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-todo-act { background: var(--tb-ink); }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-todo-act:hover { background: #1f3253; }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-todo-close { border-color: var(--tb-ctl); color: var(--tb-ink-2); }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-todo-close:hover { background: var(--tb-head); border-color: #9fb0c6; color: var(--tb-ink); }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-sales-tile { background: #ffffff; border: 1px solid var(--tb-line); border-radius: 4px; }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-sales-tile:hover { background: #ffffff; border-color: #9fb0c6; }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-sales-tile.active { background: #ffffff; border-color: var(--tb-ink); box-shadow: inset 0 -3px 0 var(--tb-ink); }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-sales-tile .v { color: var(--tb-ink); }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-sales-chart { border-color: var(--tb-line-soft); border-radius: 4px; }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-home-list li > :is(a, div) { border-radius: 4px; }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-home-list li > a:hover { background: var(--tb-hover); }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-home-chip { background: #e8edf4; color: var(--tb-ink); border-radius: 3px; }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-home-chip small { color: var(--tb-ink-3); }
+
+/* B4 주황 글자 → 남색. 주황은 [새 프로젝트]·지금 위치 표시에만. 링크는 밑줄로 링크인 걸 알림 */
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-home-label strong, .gw-home-big .v) { color: var(--tb-ink); }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-home-more, .gw-ap-slack, .gw-callout a, .gw-lv-note a) {
+  color: var(--tb-ink); font-weight: 600;
+  text-decoration: underline; text-decoration-color: #9fb0c6; text-underline-offset: 3px;
+}
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-home-more, .gw-ap-slack, .gw-callout a, .gw-lv-note a):hover { color: var(--tb-ink); text-decoration-color: var(--tb-ink); }
+
+/* A2 거르기 줄 — 고르기·날짜·찾기 칸, [초기화]·[필터] 버튼을 한 모양으로(흰 바탕·4px·테두리) */
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-chip-search, .gw-chip-reset, .gw-chip-more) { border-radius: 4px; }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-chip-select { border: 1px solid var(--tb-input); background-color: #ffffff; }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-chip-select.on { background-color: var(--tb-ink); border-color: var(--tb-ink); color: #ffffff; }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-chip-search { border-color: var(--tb-input); }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-chip-select, .gw-chip-date, .gw-chip-search):focus-visible { border-color: var(--tb-ink); box-shadow: 0 0 0 3px rgba(15, 30, 54, 0.14); }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-chip-reset, .gw-chip-more) { border: 1px solid var(--tb-ctl); background: #ffffff; color: var(--tb-ink-2); }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-chip-reset, .gw-chip-more):hover { background: var(--tb-head); border-color: #9fb0c6; color: var(--tb-ink); }
+html.gw-tb body.gw-shell:has(.gw-page) .has-active-filters .gw-chip-reset { border: 1.5px solid var(--tb-ink); color: var(--tb-ink); }
+html.gw-tb body.gw-shell:has(.gw-page) .has-active-filters .gw-chip-reset:hover { background: var(--tb-ink); color: #ffffff; }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-chip-more.on { background: var(--tb-ink); border-color: var(--tb-ink); color: #ffffff; }
+
+/* B3 나눔 버튼 — 고른 칸 남색(aria-selected 로 고르는 화면도: 전사 휴가 관리 달력·직원별·연차 촉진) */
+html.gw-tb body.gw-shell:has(.gw-page) .gw-seg { border-radius: 4px; background: #e8edf4; }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-seg-btn { border-radius: 3px; color: var(--tb-ink-2); }
+html.gw-tb body.gw-shell:has(.gw-page) .gw-seg-btn[aria-selected="true"] { background: var(--tb-ink); color: #ffffff; box-shadow: none; }
+
+/* B5 스케줄 근무 — 달력 틀·이름 칩·상태 꼬리표 둥글기 */
+html.gw-tb body.gw-shell:has(.gw-page) .gw-cal-grid { border-radius: 4px; }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-so-pslist li, .gw-so-status) { border-radius: 3px; }
