@@ -146,8 +146,9 @@
     draw('stCompany', {
       type: 'bar',
       data: { labels: ['글로벌', '글로벌그룹'], datasets: [
-        { label: PREV + '년', data: [e(S.co.prevTotal.g), e(S.co.prevTotal.r)], backgroundColor: C_PREV, borderRadius: 4 },
-        { label: CUR + '년', data: [e(S.co.curTotal.g), e(S.co.curTotal.r)], backgroundColor: C_CUR, borderRadius: 4 }
+        // 올해를 앞(왼쪽)에 — 월별·담당자별 그래프와 같은 순서(작년이 앞이던 것, 11-28 부장님)
+        { label: CUR + '년', data: [e(S.co.curTotal.g), e(S.co.curTotal.r)], backgroundColor: C_CUR, borderRadius: 4 },
+        { label: PREV + '년', data: [e(S.co.prevTotal.g), e(S.co.prevTotal.r)], backgroundColor: C_PREV, borderRadius: 4 }
       ] },
       options: { plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 12, color: '#475569' } }, tooltip: { callbacks: { label: tipEok } } },
         scales: { y: axisEok(), x: { grid: { display: false }, ticks: { color: '#334155' } } } }
