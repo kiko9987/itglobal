@@ -4772,6 +4772,12 @@ html.gw-tb body.gw-shell:has(.gw-page) .gw-stat.active { border-color: var(--tb-
 html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-stats .gw-stat-main, .gw-st-stats .gw-st-main) { background: var(--tb-ink) !important; border-color: var(--tb-ink) !important; }
 html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-stat-main, .gw-st-main) :is(.k, .s, .v small, .gw-st-vs) { color: #b4c1d3 !important; }
 html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-stat-main, .gw-st-main) .v { color: #ffffff !important; }
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-stat-main, .gw-st-main) .gw-st-d.up { color: #6ee7a0; }   /* 남색 위 초록 #15803d 2.9:1 → 9:1 */
+html.gw-tb body.gw-shell:has(.gw-page) :is(.gw-stat-main, .gw-st-main) .gw-st-d.down { color: #fca5a5; }
+@media (max-width: 767.98px) {
+  /* 휴대폰 두 칸 줄에서 큰 금액(854,462,244원)이 칸 밖으로 잘림 → 주 칸은 한 줄 전체 */
+  html.gw-tb body.gw-shell:has(.gw-page) .gw-stats > .gw-stat-main { grid-column: 1 / -1; }
+}
 
 /* 표 — 머리 줄 회청 바탕, 가는 줄, 마우스 댄 줄 옅은 파랑 */
 html.gw-tb body.gw-shell:has(.gw-page) .gw-page table:not(.gw-bd-kv) > thead > tr > th,
